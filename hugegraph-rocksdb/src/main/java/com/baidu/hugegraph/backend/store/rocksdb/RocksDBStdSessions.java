@@ -154,7 +154,7 @@ public class RocksDBStdSessions extends RocksDBSessions {
 
         this.refCount = new AtomicInteger(1);
 
-        ingestExternalFile();
+        this.ingestExternalFile();
     }
 
     private RocksDBStdSessions(HugeConfig config, String database, String store,
@@ -214,7 +214,7 @@ public class RocksDBStdSessions extends RocksDBSessions {
             this.cfs.put(table, new CFHandle(cfh));
         }
 
-        ingestExternalFile();
+        this.ingestExternalFile();
     }
 
     @Override
@@ -253,7 +253,7 @@ public class RocksDBStdSessions extends RocksDBSessions {
     }
 
     @Override
-    public void reload() throws RocksDBException {
+    public void reloadRocksDB() throws RocksDBException {
         if (this.rocksdb.isOwningHandle()) {
             this.rocksdb.close();
         }
@@ -332,7 +332,7 @@ public class RocksDBStdSessions extends RocksDBSessions {
     }
 
     @Override
-    public void createSnapshot(String parentPath) {
+    public synchronized String createSnapshot(String parentPath) {
         String md5 = GZipUtil.md5(this.dataPath);
         String snapshotPath = Paths.get(parentPath, md5).toString();
         // https://github.com/facebook/rocksdb/wiki/Checkpoints
@@ -349,9 +349,39 @@ public class RocksDBStdSessions extends RocksDBSessions {
                 throw new IOException(String.format("Failed to rename %s to %s",
                                                     tempFile, snapshotFile));
             }
+            return md5;
         } catch (Exception e) {
             throw new BackendException("Failed to write snapshot at path %s",
                                        e, snapshotPath);
+        }
+    }
+
+    @Override
+    public synchronized void resumeSnapshot(String snapshotPath) {
+        File dataPathFile = new File(this.dataPath);
+        File snapshotPathFile = new File(snapshotPath);
+        String md5 = GZipUtil.md5(this.dataPath);
+        E.checkArgument(snapshotPathFile.canRead() &&
+                        snapshotPathFile.getName().equals(md5),
+                        "Invalid snapshot file: '%s'", snapshotPath);
+
+        try {
+            E.checkArgument(!FileUtils.directoryContains(dataPathFile,
+                                                         snapshotPathFile),
+                            "The snapshot path '%s' can't be located in '%s'",
+                            snapshotPathFile, dataPathFile);
+
+            // Close current instance first
+            this.forceCloseRocksDB();
+
+            if (dataPathFile.exists()) {
+                FileUtils.deleteDirectory(dataPathFile);
+            }
+            FileUtils.moveDirectory(snapshotPathFile, dataPathFile);
+            this.reloadRocksDB();
+        } catch (RocksDBException | IOException e) {
+            throw new BackendException("Failed to resume snapshot '%s' to' %s'",
+                                       e, snapshotPath, this.dataPath);
         }
     }
 
@@ -416,7 +446,7 @@ public class RocksDBStdSessions extends RocksDBSessions {
             return;
         }
         RocksDBIngester ingester = new RocksDBIngester(this.rocksdb);
-        // Ingest all *.sst files in `directory`
+        // Ingest all *.sst files in each directory named cf name
         for (String cf : this.cfs.keySet()) {
             Path path = Paths.get(directory, cf);
             if (path.toFile().isDirectory()) {

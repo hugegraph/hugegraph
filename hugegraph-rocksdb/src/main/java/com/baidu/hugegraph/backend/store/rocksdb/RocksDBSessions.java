@@ -48,10 +48,10 @@ public abstract class RocksDBSessions extends BackendSessionPool {
     public abstract RocksDBSessions copy(HugeConfig config,
                                          String database, String store);
 
-    public abstract void createSnapshot(String parentPath);
+    public abstract String createSnapshot(String parentPath);
+    public abstract void resumeSnapshot(String snapshotPath);
 
-    public abstract void reload() throws RocksDBException;
-
+    public abstract void reloadRocksDB() throws RocksDBException;
     public abstract void forceCloseRocksDB();
 
     @Override

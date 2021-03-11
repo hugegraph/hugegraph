@@ -50,6 +50,7 @@ import com.baidu.hugegraph.unit.id.IdUtilTest;
 import com.baidu.hugegraph.unit.mysql.MysqlUtilTest;
 import com.baidu.hugegraph.unit.mysql.WhereBuilderTest;
 import com.baidu.hugegraph.unit.rocksdb.RocksDBCountersTest;
+import com.baidu.hugegraph.unit.rocksdb.RocksDBSessionTest;
 import com.baidu.hugegraph.unit.rocksdb.RocksDBSessionsTest;
 import com.baidu.hugegraph.unit.serializer.BinaryBackendEntryTest;
 import com.baidu.hugegraph.unit.serializer.BinaryScatterSerializerTest;
@@ -119,6 +120,7 @@ import com.baidu.hugegraph.unit.util.VersionTest;
 
     /* rocksdb */
     RocksDBSessionsTest.class,
+    RocksDBSessionTest.class,
     RocksDBCountersTest.class,
 
     /* utils */

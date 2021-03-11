@@ -672,7 +672,7 @@ public abstract class RocksDBStore extends AbstractBackendStore<Session> {
             }
             // Reload rocksdb instance
             for (RocksDBSessions sessions : this.sessions()) {
-                sessions.reload();
+                sessions.reloadRocksDB();
             }
             LOG.info("The store {} load snapshot successfully", this.store);
         } catch (RocksDBException e) {
