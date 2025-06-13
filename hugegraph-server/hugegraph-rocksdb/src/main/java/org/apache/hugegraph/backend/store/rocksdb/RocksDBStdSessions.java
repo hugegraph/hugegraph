@@ -31,6 +31,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.apache.commons.io.FileUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.tuple.Pair;
 import org.apache.hugegraph.backend.BackendException;
 import org.apache.hugegraph.backend.serializer.BinarySerializer;
@@ -63,6 +64,7 @@ import org.rocksdb.Options;
 import org.rocksdb.RocksDB;
 import org.rocksdb.RocksDBException;
 import org.rocksdb.RocksIterator;
+import org.rocksdb.SidePluginRepo;
 import org.rocksdb.SstFileManager;
 import org.rocksdb.TableFormatConfig;
 import org.rocksdb.WriteBatch;
@@ -71,6 +73,8 @@ import org.slf4j.Logger;
 
 import com.google.common.collect.ImmutableList;
 
+import net.minidev.json.JSONObject;
+
 public class RocksDBStdSessions extends RocksDBSessions {
 
     private static final Logger LOG = Log.logger(RocksDBStdSessions.class);
@@ -78,28 +82,33 @@ public class RocksDBStdSessions extends RocksDBSessions {
     private final HugeConfig config;
     private final String dataPath;
     private final String walPath;
+    private final String optionPath;
 
     private volatile OpenedRocksDB rocksdb;
     private final AtomicInteger refCount;
 
     public RocksDBStdSessions(HugeConfig config, String database, String store,
-                              String dataPath, String walPath) throws RocksDBException {
+                              String dataPath, String walPath, String optionPath) throws
+                                                                                  RocksDBException {
         super(config, database, store);
         this.config = config;
         this.dataPath = dataPath;
         this.walPath = walPath;
-        this.rocksdb = RocksDBStdSessions.openRocksDB(config, dataPath, walPath);
+        this.optionPath = optionPath;
+        this.rocksdb = RocksDBStdSessions.openRocksDB(config, dataPath, walPath, optionPath);
         this.refCount = new AtomicInteger(1);
     }
 
     public RocksDBStdSessions(HugeConfig config, String database, String store,
                               String dataPath, String walPath,
-                              List<String> cfNames) throws RocksDBException {
+                              List<String> cfNames, String optionPath) throws RocksDBException {
         super(config, database, store);
         this.config = config;
         this.dataPath = dataPath;
         this.walPath = walPath;
-        this.rocksdb = RocksDBStdSessions.openRocksDB(config, cfNames, dataPath, walPath);
+        this.optionPath = optionPath;
+        this.rocksdb =
+                RocksDBStdSessions.openRocksDB(config, cfNames, dataPath, walPath, optionPath);
         this.refCount = new AtomicInteger(1);
 
         this.ingestExternalFile();
@@ -111,6 +120,7 @@ public class RocksDBStdSessions extends RocksDBSessions {
         this.config = config;
         this.dataPath = origin.dataPath;
         this.walPath = origin.walPath;
+        this.optionPath = origin.optionPath;
         this.rocksdb = origin.rocksdb;
         this.refCount = origin.refCount;
         this.refCount.incrementAndGet();
@@ -207,7 +217,7 @@ public class RocksDBStdSessions extends RocksDBSessions {
             this.rocksdb.close();
         }
         this.rocksdb = RocksDBStdSessions.openRocksDB(this.config, ImmutableList.of(),
-                                                      this.dataPath, this.walPath);
+                                                      this.dataPath, this.walPath, this.optionPath);
     }
 
     @Override
@@ -301,7 +311,7 @@ public class RocksDBStdSessions extends RocksDBSessions {
     public String hardLinkSnapshot(String snapshotPath) throws RocksDBException {
         String snapshotLinkPath = this.dataPath + "_temp";
         try (OpenedRocksDB rocksdb = openRocksDB(this.config, ImmutableList.of(),
-                                                 snapshotPath, null)) {
+                                                 snapshotPath, null, this.optionPath)) {
             rocksdb.createCheckpoint(snapshotLinkPath);
         }
         LOG.info("The snapshot {} has been hard linked to {}", snapshotPath, snapshotLinkPath);
@@ -366,7 +376,8 @@ public class RocksDBStdSessions extends RocksDBSessions {
     }
 
     private static OpenedRocksDB openRocksDB(HugeConfig config, String dataPath,
-                                             String walPath) throws RocksDBException {
+                                             String walPath, String optionPath) throws
+                                                                                RocksDBException {
         // Init options
         Options options = new Options();
         RocksDBStdSessions.initOptions(config, options, options, options, options);
@@ -377,14 +388,29 @@ public class RocksDBStdSessions extends RocksDBSessions {
          * Open RocksDB at the first time
          * Don't merge old CFs, we expect a clear DB when using this one
          */
-        RocksDB rocksdb = RocksDB.open(options, dataPath);
+        RocksDB rocksdb = null;
+        SidePluginRepo repo = null;
+        // use rocksdb
+        if (StringUtils.isEmpty(optionPath)) {
+            LOG.info("Use rocksdb open default CF");
+            rocksdb = RocksDB.open(options, dataPath);
+        } else { // use topling
+            LOG.info("Use topling open default CF");
+            repo = new SidePluginRepo();
+            String dbName = getDbName(dataPath);
+            repo.put(dbName, options);
+            repo.importAutoFile(optionPath);
+            rocksdb = repo.openDB(converseOptionsToJsonString(dataPath, null));
+        }
+
         Map<String, OpenedRocksDB.CFHandle> cfs = new ConcurrentHashMap<>();
-        return new OpenedRocksDB(rocksdb, cfs, sstFileManager);
+        return new OpenedRocksDB(rocksdb, cfs, sstFileManager, repo);
     }
 
     private static OpenedRocksDB openRocksDB(HugeConfig config,
                                              List<String> cfNames, String dataPath,
-                                             String walPath) throws RocksDBException {
+                                             String walPath, String optionPath) throws
+                                                                                RocksDBException {
         // Old CFs should always be opened
         Set<String> mergedCFs = RocksDBStdSessions.mergeOldCFs(dataPath,
                                                                cfNames);
@@ -407,10 +433,23 @@ public class RocksDBStdSessions extends RocksDBSessions {
         }
         SstFileManager sstFileManager = new SstFileManager(Env.getDefault());
         options.setSstFileManager(sstFileManager);
-
         // Open RocksDB with CFs
         List<ColumnFamilyHandle> cfhs = new ArrayList<>();
-        RocksDB rocksdb = RocksDB.open(options, dataPath, cfds, cfhs);
+
+        RocksDB rocksdb = null;
+        SidePluginRepo repo = null;
+        // use rocksdb
+        if (StringUtils.isEmpty(optionPath)) {
+            LOG.info("Use rocksdb open multi CFs");
+            rocksdb = RocksDB.open(options, dataPath, cfds, cfhs);
+        } else { // use topling
+            LOG.info("Use topling open multi CFs");
+            repo = new SidePluginRepo();
+            String dbName = getDbName(dataPath);
+            repo.put(dbName, options);
+            repo.importAutoFile(optionPath);
+            rocksdb = repo.openDB(converseOptionsToJsonString(dataPath, cfs), cfhs);
+        }
 
         E.checkState(cfhs.size() == cfs.size(),
                      "Expect same size of cf-handles and cf-names");
@@ -419,7 +458,7 @@ public class RocksDBStdSessions extends RocksDBSessions {
         for (int i = 0; i < cfs.size(); i++) {
             cfHandles.put(cfs.get(i), new OpenedRocksDB.CFHandle(rocksdb, cfhs.get(i)));
         }
-        return new OpenedRocksDB(rocksdb, cfHandles, sstFileManager);
+        return new OpenedRocksDB(rocksdb, cfHandles, sstFileManager, repo);
     }
 
     private static Set<String> mergeOldCFs(String path,
@@ -441,6 +480,37 @@ public class RocksDBStdSessions extends RocksDBSessions {
             }
         }
         return cfs;
+    }
+
+    private static String converseOptionsToJsonString(String dataPath, List<String> cfs) {
+        // construct CFOptions
+        JSONObject columnFamilies = new JSONObject();
+        // multi CFs
+        if (cfs != null) {
+            for (String cf : cfs) {
+                columnFamilies.put(cf, "$default");
+            }
+        } else { // single default CF
+            columnFamilies.put("default", "$default");
+        }
+
+        // construct params
+        JSONObject params = new JSONObject();
+        params.put("db_options", "$dbo");
+        params.put("cf_options", "$default");
+        params.put("column_families", columnFamilies);
+        params.put("path", dataPath);
+
+        // construct wrapper
+        JSONObject wrapper = new JSONObject();
+        wrapper.put("method", "DB::Open");
+        wrapper.put("params", params);
+
+        return wrapper.toString();
+    }
+
+    private static String getDbName(String dataPath) {
+        return dataPath.substring(dataPath.lastIndexOf("/") + 1);
     }
 
     public static void initOptions(HugeConfig conf,
