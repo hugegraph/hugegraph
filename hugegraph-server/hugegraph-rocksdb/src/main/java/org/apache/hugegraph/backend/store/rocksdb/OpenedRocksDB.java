@@ -34,6 +34,7 @@ import org.apache.hugegraph.util.Log;
 import org.rocksdb.Checkpoint;
 import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.RocksDB;
+import org.rocksdb.SidePluginRepo;
 import org.rocksdb.SstFileManager;
 import org.slf4j.Logger;
 
@@ -44,12 +45,14 @@ public class OpenedRocksDB implements AutoCloseable {
     private final RocksDB rocksdb;
     private final Map<String, CFHandle> cfHandles;
     private final SstFileManager sstFileManager;
+    private final SidePluginRepo repo;
 
     public OpenedRocksDB(RocksDB rocksdb, Map<String, CFHandle> cfHandles,
-                         SstFileManager sstFileManager) {
+                         SstFileManager sstFileManager, SidePluginRepo repo) {
         this.rocksdb = rocksdb;
         this.cfHandles = cfHandles;
         this.sstFileManager = sstFileManager;
+        this.repo = repo;
     }
 
     protected final RocksDB rocksdb() {
@@ -90,6 +93,9 @@ public class OpenedRocksDB implements AutoCloseable {
         }
         this.cfHandles.clear();
 
+        if (repo != null) {
+            this.repo.closeAllDB();
+        }
         this.rocksdb.close();
     }
 

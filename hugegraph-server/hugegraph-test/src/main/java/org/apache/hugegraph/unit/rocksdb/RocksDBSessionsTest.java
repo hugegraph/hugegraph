@@ -190,7 +190,8 @@ public class RocksDBSessionsTest extends BaseRocksDBUnitTest {
         Assert.assertFalse(sstSessions.existsTable(TABLE1));
         Assert.assertFalse(sstSessions.existsTable(TABLE2));
 
-        RocksDBSessions rocks = new RocksDBStdSessions(config, "db", "store", sstPath, sstPath);
+        RocksDBSessions rocks =
+                new RocksDBStdSessions(config, "db", "store", sstPath, sstPath, null);
         // Will ingest sst file of TABLE1
         rocks.createTable(TABLE1);
         Assert.assertEquals(ImmutableList.of("1000"),

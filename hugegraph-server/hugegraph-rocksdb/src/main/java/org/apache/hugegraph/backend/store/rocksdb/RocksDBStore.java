@@ -240,7 +240,7 @@ public abstract class RocksDBStore extends AbstractBackendStore<RocksDBSessions.
                 openedDisks.add(disk);
                 List<String> tables = this.tableNames(e.getKey());
                 futures.add(openPool.submit(() -> {
-                    this.open(config, disk, disk, tables);
+                    this.open(config, disk, disk, tables, null);
                 }));
             }
         }
@@ -301,16 +301,17 @@ public abstract class RocksDBStore extends AbstractBackendStore<RocksDBSessions.
     protected RocksDBSessions open(HugeConfig config, List<String> tableNames) {
         String dataPath = this.wrapPath(config.get(RocksDBOptions.DATA_PATH));
         String walPath = this.wrapPath(config.get(RocksDBOptions.WAL_PATH));
-        return this.open(config, dataPath, walPath, tableNames);
+        String optionPath = config.get(RocksDBOptions.OPTION_PATH);
+        return this.open(config, dataPath, walPath, tableNames, optionPath);
     }
 
     protected RocksDBSessions open(HugeConfig config, String dataPath,
-                                   String walPath, List<String> tableNames) {
+                                   String walPath, List<String> tableNames, String optionPath) {
         LOG.info("Opening RocksDB with data path: {}", dataPath);
         RocksDBSessions sessions = null;
         try {
             sessions = this.openSessionPool(config, dataPath,
-                                            walPath, tableNames);
+                                            walPath, tableNames, optionPath);
         } catch (RocksDBException e) {
             RocksDBSessions origin = this.dbs.get(dataPath);
             if (origin != null) {
@@ -343,7 +344,7 @@ public abstract class RocksDBStore extends AbstractBackendStore<RocksDBSessions.
                     none = null;
                 }
                 try {
-                    sessions = this.openSessionPool(config, dataPath, walPath, none);
+                    sessions = this.openSessionPool(config, dataPath, walPath, none, optionPath);
                 } catch (RocksDBException e1) {
                     e = e1;
                 }
@@ -372,12 +373,14 @@ public abstract class RocksDBStore extends AbstractBackendStore<RocksDBSessions.
 
     protected RocksDBSessions openSessionPool(HugeConfig config,
                                               String dataPath, String walPath,
-                                              List<String> tableNames) throws RocksDBException {
+                                              List<String> tableNames, String optionPath) throws
+                                                                                          RocksDBException {
         if (tableNames == null) {
-            return new RocksDBStdSessions(config, this.database, this.store, dataPath, walPath);
+            return new RocksDBStdSessions(config, this.database, this.store, dataPath, walPath,
+                                          optionPath);
         } else {
             return new RocksDBStdSessions(config, this.database, this.store,
-                                          dataPath, walPath, tableNames);
+                                          dataPath, walPath, tableNames, optionPath);
         }
     }
 
