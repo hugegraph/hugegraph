@@ -36,6 +36,13 @@ jobs:
         with:
           fetch-depth: 5
 
+      - name: Cache Maven packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2
+          key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+          restore-keys: ${{ runner.os }}-m2
+
       - name: Install Java ${{ matrix.JAVA_VERSION }}
         uses: actions/setup-java@v4
         with:
@@ -45,13 +52,6 @@ jobs:
       - name: Prepare backend environment
         run: |
           $TRAVIS_DIR/install-backend.sh $BACKEND && jps -l
-
-      - name: Cache Maven packages
-        uses: actions/cache@v4
-        with:
-          path: ~/.m2
-          key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
-          restore-keys: ${{ runner.os }}-m2
 
       - name: Use staged maven repo settings
         if: ${{ env.USE_STAGE == 'true' }}
