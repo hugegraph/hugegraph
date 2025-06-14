@@ -31,8 +31,5 @@ fi
 # decompress hbase
 sudo cp $HOME/downloads/${HBASE_TAR} ${HBASE_TAR} && tar xzf ${HBASE_TAR}
 
-# config hbase
-sudo cp -f $TRAVIS_DIR/hbase-site.xml ${HBASE_PACKAGE}/conf
-
 # start hbase service
 sudo ${HBASE_PACKAGE}/bin/start-hbase.sh
