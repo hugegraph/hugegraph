@@ -18,6 +18,9 @@
 package org.apache.hugegraph.backend.store.rocksdb;
 
 import java.io.File;
+import java.lang.reflect.Constructor;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
@@ -64,7 +67,6 @@ import org.rocksdb.Options;
 import org.rocksdb.RocksDB;
 import org.rocksdb.RocksDBException;
 import org.rocksdb.RocksIterator;
-import org.rocksdb.SidePluginRepo;
 import org.rocksdb.SstFileManager;
 import org.rocksdb.TableFormatConfig;
 import org.rocksdb.WriteBatch;
@@ -389,18 +391,58 @@ public class RocksDBStdSessions extends RocksDBSessions {
          * Don't merge old CFs, we expect a clear DB when using this one
          */
         RocksDB rocksdb = null;
-        SidePluginRepo repo = null;
-        // use rocksdb
-        if (StringUtils.isEmpty(optionPath)) {
-            LOG.info("Use rocksdb open default CF");
+        Object repo = null;
+
+        boolean useTopling = false;
+        if (!StringUtils.isEmpty(optionPath)) {
+            try {
+                Class.forName("org.rocksdb.SidePluginRepo");
+                useTopling = true;
+                LOG.info("SidePluginRepo found. Will attempt to open default CF RocksDB using " +
+                         "Topling.");
+            } catch (ClassNotFoundException e) {
+                LOG.warn("SidePluginRepo not found, even though 'optionPath' was provided. " +
+                         "Falling back to the standard RocksDB default CF opening method. " +
+                         "The configuration in '{}' will be ignored.", optionPath);
+            }
+        }
+
+        if (useTopling) {
+            try {
+                // Dynamically load the SidePluginRepo class by its name at runtime.
+                Class<?> sidePluginRepoClass = Class.forName("org.rocksdb.SidePluginRepo");
+
+                repo = sidePluginRepoClass.getConstructor().newInstance();
+                String dbName = getDbName(dataPath);
+                Method putMethod =
+                        sidePluginRepoClass.getMethod("put", String.class, DBOptions.class);
+                putMethod.invoke(repo, dbName, options);
+                Method importAutoFileMethod =
+                        sidePluginRepoClass.getMethod("importAutoFile", String.class);
+                importAutoFileMethod.invoke(repo, optionPath);
+
+                Method openDBMethod = sidePluginRepoClass.getMethod("openDB", String.class);
+                rocksdb = (RocksDB) openDBMethod.invoke(repo, converseOptionsToJsonString(dataPath,
+                                                                                          null));
+            } catch (ClassNotFoundException e) {
+                // CRITICAL: If the class is not found, the current rocksdbjni library does not
+                // include SidePluginRepo.
+                LOG.error(
+                        "SidePluginRepo not found. This version of rocksdbjni does not support " +
+                        "topling.",
+                        e);
+                // Since the user provided an optionPath, the intent was to use a feature that is
+                // unavailable. Throwing an exception is the correct course of action.
+                throw new IllegalStateException(
+                        "Topling features (SidePluginRepo) are required but not found in the " +
+                        "rocksdbjni library.",
+                        e);
+            } catch (InvocationTargetException | InstantiationException | IllegalAccessException |
+                     NoSuchMethodException e) {
+                throw new RuntimeException(e);
+            }
+        } else {
             rocksdb = RocksDB.open(options, dataPath);
-        } else { // use topling
-            LOG.info("Use topling open default CF");
-            repo = new SidePluginRepo();
-            String dbName = getDbName(dataPath);
-            repo.put(dbName, options);
-            repo.importAutoFile(optionPath);
-            rocksdb = repo.openDB(converseOptionsToJsonString(dataPath, null));
         }
 
         Map<String, OpenedRocksDB.CFHandle> cfs = new ConcurrentHashMap<>();
@@ -437,18 +479,62 @@ public class RocksDBStdSessions extends RocksDBSessions {
         List<ColumnFamilyHandle> cfhs = new ArrayList<>();
 
         RocksDB rocksdb = null;
-        SidePluginRepo repo = null;
-        // use rocksdb
-        if (StringUtils.isEmpty(optionPath)) {
-            LOG.info("Use rocksdb open multi CFs");
+        Object repo = null;
+
+        boolean useTopling = false;
+        if (!StringUtils.isEmpty(optionPath)) {
+            try {
+                Class.forName("org.rocksdb.SidePluginRepo");
+                useTopling = true;
+                LOG.info("SidePluginRepo found. Will attempt to open multi CFs RocksDB using " +
+                         "Topling plugin.");
+            } catch (ClassNotFoundException e) {
+                LOG.warn("SidePluginRepo not found, even though 'optionPath' was provided. " +
+                         "Falling back to the standard RocksDB opening multi CFs method. " +
+                         "The configuration in '{}' will be ignored.", optionPath);
+            }
+        }
+
+        if (useTopling) {
+            try {
+                // Use reflection to check for the existence of the SidePluginRepo class at
+                // runtime.
+                Class<?> sidePluginRepoClass = Class.forName("org.rocksdb.SidePluginRepo");
+
+                // Get the constructor and create a new instance.
+                Constructor<?> constructor = sidePluginRepoClass.getConstructor();
+                repo = constructor.newInstance();
+
+                String dbName = getDbName(dataPath);
+
+                Method putMethod =
+                        sidePluginRepoClass.getMethod("put", String.class, DBOptions.class);
+                putMethod.invoke(repo, dbName, options);
+
+                Method importAutoFileMethod =
+                        sidePluginRepoClass.getMethod("importAutoFile", String.class);
+                importAutoFileMethod.invoke(repo, optionPath);
+
+                Method openDBMethod =
+                        sidePluginRepoClass.getMethod("openDB", String.class, List.class);
+                rocksdb = (RocksDB) openDBMethod.invoke(repo,
+                                                        converseOptionsToJsonString(dataPath, cfs),
+                                                        cfhs);
+
+                LOG.info("Successfully opened DB with SidePluginRepo.");
+            } catch (ClassNotFoundException e) {
+                // In this case, this exception should not occur
+                throw new IllegalStateException(
+                        "Topling features (SidePluginRepo) are required but not found in the " +
+                        "rocksdbjni library.",
+                        e);
+            } catch (InvocationTargetException | InstantiationException | NoSuchMethodException |
+                     IllegalAccessException e) {
+                throw new RuntimeException(e);
+            }
+        } else {
+            // use rocksdb
             rocksdb = RocksDB.open(options, dataPath, cfds, cfhs);
-        } else { // use topling
-            LOG.info("Use topling open multi CFs");
-            repo = new SidePluginRepo();
-            String dbName = getDbName(dataPath);
-            repo.put(dbName, options);
-            repo.importAutoFile(optionPath);
-            rocksdb = repo.openDB(converseOptionsToJsonString(dataPath, cfs), cfhs);
         }
 
         E.checkState(cfhs.size() == cfs.size(),
