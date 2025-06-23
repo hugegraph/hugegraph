@@ -415,7 +415,7 @@ public class RocksDBStdSessions extends RocksDBSessions {
                 repo = sidePluginRepoClass.getConstructor().newInstance();
                 String dbName = getDbName(dataPath);
                 Method putMethod =
-                        sidePluginRepoClass.getMethod("put", String.class, DBOptions.class);
+                        sidePluginRepoClass.getMethod("put", String.class, Options.class);
                 putMethod.invoke(repo, dbName, options);
                 Method importAutoFileMethod =
                         sidePluginRepoClass.getMethod("importAutoFile", String.class);
@@ -530,7 +530,12 @@ public class RocksDBStdSessions extends RocksDBSessions {
                         e);
             } catch (InvocationTargetException | InstantiationException | NoSuchMethodException |
                      IllegalAccessException e) {
-                throw new RuntimeException(e);
+                Throwable rootCause = e;
+
+                while (rootCause.getCause() != null && rootCause.getCause() != rootCause) {
+                    rootCause = rootCause.getCause();
+                }
+                throw new RocksDBException(rootCause.getMessage());
             }
         } else {
             // use rocksdb
