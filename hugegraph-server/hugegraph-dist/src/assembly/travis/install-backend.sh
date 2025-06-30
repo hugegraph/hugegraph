@@ -54,6 +54,9 @@ case $BACKEND in
     hstore)
         "$TRAVIS_DIR"/install-hstore.sh
         ;;
+    rocksdb)
+        source "$TRAVIS_DIR"/install-rocksdb.sh
+        ;;
     *)
         # don't need to install for other backends
         ;;

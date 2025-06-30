@@ -15,6 +15,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
+
 function abs_path() {
     SOURCE="${BASH_SOURCE[0]}"
     while [[ -h "$SOURCE" ]]; do
@@ -25,39 +26,45 @@ function abs_path() {
     cd -P "$(dirname "$SOURCE")" && pwd
 }
 
+function extract_so_with_jar() {
+    local jar_file="$1"
+    local dest_dir="$2"
+    local abs_jar_path
+    local pipeline_status
+
+    if [ ! -f "$jar_file" ]; then
+      echo "'$jar_file' Not Exist" >&2
+    fi
+
+    if ! mkdir -p "$dest_dir"; then
+      echo "Cannot mkdir '$dest_dir'" >&2
+    fi
+
+    if [[ "$jar_file" == /* ]]; then
+      abs_jar_path="$jar_file"
+    else
+      abs_jar_path="$(pwd)/$jar_file"
+    fi
+
+    (cd "$dest_dir" && jar tf "$abs_jar_path" | grep '\.so$' | xargs jar xf "$abs_jar_path")
+    pipeline_status=$?
+
+    if [ $pipeline_status -ne 0 ]; then
+      echo "(Error: $pipeline_status)" >&2
+    fi
+}
+
+function preload_toplingdb() {
+  local jar_file=$(find $LIB -name "rocksdbjni*.jar")
+  local dest_dir="$TOP/library"
+
+  extract_so_with_jar $jar_file $dest_dir
+  export LD_LIBRARY_PATH=$dest_dir:$LD_LIBRARY_PATH
+  export LD_PRELOAD=libjemalloc.so:librocksdbjni-linux64.so
+}
+
 BIN=$(abs_path)
-TOP="$(cd "${BIN}"/../ && pwd)"
-CONF="$TOP/conf"
+TOP="$(cd "$BIN"/../ && pwd)"
 LIB="$TOP/lib"
-PLUGINS="$TOP/plugins"
 
-. "${BIN}"/util.sh
-
-ensure_path_writable "${PLUGINS}"
-
-if [[ -n "$JAVA_HOME" ]]; then
-    JAVA="$JAVA_HOME"/bin/java
-    EXT="$JAVA_HOME/jre/lib/ext:$LIB:$PLUGINS"
-else
-    JAVA=java
-    EXT="$LIB:$PLUGINS"
-fi
-
-cd "${TOP}" || exit
-
-DEFAULT_JAVA_OPTIONS=""
-JAVA_VERSION=$($JAVA -version 2>&1 | awk 'NR==1{gsub(/"/,""); print $3}' | awk -F'_' '{print $1}')
-# TODO: better not string number compare, use `bc` like github.com/koalaman/shellcheck/wiki/SC2072
-if [[ $? -eq 0 && $JAVA_VERSION >  "1.9" ]]; then
-      DEFAULT_JAVA_OPTIONS="--add-exports=java.base/jdk.internal.reflect=ALL-UNNAMED"
-fi
-
-source $BIN/preload-topling.sh
-
-echo "Initializing HugeGraph Store..."
-
-CP=$(find "${LIB}" "${PLUGINS}" -name "*.jar"  | tr "\n" ":")
-$JAVA -cp $CP ${DEFAULT_JAVA_OPTIONS} \
-org.apache.hugegraph.cmd.InitStore "${CONF}"/rest-server.properties
-
-echo "Initialization finished."
+preload_toplingdb

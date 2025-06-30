@@ -115,6 +115,7 @@ CFOptions:
     level0_slowdown_writes_trigger: 20
     level0_stop_writes_trigger: 36
     level0_file_num_compaction_trigger: 4
+    merge_operator: uint64add # support merge
     compression_per_level:
       - kNoCompression
       - kNoCompression
