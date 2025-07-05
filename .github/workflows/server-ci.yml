@@ -13,7 +13,7 @@ jobs:
     # TODO: we need test & replace it to ubuntu-24.04 or ubuntu-latest
     runs-on: ubuntu-22.04
     env:
-      USE_STAGE: 'false' # Whether to include the stage repository.
+      USE_STAGE: 'true' # Whether to include the stage repository.
       TRAVIS_DIR: hugegraph-server/hugegraph-dist/src/assembly/travis
       REPORT_DIR: target/site/jacoco
       BACKEND: ${{ matrix.BACKEND }}
@@ -43,10 +43,6 @@ jobs:
           java-version: '8'
           distribution: 'zulu'
 
-      - name: Prepare backend environment
-        run: |
-          $TRAVIS_DIR/install-backend.sh $BACKEND && jps -l
-
       - name: Install Java ${{ matrix.JAVA_VERSION }}
         uses: actions/setup-java@v4
         with:
@@ -69,6 +65,10 @@ jobs:
       - name: Compile
         run: |
           mvn clean compile -U -Dmaven.javadoc.skip=true -ntp
+
+      - name: Prepare backend environment
+        run: |
+          $TRAVIS_DIR/install-backend.sh $BACKEND && jps -l
 
       - name: Run unit test
         run: |

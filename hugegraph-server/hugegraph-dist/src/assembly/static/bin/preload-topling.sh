@@ -66,5 +66,8 @@ function preload_toplingdb() {
 BIN=$(abs_path)
 TOP="$(cd "$BIN"/../ && pwd)"
 LIB="$TOP/lib"
+YAML="$TOP/conf/graphs/db_bench_community.yaml"
 
 preload_toplingdb
+
+cp $YAML .
