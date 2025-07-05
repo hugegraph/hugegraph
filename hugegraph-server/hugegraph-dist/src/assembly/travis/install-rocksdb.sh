@@ -64,7 +64,7 @@ function preload_toplingdb() {
 }
 
 VERSION=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)
-TOP=hugegraph-server/apache-hugegraph-server-incubating-$VERSION/
+TOP=hugegraph-server/apache-hugegraph-server-incubating-$VERSION
 BIN="$TOP/bin"
 LIB="$TOP/lib"
 CONF="$TOP/conf"
