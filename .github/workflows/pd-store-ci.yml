@@ -57,7 +57,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       # TODO: avoid duplicated env setup in pd & store
-      USE_STAGE: 'false' # Whether to include the stage repository.
+      USE_STAGE: 'true' # Whether to include the stage repository.
       # TODO: remove outdated env
       TRAVIS_DIR: hugegraph-server/hugegraph-dist/src/assembly/travis
       REPORT_DIR: target/site/jacoco
@@ -123,7 +123,7 @@ jobs:
     needs: struct
     runs-on: ubuntu-latest
     env:
-      USE_STAGE: 'false' # Whether to include the stage repository.
+      USE_STAGE: 'true' # Whether to include the stage repository.
       # TODO: remove outdated env
       TRAVIS_DIR: hugegraph-server/hugegraph-dist/src/assembly/travis
       REPORT_DIR: target/site/jacoco
@@ -196,7 +196,7 @@ jobs:
     needs: struct
     runs-on: ubuntu-latest
     env:
-      USE_STAGE: 'false' # Whether to include the stage repository.
+      USE_STAGE: 'true' # Whether to include the stage repository.
       TRAVIS_DIR: hugegraph-server/hugegraph-dist/src/assembly/travis
       REPORT_DIR: target/site/jacoco
       BACKEND: hstore
