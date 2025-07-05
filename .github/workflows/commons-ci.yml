@@ -13,12 +13,12 @@ jobs:
   build-commons:
     runs-on: ubuntu-latest
     env:
-      USE_STAGE: 'false' # Whether to include the stage repository.
+      USE_STAGE: 'true' # Whether to include the stage repository.
 
     strategy:
       fail-fast: false
       matrix:
-        JAVA_VERSION: ['11']
+        JAVA_VERSION: [ '11' ]
 
     steps:
       - name: Install JDK ${{ matrix.JAVA_VERSION }}
