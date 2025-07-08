@@ -18,5 +18,11 @@
 set -ev
 
 BACKEND=$1
+TRAVIS_DIR=$(dirname $0)
+
+# install rocksdb
+if [[ "$BACKEND" == "rocksdb" ]]; then
+  source $TRAVIS_DIR/install-rocksdb.sh
+fi
 
 mvn test -pl hugegraph-server/hugegraph-test -am -P core-test,$BACKEND

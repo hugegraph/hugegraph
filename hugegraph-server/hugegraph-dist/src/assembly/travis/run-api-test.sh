@@ -31,6 +31,11 @@ JACOCO_PORT=36320
 
 mvn package -Dmaven.test.skip=true -ntp
 
+# install rocksdb
+if [[ "$BACKEND" == "rocksdb" ]]; then
+  source $TRAVIS_DIR/install-rocksdb.sh
+fi
+
 # add mysql dependency
 wget -P $SERVER_DIR/lib/ https://repo1.maven.org/maven2/mysql/mysql-connector-java/8.0.28/mysql-connector-java-8.0.28.jar
 
