@@ -56,7 +56,7 @@ function extract_so_with_jar() {
 
 function preload_toplingdb() {
   local jar_file=$(find $LIB -name "rocksdbjni*.jar")
-  local dest_dir="$TOP/library"
+  local dest_dir="$(pwd)"/$LIBRARY
 
   extract_so_with_jar $jar_file $dest_dir
   export LD_LIBRARY_PATH=$dest_dir:$LD_LIBRARY_PATH
@@ -64,12 +64,12 @@ function preload_toplingdb() {
 }
 
 VERSION=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)
-TOP=hugegraph-server/apache-hugegraph-server-incubating-$VERSION
-BIN="$TOP/bin"
-LIB="$TOP/lib"
-CONF="$TOP/conf"
-DB_CONF="$CONF/graphs/db_bench_community.yaml"
+SERVER_DIR=hugegraph-server/apache-hugegraph-server-incubating-$VERSION
+BIN=$SERVER_DIR/bin
+LIB=$SERVER_DIR/lib
+CONF=$SERVER_DIR/conf
+DB_CONF=$CONF/graphs/db_bench_community.yaml
+LIBRARY=$SERVER_DIR/library
+GITHUB="https://github.com"
 
 preload_toplingdb
-
-cp $DB_CONF .

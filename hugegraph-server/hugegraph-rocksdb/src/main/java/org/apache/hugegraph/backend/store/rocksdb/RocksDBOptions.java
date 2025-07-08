@@ -91,7 +91,7 @@ public class RocksDBOptions extends OptionHolder {
                     "rocksdb.option_path",
                     "The path of the JSON file for configuring RocksDB options.",
                     null,
-                    "db_bench_community.yaml"
+                    ""
             );
 
     public static final ConfigOption<String> SST_PATH =

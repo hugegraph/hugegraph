@@ -26,6 +26,8 @@ jobs:
       TARGET_BRANCH_NAME: ${{ github.base_ref != '' && github.base_ref || github.ref_name }}
       RELEASE_BRANCH: ${{ startsWith(github.ref_name, 'release-') || startsWith(github.ref_name, 'test-') }}
       RAFT_MODE: ${{ startsWith(github.head_ref, 'test') || startsWith(github.head_ref, 'raft') }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GITHUB_ACTOR: ${{ github.actor }}
 
     strategy:
       fail-fast: false
@@ -52,6 +54,11 @@ jobs:
           java-version: ${{ matrix.JAVA_VERSION }}
           distribution: 'zulu'
 
+      - name: Install deps
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y liburing-dev libaio-dev libjemalloc-dev
+
       - name: Cache Maven packages
         uses: actions/cache@v4
         with:
@@ -68,6 +75,11 @@ jobs:
       - name: Compile
         run: |
           mvn clean compile -U -Dmaven.javadoc.skip=true -ntp
+
+      - name: Package
+        run: |
+          mvn package -Dmaven.test.skip=true -ntp
+          source $TRAVIS_DIR/install-rocksdb.sh
 
       - name: Prepare backend environment
         run: |
