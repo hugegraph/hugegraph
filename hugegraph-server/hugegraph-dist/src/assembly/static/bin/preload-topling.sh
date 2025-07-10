@@ -46,11 +46,12 @@ function extract_so_with_jar() {
       abs_jar_path="$(pwd)/$jar_file"
     fi
 
-    (cd "$dest_dir" && jar tf "$abs_jar_path" | grep '\.so$' | xargs jar xf "$abs_jar_path")
+    unzip -j -o "$abs_jar_path" "*.so" -d "$dest_dir" > /dev/null
     pipeline_status=$?
 
     if [ $pipeline_status -ne 0 ]; then
-      echo "(Error: $pipeline_status)" >&2
+      # unzip provides specific exit codes that can be more descriptive.
+      echo "Error: Failed to extract .so files with unzip (Exit Code: $pipeline_status)" >&2
     fi
 }
 

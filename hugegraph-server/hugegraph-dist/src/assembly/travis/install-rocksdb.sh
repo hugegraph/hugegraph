@@ -46,11 +46,12 @@ function extract_so_with_jar() {
       abs_jar_path="$(pwd)/$jar_file"
     fi
 
-    (cd "$dest_dir" && jar tf "$abs_jar_path" | grep '\.so$' | xargs jar xf "$abs_jar_path")
+    unzip -j -o "$abs_jar_path" "*.so" -d "$dest_dir" > /dev/null
     pipeline_status=$?
 
     if [ $pipeline_status -ne 0 ]; then
-      echo "(Error: $pipeline_status)" >&2
+      # unzip provides specific exit codes that can be more descriptive.
+      echo "Error: Failed to extract .so files with unzip (Exit Code: $pipeline_status)" >&2
     fi
 }
 
@@ -65,10 +66,8 @@ function preload_toplingdb() {
 
 VERSION=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)
 SERVER_DIR=hugegraph-server/apache-hugegraph-server-incubating-$VERSION
-BIN=$SERVER_DIR/bin
 LIB=$SERVER_DIR/lib
-CONF=$SERVER_DIR/conf
-DB_CONF=$CONF/graphs/db_bench_community.yaml
+DB_CONF=$SERVER_DIR/conf/graphs/db_bench_community.yaml
 LIBRARY=$SERVER_DIR/library
 GITHUB="https://github.com"
 
