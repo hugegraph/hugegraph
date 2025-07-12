@@ -52,6 +52,8 @@ if [[ $? -eq 0 && $JAVA_VERSION >  "1.9" ]]; then
       DEFAULT_JAVA_OPTIONS="--add-exports=java.base/jdk.internal.reflect=ALL-UNNAMED"
 fi
 
+source $BIN/preload-topling.sh
+
 echo "Initializing HugeGraph Store..."
 
 CP=$(find "${LIB}" "${PLUGINS}" -name "*.jar"  | tr "\n" ":")

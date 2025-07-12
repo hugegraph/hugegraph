@@ -19,6 +19,7 @@ package org.apache.hugegraph.backend.store.rocksdb;
 
 import java.io.File;
 import java.io.IOException;
+import java.lang.reflect.Method;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Map;
@@ -44,12 +45,14 @@ public class OpenedRocksDB implements AutoCloseable {
     private final RocksDB rocksdb;
     private final Map<String, CFHandle> cfHandles;
     private final SstFileManager sstFileManager;
+    private final Object repo;
 
     public OpenedRocksDB(RocksDB rocksdb, Map<String, CFHandle> cfHandles,
-                         SstFileManager sstFileManager) {
+                         SstFileManager sstFileManager, Object repo) {
         this.rocksdb = rocksdb;
         this.cfHandles = cfHandles;
         this.sstFileManager = sstFileManager;
+        this.repo = repo;
     }
 
     protected final RocksDB rocksdb() {
@@ -90,6 +93,21 @@ public class OpenedRocksDB implements AutoCloseable {
         }
         this.cfHandles.clear();
 
+        if (repo != null) {
+            LOG.info("SidePluginRepo instance found, attempting to call closeAllDB().");
+            try {
+                // Get the class of the repo object at runtime.
+                Class<?> sidePluginRepoClass = repo.getClass();
+                Method closeAllDBMethod = sidePluginRepoClass.getMethod("closeAllDB");
+
+                // Invoke the method on the repo instance.
+                closeAllDBMethod.invoke(repo);
+            } catch (Exception e) {
+                // Catch potential reflection exceptions (e.g., NoSuchMethodException)
+                // and log them. This is safer than letting them crash the application.
+                LOG.error("Failed to reflectively call closeAllDB() on SidePluginRepo.", e);
+            }
+        }
         this.rocksdb.close();
     }
 
