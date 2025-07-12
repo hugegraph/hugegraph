@@ -20,7 +20,7 @@
 package org.apache.hugegraph.structure;
 
 import org.apache.hugegraph.HugeGraphSupplier;
-import org.apache.hugegraph.exception.HugeException;;
+import org.apache.hugegraph.exception.HugeException;
 import org.apache.hugegraph.id.EdgeId;
 import org.apache.hugegraph.id.Id;
 import org.apache.hugegraph.id.SplicingIdGenerator;

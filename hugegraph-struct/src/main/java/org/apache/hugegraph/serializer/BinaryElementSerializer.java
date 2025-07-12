@@ -36,7 +36,7 @@ import org.slf4j.Logger;
 import org.apache.hugegraph.HugeGraphSupplier;
 import org.apache.hugegraph.backend.BackendColumn;
 import org.apache.hugegraph.backend.BinaryId;
-import org.apache.hugegraph.exception.HugeException;;
+import org.apache.hugegraph.exception.HugeException;
 import org.apache.hugegraph.id.EdgeId;
 import org.apache.hugegraph.id.Id;
 import org.apache.hugegraph.id.IdGenerator;

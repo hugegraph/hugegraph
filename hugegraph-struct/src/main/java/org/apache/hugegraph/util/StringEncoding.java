@@ -42,7 +42,7 @@ import org.apache.hugegraph.util.Bytes;
 import org.apache.hugegraph.util.E;
 import org.mindrot.jbcrypt.BCrypt;
 
-import org.apache.hugegraph.exception.HugeException;;
+import org.apache.hugegraph.exception.HugeException;
 import org.apache.hugegraph.serializer.BytesBuffer;
 import com.google.common.base.CharMatcher;
 

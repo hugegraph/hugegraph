@@ -29,7 +29,7 @@ import org.apache.lucene.analysis.TokenStream;
 import org.apache.lucene.analysis.cn.smart.SmartChineseAnalyzer;
 import org.apache.lucene.analysis.tokenattributes.CharTermAttribute;
 
-import org.apache.hugegraph.exception.HugeException;;
+import org.apache.hugegraph.exception.HugeException;
 import com.google.common.collect.ImmutableList;
 
 /**

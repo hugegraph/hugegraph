@@ -29,7 +29,7 @@ import org.apache.hugegraph.util.InsertionOrderUtil;
 import org.apache.hugegraph.util.NumericUtil;
 
 import org.apache.hugegraph.HugeGraphSupplier;
-import org.apache.hugegraph.exception.HugeException;;
+import org.apache.hugegraph.exception.HugeException;
 import org.apache.hugegraph.id.Id;
 import org.apache.hugegraph.id.Id.IdType;
 import org.apache.hugegraph.id.IdGenerator;

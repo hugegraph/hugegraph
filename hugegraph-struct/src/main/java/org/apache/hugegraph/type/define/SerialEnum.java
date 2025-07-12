@@ -19,7 +19,7 @@
 
 package org.apache.hugegraph.type.define;
 
-import org.apache.hugegraph.exception.HugeException;;
+import org.apache.hugegraph.exception.HugeException;
 import org.apache.hugegraph.type.HugeType;
 
 import org.apache.hugegraph.util.CollectionUtil;

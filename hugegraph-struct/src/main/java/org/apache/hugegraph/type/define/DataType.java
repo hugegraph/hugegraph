@@ -27,7 +27,7 @@ import java.util.UUID;
 import org.apache.hugegraph.util.Bytes;
 import org.apache.hugegraph.util.DateUtil;
 
-import org.apache.hugegraph.exception.HugeException;;
+import org.apache.hugegraph.exception.HugeException;
 import org.apache.hugegraph.serializer.BytesBuffer;
 import org.apache.hugegraph.util.Blob;
 import org.apache.hugegraph.util.StringEncoding;

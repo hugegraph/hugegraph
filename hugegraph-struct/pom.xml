@@ -63,12 +63,6 @@
         </dependency>
 
         <dependency>
-            <groupId>org.apache.tinkerpop</groupId>
-            <artifactId>gremlin-shaded</artifactId>
-            <version>3.5.1</version>
-        </dependency>
-
-        <dependency>
             <groupId>org.apache.hugegraph</groupId>
             <artifactId>hugegraph-common</artifactId>
             <exclusions>
@@ -195,12 +189,6 @@
             <groupId>com.janeluo</groupId>
             <artifactId>ikanalyzer</artifactId>
             <version>2012_u6</version>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.hugegraph</groupId>
-            <artifactId>hugegraph-common</artifactId>
-            <version>1.5.0</version>
-            <scope>compile</scope>
         </dependency>
     </dependencies>
 

@@ -26,7 +26,7 @@ import java.util.Set;
 import org.apache.hugegraph.config.ConfigException;
 import org.apache.hugegraph.util.InsertionOrderUtil;
 
-import org.apache.hugegraph.exception.HugeException;;
+import org.apache.hugegraph.exception.HugeException;
 import com.chenlb.mmseg4j.ComplexSeg;
 import com.chenlb.mmseg4j.Dictionary;
 import com.chenlb.mmseg4j.MMSeg;

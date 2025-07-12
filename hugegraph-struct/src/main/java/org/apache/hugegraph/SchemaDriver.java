@@ -36,7 +36,7 @@ import org.apache.tinkerpop.shaded.jackson.core.JsonProcessingException;
 import org.apache.tinkerpop.shaded.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 
-import org.apache.hugegraph.exception.HugeException;;
+import org.apache.hugegraph.exception.HugeException;
 import org.apache.hugegraph.exception.NotAllowException;
 import org.apache.hugegraph.id.Id;
 import org.apache.hugegraph.pd.client.KvClient;
