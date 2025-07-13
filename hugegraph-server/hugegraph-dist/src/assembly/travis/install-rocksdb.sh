@@ -59,6 +59,23 @@ function preload_toplingdb() {
   local jar_file=$(find $LIB -name "rocksdbjni*.jar")
   local dest_dir="$(pwd)"/$LIBRARY
 
+  # Check for Ubuntu 24.04+ and create a symlink for libaio if needed.
+  # This is a workaround for software expecting the old libaio.so.1 name,
+  # as it was renamed to libaio.so.1t64 in the new release.
+  # https://askubuntu.com/questions/1512196/libaio1-on-noble/1516639#1516639
+  if [ -f /etc/os-release ]; then
+    # Source the os-release file to get ID and VERSION_ID variables
+    . /etc/os-release
+    # Use dpkg to reliably compare version numbers
+    if [ "$ID" = "ubuntu" ] && dpkg --compare-versions "$VERSION_ID" "ge" "24.04"; then
+      local libaio_link_target="/usr/lib/x86_64-linux-gnu/libaio.so.1"
+      if [ ! -e "$libaio_link_target" ]; then
+        echo "Ubuntu 24.04 or newer detected. Creating compatibility symlink for libaio."
+        sudo ln -s /usr/lib/x86_64-linux-gnu/libaio.so.1t64 "$libaio_link_target"
+      fi
+    fi
+  fi
+
   extract_so_with_jar $jar_file $dest_dir
   export LD_LIBRARY_PATH=$dest_dir:$LD_LIBRARY_PATH
   export LD_PRELOAD=libjemalloc.so:librocksdbjni-linux64.so
