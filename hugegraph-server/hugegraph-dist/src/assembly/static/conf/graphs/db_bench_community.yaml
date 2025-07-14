@@ -101,36 +101,43 @@ TableFactory:
       level_writers: [ bb, bb, bb, bb, bb, bb ]
 CFOptions:
   default:
-    max_write_buffer_number: 4
+    max_write_buffer_number: 6
     memtable_factory: "${cspp}"
-    write_buffer_size: 8M
+    write_buffer_size: 128M
     # set target_file_size_base as small as 512K is to make many SST files,
     # thus key prefix cache can present efficiency
-    target_file_size_base: 512K
+    target_file_size_base: 64M
     target_file_size_multiplier: 1
     table_factory: dispatch
-    max_bytes_for_level_base: 4M
-    max_bytes_for_level_multiplier: 4
+    max_bytes_for_level_base: 512M
+    max_bytes_for_level_multiplier: 10
     level_compaction_dynamic_level_bytes: false
     level0_slowdown_writes_trigger: 20
     level0_stop_writes_trigger: 36
-    level0_file_num_compaction_trigger: 4
+    level0_file_num_compaction_trigger: 2
     merge_operator: uint64add # support merge
+    level_compaction_dynamic_file_size: true
+    optimize_filters_for_hits: true
+    allow_merge_memtables: true
+    min_write_buffer_number_to_merge: 2
     compression_per_level:
       - kNoCompression
       - kNoCompression
-      - kZSTD
-      - kZSTD
-      - kZSTD
-      - kZSTD
-      - kZSTD
+      - kSnappyCompression
+      - kSnappyCompression
+      - kSnappyCompression
+      - kSnappyCompression
+      - kSnappyCompression
 DBOptions:
   dbo:
     create_if_missing: true
     create_missing_column_families: false # this is important, must be false to hugegraph
-    max_background_compactions: 13
-    max_subcompactions: 1
-    max_level1_subcompactions: 7
+    max_background_compactions: -1
+    max_subcompactions: 4
+    max_level1_subcompactions: 0
     inplace_update_support: false
     WAL_size_limit_MB: 0
     statistics: "${stat}"
+    max_manifest_file_size: 100M
+    max_background_jobs: 8
+    compaction_readahead_size: 0
