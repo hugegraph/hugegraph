@@ -83,8 +83,8 @@ MemTableRepFactory:
       lookahead: 0
 TableFactory:
   cspp_memtab_sst:
-      class: CSPPMemTabTable
-      params: # empty params
+    class: CSPPMemTabTable
+    params: # empty params
   bb:
     class: BlockBasedTable
     params:

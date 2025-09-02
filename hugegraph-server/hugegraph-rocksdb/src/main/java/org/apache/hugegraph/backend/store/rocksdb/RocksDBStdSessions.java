@@ -437,7 +437,8 @@ public class RocksDBStdSessions extends RocksDBSessions {
                 rocksdb = (RocksDB) openDBMethod.invoke(repo, converseOptionsToJsonString(dataPath,
                                                                                           null));
 
-                if (openHttp && BackendStoreProvider.GRAPH_STORE.equals(dbName)) {
+                if (Boolean.TRUE.equals(openHttp) &&
+                    BackendStoreProvider.GRAPH_STORE.equals(dbName)) {
                     Method openHttpMethod =
                             sidePluginRepoClass.getMethod("startHttpServer");
                     openHttpMethod.invoke(repo);
@@ -542,7 +543,8 @@ public class RocksDBStdSessions extends RocksDBSessions {
                                                         converseOptionsToJsonString(dataPath, cfs),
                                                         cfhs);
 
-                if (openHttp && BackendStoreProvider.GRAPH_STORE.equals(dbName)) {
+                if (Boolean.TRUE.equals(openHttp) &&
+                    BackendStoreProvider.GRAPH_STORE.equals(dbName)) {
                     Method openHttpMethod =
                             sidePluginRepoClass.getMethod("startHttpServer");
                     openHttpMethod.invoke(repo);

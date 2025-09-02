@@ -240,7 +240,9 @@ public abstract class RocksDBStore extends AbstractBackendStore<RocksDBSessions.
                 openedDisks.add(disk);
                 List<String> tables = this.tableNames(e.getKey());
                 futures.add(openPool.submit(() -> {
-                    this.open(config, disk, disk, tables, null, false);
+                    this.open(config, disk, disk, tables,
+                              config.get(RocksDBOptions.OPTION_PATH),
+                              config.get(RocksDBOptions.OPEN_HTTP));
                 }));
             }
         }
