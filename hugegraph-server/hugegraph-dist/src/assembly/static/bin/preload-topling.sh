@@ -55,6 +55,48 @@ function extract_so_with_jar() {
     fi
 }
 
+function extract_html_css_from_jar() {
+    local jar_file="$1"
+    local dest_dir="$2"
+    local abs_jar_path
+    local pipeline_status
+    local resource_target="/dev/shm/rocksdb_resource"
+
+    if [ ! -f "$jar_file" ]; then
+        echo "Error: JAR file '$jar_file' does not exist." >&2
+        return 1
+    fi
+
+    if ! mkdir -p "$dest_dir"; then
+        echo "Error: Cannot create destination directory '$dest_dir'." >&2
+        return 1
+    fi
+
+    if [[ "$jar_file" == /* ]]; then
+        abs_jar_path="$jar_file"
+    else
+        abs_jar_path="$(pwd)/$jar_file"
+    fi
+
+    unzip -j -o "$abs_jar_path" "*.html" "*.css" -d "$dest_dir" > /dev/null
+    pipeline_status=$?
+
+    if [ $pipeline_status -eq 11 ]; then
+        echo "Notice: No .html or .css files found in '$jar_file'." >&2
+        return 0  
+    elif [ $pipeline_status -ne 0 ]; then
+        echo "Error: unzip failed with exit code $pipeline_status" >&2
+        return $pipeline_status
+    fi
+
+    if ! mkdir -p "$resource_target"; then
+        echo "Error: Cannot create target directory '$resource_target'." >&2
+        return 1
+    fi
+
+    cp -f "$dest_dir"/*.html "$dest_dir"/*.css "$resource_target" 2>/dev/null || true
+}
+
 function preload_toplingdb() {
   local jar_file=$(find $LIB -name "rocksdbjni*.jar")
   local dest_dir="$TOP/library"
@@ -79,13 +121,13 @@ function preload_toplingdb() {
   extract_so_with_jar $jar_file $dest_dir
   export LD_LIBRARY_PATH=$dest_dir:$LD_LIBRARY_PATH
   export LD_PRELOAD=libjemalloc.so:librocksdbjni-linux64.so
+
+  extract_html_css_from_jar $jar_file $dest_dir
 }
 
 BIN=$(abs_path)
 TOP="$(cd "$BIN"/../ && pwd)"
 LIB="$TOP/lib"
-YAML="$TOP/conf/graphs/db_bench_community.yaml"
+YAML="$TOP/conf/graphs/rocksdb_plus.yaml"
 
 preload_toplingdb
-
-cp $YAML .

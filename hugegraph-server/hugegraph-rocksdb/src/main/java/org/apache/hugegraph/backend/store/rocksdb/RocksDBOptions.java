@@ -94,6 +94,14 @@ public class RocksDBOptions extends OptionHolder {
                     ""
             );
 
+    public static final ConfigOption<Boolean> OPEN_HTTP =
+            new ConfigOption<>(
+                    "rocksdb.open_http",
+                    "Whether to start Topling's HTTP service",
+                    disallowEmpty(),
+                    false
+            );
+
     public static final ConfigOption<String> SST_PATH =
             new ConfigOption<>(
                     "rocksdb.sst_path",

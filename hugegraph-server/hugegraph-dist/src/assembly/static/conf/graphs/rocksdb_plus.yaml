@@ -17,7 +17,7 @@
 # common parameters
 http:
   # normally parent path of db path
-  document_root: /dev/shm/db_bench_community
+  document_root: /dev/shm/rocksdb_resource
   listening_ports: '2011'
 setenv:
   StrSimpleEnvNameNotOverwrite: StringValue
@@ -71,14 +71,20 @@ MemTableRepFactory:
   cspp:
     class: cspp
     params:
-      mem_cap: 2G
+      mem_cap: 16G
       use_vm: false
       token_use_idle: true
+      chunk_size: 16K
+      convert_to_sst: kFileMmap
+      sync_sst_file: false
   skiplist:
     class: SkipList
     params:
       lookahead: 0
 TableFactory:
+  cspp_memtab_sst:
+      class: CSPPMemTabTable
+      params: # empty params
   bb:
     class: BlockBasedTable
     params:
@@ -89,6 +95,9 @@ TableFactory:
       metadata_block_size: 4K
       enable_index_compression: true
       block_cache: "${lru_cache}"
+      readers:
+        BlockBasedTable: bb
+        CSPPMemTabTable: cspp_memtab_sst
       block_cache_compressed:
       persistent_cache:
       filter_policy:
@@ -98,6 +107,7 @@ TableFactory:
       default: bb
       readers:
         BlockBasedTable: bb
+        CSPPMemTabTable: cspp_memtab_sst
       level_writers: [ bb, bb, bb, bb, bb, bb ]
 CFOptions:
   default:
@@ -141,3 +151,4 @@ DBOptions:
     max_manifest_file_size: 100M
     max_background_jobs: 8
     compaction_readahead_size: 0
+    memtable_as_log_index: true
