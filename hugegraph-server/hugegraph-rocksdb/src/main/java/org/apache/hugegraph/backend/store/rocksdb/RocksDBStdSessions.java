@@ -41,6 +41,7 @@ import org.apache.hugegraph.backend.serializer.BinarySerializer;
 import org.apache.hugegraph.backend.store.BackendEntry.BackendColumn;
 import org.apache.hugegraph.backend.store.BackendEntry.BackendColumnIterator;
 import org.apache.hugegraph.backend.store.BackendEntryIterator;
+import org.apache.hugegraph.backend.store.BackendStoreProvider;
 import org.apache.hugegraph.backend.store.rocksdb.RocksDBIteratorPool.ReusedRocksIterator;
 import org.apache.hugegraph.config.CoreOptions;
 import org.apache.hugegraph.config.HugeConfig;
@@ -85,32 +86,39 @@ public class RocksDBStdSessions extends RocksDBSessions {
     private final String dataPath;
     private final String walPath;
     private final String optionPath;
+    private final Boolean openHttp;
 
     private volatile OpenedRocksDB rocksdb;
     private final AtomicInteger refCount;
 
     public RocksDBStdSessions(HugeConfig config, String database, String store,
-                              String dataPath, String walPath, String optionPath) throws
-                                                                                  RocksDBException {
+                              String dataPath, String walPath, String optionPath,
+                              Boolean openHttp) throws
+                                                RocksDBException {
         super(config, database, store);
         this.config = config;
         this.dataPath = dataPath;
         this.walPath = walPath;
         this.optionPath = optionPath;
-        this.rocksdb = RocksDBStdSessions.openRocksDB(config, dataPath, walPath, optionPath);
+        this.openHttp = openHttp;
+        this.rocksdb = RocksDBStdSessions.openRocksDB(config, dataPath, walPath, optionPath,
+                                                      openHttp);
         this.refCount = new AtomicInteger(1);
     }
 
     public RocksDBStdSessions(HugeConfig config, String database, String store,
                               String dataPath, String walPath,
-                              List<String> cfNames, String optionPath) throws RocksDBException {
+                              List<String> cfNames, String optionPath, Boolean openHttp) throws
+                                                                                         RocksDBException {
         super(config, database, store);
         this.config = config;
         this.dataPath = dataPath;
         this.walPath = walPath;
         this.optionPath = optionPath;
+        this.openHttp = openHttp;
         this.rocksdb =
-                RocksDBStdSessions.openRocksDB(config, cfNames, dataPath, walPath, optionPath);
+                RocksDBStdSessions.openRocksDB(config, cfNames, dataPath, walPath, optionPath,
+                                               openHttp);
         this.refCount = new AtomicInteger(1);
 
         this.ingestExternalFile();
@@ -123,6 +131,7 @@ public class RocksDBStdSessions extends RocksDBSessions {
         this.dataPath = origin.dataPath;
         this.walPath = origin.walPath;
         this.optionPath = origin.optionPath;
+        this.openHttp = origin.openHttp;
         this.rocksdb = origin.rocksdb;
         this.refCount = origin.refCount;
         this.refCount.incrementAndGet();
@@ -219,7 +228,8 @@ public class RocksDBStdSessions extends RocksDBSessions {
             this.rocksdb.close();
         }
         this.rocksdb = RocksDBStdSessions.openRocksDB(this.config, ImmutableList.of(),
-                                                      this.dataPath, this.walPath, this.optionPath);
+                                                      this.dataPath, this.walPath,
+                                                      this.optionPath, this.openHttp);
     }
 
     @Override
@@ -313,7 +323,8 @@ public class RocksDBStdSessions extends RocksDBSessions {
     public String hardLinkSnapshot(String snapshotPath) throws RocksDBException {
         String snapshotLinkPath = this.dataPath + "_temp";
         try (OpenedRocksDB rocksdb = openRocksDB(this.config, ImmutableList.of(),
-                                                 snapshotPath, null, this.optionPath)) {
+                                                 snapshotPath, null, this.optionPath,
+                                                 this.openHttp)) {
             rocksdb.createCheckpoint(snapshotLinkPath);
         }
         LOG.info("The snapshot {} has been hard linked to {}", snapshotPath, snapshotLinkPath);
@@ -378,8 +389,9 @@ public class RocksDBStdSessions extends RocksDBSessions {
     }
 
     private static OpenedRocksDB openRocksDB(HugeConfig config, String dataPath,
-                                             String walPath, String optionPath) throws
-                                                                                RocksDBException {
+                                             String walPath, String optionPath,
+                                             Boolean openHttp) throws
+                                                               RocksDBException {
         // Init options
         Options options = new Options();
         RocksDBStdSessions.initOptions(config, options, options, options, options);
@@ -424,6 +436,14 @@ public class RocksDBStdSessions extends RocksDBSessions {
                 Method openDBMethod = sidePluginRepoClass.getMethod("openDB", String.class);
                 rocksdb = (RocksDB) openDBMethod.invoke(repo, converseOptionsToJsonString(dataPath,
                                                                                           null));
+
+                if (openHttp && BackendStoreProvider.GRAPH_STORE.equals(dbName)) {
+                    Method openHttpMethod =
+                            sidePluginRepoClass.getMethod("startHttpServer");
+                    openHttpMethod.invoke(repo);
+                    LOG.info("Topling HTTP Server has been started according to the " +
+                             "listening_ports specified in " + optionPath);
+                }
             } catch (ClassNotFoundException e) {
                 // CRITICAL: If the class is not found, the current rocksdbjni library does not
                 // include SidePluginRepo.
@@ -451,8 +471,9 @@ public class RocksDBStdSessions extends RocksDBSessions {
 
     private static OpenedRocksDB openRocksDB(HugeConfig config,
                                              List<String> cfNames, String dataPath,
-                                             String walPath, String optionPath) throws
-                                                                                RocksDBException {
+                                             String walPath, String optionPath,
+                                             Boolean openHttp) throws
+                                                               RocksDBException {
         // Old CFs should always be opened
         Set<String> mergedCFs = RocksDBStdSessions.mergeOldCFs(dataPath,
                                                                cfNames);
@@ -520,6 +541,14 @@ public class RocksDBStdSessions extends RocksDBSessions {
                 rocksdb = (RocksDB) openDBMethod.invoke(repo,
                                                         converseOptionsToJsonString(dataPath, cfs),
                                                         cfhs);
+
+                if (openHttp && BackendStoreProvider.GRAPH_STORE.equals(dbName)) {
+                    Method openHttpMethod =
+                            sidePluginRepoClass.getMethod("startHttpServer");
+                    openHttpMethod.invoke(repo);
+                    LOG.info("Topling HTTP Server has been started according to the " +
+                             "listening_ports specified in " + optionPath);
+                }
 
                 LOG.info("Successfully opened DB with SidePluginRepo.");
             } catch (ClassNotFoundException e) {
@@ -601,7 +630,7 @@ public class RocksDBStdSessions extends RocksDBSessions {
     }
 
     private static String getDbName(String dataPath) {
-        return dataPath.substring(dataPath.lastIndexOf("/") + 1);
+        return Paths.get(dataPath).getFileName().toString();
     }
 
     public static void initOptions(HugeConfig conf,
