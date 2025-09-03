@@ -26,7 +26,7 @@ option java_outer_classname = "AggPushDownQueryProto";
 service QueryService {
   rpc query(stream QueryRequest) returns (stream QueryResponse) {}
   // rpc close(google.protobuf.StringValue) returns(google.protobuf.BoolValue) {}
-  // 简单的查询
+  // Simple query
   rpc query0(QueryRequest) returns (QueryResponse) {}
   rpc count(QueryRequest) returns (QueryResponse) {}
 }
@@ -41,23 +41,23 @@ enum AggregationType {
 
 message AggregateFunc {
   AggregationType funcType = 1;
-  bytes field = 2;  // count 函数不检查，设置为-1， property id
-  string type = 3; // 初始化buffer类型
+  bytes field = 2;  // No need to check count function (set to -1)， property id
+  string type = 3; // initialize buffer type
 }
 
 enum ScanType {
   TABLE_SCAN = 0;
   PRIMARY_SCAN = 1;
   INDEX_SCAN = 2;
-  NO_SCAN = 3; // 只扫索引
+  NO_SCAN = 3; // only scan index
 }
 
 message ScanTypeParam {
   bytes key_start = 1;
   bytes key_end = 2;
   int32 scan_boundary = 3; // range boundary
-  bool is_prefix = 4; // 区分id和prefix
-  bool is_secondary_index = 5; // 区分primary scan or index scan
+  bool is_prefix = 4; // distinguish id or prefix
+  bool is_secondary_index = 5; // distinguish primary scan or index scan
   int32 code = 6; // id code
   bytes id_prefix = 7; // check the element id prefix when parse index
 }
@@ -79,37 +79,37 @@ message QueryRequest{
   string table = 3;
 
   repeated AggregateFunc functions = 4;
-  // 属性剪裁，如果为空，则返回所有的属性, aggregation 作为单独字段，不包含此列
-  // 如果有group by，应该是group by的子集
+  // Attribute trimming: if empty, return all attributes;
+  // the 'aggregation' field is treated separately and excluded from this column.
+  // If there is a GROUP BY clause, the selected attributes must be a subset of the GROUP BY columns.
   repeated bytes property = 5;
-  repeated bytes group_by = 6; // group by的字段
-  repeated uint32 having = 7;   // having 的过滤 （暂不实现),
-  repeated bytes order_by = 8; // order by 字段
+  repeated bytes group_by = 6; // group by field
+  repeated uint32 having = 7;   // having filter （Not implemented yet),
+  repeated bytes order_by = 8; // order by field
   bool sort_order = 9; // asc or desc
-  bool null_property = 10; // 不使用property，仅仅返回key
+  bool null_property = 10; // do not use property，only return key
 
-  ScanType scan_type = 11; // 表扫描类型, 如果有索引，此项忽略
+  ScanType scan_type = 11; // Table Scan Type:If an index exists, this field is ignored.
 
-  repeated ScanTypeParam scan_type_param = 12; // id, prefix 只用到start
+  repeated ScanTypeParam scan_type_param = 12; // id, prefix (only start is used)
 
-  DeDupOption dedup_option = 13;  // 是否需要key消重
+  DeDupOption dedup_option = 13;  // Is key deduplication required?
 
   bytes condition = 21; // condition
-  bytes position = 24;            // 返回offset ~ offset + limit
+  bytes position = 24;            // offset ~ offset + limit
   uint32 limit = 23;             // page
   uint32 offset = 25;           // offset
 
-  double sample_factor = 31; // 抽样频率，应该小于等于1
+  double sample_factor = 31; // sample frequency, should less than 1
 
-  repeated bytes olap_property = 32; // 读取的olap 属性
+  repeated bytes olap_property = 32;
 
-  // 使用的索引, 第一层为or关系，第二层为 and关系
   // indexes ((index,index) or (index, index))
   repeated Index indexes = 41;
 
   bool load_property_from_index = 42;
   bool check_ttl = 43;
-  // 按照element的 label id group by
+  // group by based on element label id
   bool group_by_schema_label = 44;
 }
 
