@@ -84,7 +84,7 @@ message QueryRequest{
   // If there is a GROUP BY clause, the selected attributes must be a subset of the GROUP BY columns.
   repeated bytes property = 5;
   repeated bytes group_by = 6; // group by field
-  repeated uint32 having = 7;   // having filter （Not implemented yet),
+  repeated uint32 having = 7;   // having filter (Not implemented yet)
   repeated bytes order_by = 8; // order by field
   bool sort_order = 9; // asc or desc
   bool null_property = 10; // do not use property，only return key
