@@ -25,7 +25,6 @@ option java_outer_classname = "AggPushDownQueryProto";
 
 service QueryService {
   rpc query(stream QueryRequest) returns (stream QueryResponse) {}
-  // rpc close(google.protobuf.StringValue) returns(google.protobuf.BoolValue) {}
   // Simple query
   rpc query0(QueryRequest) returns (QueryResponse) {}
   rpc count(QueryRequest) returns (QueryResponse) {}
