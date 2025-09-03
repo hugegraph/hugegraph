@@ -40,25 +40,25 @@ enum AggregationType {
 
 message AggregateFunc {
   AggregationType funcType = 1;
-  bytes field = 2;  // No need to check count function (set to -1), property id
-  string type = 3; // initialize buffer type
+  bytes field = 2;  // Property ID. For COUNT, set to -1.
+  string type = 3;  // Initialize buffer type.
 }
 
 enum ScanType {
   TABLE_SCAN = 0;
   PRIMARY_SCAN = 1;
   INDEX_SCAN = 2;
-  NO_SCAN = 3; // only scan index
+  NO_SCAN = 3; // Only scan index.
 }
 
 message ScanTypeParam {
   bytes key_start = 1;
   bytes key_end = 2;
-  int32 scan_boundary = 3; // range boundary
-  bool is_prefix = 4; // distinguish id or prefix
-  bool is_secondary_index = 5; // distinguish primary scan or index scan
-  int32 code = 6; // id code
-  bytes id_prefix = 7; // check the element id prefix when parse index
+  int32 scan_boundary = 3;      // Range boundary.
+  bool is_prefix = 4;           // Distinguish ID or prefix.
+  bool is_secondary_index = 5;  // Distinguish primary scan from index scan.
+  int32 code = 6;               // ID code.
+  bytes id_prefix = 7;          // Element ID prefix when parsing index.
 }
 
 message Index {
@@ -79,27 +79,27 @@ message QueryRequest{
 
   repeated AggregateFunc functions = 4;
   // Attribute trimming: if empty, return all attributes;
-  // the 'aggregation' field is treated separately and excluded from this column.
-  // If there is a GROUP BY clause, the selected attributes must be a subset of the GROUP BY columns.
+  // the 'aggregation' field is treated separately and excluded.
+  // If there is a GROUP BY clause, selected attributes must be a subset of the GROUP BY columns.
   repeated bytes property = 5;
-  repeated bytes group_by = 6; // group by field
-  repeated uint32 having = 7;   // having filter (Not implemented yet)
-  repeated bytes order_by = 8; // order by field
-  bool sort_order = 9; // asc or desc
-  bool null_property = 10; // do not use property，only return key
+  repeated bytes group_by = 6;                  // Group-by columns.
+  repeated uint32 having = 7;                   // HAVING filter (not implemented yet).
+  repeated bytes order_by = 8;                  // Order-by columns.
+  bool sort_order = 9;                          // Ascending (true) or descending.
+  bool null_property = 10;                      // Do not use properties; only return key.
 
-  ScanType scan_type = 11; // Table Scan Type:If an index exists, this field is ignored.
+  ScanType scan_type = 11;                      // Table scan type. If an index exists, this field is ignored.
 
-  repeated ScanTypeParam scan_type_param = 12; // id, prefix (only start is used)
+  repeated ScanTypeParam scan_type_param = 12;  // ID or prefix (only start is used).
 
-  DeDupOption dedup_option = 13;  // Is key deduplication required?
+  DeDupOption dedup_option = 13;                // Whether key deduplication is required.
 
-  bytes condition = 21; // condition
-  bytes position = 24;            // offset ~ offset + limit
-  uint32 limit = 23;             // page
-  uint32 offset = 25;           // offset
+  bytes condition = 21;                         // Condition.
+  bytes position = 24;                          // Offset ~ offset + limit.
+  uint32 limit = 23;                            // Page size.
+  uint32 offset = 25;                           // Offset.
 
-  double sample_factor = 31; // sample frequency, should less than 1
+  double sample_factor = 31;                    // Sampling rate; should be less than 1.
 
   repeated bytes olap_property = 32;
 

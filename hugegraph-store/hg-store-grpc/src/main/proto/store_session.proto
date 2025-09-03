@@ -46,7 +46,7 @@ message GraphReq{
 
 message BatchReq{
   Header header = 1;
-  string batch_id = 2;
+  string batch_id = 2;     // Client-defined batch/session ID.
   oneof requests{
     BatchWriteReq write_req = 10;
     BatchCommitReq commit_req = 11;
@@ -72,9 +72,9 @@ message BatchEntry{
 
 message BatchGetReq {
   Header header = 1;
-  string table = 2;
-  repeated Key key = 3;
-  int32 partition = 9;
+  string table = 2;      // Table name.
+  repeated Key key = 3;  // Keys to read.
+  int32 partition = 9;   // Partition ID.
 }
 
 message GetReq {
@@ -92,9 +92,9 @@ message FeedbackRes {
   ResStatus status = 1;
 
   oneof responses{
-    PartitionFaultResponse partition_fault_response = 10;
-    ValueResponse value_response = 11;
-    KeyValueResponse key_value_response = 12;
+    PartitionFaultResponse partition_fault_response = 10; // Partition fault details.
+    ValueResponse value_response = 11;                    // Single value response.
+    KeyValueResponse key_value_response = 12;             // KV list response.
   }
 
 }
