@@ -41,7 +41,7 @@ enum AggregationType {
 
 message AggregateFunc {
   AggregationType funcType = 1;
-  bytes field = 2;  // No need to check count function (set to -1)， property id
+  bytes field = 2;  // No need to check count function (set to -1), property id
   string type = 3; // initialize buffer type
 }
 
