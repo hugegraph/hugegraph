@@ -166,58 +166,63 @@ public class KvSerializer {
             buffer = writeByte(buffer, TYPE_NULL);
             return buffer;
         }
-
-        switch (o.getClass().getName()) {
-            case "java.lang.Long":
-                buffer = writeByte(buffer, TYPE_LONG);
-                buffer = writeLong(buffer, (Long) o);
-                break;
-            case "java.util.concurrent.atomic.AtomicLong":
-                buffer = writeByte(buffer, TYPE_AT_LONG);
-                buffer = writeLong(buffer, ((AtomicLong) o).get());
-                break;
-            case "java.lang.Integer":
-                buffer = writeByte(buffer, TYPE_INT);
-                buffer = writeInt(buffer, (Integer) o);
-                break;
-            case "java.util.concurrent.atomic.AtomicInteger":
-                buffer = writeByte(buffer, TYPE_AT_INT);
-                buffer = writeInt(buffer, ((AtomicInteger) o).get());
-                break;
-            case "java.lang.Float":
-                buffer = writeByte(buffer, TYPE_FLOAT);
-                buffer = writeFloat(buffer, (Float) o);
-                break;
-            case "org.apache.hugegraph.store.query.concurrent.AtomicFloat":
-                buffer = writeByte(buffer, TYPE_AT_FLOAT);
-                buffer = writeFloat(buffer, ((AtomicFloat) o).get());
-                break;
-            case "java.lang.Double":
-                buffer = writeByte(buffer, TYPE_DOUBLE);
-                buffer = writeDouble(buffer, (Double) o);
-                break;
-            case "com.google.common.util.concurrent.AtomicDouble":
-                buffer = writeByte(buffer, TYPE_AT_DOUBLE);
-                buffer = writeDouble(buffer, ((AtomicDouble) o).get());
-                break;
-            case "java.lang.String":
-                buffer = writeByte(buffer, TYPE_STRING);
-                buffer = writeString(buffer, (String) o);
-                break;
-            case "java.math.BigDecimal":
-                buffer = writeByte(buffer, TYPE_BIG_DECIMAL);
-                buffer = writeBigDecimal(buffer, (BigDecimal) o);
-                break;
-            case "org.apache.hugegraph.store.query.Tuple2":
-                buffer = writeByte(buffer, TYPE_TUPLE2);
-                buffer = write(buffer, ((Tuple2) o).getV1());
-                buffer = write(buffer, ((Tuple2) o).getV2());
-                break;
-            default:
-                throw new RuntimeException("unsupported type " + o.getClass().getName());
+        if (o instanceof Integer) {
+            buffer = writeByte(buffer, TYPE_INT);
+            buffer = writeInt(buffer, (Integer) o);
+            return buffer;
         }
-
-        return buffer;
+        if (o instanceof Long) {
+            buffer = writeByte(buffer, TYPE_LONG);
+            buffer = writeLong(buffer, (Long) o);
+            return buffer;
+        }
+        if (o instanceof Float) {
+            buffer = writeByte(buffer, TYPE_FLOAT);
+            buffer = writeFloat(buffer, (Float) o);
+            return buffer;
+        }
+        if (o instanceof Double) {
+            buffer = writeByte(buffer, TYPE_DOUBLE);
+            buffer = writeDouble(buffer, (Double) o);
+            return buffer;
+        }
+        if (o instanceof BigDecimal) {
+            buffer = writeByte(buffer, TYPE_BIG_DECIMAL);
+            buffer = writeBigDecimal(buffer, (BigDecimal) o);
+            return buffer;
+        }
+        if (o instanceof String) {
+            buffer = writeByte(buffer, TYPE_STRING);
+            buffer = writeString(buffer, (String) o);
+            return buffer;
+        }
+        if (o instanceof AtomicInteger) {
+            buffer = writeByte(buffer, TYPE_AT_INT);
+            buffer = writeInt(buffer, ((AtomicInteger) o).get());
+            return buffer;
+        }
+        if (o instanceof AtomicLong) {
+            buffer = writeByte(buffer, TYPE_AT_LONG);
+            buffer = writeLong(buffer, ((AtomicLong) o).get());
+            return buffer;
+        }
+        if (o instanceof AtomicFloat) {
+            buffer = writeByte(buffer, TYPE_AT_FLOAT);
+            buffer = writeFloat(buffer, ((AtomicFloat) o).get());
+            return buffer;
+        }
+        if (o instanceof AtomicDouble) {
+            buffer = writeByte(buffer, TYPE_AT_DOUBLE);
+            buffer = writeDouble(buffer, ((AtomicDouble) o).get());
+            return buffer;
+        }
+        if (o instanceof Tuple2) {
+            buffer = writeByte(buffer, TYPE_TUPLE2);
+            buffer = write(buffer, ((Tuple2) o).getV1());
+            buffer = write(buffer, ((Tuple2) o).getV2());
+            return buffer;
+        }
+        throw new RuntimeException("unsupported type " + o.getClass().getName());
     }
 
     private static ByteBuffer writeByte(ByteBuffer buffer, byte b) {

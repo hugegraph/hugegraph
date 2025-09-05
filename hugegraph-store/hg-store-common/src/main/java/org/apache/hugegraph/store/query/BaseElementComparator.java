@@ -46,8 +46,8 @@ public class BaseElementComparator implements Comparator<BaseElement> {
             }
             return (o1 == null ? -1 : 1) * (this.isAsc ? 1 : -1);
         }
-
-        for (var id : ids) {
+        //FIXME may cause NPE exception
+        for (Id id : ids) {
             var ret = compareProperty(o1.getPropertyValue(id), o2.getPropertyValue(id));
             if (ret != 0) {
                 return ret;
