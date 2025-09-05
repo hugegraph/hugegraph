@@ -177,7 +177,7 @@ public class StoreQueryParam {
                     AggregationFunctionParam.AggregationFunctionType.SUM) {
                     //  ||func.getFunctionType() == AggregationFunctionParam
                     //  .AggregationFunctionType.AVG){
-                    isFalse(func.getFiledType() == AggregationFunctionParam.FiledType.STRING,
+                    isFalse(func.getFieldType() == AggregationFunctionParam.FieldType.STRING,
                             func.getFunctionType().name() + " can not apply a String type");
                 }
             }

@@ -29,37 +29,37 @@ public class AggregationFunctionParam {
      * the type of aggregation filed.
      * eg: sum(age): the type is integer
      */
-    private FiledType filedType;
+    private FieldType fieldType;
     /**
      * field id
      */
     private Id field;
 
-    private AggregationFunctionParam(AggregationFunctionType functionType, FiledType filedType,
+    private AggregationFunctionParam(AggregationFunctionType functionType, FieldType fieldType,
                                      Id filed) {
         this.functionType = functionType;
-        this.filedType = filedType;
+        this.fieldType = fieldType;
         this.field = filed;
     }
 
     public static AggregationFunctionParam ofCount() {
-        return new AggregationFunctionParam(AggregationFunctionType.COUNT, FiledType.LONG, null);
+        return new AggregationFunctionParam(AggregationFunctionType.COUNT, FieldType.LONG, null);
     }
 
-    public static AggregationFunctionParam ofSum(FiledType filedType, Id filed) {
-        return new AggregationFunctionParam(AggregationFunctionType.SUM, filedType, filed);
+    public static AggregationFunctionParam ofSum(FieldType fieldType, Id field) {
+        return new AggregationFunctionParam(AggregationFunctionType.SUM, fieldType, field);
     }
 
-    public static AggregationFunctionParam ofMin(FiledType filedType, Id filed) {
-        return new AggregationFunctionParam(AggregationFunctionType.MIN, filedType, filed);
+    public static AggregationFunctionParam ofMin(FieldType fieldType, Id field) {
+        return new AggregationFunctionParam(AggregationFunctionType.MIN, fieldType, field);
     }
 
-    public static AggregationFunctionParam ofMax(FiledType filedType, Id filed) {
-        return new AggregationFunctionParam(AggregationFunctionType.MAX, filedType, filed);
+    public static AggregationFunctionParam ofMax(FieldType fieldType, Id field) {
+        return new AggregationFunctionParam(AggregationFunctionType.MAX, fieldType, field);
     }
 
-    public static AggregationFunctionParam ofAvg(FiledType filedType, Id filed) {
-        return new AggregationFunctionParam(AggregationFunctionType.AVG, filedType, filed);
+    public static AggregationFunctionParam ofAvg(FieldType fieldType, Id field) {
+        return new AggregationFunctionParam(AggregationFunctionType.AVG, fieldType, field);
     }
 
     public enum AggregationFunctionType {
@@ -70,7 +70,7 @@ public class AggregationFunctionParam {
         AVG
     }
 
-    public enum FiledType {
+    public enum FieldType {
         LONG("java.lang.Long"),
         INTEGER("java.lang.Integer"),
         FLOAT("java.lang.Float"),
@@ -79,7 +79,7 @@ public class AggregationFunctionParam {
 
         private final String genericType;
 
-        FiledType(String genericType) {
+        FieldType(String genericType) {
             this.genericType = genericType;
         }
 
