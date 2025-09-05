@@ -17,8 +17,8 @@
 
 package org.apache.hugegraph.store.constant;
 
+import java.util.Map;
 import java.util.Objects;
-import java.util.concurrent.ConcurrentHashMap;
 
 public class HugeServerTables {
 
@@ -31,20 +31,18 @@ public class HugeServerTables {
     public static final String OLAP_TABLE = "g+olap";
 
     public static final String[] TABLES = new String[]{UNKNOWN_TABLE, VERTEX_TABLE,
-                                                       OUT_EDGE_TABLE, IN_EDGE_TABLE,
-                                                       INDEX_TABLE, TASK_TABLE, OLAP_TABLE};
+            OUT_EDGE_TABLE, IN_EDGE_TABLE,
+            INDEX_TABLE, TASK_TABLE, OLAP_TABLE};
 
-    public static final ConcurrentHashMap<String, Integer> TABLES_MAP = new ConcurrentHashMap<>() {
-        {
-            put(UNKNOWN_TABLE, 0);
-            put(VERTEX_TABLE, 1);
-            put(OUT_EDGE_TABLE, 2);
-            put(IN_EDGE_TABLE, 3);
-            put(INDEX_TABLE, 4);
-            put(TASK_TABLE, 5);
-            put(OLAP_TABLE, 6);
-        }
-    };
+    public static final Map<String, Integer> TABLES_MAP = Map.of(
+            UNKNOWN_TABLE, 0,
+            VERTEX_TABLE, 1,
+            OUT_EDGE_TABLE, 2,
+            IN_EDGE_TABLE, 3,
+            INDEX_TABLE, 4,
+            TASK_TABLE, 5,
+            OLAP_TABLE, 6
+    );
 
     public static boolean isEdgeTable(String table) {
         return Objects.equals(IN_EDGE_TABLE, table) || Objects.equals(OUT_EDGE_TABLE, table);
