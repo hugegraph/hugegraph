@@ -29,11 +29,12 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
+// FIXME: issues may arise in concurrent scenarios.
 public class Cache<T> implements Closeable {
 
     ScheduledExecutorService ex =
             Executors.newSingleThreadScheduledExecutor(new DefaultThreadFactory("hg-cache"));
-    private ConcurrentMap<String, CacheValue> map = new ConcurrentHashMap();
+    private ConcurrentMap<String, CacheValue> map = new ConcurrentHashMap<>();
     private ScheduledFuture<?> future;
     private Runnable checker = () -> {
         for (Map.Entry<String, CacheValue> e : map.entrySet()) {
@@ -86,7 +87,7 @@ public class Cache<T> implements Closeable {
         }
     }
 
-    private class CacheValue {
+    public class CacheValue {
 
         private final T value;
         long outTime;

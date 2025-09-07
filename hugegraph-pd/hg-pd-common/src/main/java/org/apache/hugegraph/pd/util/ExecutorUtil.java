@@ -48,9 +48,9 @@ public final class ExecutorUtil {
             if (res != null) {
                 return res;
             }
-            BlockingQueue queue;
+            BlockingQueue<Runnable> queue;
             if (queueSize <= 0) {
-                queue = new SynchronousQueue();
+                queue = new SynchronousQueue<>();
             } else {
                 queue = new LinkedBlockingQueue<>(queueSize);
             }
