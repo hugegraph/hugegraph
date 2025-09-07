@@ -1807,12 +1807,11 @@ public class PDService extends PDGrpc.PDImplBase implements ServiceGrpc, RaftSta
         try {
             var partitions = partitionService.getPartitions(param.getGraph());
 
-            if (partitions.size() == 0) {
+            if (partitions.isEmpty()) {
                 throw new PDException(-1, "graph has no partition");
             }
 
             var newTaskId = idService.getId(BUILD_INDEX_TASK_ID_KEY, 1);
-            // log.info("build index task id: {}", newTaskId);
 
             var taskInfo = storeNodeService.getTaskInfoMeta();
             for (var partition : partitions) {

@@ -405,6 +405,6 @@ message BuildIndexParam {
   oneof request_param_union {
     bytes index_label = 11; // label id
     bool all_index = 12; // rebuild all index
-    bool label_index = 13; // ??
+    bool label_index = 13; // rebuild all index
   }
 }
