@@ -59,9 +59,9 @@ public class AggregationFunctions {
         }
 
         /**
-         * 获取并添加记录
+         * Get and add Record
          *
-         * @param record - 添加的记录
+         * @param record - Added records
          */
         @Override
         public void iterate(T record) {
@@ -88,7 +88,7 @@ public class AggregationFunctions {
 
         /**
          * {@inheritDoc}
-         * 将另一个 U 对象合并到当前对象。
+         * Merge another U object into the current object
          */
         @Override
         public void merge(U other) {
@@ -134,9 +134,9 @@ public class AggregationFunctions {
 
         /**
          * {@inheritDoc}
-         * 初始化缓冲区，返回相应类型的 Atomic 引用对象。
+         * Initialize the buffer and return an Atomic reference object of the corresponding type
          *
-         * @return 返回初始化后的 Atomic 对象。
+         * @return Returns the initialized Atomic object
          */
         @Override
         protected U initBuffer() {
@@ -247,11 +247,11 @@ public class AggregationFunctions {
         }
 
         /**
-         * 获取两个字符串中较长的那个。如果一个为null，则返回另一个。
+         * return the longer string of two
          *
-         * @param s1 第一个字符串
-         * @param s2 第二个字符串
-         * @return 较长的字符串
+         * @param s1 First String
+         * @param s2 Second String
+         * @return The longer String
          */
         private String maxString(String s1, String s2) {
             if (s1 == null || s2 == null) {
@@ -380,11 +380,11 @@ public class AggregationFunctions {
         }
 
         /**
-         * 返回两个字符串中的较小值。如果一个值为null则返回另一个值。
+         * Return the shorter string of two
          *
-         * @param s1 第一个需要比较的字符串
-         * @param s2 第二个需要比较的字符串
-         * @return 较小的字符串
+         * @param s1 First string
+         * @param s2 Second string
+         * @return Shorter String
          */
         private String minString(String s1, String s2) {
             if (s1 == null || s2 == null) {
@@ -431,9 +431,9 @@ public class AggregationFunctions {
         }
 
         /**
-         * 创建缓冲区，返回一个包含两个原子变量的元组。
+         * Create a buffer and return a tuple containing two atomic variables
          *
-         * @return 包含两个原子变量的元组
+         * @return Tuple containing two atomic variables
          */
         @Override
         public Tuple2<AtomicLong, AtomicDouble> createBuffer() {
@@ -499,7 +499,7 @@ public class AggregationFunctions {
     }
 
     /**
-     * 应对 group by 无 aggregator的情况
+     * Handle GROUP BY queries without aggregators
      */
     public static class EmptyFunction implements AggregationFunction<Integer, Integer, Integer> {
 

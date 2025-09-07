@@ -29,7 +29,7 @@ public class KeyUtil {
     private static final byte[] EMPTY_BYTES = new byte[0];
 
     /**
-     * 使用的是 huge server的算法
+     * Using algorithm from huge-server
      *
      * @param key   original key
      * @param table looking up table

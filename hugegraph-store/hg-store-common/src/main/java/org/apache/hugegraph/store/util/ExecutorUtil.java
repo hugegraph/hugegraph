@@ -25,6 +25,7 @@ import java.util.concurrent.SynchronousQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
+//FIXME Using Guava Cache
 public final class ExecutorUtil {
 
     private static final Map<String, ThreadPoolExecutor> pools = new ConcurrentHashMap<>();
@@ -44,6 +45,15 @@ public final class ExecutorUtil {
 
     public static ThreadPoolExecutor createExecutor(String name, int coreThreads, int maxThreads,
                                                     int queueSize, boolean daemon) {
+        //Argument check
+        if (coreThreads <= 0 || maxThreads <= 0) {
+            throw new IllegalArgumentException("coreThreads and maxThreads must be positive");
+        }
+
+        if (coreThreads > maxThreads) {
+            throw new IllegalArgumentException("coreThreads cannot be greater than maxThreads");
+        }
+
         ThreadPoolExecutor res = pools.get(name);
         if (res != null) {
             return res;
@@ -64,5 +74,37 @@ public final class ExecutorUtil {
             pools.put(name, res);
         }
         return res;
+    }
+
+    /**
+     * Shutdown name-specific thread pool
+     *
+     * @param name
+     * @param now
+     */
+    public static void shutdown(String name, boolean now) {
+        if (name == null) {
+            return;
+        }
+        ThreadPoolExecutor executor = pools.remove(name);
+        if (executor != null) {
+            if (now) {
+                executor.shutdownNow();
+            } else {
+                executor.shutdown();
+            }
+        }
+    }
+
+    public static void shutDownAll(boolean now) {
+        for (Map.Entry<String, ThreadPoolExecutor> entry : pools.entrySet()) {
+            ThreadPoolExecutor executor = entry.getValue();
+            if (now) {
+                executor.shutdownNow();
+            } else {
+                executor.shutdown();
+            }
+            pools.clear();
+        }
     }
 }

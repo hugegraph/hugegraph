@@ -24,11 +24,11 @@ import org.apache.hugegraph.id.Id;
 public class PropertyList {
 
     /**
-     * 如果为空，或者 size 为 0，则不过滤
+     * If empty or size is zero, do not filter
      */
     private final List<Id> propertyIds;
     /**
-     * 不返回属性
+     * Not return property
      */
     private final boolean emptyId;
 

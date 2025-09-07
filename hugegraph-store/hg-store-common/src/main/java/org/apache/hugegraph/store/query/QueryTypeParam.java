@@ -30,9 +30,11 @@ import lombok.Data;
  * secondary index scan:
  * default range: start + end + isSecondaryIndex (true)
  */
+//FIXME A QueryParam should not be modified after its creation
 @Data
 public class QueryTypeParam {
 
+    //FIXME May be modified by setter
     public static final QueryTypeParam EMPTY = new QueryTypeParam();
     /**
      * id scan, the hash code of the key.
@@ -64,7 +66,7 @@ public class QueryTypeParam {
      */
     private boolean isSecondaryIndex = false;
     /**
-     * todo: 从索引反序列化成ID的时候，用于检查id.asBytes()的前缀
+     * todo: When deserializing from index to ID, used to check the prefix of id.asBytes()
      */
     private byte[] idPrefix;
 

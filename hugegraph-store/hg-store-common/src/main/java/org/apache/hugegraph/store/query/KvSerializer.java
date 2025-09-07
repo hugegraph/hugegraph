@@ -19,6 +19,7 @@ package org.apache.hugegraph.store.query;
 
 import java.math.BigDecimal;
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -159,7 +160,7 @@ public class KvSerializer {
      *
      * @param buffer the ByteBuffer to write
      * @param o      Object to write
-     * @return       updated ByteBuffer
+     * @return updated ByteBuffer
      */
     private static ByteBuffer write(ByteBuffer buffer, Object o) {
         if (o == null) {
@@ -272,7 +273,7 @@ public class KvSerializer {
     }
 
     private static ByteBuffer writeString(ByteBuffer buffer, String s) {
-        byte[] bytes = s.getBytes();
+        byte[] bytes = s.getBytes(StandardCharsets.UTF_8);
         buffer = ensureCapacity(buffer, bytes.length + Integer.BYTES);
         buffer.putInt(bytes.length);
         buffer.put(bytes);
@@ -283,7 +284,7 @@ public class KvSerializer {
         int len = buffer.getInt();
         byte[] bytes = new byte[len];
         buffer.get(bytes);
-        return new String(bytes);
+        return new String(bytes, StandardCharsets.UTF_8);
     }
 
     private static ByteBuffer writeBigDecimal(ByteBuffer buffer, BigDecimal d) {

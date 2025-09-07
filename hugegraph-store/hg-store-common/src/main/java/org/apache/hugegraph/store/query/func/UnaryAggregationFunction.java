@@ -70,9 +70,9 @@ public abstract class UnaryAggregationFunction<U, T> extends AbstractAggregation
     }
 
     /**
-     * 创建一个新的缓冲区。
+     * Create a new buffer
      *
-     * @return 返回创建的新缓冲区。
+     * @return Newly created buffer
      */
     @Override
     public U createBuffer() {
@@ -82,13 +82,13 @@ public abstract class UnaryAggregationFunction<U, T> extends AbstractAggregation
     protected abstract U initBuffer();
 
     /**
-     * 获取初始值。
+     * Get initial value
      *
-     * @param longSupplier    Long类型的供给者。
-     * @param integerSupplier Integer类型的供给者。
-     * @param doubleSupplier  Double类型的供给者。
-     * @param floatSupplier   Float类型的供给者。
-     * @return 返回初始化值的类型，如果没有找到匹配的类型则返回原来的实例。
+     * @param longSupplier    Long Supplier。
+     * @param integerSupplier Integer Supplier
+     * @param doubleSupplier  Double Supplier
+     * @param floatSupplier   Float Supplier
+     * @return Returns the type of the initialized value, or the original instance if no matching type is found
      */
     protected U getInitValue(Supplier<AtomicLong> longSupplier,
                              Supplier<AtomicInteger> integerSupplier,
@@ -96,6 +96,7 @@ public abstract class UnaryAggregationFunction<U, T> extends AbstractAggregation
                              Supplier<AtomicFloat> floatSupplier) {
         Object result;
         var ins = this.supplier.get();
+        //FIXME Using instance of statement
         switch (ins.getClass().getName()) {
             case "java.lang.Long":
                 result = longSupplier.get();

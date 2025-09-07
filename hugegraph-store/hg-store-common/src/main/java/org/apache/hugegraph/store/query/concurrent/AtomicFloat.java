@@ -55,20 +55,20 @@ public class AtomicFloat extends Number implements Serializable, Comparable<Atom
     }
 
     /**
-     * 向当前值添加指定值并返回总和。
+     * Adds the specified value to the current value and returns the sum
      *
-     * @param delta 需要添加的值
-     * @return 当前值与参数delta的总和
+     * @param delta The value to be added
+     * @return Sum of current value and delta
      */
     public final float addAndGet(float delta) {
         return getAndAddFloat(delta) + delta;
     }
 
     /**
-     * 计算并添加浮点数。将给定的浮点数delta加到当前的浮点数上，并返回结果。
+     * Compute and add floats. Appends the specified float delta to the current float and returns the sum
      *
-     * @param delta 浮点数的增量值
-     * @return 返回更新后的浮点数
+     * @param delta The value to be added
+     * @return Sum
      */
     private float getAndAddFloat(float delta) {
         int oldBits;
@@ -81,10 +81,10 @@ public class AtomicFloat extends Number implements Serializable, Comparable<Atom
     }
 
     /**
-     * 将float值设置为给定的新值，并返回旧值。
+     * Set current float to the new one and return the old one
      *
-     * @param newValue 新的float值
-     * @return 旧值
+     * @param newValue new float value
+     * @return old value
      */
     private float getAndSetFloat(float newValue) {
         int oldBits;
@@ -98,9 +98,9 @@ public class AtomicFloat extends Number implements Serializable, Comparable<Atom
 
     /**
      * {@inheritDoc}
-     * 返回值将转换为int类型并返回。
+     * Cast value to int and return
      *
-     * @return 整型数值
+     * @return Int value
      */
     @Override
     public int intValue() {
@@ -109,9 +109,9 @@ public class AtomicFloat extends Number implements Serializable, Comparable<Atom
 
     /**
      * {@inheritDoc}
-     * 返回一个长整型值。
+     * Cast to Long value and return
      *
-     * @return 长整型值
+     * @return Long value
      */
     @Override
     public long longValue() {
@@ -119,7 +119,7 @@ public class AtomicFloat extends Number implements Serializable, Comparable<Atom
     }
 
     /**
-     * {@inheritDoc} 返回当前值的float类型值。
+     * {@inheritDoc} Return the current float value
      */
     @Override
     public float floatValue() {
@@ -128,9 +128,9 @@ public class AtomicFloat extends Number implements Serializable, Comparable<Atom
 
     /**
      * {@inheritDoc}
-     * 返回当前对象的值对应的double类型值。
+     * Return double value
      *
-     * @return 当前对象的对应double类型值。
+     * @return current value in double type
      */
     @Override
     public double doubleValue() {
@@ -139,10 +139,11 @@ public class AtomicFloat extends Number implements Serializable, Comparable<Atom
 
     /**
      * {@inheritDoc}
-     * 重写父类方法，实现了浮点数的比较。
+     * override method in super class, implement compareTo func
      *
-     * @param o 待比较的浮点数
-     * @return 如果当前浮点数小于o，返回-1；如果相等，返回0；否则返回1
+     * @param o Value to compare
+     * @return if current value less than o, return -1; if current value is greater than o,
+     * return 1. Return 0 if equals
      */
     @Override
     public int compareTo(AtomicFloat o) {
@@ -151,9 +152,9 @@ public class AtomicFloat extends Number implements Serializable, Comparable<Atom
 
     /**
      * {@inheritDoc}
-     * 返回字符串表示形式。
+     * toString method
      *
-     * @return 包含整型位（intBits）和值的字符串
+     * @return A string containing integer bits (intBits) and the value
      */
     @Override
     public String toString() {
