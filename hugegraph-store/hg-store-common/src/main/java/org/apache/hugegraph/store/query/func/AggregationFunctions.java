@@ -17,15 +17,14 @@
 
 package org.apache.hugegraph.store.query.func;
 
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicLong;
-import java.util.function.Supplier;
-
+import com.google.common.util.concurrent.AtomicDouble;
 import org.apache.hugegraph.id.Id;
 import org.apache.hugegraph.store.query.Tuple2;
 import org.apache.hugegraph.store.query.concurrent.AtomicFloat;
 
-import com.google.common.util.concurrent.AtomicDouble;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Supplier;
 
 public class AggregationFunctions {
 
@@ -141,9 +140,9 @@ public class AggregationFunctions {
         @Override
         protected U initBuffer() {
             return getInitValue(() -> new AtomicLong(0),
-                                () -> new AtomicInteger(0),
-                                () -> new AtomicDouble(0.0),
-                                () -> new AtomicFloat(0.0f));
+                    () -> new AtomicInteger(0),
+                    () -> new AtomicDouble(0.0),
+                    () -> new AtomicFloat(0.0f));
         }
     }
 
@@ -162,9 +161,9 @@ public class AggregationFunctions {
         @Override
         protected U initBuffer() {
             return getInitValue(() -> new AtomicLong(Long.MIN_VALUE),
-                                () -> new AtomicInteger(Integer.MIN_VALUE),
-                                () -> new AtomicDouble(Double.MIN_VALUE),
-                                () -> new AtomicFloat(Float.MIN_VALUE));
+                    () -> new AtomicInteger(Integer.MIN_VALUE),
+                    () -> new AtomicDouble(Double.MIN_VALUE),
+                    () -> new AtomicFloat(Float.MIN_VALUE));
         }
 
         @Override
@@ -296,9 +295,9 @@ public class AggregationFunctions {
         @Override
         protected U initBuffer() {
             return getInitValue(() -> new AtomicLong(Long.MAX_VALUE),
-                                () -> new AtomicInteger(Integer.MAX_VALUE),
-                                () -> new AtomicDouble(Double.MAX_VALUE),
-                                () -> new AtomicFloat(Float.MAX_VALUE));
+                    () -> new AtomicInteger(Integer.MAX_VALUE),
+                    () -> new AtomicDouble(Double.MAX_VALUE),
+                    () -> new AtomicFloat(Float.MAX_VALUE));
         }
 
         @Override
@@ -312,22 +311,22 @@ public class AggregationFunctions {
 
                 switch (buffer.getClass().getName()) {
                     case "java.util.concurrent.atomic.AtomicLong":
-                        if (((AtomicLong) buffer).get() < (long) record) {
+                        if (((AtomicLong) buffer).get() > (long) record) {
                             ((AtomicLong) buffer).set((long) record);
                         }
                         break;
                     case "java.util.concurrent.atomic.AtomicInteger":
-                        if (((AtomicInteger) buffer).get() < (int) record) {
+                        if (((AtomicInteger) buffer).get() > (int) record) {
                             ((AtomicInteger) buffer).set((int) record);
                         }
                         break;
                     case "com.google.common.util.concurrent.AtomicDouble":
-                        if (((AtomicDouble) buffer).get() < (double) record) {
+                        if (((AtomicDouble) buffer).get() > (double) record) {
                             ((AtomicDouble) buffer).set((double) record);
                         }
                         break;
                     case "org.apache.hugegraph.store.query.concurrent.AtomicFloat":
-                        if (((AtomicFloat) buffer).get() < (float) record) {
+                        if (((AtomicFloat) buffer).get() > (float) record) {
                             ((AtomicFloat) buffer).set((float) record);
                         }
                         break;
@@ -351,22 +350,22 @@ public class AggregationFunctions {
 
             switch (buffer.getClass().getName()) {
                 case "java.util.concurrent.atomic.AtomicLong":
-                    if (((AtomicLong) buffer).get() < ((AtomicLong) other).get()) {
+                    if (((AtomicLong) buffer).get() > ((AtomicLong) other).get()) {
                         ((AtomicLong) buffer).set(((AtomicLong) other).get());
                     }
                     break;
                 case "java.util.concurrent.atomic.AtomicInteger":
-                    if (((AtomicInteger) buffer).get() < ((AtomicInteger) other).get()) {
+                    if (((AtomicInteger) buffer).get() > ((AtomicInteger) other).get()) {
                         ((AtomicInteger) buffer).set(((AtomicInteger) other).get());
                     }
                     break;
                 case "com.google.common.util.concurrent.AtomicDouble":
-                    if (((AtomicDouble) buffer).get() < ((AtomicDouble) other).get()) {
+                    if (((AtomicDouble) buffer).get() > ((AtomicDouble) other).get()) {
                         ((AtomicDouble) buffer).set(((AtomicDouble) other).get());
                     }
                     break;
                 case "org.apache.hugegraph.store.query.concurrent.AtomicFloat":
-                    if (((AtomicFloat) buffer).compareTo(((AtomicFloat) other)) < 0) {
+                    if (((AtomicFloat) buffer).compareTo(((AtomicFloat) other)) > 0) {
                         ((AtomicFloat) buffer).set(((AtomicFloat) other).get());
                     }
                     break;
@@ -403,9 +402,9 @@ public class AggregationFunctions {
                 case "com.google.common.util.concurrent.AtomicDouble":
                     return (T) Double.valueOf(((AtomicDouble) this.buffer).get());
                 case "java.lang.Float":
-                    return (T) Float.valueOf(((AtomicFloat) this.buffer).get());
-                case "org.apache.hugegraph.store.query.concurrent.AtomicFloat":
                     return (T) this.buffer;
+                case "org.apache.hugegraph.store.query.concurrent.AtomicFloat":
+                    return (T) Float.valueOf(((AtomicFloat) this.buffer).get());
                 default:
                     // throw new Exception ?
                     break;
@@ -416,8 +415,8 @@ public class AggregationFunctions {
     }
 
     public static class AvgFunction extends
-                                    AbstractAggregationFunction<Tuple2<AtomicLong, AtomicDouble>,
-                                            Double, Double> {
+            AbstractAggregationFunction<Tuple2<AtomicLong, AtomicDouble>,
+                    Double, Double> {
 
         private final Class filedClassType;
 
