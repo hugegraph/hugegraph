@@ -30,7 +30,7 @@ import org.apache.hugegraph.store.query.concurrent.AtomicFloat;
 import com.google.common.util.concurrent.AtomicDouble;
 
 /**
- * todo: 修改成类型二进制的存储
+ * todo: Convert data to type-based binary storage format
  */
 public class KvSerializer {
 
@@ -106,11 +106,11 @@ public class KvSerializer {
     }
 
     /**
-     * 从ByteBuffer中读取对象并返回。
+     * Read & Return Object from ByteBuffer
      *
-     * @param buffer 包含要读取对象的ByteBuffer
-     * @return 返回从ByteBuffer中读取的对象。如果类型为null，则返回null。
-     * @throws RuntimeException 当无法支持的类型时抛出异常。
+     * @param buffer target ByteBuffer
+     * @return Target Object, if the target is null return null
+     * @throws RuntimeException Not supported data type
      */
     private static Object read(ByteBuffer buffer) {
         var b = buffer.get();
@@ -145,7 +145,7 @@ public class KvSerializer {
     }
 
     /**
-     * 写入数据到ByteBuffer中，支持以下类型的写入：
+     * Write byte to ByteBuffer, supported data type：
      * <ul>
      * <li><code>null</code></li>
      * <li>{@link Long}</li>
@@ -157,9 +157,9 @@ public class KvSerializer {
      * <li>{@link String}</li>
      * </ul>
      *
-     * @param buffer 当前写入的ByteBuffer
-     * @param o      需要写入的数据对象
-     * @return 返回更新后的ByteBuffer
+     * @param buffer the ByteBuffer to write
+     * @param o      Object to write
+     * @return       updated ByteBuffer
      */
     private static ByteBuffer write(ByteBuffer buffer, Object o) {
         if (o == null) {
@@ -298,9 +298,10 @@ public class KvSerializer {
         return Tuple2.of(read(buffer), read(buffer));
     }
 
+    //FIXME The ensureCapacity method could lead to excessive memory allocation for large objects
     private static ByteBuffer ensureCapacity(ByteBuffer buffer, int capacity) {
         if (buffer.remaining() < capacity) {
-            // 防止 capacity 大于 现在的2倍
+            // In case, "capacity" is larger than the current
             var newBuffer = ByteBuffer.allocate(buffer.capacity() * 2 + capacity);
             buffer.flip();
             newBuffer.put(buffer);
