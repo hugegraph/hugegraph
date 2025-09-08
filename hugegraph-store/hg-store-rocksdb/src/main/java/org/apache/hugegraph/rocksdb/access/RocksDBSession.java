@@ -867,7 +867,7 @@ public class RocksDBSession implements AutoCloseable, Cloneable {
     }
 
     /**
-     * 根据表名获取 size
+     * Get size by table name
      * @param table table
      * @param start key start
      * @param end key end
