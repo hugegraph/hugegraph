@@ -98,6 +98,7 @@ jobs:
       # The above tests do not require starting a PD instance.
 
       - name: Package
+        # todo remove --fail-at-end after test
         run: |
           mvn clean package -U -Dmaven.javadoc.skip=true -Dmaven.test.skip=true -ntp --fail-at-end
 
@@ -122,7 +123,7 @@ jobs:
     needs: struct
     runs-on: ubuntu-latest
     env:
-      USE_STAGE: 'true' # Whether to include the stage repository.
+      USE_STAGE: 'false' # Whether to include the stage repository.
       # TODO: remove outdated env
       TRAVIS_DIR: hugegraph-server/hugegraph-dist/src/assembly/travis
       REPORT_DIR: target/site/jacoco
@@ -153,6 +154,7 @@ jobs:
           mv -vf .github/configs/settings.xml $HOME/.m2/settings.xml
 
       - name: Package
+        # todo remove --fail-at-end after test
         run: |
           mvn clean package -U -Dmaven.javadoc.skip=true -Dmaven.test.skip=true -ntp --fail-at-end
 
@@ -226,8 +228,9 @@ jobs:
           mv -vf .github/configs/settings.xml $HOME/.m2/settings.xml
 
       - name: Package
+        # todo remove --fail-at-end after test
         run: |
-          mvn clean package -U -Dmaven.javadoc.skip=true -Dmaven.test.skip=true -ntp
+          mvn clean package -U -Dmaven.javadoc.skip=true -Dmaven.test.skip=true -ntp --fail-at-end
 
       - name: Prepare env and service
         run: |
