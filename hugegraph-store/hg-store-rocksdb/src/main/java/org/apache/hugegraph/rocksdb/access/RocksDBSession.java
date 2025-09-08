@@ -876,7 +876,7 @@ public class RocksDBSession implements AutoCloseable, Cloneable {
     public long getApproximateDataSize(String table, byte[] start, byte[] end) {
         cfHandleLock.readLock().lock();
         try {
-            if (this.tables.containsKey(table)) {
+            if (!this.tables.containsKey(table)) {
                 return 0;
             }
 
