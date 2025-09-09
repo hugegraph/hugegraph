@@ -89,7 +89,7 @@ public class RocksDBOptions extends OptionHolder {
     public static final ConfigOption<String> OPTION_PATH =
             new ConfigOption<>(
                     "rocksdb.option_path",
-                    "The path of the JSON file for configuring RocksDB options.",
+                    "The YAML file for configuring Topling/RocksDB parameters",
                     null,
                     ""
             );
