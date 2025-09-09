@@ -109,7 +109,7 @@ public class BaseRocksDBUnitTest extends BaseUnitTest {
     private static RocksDBSessions open(String table) throws RocksDBException {
         HugeConfig config = FakeObjects.newConfig();
         RocksDBSessions rocks = new RocksDBStdSessions(config, "db", "store",
-                                                       DB_PATH, DB_PATH, null, false);
+                                                       DB_PATH, DB_PATH);
         rocks.createTable(table);
         return rocks;
     }

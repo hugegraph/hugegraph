@@ -34,10 +34,12 @@ function extract_so_with_jar() {
 
     if [ ! -f "$jar_file" ]; then
       echo "'$jar_file' Not Exist" >&2
+      return 1
     fi
 
     if ! mkdir -p "$dest_dir"; then
       echo "Cannot mkdir '$dest_dir'" >&2
+      return 1
     fi
 
     if [[ "$jar_file" == /* ]]; then
@@ -46,12 +48,16 @@ function extract_so_with_jar() {
       abs_jar_path="$(pwd)/$jar_file"
     fi
 
-    unzip -j -o "$abs_jar_path" "*.so" -d "$dest_dir" > /dev/null
+    unzip -j -o "$abs_jar_path" "*.so" -d "$dest_dir" > /dev/null 2>&1
     pipeline_status=$?
 
     if [ $pipeline_status -ne 0 ]; then
-      # unzip provides specific exit codes that can be more descriptive.
-      echo "Error: Failed to extract .so files with unzip (Exit Code: $pipeline_status)" >&2
+      if [ $pipeline_status -eq 11 ]; then
+        echo "Error: No .so files found in '$abs_jar_path' (unzip exit 11)" >&2
+      else
+        echo "Error: unzip failed (exit $pipeline_status) for '$abs_jar_path'" >&2
+      fi
+      return $pipeline_status
     fi
 }
 
@@ -98,8 +104,17 @@ function extract_html_css_from_jar() {
 }
 
 function preload_toplingdb() {
-  local jar_file=$(find $LIB -name "rocksdbjni*.jar")
-  local dest_dir="$TOP/library"
+  local jar_file
+  local dest_dir
+
+  # Find first rocksdbjni*.jar
+  jar_file=$(find "$LIB" -maxdepth 1 -type f -name "rocksdbjni*.jar" -print -quit || true)
+  if [ -z "${jar_file:-}" ]; then
+    echo "Error: No rocksdbjni*.jar found under '$LIB'" >&2
+    return 1
+  fi
+  
+  dest_dir="$TOP/library"
 
   # Check for Ubuntu 24.04+ and create a symlink for libaio if needed.
   # This is a workaround for software expecting the old libaio.so.1 name,

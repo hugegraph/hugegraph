@@ -92,15 +92,34 @@ public class RocksDBStdSessions extends RocksDBSessions {
     private final AtomicInteger refCount;
 
     public RocksDBStdSessions(HugeConfig config, String database, String store,
-                              String dataPath, String walPath, String optionPath,
-                              Boolean openHttp) throws
-                                                RocksDBException {
+                              String dataPath, String walPath, Object... optionalArgs) throws
+                                                                                       RocksDBException {
         super(config, database, store);
         this.config = config;
         this.dataPath = dataPath;
         this.walPath = walPath;
-        this.optionPath = optionPath;
-        this.openHttp = openHttp;
+
+        // Parse optional Args
+        if (optionalArgs.length >= 2) {
+            if (!(optionalArgs[0] instanceof String)) {
+                throw new IllegalArgumentException("Expected String for optionPath at position 0");
+            }
+            if (!(optionalArgs[1] instanceof Boolean)) {
+                throw new IllegalArgumentException("Expected Boolean for openHttp at position 1");
+            }
+            this.optionPath = (String) optionalArgs[0];
+            this.openHttp = (Boolean) optionalArgs[1];
+        } else if (optionalArgs.length == 1) {
+            if (!(optionalArgs[0] instanceof String)) {
+                throw new IllegalArgumentException("Expected String for optionPath at position 0");
+            }
+            this.optionPath = (String) optionalArgs[0];
+            this.openHttp = false; // 默认值
+        } else {
+            this.optionPath = null; // 默认值
+            this.openHttp = false; // 默认值
+        }
+
         this.rocksdb = RocksDBStdSessions.openRocksDB(config, dataPath, walPath, optionPath,
                                                       openHttp);
         this.refCount = new AtomicInteger(1);
@@ -108,14 +127,34 @@ public class RocksDBStdSessions extends RocksDBSessions {
 
     public RocksDBStdSessions(HugeConfig config, String database, String store,
                               String dataPath, String walPath,
-                              List<String> cfNames, String optionPath, Boolean openHttp) throws
-                                                                                         RocksDBException {
+                              List<String> cfNames, Object... optionalArgs) throws
+                                                                            RocksDBException {
         super(config, database, store);
         this.config = config;
         this.dataPath = dataPath;
         this.walPath = walPath;
-        this.optionPath = optionPath;
-        this.openHttp = openHttp;
+
+        // Parse optional Args
+        if (optionalArgs.length >= 2) {
+            if (!(optionalArgs[0] instanceof String)) {
+                throw new IllegalArgumentException("Expected String for optionPath at position 0");
+            }
+            if (!(optionalArgs[1] instanceof Boolean)) {
+                throw new IllegalArgumentException("Expected Boolean for openHttp at position 1");
+            }
+            this.optionPath = (String) optionalArgs[0];
+            this.openHttp = (Boolean) optionalArgs[1];
+        } else if (optionalArgs.length == 1) {
+            if (!(optionalArgs[0] instanceof String)) {
+                throw new IllegalArgumentException("Expected String for optionPath at position 0");
+            }
+            this.optionPath = (String) optionalArgs[0];
+            this.openHttp = false;
+        } else {
+            this.optionPath = null;
+            this.openHttp = false;
+        }
+
         this.rocksdb =
                 RocksDBStdSessions.openRocksDB(config, cfNames, dataPath, walPath, optionPath,
                                                openHttp);
