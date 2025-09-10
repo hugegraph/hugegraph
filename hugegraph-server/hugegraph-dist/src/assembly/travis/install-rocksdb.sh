@@ -16,6 +16,11 @@
 # limitations under the License.
 #
 
+set -Eeuo pipefail
+IFS=$'\n\t'
+# Unified error capture for easy positioning
+trap 'echo "[install-rocksdb] error at line ${LINENO}: ${BASH_COMMAND}" >&2' ERR
+
 function abs_path() {
     SOURCE="${BASH_SOURCE[0]}"
     while [[ -h "$SOURCE" ]]; do
@@ -134,7 +139,7 @@ function preload_toplingdb() {
   fi
 
   extract_so_with_jar $jar_file $dest_dir
-  export LD_LIBRARY_PATH=$dest_dir:$LD_LIBRARY_PATH
+  export LD_LIBRARY_PATH="${dest_dir}:${LD_LIBRARY_PATH:-}"
   export LD_PRELOAD=libjemalloc.so:librocksdbjni-linux64.so
 
   extract_html_css_from_jar $jar_file $dest_dir
