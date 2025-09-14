@@ -24,6 +24,7 @@ import static org.apache.hugegraph.pd.grpc.Metapb.ShardGroup;
 import static org.apache.hugegraph.pd.grpc.Metapb.Store;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.ThreadPoolExecutor;
 
 import org.apache.hugegraph.pd.common.PDException;
@@ -82,6 +83,7 @@ public class MetadataService extends MetadataRocksDBStore {
             List<Store> data = store.getStores("");
             builder.addAllData(data);
         } catch (Exception e) {
+            log.error("failed to retrieve stores from metadata storage", e);
             throw e;
         }
         return builder.build();
@@ -93,6 +95,7 @@ public class MetadataService extends MetadataRocksDBStore {
             List<Partition> data = partition.getPartitions();
             builder.addAllData(data);
         } catch (Exception e) {
+            log.error("failed to retrieve partitions from metadata storage", e);
             throw e;
         }
         return builder.build();
@@ -104,6 +107,7 @@ public class MetadataService extends MetadataRocksDBStore {
             List<ShardGroup> data = store.getShardGroups();
             builder.addAllData(data);
         } catch (Exception e) {
+            log.error("failed to retrieve shard groups from metadata storage", e);
             throw e;
         }
         return builder.build();
@@ -116,6 +120,7 @@ public class MetadataService extends MetadataRocksDBStore {
             List<GraphSpace> data = scanPrefix(GraphSpace.parser(), prefix);
             builder.addAllData(data);
         } catch (Exception e) {
+            log.error("failed to scan graph spaces", e);
             throw e;
         }
         return builder.build();
@@ -127,6 +132,7 @@ public class MetadataService extends MetadataRocksDBStore {
             List<Graph> data = partition.getGraphs();
             builder.addAllData(data);
         } catch (Exception e) {
+            log.error("failed to retrieve graphs from metadata storage", e);
             throw e;
         }
         return builder.build();
@@ -137,6 +143,8 @@ public class MetadataService extends MetadataRocksDBStore {
             store.updateStore(request);
             return true;
         } catch (PDException e) {
+            String name = request != null ? request.getId() + "@" + request.getAddress() : "null";
+            log.error("failed to update store: {}", name, e);
             throw e;
         }
     }
@@ -146,6 +154,8 @@ public class MetadataService extends MetadataRocksDBStore {
             partition.updatePartition(request);
             return true;
         } catch (Exception e) {
+            String name = request != null ? request.getId() + "@" + request.getGraphName() : "null";
+            log.error("failed to update partition: {}", name, e);
             throw e;
         }
     }
@@ -155,6 +165,8 @@ public class MetadataService extends MetadataRocksDBStore {
             store.updateShardGroup(request);
             return true;
         } catch (Exception e) {
+            String name = request != null ? request.getId() + "@" + request.getState() : "null";
+            log.error("failed to update shard group: {}", name, e);
             throw e;
         }
     }
@@ -165,6 +177,8 @@ public class MetadataService extends MetadataRocksDBStore {
             put(key, request.toByteArray());
             return true;
         } catch (Exception e) {
+            String name = request != null ? request.getName() : "null";
+            log.error("failed to update graph space: {}", name, e);
             throw e;
         }
     }
@@ -175,6 +189,8 @@ public class MetadataService extends MetadataRocksDBStore {
             put(key, request.toByteArray());
             return true;
         } catch (Exception e) {
+            String name = request != null ? request.getGraphName() : "null";
+            log.error("failed to update graph: {}", name, e);
             throw e;
         }
     }
