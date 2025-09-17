@@ -350,7 +350,7 @@ public class RaftEngine {
                 }
                 leader = getLeader();
             }
-            return leader != null ? leader : null;
+            return leader;
         }
 
     }

@@ -213,7 +213,7 @@ public class RaftStateMachine extends StateMachineAdapter {
             try {
                 decompressSnapshot(reader);
             } catch (PDException e) {
-                log.error("Failed to delete snapshot directory {}, {}", snapshotDir, e.toString());
+                log.error("Failed to decompress snapshot directory {}, {}", snapshotDir, e.toString());
                 return true;
             }
 
