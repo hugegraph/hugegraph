@@ -252,7 +252,7 @@ public class StoreMonitorDataService {
                .append(MetadataKeyHelper.getDelimiter())
                .append(storeId)
                .append(MetadataKeyHelper.getDelimiter())
-               .append(ts);
+               .append(String.format("%010d", ts));
         return builder.toString();
     }
 

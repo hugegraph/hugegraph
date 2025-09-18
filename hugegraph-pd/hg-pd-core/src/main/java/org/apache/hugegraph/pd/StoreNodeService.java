@@ -703,7 +703,7 @@ public class StoreNodeService {
 
             // Check the status of the cluster
             // todo : A clearer definition of cluster status
-            Metapb.PartitionState clusterState = Metapb.PartitionState.PState_None;
+            Metapb.PartitionState clusterState = state;
             for (Metapb.ShardGroup group : getShardGroups()) {
                 if (group.getState().getNumber() > state.getNumber()) {
                     clusterState = group.getState();
