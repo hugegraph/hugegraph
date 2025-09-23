@@ -15,27 +15,37 @@
  * limitations under the License.
  */
 
-package org.apache.hugegraph.store.client.util;
+package org.apache.hugegraph.store.client.query;
 
-import java.nio.ByteBuffer;
-import java.util.UUID;
+/**
+ * |---(has more result) --> IDLE
+ * |
+ * IDLE --(send req)--> WAITING --(onNext)--> INNER_BUSY |---(onCompleted)--> FINISHED
+ * |
+ * |---(error)----> ERROR
+ * |
+ * |---(processing)-> BUSY (ERROR)
+ */
+public enum ResultState {
+    // Initialized and ready for new data
+    IDLE,
+    // The state of having sent data and awaiting the server's response
+    WAITING,
+    // Reading state
+    INNER_BUSY,
+    // No more data
+    FINISHED,
+    // Error
+    ERROR;
 
-public final class HgUuid {
+    private String message;
 
-    private static String encode(UUID uuid) {
-        ByteBuffer bb = ByteBuffer.wrap(new byte[16]);
-        bb.putLong(uuid.getMostSignificantBits());
-        bb.putLong(uuid.getLeastSignificantBits());
-        return Base58.encode(bb.array());
+    public String getMessage() {
+        return message;
     }
 
-    /**
-     * Get a UUID in Base58 FORM
-     *
-     * @return
-     */
-    public static String newUUID() {
-        return encode(UUID.randomUUID());
+    public ResultState setMessage(String message) {
+        this.message = message;
+        return this;
     }
-
 }

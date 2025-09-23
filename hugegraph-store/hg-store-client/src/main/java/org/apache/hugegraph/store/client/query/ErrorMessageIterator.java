@@ -15,27 +15,27 @@
  * limitations under the License.
  */
 
-package org.apache.hugegraph.store.client.util;
+package org.apache.hugegraph.store.client.query;
 
-import java.nio.ByteBuffer;
-import java.util.UUID;
+import org.apache.hugegraph.store.client.type.HgStoreClientException;
 
-public final class HgUuid {
+import java.util.Iterator;
 
-    private static String encode(UUID uuid) {
-        ByteBuffer bb = ByteBuffer.wrap(new byte[16]);
-        bb.putLong(uuid.getMostSignificantBits());
-        bb.putLong(uuid.getLeastSignificantBits());
-        return Base58.encode(bb.array());
+public class ErrorMessageIterator<E> implements Iterator<E> {
+
+    private final String message;
+
+    public ErrorMessageIterator(String message) {
+        this.message = message;
     }
 
-    /**
-     * Get a UUID in Base58 FORM
-     *
-     * @return
-     */
-    public static String newUUID() {
-        return encode(UUID.randomUUID());
+    @Override
+    public boolean hasNext() {
+        return true;
     }
 
+    @Override
+    public E next() {
+        throw new HgStoreClientException(message);
+    }
 }

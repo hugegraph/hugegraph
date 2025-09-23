@@ -15,27 +15,12 @@
  * limitations under the License.
  */
 
-package org.apache.hugegraph.store.client.util;
+package org.apache.hugegraph.store;
 
-import java.nio.ByteBuffer;
-import java.util.UUID;
+import lombok.Data;
 
-public final class HgUuid {
+@Data
+public class HgSessionConfig {
 
-    private static String encode(UUID uuid) {
-        ByteBuffer bb = ByteBuffer.wrap(new byte[16]);
-        bb.putLong(uuid.getMostSignificantBits());
-        bb.putLong(uuid.getLeastSignificantBits());
-        return Base58.encode(bb.array());
-    }
-
-    /**
-     * Get a UUID in Base58 FORM
-     *
-     * @return
-     */
-    public static String newUUID() {
-        return encode(UUID.randomUUID());
-    }
-
+    private long queryPushDownTimeout = 1800_000;
 }
