@@ -20,13 +20,6 @@ package org.apache.hugegraph.store.client.util;
 import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
 
-/**
- * Created with IntelliJ IDEA.
- * User: noah
- * Date: 8/2/13
- * Time: 10:36 AM
- * To change this template use File | Settings | File Templates.
- */
 public class Base58 {
 
     public static final char[] ALPHABET =

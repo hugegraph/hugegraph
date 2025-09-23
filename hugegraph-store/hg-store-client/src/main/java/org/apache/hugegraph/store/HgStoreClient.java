@@ -82,7 +82,7 @@ public final class HgStoreClient {
      * @return
      */
     public HgStoreSession openSession(String graphName) {
-        return this.sessionProvider.createSession(graphName);
+        return this.sessionProvider.createSession(graphName, this.sessionConfig);
     }
 
     public PDClient getPdClient() {

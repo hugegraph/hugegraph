@@ -87,7 +87,7 @@ public class StreamFinalAggregationIterator<E> implements HgKvIterator<E> {
             if (keyEquals(next.getKeys(), prev.getKeys())) {
                 merge(next.getValues());
             } else {
-                // 产生结果
+                // Generate result
                 data = KvElement.of(prev.getKeys(), term());
                 prev = next;
                 functions = getAggregationList();
@@ -96,7 +96,7 @@ public class StreamFinalAggregationIterator<E> implements HgKvIterator<E> {
             }
         }
 
-        // 消费完最后一个prev
+        // Consume the last prev element
         if (!iterator.hasNext() && prev != null && data == null) {
             data = KvElement.of(prev.getKeys(), term());
             prev = null;
@@ -144,7 +144,7 @@ public class StreamFinalAggregationIterator<E> implements HgKvIterator<E> {
         return this.aggregationParams.stream()
                                      .map((Function<AggregationFunctionParam,
                                              AggregationFunction>) param -> {
-                                         var filedType = param.getFiledType().getGenericType();
+                                         var filedType = param.getFieldType().getGenericType();
                                          switch (param.getFunctionType()) {
                                              case SUM:
                                                  return new AggregationFunctions.SumFunction(

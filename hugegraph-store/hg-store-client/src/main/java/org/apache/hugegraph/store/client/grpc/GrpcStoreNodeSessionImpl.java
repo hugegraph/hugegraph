@@ -535,6 +535,6 @@ class GrpcStoreNodeSessionImpl implements HgStoreNodeSession {
     @Override
     public List<HgKvIterator<BaseElement>> query(StoreQueryParam query,
                                                  HugeGraphSupplier supplier) throws PDException {
-        return null;
+        throw new UnsupportedOperationException("query() not supported yet");
     }
 }

@@ -45,6 +45,7 @@ public class MultiStreamIterator<E> implements HgKvIterator<E> {
 
     @Override
     public void close() {
+        //Todo is syntax correct?
         if (currentIterator != null && currentIterator.hasNext()) {
             currentIterator.close();
         }
@@ -57,7 +58,6 @@ public class MultiStreamIterator<E> implements HgKvIterator<E> {
 
     @Override
     public void seek(byte[] position) {
-        // todo: ??
         this.currentIterator.seek(position);
     }
 

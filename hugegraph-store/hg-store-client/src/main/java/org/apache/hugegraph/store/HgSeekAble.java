@@ -23,10 +23,11 @@ package org.apache.hugegraph.store;
 public interface HgSeekAble {
 
     default byte[] position() {
-        return null;
+        throw new UnsupportedOperationException("HgSeekAble.position() is unsupported by default");
     }
 
     default void seek(byte[] position) {
+        throw new UnsupportedOperationException("HgSeekAble.seek() is unsupported by default");
     }
 
 }

@@ -102,7 +102,7 @@ public class GrpcStoreStateClient extends AbstractGrpcClient implements Closeabl
             try {
                 c.shutdown();
             } catch (Exception e) {
-
+                log.warn("Error closing channel", e);
             }
         }
         channels.clear();

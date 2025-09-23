@@ -29,7 +29,7 @@ import io.grpc.stub.AbstractBlockingStub;
 
 public class QueryV2Client extends AbstractGrpcClient {
 
-    private static ManagedChannel channel = null;
+    private volatile static ManagedChannel channel = null;
 
     private final AtomicInteger seq = new AtomicInteger(0);
 

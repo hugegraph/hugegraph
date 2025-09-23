@@ -133,7 +133,7 @@ public class CommonKvStreamObserver<R, T> implements StreamObserver<R> {
                     return iterator;
                 }
 
-                if (System.currentTimeMillis() - watcher.current > this.timeout) {
+                if ((System.nanoTime() - watcher.current) / 1000_000 > this.timeout) {
                     throw new HgStoreClientException("iterator timeout");
                 }
 

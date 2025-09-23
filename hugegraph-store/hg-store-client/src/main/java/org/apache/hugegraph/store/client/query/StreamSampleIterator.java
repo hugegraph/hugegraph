@@ -21,6 +21,7 @@ import java.util.Random;
 
 import org.apache.hugegraph.store.HgKvIterator;
 
+//TODO Only caller use this by if (iter.hasNext()) { iter.next() } could lead to correct behavior
 public class StreamSampleIterator<E> implements HgKvIterator<E> {
 
     private final HgKvIterator<E> iterator;

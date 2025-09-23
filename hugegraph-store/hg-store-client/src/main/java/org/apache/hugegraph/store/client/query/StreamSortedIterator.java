@@ -36,7 +36,7 @@ public class StreamSortedIterator<E> implements HgKvIterator<E> {
 
     public StreamSortedIterator(List<HgKvIterator<E>> iterators, Comparator<E> comparator) {
         this.iterators = iterators;
-        // this.pq = new PriorityQueue<>((o1, o2) -> comparator.compare(o1.getV1(), o2.getV1()));
+        // Note: PriorityBlockingQueue is used instead of PriorityQueue to ensure thread safety during parallel initialization.
         this.pq = new PriorityBlockingQueue<>(iterators.size(),
                                               (o1, o2) -> comparator.compare(o1.getV1(),
                                                                              o2.getV1()));

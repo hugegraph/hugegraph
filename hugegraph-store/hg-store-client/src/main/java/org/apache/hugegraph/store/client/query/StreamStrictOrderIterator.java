@@ -66,7 +66,9 @@ public class StreamStrictOrderIterator<E> implements HgKvIterator<E> {
 
     @Override
     public void close() {
-
+        for (StreamKvIterator<E> itr : this.iteratorMap.values()) {
+            itr.close();
+        }
     }
 
     @Override
@@ -88,7 +90,7 @@ public class StreamStrictOrderIterator<E> implements HgKvIterator<E> {
                 var param = ids.next();
                 var addr = this.nodePartitioner.partition(graph, param.getCode());
                 var itr = iteratorMap.get(addr);
-                if (itr.hasNext()) {
+                if (itr != null && itr.hasNext()) {
                     var t = (BaseElement) itr.next();
                     if (Arrays.equals(t.id().asBytes(), param.getStart())) {
                         this.data = (E) t;

@@ -196,7 +196,6 @@ public class QueryExecutor {
                         } finally {
                             element = null;
                         }
-                        // return fromKv(request.getTable(), itr.next(), hasAgg);
                     }
                 },
 
@@ -408,8 +407,8 @@ public class QueryExecutor {
                 builder.setField(idToBytes(param.getField()));
             }
 
-            if (param.getFiledType() != null) {
-                builder.setType(param.getFiledType().getGenericType());
+            if (param.getFieldType() != null) {
+                builder.setType(param.getFieldType().getGenericType());
             }
             return builder.build();
         }).collect(Collectors.toList());
