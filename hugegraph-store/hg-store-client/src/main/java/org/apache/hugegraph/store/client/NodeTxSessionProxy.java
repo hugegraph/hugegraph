@@ -69,7 +69,7 @@ import lombok.extern.slf4j.Slf4j;
  */
 @Slf4j
 @NotThreadSafe
-class NodeTxSessionProxy implements HgStoreSession {
+public class NodeTxSessionProxy implements HgStoreSession {
 
     private final HgSessionConfig sessionConfig;
     private final HgStoreNodeManager nodeManager;

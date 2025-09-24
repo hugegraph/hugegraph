@@ -15,22 +15,17 @@
  * limitations under the License.
  */
 
-package org.apache.hugegraph.api.graphspaces;
+package org.apache.hugegraph.space.register;
 
-import java.util.Objects;
+import java.lang.reflect.Proxy;
 
-import org.apache.hugegraph.api.BaseApiTest;
-import org.apache.hugegraph.api.PropertyKeyApiTest;
-import org.junit.BeforeClass;
+public class Invoker {
 
-public class GraphSpacePropertyKeyApiTest extends PropertyKeyApiTest {
-
-    @BeforeClass
-    public static void init() {
-        if (Objects.nonNull(client)) {
-            client.close();
-        }
-        client = new RestClient(String.join("/", BASE_URL, "graphspaces", "DEFAULT"));
-        BaseApiTest.clearData();
+    public Object getInstance(Class<?> clazz, IServiceRegister register) {
+        RegisterLoader loader = new RegisterLoader();
+        loader.bind(register);
+        Object proxyInstance =
+                Proxy.newProxyInstance(clazz.getClassLoader(), new Class[]{clazz}, loader);
+        return proxyInstance;
     }
 }

@@ -15,22 +15,25 @@
  * limitations under the License.
  */
 
-package org.apache.hugegraph.api.graphspaces;
+package org.apache.hugegraph.space.register;
 
-import java.util.Objects;
+import java.util.Map;
 
-import org.apache.hugegraph.api.BaseApiTest;
-import org.apache.hugegraph.api.VertexLabelApiTest;
-import org.junit.BeforeClass;
+import org.apache.hugegraph.pd.grpc.discovery.NodeInfos;
 
-public class GraphSpaceVertexLabelApiTest extends VertexLabelApiTest {
+public interface IServiceRegister {
 
-    @BeforeClass
-    public static void init() {
-        if (Objects.nonNull(client)) {
-            client.close();
-        }
-        client = new RestClient(String.join("/", BASE_URL, "graphspaces", "DEFAULT"));
-        BaseApiTest.clearData();
-    }
+    String init(String var1) throws Exception;
+
+    String registerService(RegisterConfig var1);
+
+    void unregister(RegisterConfig var1);
+
+    void unregister(String var1);
+
+    void unregisterAll();
+
+    Map<String, NodeInfos> getServiceInfo(String var1);
+
+    void close();
 }
