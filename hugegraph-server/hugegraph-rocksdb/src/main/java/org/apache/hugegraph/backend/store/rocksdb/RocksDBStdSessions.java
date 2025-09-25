@@ -114,10 +114,10 @@ public class RocksDBStdSessions extends RocksDBSessions {
                 throw new IllegalArgumentException("Expected String for optionPath at position 0");
             }
             this.optionPath = (String) optionalArgs[0];
-            this.openHttp = false; // 默认值
+            this.openHttp = false;
         } else {
-            this.optionPath = null; // 默认值
-            this.openHttp = false; // 默认值
+            this.optionPath = null;
+            this.openHttp = false;
         }
 
         this.rocksdb = RocksDBStdSessions.openRocksDB(config, dataPath, walPath, optionPath,
@@ -497,9 +497,16 @@ public class RocksDBStdSessions extends RocksDBSessions {
                         "Topling features (SidePluginRepo) are required but not found in the " +
                         "rocksdbjni library.",
                         e);
-            } catch (InvocationTargetException | InstantiationException | IllegalAccessException |
-                     NoSuchMethodException e) {
-                throw new RuntimeException(e);
+            } catch (InvocationTargetException e) {
+                Throwable cause = e.getCause();
+                if (cause instanceof RocksDBException) {
+                    throw (RocksDBException) cause;
+                } else {
+                    throw new RocksDBException(
+                            "Failed to open DB with SidePluginRepo: " + cause.getMessage());
+                }
+            } catch (InstantiationException | NoSuchMethodException | IllegalAccessException e) {
+                throw new RocksDBException("SidePluginRepo reflection error: " + e.getMessage());
             }
         } else {
             rocksdb = RocksDB.open(options, dataPath);
@@ -598,14 +605,16 @@ public class RocksDBStdSessions extends RocksDBSessions {
                         "Topling features (SidePluginRepo) are required but not found in the " +
                         "rocksdbjni library.",
                         e);
-            } catch (InvocationTargetException | InstantiationException | NoSuchMethodException |
-                     IllegalAccessException e) {
-                Throwable rootCause = e;
-
-                while (rootCause.getCause() != null && rootCause.getCause() != rootCause) {
-                    rootCause = rootCause.getCause();
+            } catch (InvocationTargetException e) {
+                Throwable cause = e.getCause();
+                if (cause instanceof RocksDBException) {
+                    throw (RocksDBException) cause;
+                } else {
+                    throw new RocksDBException(
+                            "Failed to open DB with SidePluginRepo: " + cause.getMessage());
                 }
-                throw new RocksDBException(rootCause.getMessage());
+            } catch (InstantiationException | NoSuchMethodException | IllegalAccessException e) {
+                throw new RocksDBException("SidePluginRepo reflection error: " + e.getMessage());
             }
         } else {
             // use rocksdb
@@ -644,6 +653,9 @@ public class RocksDBStdSessions extends RocksDBSessions {
     }
 
     private static String converseOptionsToJsonString(String dataPath, List<String> cfs) {
+        if (dataPath == null || dataPath.trim().isEmpty()) {
+            throw new IllegalArgumentException("dataPath cannot be null or empty");
+        }
         // construct CFOptions
         JSONObject columnFamilies = new JSONObject();
         // multi CFs
