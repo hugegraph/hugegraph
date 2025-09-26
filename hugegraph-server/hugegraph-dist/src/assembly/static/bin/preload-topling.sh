@@ -21,11 +21,20 @@ IFS=$'\n\t'
 # Unified error capture for easy positioning
 trap 'echo "[preload-topling] error at line ${LINENO}: ${BASH_COMMAND}" >&2' ERR
 
-source "$(dirname "${BASH_SOURCE[0]}")/common-topling.sh"
-
-BIN=$(abs_path)
+BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TOP="$(cd "$BIN"/../ && pwd)"
 LIB="$TOP/lib"
 DEST_DIR="$TOP/library"
 
+if [ ! -d "$LIB" ]; then
+    echo "Error: LIB dir not found: $LIB" >&2
+    exit 1
+fi
+if [ ! -f "$BIN/common-topling.sh" ]; then
+    echo "Error: common-topling.sh not found under: $BIN" >&2
+    exit 1
+fi
+
+source "$BIN/common-topling.sh"
+type preload_toplingdb >/dev/null 2>&1 || { echo "Error: function preload_toplingdb not found" >&2; exit 1; }
 preload_toplingdb "$LIB" "$DEST_DIR"

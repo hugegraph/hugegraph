@@ -27,6 +27,19 @@ BIN="$SERVER_DIR/bin"
 LIB="$SERVER_DIR/lib"
 DEST_DIR="$SERVER_DIR/library"
 
-source "$BIN/common-topling.sh"
+if [ ! -d "$SERVER_DIR" ]; then
+    echo "Error: SERVER_DIR not found: $SERVER_DIR" >&2
+    exit 1
+fi
+if [ ! -d "$LIB" ]; then
+    echo "Error: LIB dir not found: $LIB" >&2
+    exit 1
+fi
+if [ ! -f "$BIN/common-topling.sh" ]; then
+    echo "Error: common-topling.sh not found under: $BIN" >&2
+    exit 1
+fi
 
+source "$BIN/common-topling.sh"
+type preload_toplingdb >/dev/null 2>&1 || { echo "Error: function preload_toplingdb not found" >&2; exit 1; }
 preload_toplingdb "$LIB" "$DEST_DIR"
