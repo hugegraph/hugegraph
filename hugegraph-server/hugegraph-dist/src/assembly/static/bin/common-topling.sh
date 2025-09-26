@@ -20,9 +20,11 @@ IFS=$'\n\t'
 trap 'echo "[common-topling] error at line ${LINENO}: ${BASH_COMMAND}" >&2' ERR
 
 function abs_path() {
-    local SOURCE="${BASH_SOURCE[0]}"
+    local SOURCE
+    SOURCE="${BASH_SOURCE[0]}"
     while [[ -h "$SOURCE" ]]; do
-        local DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+        local DIR
+        DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
         SOURCE="$(readlink "$SOURCE")"
         [[ $SOURCE != /* ]] && SOURCE="$DIR/$SOURCE"
     done
@@ -97,7 +99,12 @@ function extract_html_css_from_jar() {
         return 1
     }
 
-    cp -f "$dest_dir"/*.html "$dest_dir"/*.css "$resource_target" 2>/dev/null || true
+    if compgen -G "$dest_dir"/*.html >/dev/null 2>&1; then
+        cp -f "$dest_dir"/*.html "$resource_target"/
+    fi
+    if compgen -G "$dest_dir"/*.css >/dev/null 2>&1; then
+        cp -f "$dest_dir"/*.css "$resource_target"/
+    fi
 }
 
 function ensure_libaio_symlink() {
