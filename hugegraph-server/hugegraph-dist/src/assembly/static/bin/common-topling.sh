@@ -51,6 +51,10 @@ function extract_so_with_jar() {
     else
         abs_jar_path="$(readlink -f "$jar_file")"
     fi
+    if ! command -v unzip >/dev/null 2>&1; then
+        echo "Error: 'unzip' command not found. Please install unzip." >&2
+        return 1
+    fi
     unzip -j -o "$abs_jar_path" "*.so" -d "$dest_dir" > /dev/null 2>&1 || {
         local code=$?
         if [ $code -eq 11 ]; then
@@ -82,6 +86,10 @@ function extract_html_css_from_jar() {
         abs_jar_path="$(realpath "$jar_file")"
     else
         abs_jar_path="$(readlink -f "$jar_file")"
+    fi
+    if ! command -v unzip >/dev/null 2>&1; then
+        echo "Error: 'unzip' command not found. Please install unzip." >&2
+        return 1
     fi
     unzip -j -o "$abs_jar_path" "*.html" "*.css" -d "$dest_dir" > /dev/null || {
         local code=$?
@@ -141,7 +149,7 @@ function preload_toplingdb() {
     local dest_dir="$2"
 
     local jar_file
-    jar_file=$(find "$lib_dir" -maxdepth 1 -type f -name "rocksdbjni*.jar" -print -quit || true)
+    jar_file=$(ls -1 "$lib_dir"/rocksdbjni*.jar 2>/dev/null | sort -V | tail -n1 || true)
     if [ -z "${jar_file:-}" ]; then
         echo "Error: No rocksdbjni*.jar found under '$lib_dir'" >&2
         return 1
@@ -149,14 +157,21 @@ function preload_toplingdb() {
 
     ensure_libaio_symlink
     extract_so_with_jar "$jar_file" "$dest_dir"
-    export LD_LIBRARY_PATH="$dest_dir${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-    if [ -f "$dest_dir/librocksdbjni-linux64.so" ]; then
-        export LD_PRELOAD="librocksdbjni-linux64.so${LD_PRELOAD:+:$LD_PRELOAD}"
+    if [ -d "$dest_dir" ]; then
+        if [[ ":${LD_LIBRARY_PATH:-}:" != *":$dest_dir:"* ]]; then
+            export LD_LIBRARY_PATH="$dest_dir${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+        fi
+
+        if [ -f "$dest_dir/librocksdbjni-linux64.so" ] && [[ ":${LD_PRELOAD:-}:" != *":librocksdbjni-linux64.so:"* ]]; then
+            export LD_PRELOAD="librocksdbjni-linux64.so${LD_PRELOAD:+:$LD_PRELOAD}"
+        fi
+    else
+        echo "Warn: LD paths skipped, directory '$dest_dir' does not exist." >&2
     fi
     if command -v ldconfig >/dev/null 2>&1; then
         local jemalloc_found
         jemalloc_found=$(ldconfig -p 2>/dev/null | grep -F 'libjemalloc.so' || true)
-        if [ -n "$jemalloc_found" ]; then
+        if [ -n "$jemalloc_found" ] && [[ ":${LD_PRELOAD:-}:" != *":libjemalloc.so:"* ]]; then
             export LD_PRELOAD="libjemalloc.so${LD_PRELOAD:+:$LD_PRELOAD}"
         fi
     fi
