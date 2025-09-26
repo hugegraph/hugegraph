@@ -44,7 +44,11 @@ function extract_so_with_jar() {
         return 1
     }
 
-    abs_jar_path="$(realpath "$jar_file")"
+    if command -v realpath >/dev/null 2>&1; then
+        abs_jar_path="$(realpath "$jar_file")"
+    else
+        abs_jar_path="$(readlink -f "$jar_file")"
+    fi
     unzip -j -o "$abs_jar_path" "*.so" -d "$dest_dir" > /dev/null 2>&1 || {
         local code=$?
         if [ $code -eq 11 ]; then
@@ -72,7 +76,11 @@ function extract_html_css_from_jar() {
         return 1
     }
 
-    abs_jar_path="$(realpath "$jar_file")"
+    if command -v realpath >/dev/null 2>&1; then
+        abs_jar_path="$(realpath "$jar_file")"
+    else
+        abs_jar_path="$(readlink -f "$jar_file")"
+    fi
     unzip -j -o "$abs_jar_path" "*.html" "*.css" -d "$dest_dir" > /dev/null || {
         local code=$?
         if [ $code -eq 11 ]; then
@@ -101,14 +109,18 @@ function ensure_libaio_symlink() {
         . /etc/os-release
         if [ "${ID:-}" = "ubuntu" ] && command -v dpkg >/dev/null 2>&1 && dpkg --compare-versions "${VERSION_ID:-0}" "ge" "24.04"; then
             local libaio_link_target="/usr/lib/x86_64-linux-gnu/libaio.so.1"
-            if [ ! -e $libaio_link_target ]; then
+            if [ ! -e "$libaio_link_target" ]; then
                 echo "Ubuntu ${VERSION_ID:-?} detected. Creating compatibility symlink for libaio."
-                if [ "$EUID" -eq 0 ]; then
-                    ln -sf /usr/lib/x86_64-linux-gnu/libaio.so.1t64 "$libaio_link_target" || true
-                elif command -v sudo >/dev/null 2>&1; then
-                    sudo ln -sf /usr/lib/x86_64-linux-gnu/libaio.so.1t64 "$libaio_link_target" || true
+                if [ -e /usr/lib/x86_64-linux-gnu/libaio.so.1t64 ]; then
+                    if [ "$EUID" -eq 0 ]; then
+                        ln -sf /usr/lib/x86_64-linux-gnu/libaio.so.1t64 "$libaio_link_target" || true
+                    elif command -v sudo >/dev/null 2>&1; then
+                        sudo ln -sf /usr/lib/x86_64-linux-gnu/libaio.so.1t64 "$libaio_link_target" || true
+                    else
+                        echo "Warn: sudo not available, skip creating $libaio_link_target" >&2
+                    fi
                 else
-                    echo "Warn: sudo not available, skip creating $libaio_link_target" >&2
+                    echo "Warn: libaio.so.1t64 not found, skip creating compat symlink" >&2
                 fi
             else
                 echo "libaio.so.1 found, skip creating compatibility symlink" >&2
@@ -135,6 +147,7 @@ function preload_toplingdb() {
         export LD_PRELOAD="librocksdbjni-linux64.so${LD_PRELOAD:+:$LD_PRELOAD}"
     fi
     if command -v ldconfig >/dev/null 2>&1; then
+        local jemalloc_found
         jemalloc_found=$(ldconfig -p 2>/dev/null | grep -F 'libjemalloc.so' || true)
         if [ -n "$jemalloc_found" ]; then
             export LD_PRELOAD="libjemalloc.so${LD_PRELOAD:+:$LD_PRELOAD}"
