@@ -28,6 +28,7 @@ import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -56,6 +57,7 @@ import org.apache.hugegraph.backend.BackendException;
 import org.apache.hugegraph.backend.cache.Cache;
 import org.apache.hugegraph.backend.cache.CacheManager;
 import org.apache.hugegraph.backend.id.IdGenerator;
+import org.apache.hugegraph.backend.store.AbstractBackendStoreProvider;
 import org.apache.hugegraph.backend.store.BackendStoreInfo;
 import org.apache.hugegraph.config.ConfigOption;
 import org.apache.hugegraph.config.CoreOptions;
@@ -259,6 +261,8 @@ public final class GraphManager {
                 throw new IllegalStateException(e);
             }
         }
+        // listen meta changes, e.g. watch dynamically graph add/remove
+        this.listenMetaChanges();
     }
 
     private static String spaceGraphName(String graphSpace, String graph) {
@@ -310,6 +314,10 @@ public final class GraphManager {
 
     private static String serviceName(String graphSpace, String service) {
         return String.join(DELIMITER, graphSpace, service);
+    }
+
+    private static String graphName(String graphSpace, String graph) {
+        return String.join(DELIMITER, graphSpace, graph);
     }
 
     private static void checkName(String name, String type) {
@@ -1199,6 +1207,69 @@ public final class GraphManager {
         HugeFactory.remove(graph);
     }
 
+    public HugeGraph createAliasGraph(String graphSpace, String name,
+                                      Map<String, Object> configs,
+                                      boolean init) {
+        String key = String.join(DELIMITER, graphSpace, name);
+        if (this.graphs.containsKey(key)) {
+            throw new ExistedException("graph", key);
+        }
+        boolean grpcThread = Thread.currentThread().getName().contains("grpc");
+        if (grpcThread) {
+            HugeGraphAuthProxy.setAdmin();
+        }
+        E.checkArgumentNotNull(name, "The graph name can't be null");
+        checkGraphName(name);
+        String nickname;
+        if (configs.get("nickname") != null) {
+            nickname = configs.get("nickname").toString();
+            checkNickname(nickname);
+        } else {
+            nickname = name;
+        }
+
+        // init = false means load graph from meta
+        E.checkArgument(!init || !isExistedGraphNickname(graphSpace, nickname),
+                        "Graph nickname '%s' for %s has existed", nickname, graphSpace);
+
+        GraphSpace gs = this.graphSpace(graphSpace);
+        E.checkArgumentNotNull(gs, "Invalid graph space: '%s'", graphSpace);
+
+        configs.put("gremlin.graph", "com.baidu.hugegraph.HugeFactory");
+        configs.put(CoreOptions.GRAPH_SPACE.name(), graphSpace);
+        configs.putIfAbsent("nickname", nickname);
+
+        Configuration propConfig = this.buildConfig(attachLocalCacheConfig(configs));
+
+        HugeConfig config = new HugeConfig(propConfig);
+        assert StringUtils.isNotEmpty(config.get(CoreOptions.ALIAS_NAME));
+        this.checkOptions(graphSpace, config);
+
+        // Create alias diagram init set to false indicates no need to initialize store-related classes
+        HugeGraph graph = this.createGraph(graphSpace, config, this.authManager, false);
+        graph.graphSpace(graphSpace);
+        graph.nickname(nickname);
+        graph.kvStore(this.kvStore);
+
+        String graphName = graphName(graphSpace, name);
+        if (init) {
+            this.creatingGraphs.add(graphName);
+            this.metaManager.addGraphConfig(graphSpace, name, configs);
+            this.metaManager.notifyGraphAdd(graphSpace, name);
+        }
+        this.graphs.put(graphName, graph);
+        if (!grpcThread) {
+            this.metaManager.updateGraphSpaceConfig(graphSpace, gs);
+        }
+        // Let gremlin server and rest server context add graph
+        this.eventHub.notify(Events.GRAPH_CREATE, graphName, graph);
+
+        if (grpcThread) {
+            HugeGraphAuthProxy.resetContext();
+        }
+        return graph;
+    }
+
     public HugeGraph createGraph(String graphSpace, String name, String creator,
                                  Map<String, Object> configs, boolean init) {
         if (!usePD()) {
@@ -1698,6 +1769,13 @@ public final class GraphManager {
         this.eventHub.unlisten(Events.GRAPH_DROP);
     }
 
+    private void listenMetaChanges() {
+        this.metaManager.listenGraphAdd(ConsumerWrapper.wrap(this::graphAddHandler));
+        this.metaManager.listenGraphRemove(ConsumerWrapper.wrap(this::graphRemoveHandler));
+        this.metaManager.listenGraphUpdate(ConsumerWrapper.wrap(this::graphUpdateHandler));
+        this.metaManager.listenGraphClear(ConsumerWrapper.wrap(this::graphClearHandler));
+    }
+
     private void notifyAndWaitEvent(String event, HugeGraph graph) {
         Future<?> future = this.eventHub.notify(event, graph);
         try {
@@ -2138,6 +2216,126 @@ public final class GraphManager {
             } finally {
                 if (grpcThread) {
                     HugeGraphAuthProxy.resetContext();
+                }
+            }
+        }
+    }
+
+    private <T> void graphAddHandler(T response) {
+        List<String> names = this.metaManager
+                .extractGraphsFromResponse(response);
+        for (String graphName : names) {
+            String[] parts = graphName.split(DELIMITER);
+            // If the current server is not registered to the DEFAULT graph space,
+            // it will only receive graph creation events from registered graph spaces.
+            if (!"DEFAULT".equals(this.serviceGraphSpace) &&
+                !parts[0].equals(this.serviceGraphSpace)) {
+                LOG.warn(String.format("Listen event: graph [%s] add was discarded because " +
+                                       "it did " +
+                                       "not belong to the graph space [%s] registered by " +
+                                       "the" + " current server", graphName,
+                                       this.serviceGraphSpace));
+                return;
+            }
+            LOG.info("Accept graph add signal from etcd for {}", graphName);
+            if (this.graphs.containsKey(graphName) ||
+                this.creatingGraphs.contains(graphName)) {
+                this.creatingGraphs.remove(graphName);
+                continue;
+            }
+
+            LOG.info("Not exist in cache, Starting construct graph {}",
+                     graphName);
+            Map<String, Object> config =
+                    this.metaManager.getGraphConfig(parts[0], parts[1]);
+            Object objc = config.get("creator");
+            String creator = null == objc ?
+                             GraphSpace.DEFAULT_CREATOR_NAME :
+                             String.valueOf(objc);
+
+            // Create graph without init
+            try {
+                HugeGraph graph;
+                if (config.containsKey(CoreOptions.ALIAS_NAME.name())) {
+                    graph = this.createAliasGraph(parts[0], parts[1], config, true);
+                    LOG.info("Add aliasGraph space:{} graph:{}", parts[0], parts[1]);
+                } else {
+                    graph = this.createGraph(parts[0], parts[1], creator, config, false);
+                    LOG.info("Add graph space:{} graph:{}", parts[0], parts[1]);
+                }
+                boolean grpcThread = Thread.currentThread().getName().contains("grpc");
+                if (grpcThread) {
+                    HugeGraphAuthProxy.setAdmin();
+                }
+                graph.started(true);
+                if (graph.tx().isOpen()) {
+                    graph.tx().close();
+                }
+            } catch (HugeException e) {
+                if (!this.startIgnoreSingleGraphError) {
+                    throw e;
+                }
+                LOG.error(String.format(
+                        "Failed to create graph '%s'", graphName), e);
+            }
+        }
+    }
+
+    private <T> void graphRemoveHandler(T response) {
+        List<String> graphNames = this.metaManager
+                .extractGraphsFromResponse(response);
+        for (String graphName : graphNames) {
+            if (!this.graphs.containsKey(graphName) ||
+                this.removingGraphs.contains(graphName)) {
+                this.removingGraphs.remove(graphName);
+                continue;
+            }
+
+            // Remove graph without clear
+            String[] parts = graphName.split(DELIMITER);
+            try {
+                this.dropGraph(parts[0], parts[1], false);
+            } catch (HugeException e) {
+                LOG.error(String.format(
+                        "Failed to drop graph '%s'", graphName), e);
+            }
+        }
+    }
+
+    private <T> void graphUpdateHandler(T response) {
+        List<String> graphNames = this.metaManager
+                .extractGraphsFromResponse(response);
+        for (String graphName : graphNames) {
+            if (this.graphs.containsKey(graphName)) {
+                Graph graph = this.graphs.get(graphName);
+                if (graph instanceof HugeGraph) {
+                    HugeGraph hugeGraph = (HugeGraph) graph;
+                    String[] values =
+                            graphName.split(MetaManager.META_PATH_JOIN);
+                    Map<String, Object> configs =
+                            this.metaManager.getGraphConfig(values[0],
+                                                            values[1]);
+                    String readMode = configs.getOrDefault(
+                            CoreOptions.GRAPH_READ_MODE.name(),
+                            CoreOptions.GRAPH_READ_MODE.defaultValue()).toString();
+                    hugeGraph.readMode(GraphReadMode.valueOf(readMode));
+                    //this.updateAliasGraph(hugeGraph, configs);
+                    LOG.info("Update graph space:{} graph:{}", values[0], values[1]);
+                }
+            }
+        }
+    }
+
+    private <T> void graphClearHandler(T response) {
+        List<String> graphNames = this.metaManager
+                .extractGraphsFromResponse(response);
+        for (String graphName : graphNames) {
+            if (this.graphs.containsKey(graphName)) {
+                Graph graph = this.graphs.get(graphName);
+                if (graph instanceof HugeGraph) {
+                    HugeGraph hugeGraph = (HugeGraph) graph;
+                    ((AbstractBackendStoreProvider) hugeGraph.storeProvider())
+                            .notifyAndWaitEvent(Events.STORE_CLEAR);
                 }
             }
         }
