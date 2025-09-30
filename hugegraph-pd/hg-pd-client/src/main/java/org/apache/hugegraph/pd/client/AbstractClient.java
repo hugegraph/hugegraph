@@ -138,9 +138,7 @@ public abstract class AbstractClient implements Closeable {
         Exception ex = null;
         for (int i = 0; i < proxy.getHostCount(); i++) {
             String host = proxy.nextHost();
-            if (channel != null) {
-                close();
-            }
+            close();
 
             channel = ManagedChannelBuilder.forTarget(host).usePlaintext().build();
             PDBlockingStub blockingStub =

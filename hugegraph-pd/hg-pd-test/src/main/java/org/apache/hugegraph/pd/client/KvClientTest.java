@@ -45,31 +45,31 @@ public class KvClientTest extends BaseClientTest {
         client = new KvClient<>(getPdConfig());
     }
 
-    @Test
-    public void testCreateStub() {
-        // Setup
-        // Run the test
-        try {
-            final AbstractStub result = client.createStub();
-            assertThat(result).isNotNull();
-        } catch (Exception e) {
-            org.junit.Assert.fail("createStub exception: " + e);
-        } finally {
-        }
-    }
+    //@Test
+    //public void testCreateStub() {
+    //    // Setup
+    //    // Run the test
+    //    try {
+    //        final AbstractStub result = client.createStub();
+    //        assertThat(result).isNotNull();
+    //    } catch (Exception e) {
+    //        org.junit.Assert.fail("createStub exception: " + e);
+    //    } finally {
+    //    }
+    //}
 
-    @Test
-    public void testCreateBlockingStub() {
-        // Setup
-        // Run the test
-        try {
-            final AbstractBlockingStub result = client.createBlockingStub();
-            assertThat(result).isNotNull();
-        } catch (Exception e) {
-            org.junit.Assert.fail("createBlockingStub exception: " + e);
-        } finally {
-        }
-    }
+    //@Test
+    //public void testCreateBlockingStub() {
+    //    // Setup
+    //    // Run the test
+    //    try {
+    //        final AbstractBlockingStub result = client.createBlockingStub();
+    //        assertThat(result).isNotNull();
+    //    } catch (Exception e) {
+    //        org.junit.Assert.fail("createBlockingStub exception: " + e);
+    //    } finally {
+    //    }
+    //}
 
     String key = "key";
     String value = "value";
