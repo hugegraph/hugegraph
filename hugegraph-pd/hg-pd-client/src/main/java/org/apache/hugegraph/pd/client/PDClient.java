@@ -293,7 +293,7 @@ public class PDClient {
 
     private PDBlockingStub getStub(PDBlockingStub stub) {
         return stub.withDeadlineAfter(config.getGrpcTimeOut(), TimeUnit.MILLISECONDS)
-                   .withInterceptors(auth)
+                   //.withInterceptors(auth)
                    .withMaxInboundMessageSize(PDConfig.getInboundMessageSize());
     }
 

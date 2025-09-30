@@ -31,7 +31,7 @@ import io.grpc.ServerCall.Listener;
 import io.grpc.ServerCallHandler;
 import io.grpc.ServerInterceptor;
 
-@Service
+//@Service
 public class GrpcAuthentication extends Authentication implements ServerInterceptor, ServiceGrpc {
 
     @Override

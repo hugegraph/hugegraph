@@ -88,15 +88,16 @@ public abstract class AbstractClient implements Closeable {
     public static <T extends AbstractStub> T setBlockingParams(T stub, PDConfig config) {
         stub = (T) stub.withDeadlineAfter(config.getGrpcTimeOut(), TimeUnit.MILLISECONDS)
                        .withMaxInboundMessageSize(PDConfig.getInboundMessageSize());
-        return (T) stub.withInterceptors(
-                new Authentication(config.getUserName(), config.getAuthority()));
+        return stub;
+        //return (T) stub.withInterceptors(
+        //        new Authentication(config.getUserName(), config.getAuthority()));
 
     }
 
     public static <T extends AbstractStub> T setAsyncParams(T stub, PDConfig config) {
-        return (T) stub.withMaxInboundMessageSize(PDConfig.getInboundMessageSize())
-                       .withInterceptors(
-                               new Authentication(config.getUserName(), config.getAuthority()));
+        return (T) stub.withMaxInboundMessageSize(PDConfig.getInboundMessageSize());
+                       //.withInterceptors(
+                       //        new Authentication(config.getUserName(), config.getAuthority()));
     }
 
     protected AbstractBlockingStub getBlockingStub() throws PDException {

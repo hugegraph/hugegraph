@@ -111,9 +111,9 @@ public final class PDConfig {
     }
 
     public String getAuthority() {
-        if (StringUtils.isEmpty(this.authority)) {
-            throw new AuthenticationException("invalid basic authentication info");
-        }
+        //if (StringUtils.isEmpty(this.authority)) {
+        //    throw new AuthenticationException("invalid basic authentication info");
+        //}
         return authority;
     }
 
