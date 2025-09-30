@@ -21,6 +21,7 @@ import org.apache.hugegraph.HugeException;
 import org.apache.hugegraph.HugeFactory;
 import org.apache.hugegraph.config.HugeConfig;
 import org.apache.hugegraph.config.ServerOptions;
+import com.baidu.hugegraph.meta.MetaManager;
 import org.apache.hugegraph.event.EventHub;
 import org.apache.hugegraph.server.RestServer;
 import org.apache.hugegraph.util.ConfigUtil;
@@ -38,6 +39,7 @@ public class HugeGraphServer {
     private final RestServer restServer;
     private final GremlinServer gremlinServer;
     private final MemoryMonitor memoryMonitor;
+    private final MetaManager metaManager = MetaManager.instance();
 
     public static void register() {
         RegisterUtil.registerBackends();
@@ -63,6 +65,10 @@ public class HugeGraphServer {
             LOG.error("HugeRestServer start error: ", e);
             throw e;
         }
+        setPdAuthority(restServerConfig);
+        this.metaManager.connect(cluster, MetaManager.MetaDriverType.PD,
+                                 caFile, clientCaFile, clientKeyFile,
+                                 metaEndpoints);
 
         try {
             // Start GremlinServer
@@ -108,6 +114,12 @@ public class HugeGraphServer {
         } catch (Throwable e) {
             LOG.error("Failed to stop HugeGraph: ", e);
         }
+    }
+
+    private void setPdAuthority(HugeConfig config) {
+        PDAuthConfig.setAuthority(
+                config.get(ServerOptions.SERVICE_ACCESS_PD_NAME),
+                config.get(ServerOptions.SERVICE_ACCESS_PD_TOKEN));
     }
 
     public static void main(String[] args) throws Exception {
