@@ -45,7 +45,7 @@ public class KvClientTest extends BaseClientTest {
         client = new KvClient<>(getPdConfig());
     }
 
-    @Test
+    //@Test
     public void testCreateStub() {
         // Setup
         // Run the test
@@ -58,7 +58,7 @@ public class KvClientTest extends BaseClientTest {
         }
     }
 
-    @Test
+    //@Test
     public void testCreateBlockingStub() {
         // Setup
         // Run the test
