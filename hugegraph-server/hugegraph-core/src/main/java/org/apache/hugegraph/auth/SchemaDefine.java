@@ -230,16 +230,18 @@ public abstract class SchemaDefine {
         //FIXME: Unify the date format instead of using this method
         private Date parseFlexibleDate(Object value) throws ParseException {
             if (value instanceof Date) {
-                // 如果已经是 Date 对象，直接返回
+                // If it's already a Date object, return it directly
                 return (Date) value;
             }
 
             String dateStr = value.toString();
 
-            // 尝试多种日期格式 - 毫秒精度格式优先
+            // Try multiple date formats - millisecond precision format first
             String[] dateFormats = {
-                    FORMATTER,                          // "yyyy-MM-dd HH:mm:ss.SSS" (主要格式，带毫秒)
-                    "yyyy-MM-dd HH:mm:ss",             // "yyyy-MM-dd HH:mm:ss" (兼容旧格式)
+                    FORMATTER,
+                    // "yyyy-MM-dd HH:mm:ss.SSS" (primary format with milliseconds)
+                    "yyyy-MM-dd HH:mm:ss",
+                    // "yyyy-MM-dd HH:mm:ss" (compatible with legacy format)
                     "EEE MMM dd HH:mm:ss zzz yyyy",    // "Fri Sep 26 11:04:47 CST 2025"
                     "yyyy-MM-dd'T'HH:mm:ss.SSSZ",     // ISO format with timezone
                     "yyyy-MM-dd'T'HH:mm:ss'Z'",       // ISO format UTC
@@ -249,18 +251,15 @@ public abstract class SchemaDefine {
             for (String format : dateFormats) {
                 try {
                     if (format.equals("EEE MMM dd HH:mm:ss zzz yyyy")) {
-                        // 对于 Java 默认格式，使用英文 Locale
                         SimpleDateFormat sdf = new SimpleDateFormat(format, Locale.ENGLISH);
                         return sdf.parse(dateStr);
                     } else {
                         return SafeDateUtil.parse(dateStr, format);
                     }
                 } catch (ParseException e) {
-                    // 继续尝试下一个格式
                 }
             }
 
-            // 如果所有格式都失败，使用 DateUtil 的智能解析
             try {
                 return DateUtil.parse(dateStr);
             } catch (Exception e) {
