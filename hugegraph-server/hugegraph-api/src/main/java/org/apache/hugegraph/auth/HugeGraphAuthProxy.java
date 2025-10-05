@@ -1525,13 +1525,6 @@ public final class HugeGraphAuthProxy implements HugeGraph {
         @Override
         public HugeUser findUser(String name) {
             HugeUser user = this.authManager.findUser(name);
-            String username = currentUsername();
-            if (user == null) {
-                return null;
-            }
-            if (!user.name().equals(username)) {
-                verifyUserPermission(HugePermission.READ, user);
-            }
             return user;
         }
 
@@ -1893,6 +1886,7 @@ public final class HugeGraphAuthProxy implements HugeGraph {
         @Override
         public void deleteSpaceManager(String graphSpace, String owner) {
             this.authManager.deleteSpaceManager(graphSpace, owner);
+            this.invalidRoleCache();
         }
 
         @Override
@@ -1930,6 +1924,7 @@ public final class HugeGraphAuthProxy implements HugeGraph {
         @Override
         public void deleteSpaceMember(String graphSpace, String user) {
             this.authManager.deleteSpaceMember(graphSpace, user);
+            this.invalidRoleCache();
         }
 
         @Override
@@ -1962,6 +1957,7 @@ public final class HugeGraphAuthProxy implements HugeGraph {
         @Override
         public void deleteAdminManager(String user) {
             this.authManager.deleteAdminManager(user);
+            this.invalidRoleCache();
         }
 
         @Override
