@@ -260,8 +260,10 @@ public class API {
 
     public static void validPermission(boolean hasPermission, String user,
                                        String action) {
-        E.checkArgument(hasPermission, "The user [%s] has no permission to [%s].",
-                        user, action);
+        if (!hasPermission) {
+            throw new jakarta.ws.rs.ForbiddenException(
+                    String.format("The user [%s] has no permission to [%s].", user, action));
+        }
     }
 
     public static class ApiMeasurer {

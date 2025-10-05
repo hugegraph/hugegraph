@@ -217,7 +217,7 @@ public class GraphsAPI extends API {
 
     @GET
     @Timed
-    @Path("{graphspace}/{name}/conf")
+    @Path("{name}/conf")
     @Produces(APPLICATION_JSON_WITH_CHARSET)
     @RolesAllowed({"space"})
     public File getConf(@Context GraphManager manager,
@@ -238,7 +238,7 @@ public class GraphsAPI extends API {
 
     @DELETE
     @Timed
-    @Path("{graphspace}/{name}/clear")
+    @Path("{name}/clear")
     @Consumes(APPLICATION_JSON)
     @RolesAllowed({"space"})
     public void clear(@Context GraphManager manager,
@@ -255,7 +255,7 @@ public class GraphsAPI extends API {
 
     @PUT
     @Timed
-    @Path("{graphspace}/{name}/snapshot_create")
+    @Path("{name}/snapshot_create")
     @Produces(APPLICATION_JSON_WITH_CHARSET)
     @RolesAllowed({"space", "$owner=$name"})
     public Object createSnapshot(@Context GraphManager manager,
@@ -270,7 +270,7 @@ public class GraphsAPI extends API {
 
     @PUT
     @Timed
-    @Path("{graphspace}/{name}/snapshot_resume")
+    @Path("{name}/snapshot_resume")
     @Produces(APPLICATION_JSON_WITH_CHARSET)
     @RolesAllowed({"space", "$owner=$name"})
     public Object resumeSnapshot(@Context GraphManager manager,
@@ -285,7 +285,7 @@ public class GraphsAPI extends API {
 
     @PUT
     @Timed
-    @Path("{graphspace}/{name}/compact")
+    @Path("{name}/compact")
     @Consumes(APPLICATION_JSON)
     @Produces(APPLICATION_JSON_WITH_CHARSET)
     @RolesAllowed({"space"})
@@ -300,7 +300,7 @@ public class GraphsAPI extends API {
 
     @PUT
     @Timed
-    @Path("{graphspace}/{name}/mode")
+    @Path("{name}/mode")
     @Consumes(APPLICATION_JSON)
     @Produces(APPLICATION_JSON_WITH_CHARSET)
     @RolesAllowed({"space", "$owner=$name"})
@@ -318,7 +318,7 @@ public class GraphsAPI extends API {
 
     @GET
     @Timed
-    @Path("{graphspace}/{name}/mode")
+    @Path("{name}/mode")
     @Consumes(APPLICATION_JSON)
     @Produces(APPLICATION_JSON_WITH_CHARSET)
     @RolesAllowed({"space_member", "$owner=$name"})
@@ -333,7 +333,7 @@ public class GraphsAPI extends API {
 
     @PUT
     @Timed
-    @Path("{graphspace}/{name}/graph_read_mode")
+    @Path("{name}/graph_read_mode")
     @Consumes(APPLICATION_JSON)
     @Produces(APPLICATION_JSON_WITH_CHARSET)
     @RolesAllowed({"space"})
@@ -358,7 +358,7 @@ public class GraphsAPI extends API {
 
     @GET
     @Timed
-    @Path("{graphspace}/{name}/graph_read_mode")
+    @Path("{name}/graph_read_mode")
     @Consumes(APPLICATION_JSON)
     @Produces(APPLICATION_JSON_WITH_CHARSET)
     @RolesAllowed({"space_member", "$owner=$name"})

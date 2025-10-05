@@ -1217,7 +1217,9 @@ public class StandardAuthManagerV2 implements AuthManager {
             // Set creator from current context
             this.updateCreator(belong);
             belong.create(belong.update());
-            return this.metaManager.createBelong(graphSpace, belong);
+            Id result = this.metaManager.createBelong(graphSpace, belong);
+            this.invalidateUserCache();
+            return result;
         } catch (Exception e) {
             throw new HugeException("Exception occurs when " +
                                     "create space manager", e);
@@ -1232,6 +1234,7 @@ public class StandardAuthManagerV2 implements AuthManager {
                             user, HugeDefaultRole.SPACE.toString());
             this.metaManager.deleteBelong(graphSpace,
                                           IdGenerator.of(belongId));
+            this.invalidateUserCache();
         } catch (Exception e) {
             throw new HugeException("Exception occurs when " +
                                     "delete space manager", e);
@@ -1318,7 +1321,9 @@ public class StandardAuthManagerV2 implements AuthManager {
             // Set creator from current context
             this.updateCreator(belong);
             belong.create(belong.update());
-            return this.metaManager.createBelong(graphSpace, belong);
+            Id result = this.metaManager.createBelong(graphSpace, belong);
+            this.invalidateUserCache();
+            return result;
         } catch (Exception e) {
             throw new HugeException("Exception occurs when create space member", e);
         }
@@ -1330,6 +1335,7 @@ public class StandardAuthManagerV2 implements AuthManager {
             String belongId =
                     this.metaManager.belongId(user, HugeDefaultRole.SPACE_MEMBER.toString());
             this.metaManager.deleteBelong(graphSpace, IdGenerator.of(belongId));
+            this.invalidateUserCache();
         } catch (Exception e) {
             throw new HugeException("Exception occurs when delete space member", e);
         }
@@ -1378,7 +1384,9 @@ public class StandardAuthManagerV2 implements AuthManager {
             this.tryInitAdminRole();
             this.updateCreator(belong);
             belong.create(belong.update());
-            return this.metaManager.createBelong(ALL_GRAPH_SPACES, belong);
+            Id result = this.metaManager.createBelong(ALL_GRAPH_SPACES, belong);
+            this.invalidateUserCache();
+            return result;
         } catch (Exception e) {
             throw new HugeException("Exception occurs when " +
                                     "create space op manager", e);
@@ -1393,6 +1401,7 @@ public class StandardAuthManagerV2 implements AuthManager {
                                               DEFAULT_ADMIN_ROLE_KEY);
             this.metaManager.deleteBelong(ALL_GRAPH_SPACES,
                                           IdGenerator.of(belongId));
+            this.invalidateUserCache();
         } catch (Exception e) {
             throw new HugeException("Exception occurs when " +
                                     "delete space op manager", e);
@@ -1447,7 +1456,7 @@ public class StandardAuthManagerV2 implements AuthManager {
             if (role == null) {
                 role = new HugeRole(DEFAULT_ADMIN_ROLE_KEY,
                                     ALL_GRAPH_SPACES);
-                role.nickname("系统管理员");
+                role.nickname("system-admin");
                 this.updateCreator(role);
                 role.create(role.update());
                 this.metaManager.createRole(ALL_GRAPH_SPACES, role);
@@ -1518,7 +1527,7 @@ public class StandardAuthManagerV2 implements AuthManager {
                                 HugeDefaultRole.DEFAULT_SPACE_TARGET_KEY :
                                 getGraphTargetName(graph);
             String description = (ALL_GRAPHS.equals(graph)) ?
-                                 "图空间全部资源" : graph + "-图全部资源";
+                                 "All resources in graph space" : graph + "-All resources in graph";
             HugeTarget target = this.metaManager.findTarget(
                     graphSpace, IdGenerator.of(targetName));
             if (target == null) {
