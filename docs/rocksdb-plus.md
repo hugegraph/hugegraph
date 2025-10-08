@@ -12,7 +12,7 @@
 ToplingDB extends RocksDB with several advanced features:
 
 - **Searchable Compression**: ToplingDB introduces compression algorithms that preserve searchability, enabling efficient queries directly on compressed data.
-- **SidePlugin Architecture**: It supports dynamic configuration via YAML files through a plugin system, allowing runtime tuning without recompilation.
+- **SidePlugin Architecture**: It supports configuration via YAML files through a plugin system, allowing tuning parameters without recompilation.
 - **Built-in Observability**: A lightweight HTTP server exposes internal metrics and configuration states, making it easier to monitor and debug storage behavior.
 - **Distributed Compaction**: Designed for cloud environments, ToplingDB supports distributed compaction strategies to reduce write amplification and improve throughput.
 - **Compatibility**: Drop-in replacement for RocksDB in most use cases.
@@ -29,7 +29,7 @@ By enabling YAML-based configuration and exposing a Web Server interface, RocksD
 
 This is especially valuable in environments where storage workloads vary across deployments, and where operational transparency is critical for debugging and optimization.
 
-For example, in production clusters with heterogeneous hardware or mixed graph workloads, users can dynamically adjust compaction, caching, and I/O settings to match their performance goals.
+For example, in production clusters with heterogeneous hardware or mixed graph workloads, users can adjust compaction, caching, and I/O settings to match their performance goals.
 
 Additionally, RocksDB Plus maintains full compatibility with the existing RocksDB API, allowing seamless migration and fallback. Users can opt into RocksDB Plus via configuration, without impacting legacy data or workflows.
 
@@ -41,15 +41,14 @@ By supporting RocksDB Plus, HugeGraph empowers users with greater control over s
 
 **Introduce RocksDB Plus as a configurable and observable alternative to RocksDB.**
 
-Enable users to select RocksDB Plus via configuration, allowing dynamic tuning through YAML files and real-time monitoring via Web Server—without sacrificing compatibility with existing RocksDB APIs.
-
+Enable users to select RocksDB Plus via configuration, allowing tuning parameters through YAML files without recompilation and real-time monitoring via Web Server—without sacrificing compatibility with existing RocksDB APIs.
 
 
 ## Design
 
 ### Configuration Parameters
 
-To support RocksDB Plus in HugeGraph, two new configuration parameters have been introduced: `rocksdb.option_path` and `rocksdb.open_http`. These options allow users to dynamically configure RocksDB behavior and enable real-time observability.
+To support RocksDB Plus in HugeGraph, two new configuration parameters have been introduced: `rocksdb.option_path` and `rocksdb.open_http`. These options allow users to configure RocksDB parameters and enable real-time observability.
 
 #### `rocksdb.option_path`: External YAML Configuration
 
@@ -59,7 +58,7 @@ This parameter allows users to specify a YAML file that defines RocksDB Plus set
 
 - **Usage**: Add the following line to your `hugegraph.properties` file:
 
-  ```
+  ```properties
   rocksdb.option_path=./conf/graphs/rocksdb_plus.yaml
   ```
 
@@ -81,11 +80,16 @@ This boolean flag controls whether the embedded Web Server in RocksDB Plus shoul
 
 - **Usage**: Add the following line to your `hugegraph.properties` file:
 
-  ```
+  ```properties
   rocksdb.open_http=true
   ```
 
-  The listening port is defined in the YAML file specified by `option_path`, under the key `http.listening_ports`.
+  The listening port is defined in the YAML file specified by `option_path`, under the key `http.listening_ports`:
+  ```yaml
+  http:
+    document_root: /dev/shm/rocksdb_resource
+    listening_ports: '2011'
+  ```
 
   To preview the Web Server interface and its layout, see [Web Server](https://github.com/topling/sideplugin-wiki-en/wiki/WebView).
 
@@ -93,6 +97,7 @@ This boolean flag controls whether the embedded Web Server in RocksDB Plus shoul
 
 - **Scope**: For simplicity, the Web Server is only enabled for the `GRAPH_STORE` instance, which holds the main graph data.
 
+- **Security**: The Web Server does **not** provide built-in authentication. In production environments, configure firewalls or network access controls carefully to prevent unauthorized access.
 
 
 ### Reflection-Based Loading Mechanism
@@ -102,9 +107,12 @@ To support RocksDB Plus without introducing hard dependencies, HugeGraph uses Ja
 During initialization, HugeGraph checks whether the current JAR contains the class `com.topling.sideplugin.SidePluginRepo`. If present, it assumes RocksDB Plus is available and proceeds to:
 
 1. **Load the SidePluginRepo class via reflection**   This avoids compile-time coupling and allows fallback to standard RocksDB if the class is missing.
-2. **Invoke** `importAutoFile(optionPath)`   This method parses the YAML configuration file specified by `rocksdb.option_path`, dynamically applying storage engine parameters.
+   * If the RocksDB Plus API cannot be found, HugeGraph silently falls back to the standard RocksDB API for startup.
+2. **Invoke** `importAutoFile(optionPath)`   This method parses the YAML configuration file specified by `rocksdb.option_path` to configure storage engine parameters.
+   *  If the `option_path` is incorrect or parsing fails, RocksDB Plus throws an error and terminates the startup process.
 3. **Call** `open()` **with a JSON descriptor**   The parsed configuration is converted to a JSON structure and passed to the RocksDB Plus engine to initialize the database.
 4. **Optionally start the Web Server**   If `rocksdb.open_http` is true and the instance is `GRAPH_STORE`, HugeGraph invokes `startHttpServer()` via reflection to enable observability.
+   * If the Web Server cannot be started due to misconfiguration **or if the specified HTTP port is already in use**, RocksDB Plus throws an error and the startup process is terminated
 
 This design ensures that RocksDB Plus can be integrated as an optional enhancement, without breaking compatibility or requiring changes to the core HugeGraph codebase.
 
@@ -114,7 +122,7 @@ This design ensures that RocksDB Plus can be integrated as an optional enhanceme
 
 ### For Users
 
-User experience remains unchanged.
+The way users operate remains unchanged by default, and adding RocksDB Plus configuration provides additional functionality.
 The RocksDB Plus integration is fully embedded into the existing startup scripts (`init-store.sh` and `start-hugegraph.sh`). Users only need to set `rocksdb.option_path` to specify the YAML file path and adjust its contents as needed to tune the storage engine.
 
 
@@ -122,25 +130,51 @@ The RocksDB Plus integration is fully embedded into the existing startup scripts
 
 Developers need to make two adjustments to enable RocksDB Plus during development:
 
-1. **Maven Repository Configuration**   Since RocksDB Plus is published via GitHub Packages, developers must add the GitHub repository to their `settings.xml` to fetch the correct JAR:
+1. **Maven Repository Configuration**: since RocksDB Plus is published via GitHub Packages, developers must add the GitHub repository to their `settings.xml` to fetch the correct JAR:
 
+   ```xml
+    <!-- Configure GitHub account information -->
+    <!-- The <server> section is used to configure authentication for GitHub Packages -->
+   <servers>
+       <server>
+           <id>github</id>
+           <username>YOUR_GITHUB_ACTOR</username>
+           <password>YOUR_GITHUB_TOKEN</password>
+       </server>
+   </servers>
+   
+   <profiles>
+       <profile>
+            <id>...</id>
+           <repositories>
+               ...
+               <!-- The repository id here must match the server id defined above -->
+               <repository>
+                   <id>github</id>
+                   <url>https://maven.pkg.github.com/hugegraph/toplingdb</url>
+                   <snapshots>
+                       <enabled>true</enabled>
+                   </snapshots>
+               </repository>
+           </repositories>
+       </profile>
+   </profiles>
    ```
-   <repository>
-       <id>github</id>
-       <url>https://maven.pkg.github.com/hugegraph/toplingdb</url>
-       <snapshots>
-           <enabled>true</enabled>
-       </snapshots>
-   </repository>
-   ```
 
-2. **IDE Environment Setup**   When using IDEs like IntelliJ IDEA, developers must configure runtime environment variables to preload the required native libraries. Developers can execute `preload-topling.sh` to extract the native libraries. The dynamic libraries and static resources required by the Web Server are extracted into the `library` directory located alongside the `bin` directory.
-
+2. **IDE Environment Setup**: developers must configure runtime environment variables to preload required native libraries.
+   The `preload-topling.sh` script not only extracts the necessary dynamic libraries and web server static resources into the `library` directory next to the `bin` directory,
+   but also sets the required environment variables in the current process.
+   When executed in a terminal using `source preload-topling.sh`, these variables take effect immediately in that shell session.
+   
+   However, when launching HugeGraph from an IDE, the program typically runs in a separate process,
+   so environment variables defined in scripts run from the terminal are not inherited.
+   In this case, developers need to manually configure the IDE's run/debug environment variables to ensure proper preloading of native libraries.
+   
    In your IDE’s Run/Debug Configuration, set:
 
-   ```
-   LD_LIBRARY_PATH=/path/to/your/library:$LD_LIBRARY_PATH
-   LD_PRELOAD=libjemalloc.so:librocksdbjni.so
+   ```bash
+   LD_LIBRARY_PATH="/path/to/your/library:${LD_LIBRARY_PATH}"
+   LD_PRELOAD="libjemalloc.so:librocksdbjni.so"
    ```
 
 These steps ensure that RocksDB Plus loads correctly in development environments and behaves consistently with production deployments.
@@ -149,7 +183,7 @@ These steps ensure that RocksDB Plus loads correctly in development environments
 
 ## Links
 
-* **ToplingDB**: https://github.com/topling/toplingdb
-* **Configuration YAML of ToplingDB**: https://github.com/topling/sideplugin-wiki-en/wiki
-* **Web Server of ToplingDB**: https://github.com/topling/sideplugin-wiki-en/wiki/WebView
+* **ToplingDB**: [https://github.com/topling/toplingdb](https://github.com/topling/toplingdb)
+* **Configuration YAML of ToplingDB**: [https://github.com/topling/sideplugin-wiki-en/wiki](https://github.com/topling/sideplugin-wiki-en/wiki)
+* **Web Server of ToplingDB**: [https://github.com/topling/sideplugin-wiki-en/wiki/WebView](https://github.com/topling/sideplugin-wiki-en/wiki/WebView)
 
