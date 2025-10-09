@@ -13,7 +13,7 @@ HugeGraph ToplingDB aims to enhance compatibility with ToplingDB, providing user
 
 ## Architecture Diagram
 
-#### HugeGraph Startup Script Logic
+### HugeGraph Startup Script Logic
 
 Steps ❷ ~ ❻ in the diagram below illustrate the preload logic added to support ToplingDB.
 
@@ -38,7 +38,7 @@ sequenceDiagram
   Server-->>User: Service running
 ```
 
-#### RocksDB Startup Logic
+### RocksDB Startup Logic
 
 Use reflection to detect whether ToplingDB APIs are available. If present, attempt to start the storage engine using ToplingDB; otherwise, fall back to standard RocksDB APIs.
 
