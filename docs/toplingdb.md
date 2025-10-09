@@ -139,6 +139,7 @@ Developers need to make two adjustments to enable ToplingDB during development:
        <server>
            <id>github</id>
            <username>YOUR_GITHUB_ACTOR</username>
+           <!-- Ensure that YOUR_GITHUB_TOKEN has at least the read:packages permission -->
            <password>YOUR_GITHUB_TOKEN</password>
        </server>
    </servers>
