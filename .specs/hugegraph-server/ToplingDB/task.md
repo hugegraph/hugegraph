@@ -20,35 +20,35 @@ When running from the terminal, simply use `init-store.sh` and `start-hugegraph.
 ## 1. Project Infrastructure Setup
 
 - [x] **1.1 Build ToplingDB JAR Package**
-    - Publish the package to GitHub Packages via GitHub Actions and update Maven's `settings.xml`
-    - Provide documentation for manually building the ToplingDB JAR package
+  - Publish the package to GitHub Packages via GitHub Actions and update Maven's `settings.xml`
+  - Provide documentation for manually building the ToplingDB JAR package
 
 ## 2. Compatibility with ToplingDB and Standard RocksDB
 
 - [x] **2.1 Modify openRocksDB logic in RocksDBStdSession**
-    - Use reflection to detect whether the current JAR contains ToplingDB APIs; if so, start the storage engine using ToplingDB
-    - If not available, fall back to the standard RocksDB API for engine startup
+  - Use reflection to detect whether the current JAR contains ToplingDB APIs; if so, start the storage engine using ToplingDB
+  - If not available, fall back to the standard RocksDB API for engine startup
 
 ## 3. Add Configuration Options for ToplingDB in HugeGraph
 
 - [x] **3.1 Add `rocksdb.option_path` configuration**
-    - Type: string, used to specify the path to the YAML configuration file
-    - Allow users to pass the YAML file via `hugegraph.properties` using `rocksdb.option_path`
-    - This option is invalid for standard RocksDB JARs, as RocksDB APIs do not support file-based configuration
+  - Type: string, used to specify the path to the YAML configuration file
+  - Allow users to pass the YAML file via `hugegraph.properties` using `rocksdb.option_path`
+  - This option is invalid for standard RocksDB JARs, as RocksDB APIs do not support file-based configuration
 
 - [x] **3.2 Add `rocksdb.open_http` configuration**
-    - Type: boolean, used to specify whether to enable the ToplingDB Web Server
-    - Allow users to configure Web Server activation via `rocksdb.open_http` in `hugegraph.properties`
-    - The Web Server port is defined in the YAML file specified by `option_path`, under `http.listening_ports`
-    - For simplicity, the Web Server is only enabled for the `GRAPH_STORE` instance that stores graph data
+  - Type: boolean, used to specify whether to enable the ToplingDB Web Server
+  - Allow users to configure Web Server activation via `rocksdb.open_http` in `hugegraph.properties`
+  - The Web Server port is defined in the YAML file specified by `option_path`, under `http.listening_ports`
+  - For simplicity, the Web Server is only enabled for the `GRAPH_STORE` instance that stores graph data
 
 ## 4. End-to-End Performance Testing
 
 - [x] **4.1 Write Performance Testing**
-    - Use `hugegraph-loader` to load the twitter-2010 dataset
-    - Shuffle the twitter-2010 dataset to simulate real-world random insertion patterns and evaluate the write performance of ToplingDB.
-    - ToplingDB improves random write performance by up to 40% and reduces storage overhead by approximately 50%
+  - Use `hugegraph-loader` to load the twitter-2010 dataset
+  - Shuffle the twitter-2010 dataset to simulate real-world random insertion patterns and evaluate the write performance of ToplingDB.
+  - ToplingDB improves random write performance by up to 40% and reduces storage overhead by approximately 50%
 
 - [x] **4.2 Read Performance Testing**
-    - Execute edge traversal, vertex traversal, and KOUT queries to evaluate read performance improvements
-    - Under cold start conditions, edge traversal latency is reduced by up to 50%, and KOUT query average latency is reduced by approximately 15%
+  - Execute edge traversal, vertex traversal, and KOUT queries to evaluate read performance improvements
+  - Under cold start conditions, edge traversal latency is reduced by up to 50%, and KOUT query average latency is reduced by approximately 15%
