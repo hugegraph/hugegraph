@@ -87,13 +87,32 @@ Since ToplingDB is not published to Maven Central, the JAR can only be obtained 
 Add GitHub repository configuration to your Maven `settings.xml`:
 
 ```xml
-<repository>
-    <id>github</id>
-    <url>https://maven.pkg.github.com/hugegraph/toplingdb</url>
-    <snapshots>
-        <enabled>true</enabled>
-    </snapshots>
-</repository>
+<!-- Configure GitHub account information -->
+<!-- The <server> section is used to configure authentication for GitHub Packages -->
+<servers>
+   <server>
+       <id>github</id>
+       <username>YOUR_GITHUB_ACTOR</username>
+       <password>YOUR_GITHUB_TOKEN</password>
+   </server>
+</servers>
+
+<profiles>
+   <profile>
+        <id>...</id>
+       <repositories>
+           ...
+           <!-- The repository id here must match the server id defined above -->
+           <repository>
+               <id>github</id>
+               <url>https://maven.pkg.github.com/hugegraph/toplingdb</url>
+               <snapshots>
+                   <enabled>true</enabled>
+               </snapshots>
+           </repository>
+       </repositories>
+   </profile>
+</profiles>
 ```
 
 Also, update the `rocksdbjni` version in `hugegraph-server/hugegraph-rocksdb/pom.xml` from `7.2.2` to `8.10.2-SNAPSHOT` to match the GitHub release:
