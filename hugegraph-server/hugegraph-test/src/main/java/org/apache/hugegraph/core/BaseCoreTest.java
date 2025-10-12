@@ -112,9 +112,21 @@ public class BaseCoreTest {
             schema.edgeLabel(elem.name()).remove();
         });
 
+        try {
+            Thread.sleep(100); // wait schema task finished
+        } catch (InterruptedException e) {
+            throw new RuntimeException(e);
+        }
+
         schema.getVertexLabels().forEach(elem -> {
             schema.vertexLabel(elem.name()).remove();
         });
+
+        try {
+            Thread.sleep(100); // wait schema task finished
+        } catch (InterruptedException e) {
+            throw new RuntimeException(e);
+        }
 
         schema.getPropertyKeys().forEach(elem -> {
             schema.propertyKey(elem.name()).remove();
