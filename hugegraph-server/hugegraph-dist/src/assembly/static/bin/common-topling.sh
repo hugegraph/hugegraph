@@ -19,6 +19,10 @@ set -Eeuo pipefail
 IFS=$'\n\t'
 trap 'echo "[common-topling] error at line ${LINENO}: ${BASH_COMMAND}" >&2' ERR
 
+BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+TOP="$(cd "$BIN"/../ && pwd)"
+GITHUB="https://github.com"
+
 function abs_path() {
     local SOURCE
     SOURCE="${BASH_SOURCE[0]}"
@@ -144,6 +148,67 @@ function ensure_libaio_symlink() {
     fi
 }
 
+function download_and_verify() {
+    local url=$1
+    local filepath=$2
+    local expected_md5=$3
+
+    if [[ -f $filepath ]]; then
+        echo "File $filepath exists. Verifying MD5 checksum..."
+        actual_md5=$(md5sum $filepath | awk '{ print $1 }')
+        if [[ $actual_md5 != $expected_md5 ]]; then
+            echo "MD5 checksum verification failed for $filepath. Expected: $expected_md5, but got: $actual_md5"
+            echo "Deleting $filepath..."
+            rm -f $filepath
+        else
+            echo "MD5 checksum verification succeeded for $filepath."
+            return 0
+        fi
+    fi
+
+    echo "Downloading $filepath..."
+    curl -L -o $filepath $url
+
+    actual_md5=$(md5sum $filepath | awk '{ print $1 }')
+    if [[ $actual_md5 != $expected_md5 ]]; then
+        echo "MD5 checksum verification failed for $filepath after download. Expected: $expected_md5, but got: $actual_md5"
+        return 1
+    fi
+
+    return 0
+}
+
+function download_and_setup_jemalloc() {
+    local arch lib_file download_url expected_md5
+
+    # Detect system architecture
+    arch=$(uname -m)
+
+    # System jemalloc not found, try to download the correct library for the architecture
+    if [[ $arch == "aarch64" || $arch == "arm64" ]]; then
+        lib_file="$TOP/bin/libjemalloc_aarch64.so"
+        download_url="${GITHUB}/apache/hugegraph-doc/raw/binary-1.5/dist/server/libjemalloc_aarch64.so"
+        expected_md5="2a631d2f81837f9d5864586761c5e380"
+    elif [[ $arch == "x86_64" ]]; then
+        lib_file="$TOP/bin/libjemalloc.so"
+        download_url="${GITHUB}/apache/hugegraph-doc/raw/binary-1.5/dist/server/libjemalloc.so"
+        expected_md5="fd61765eec3bfea961b646c269f298df"
+    else
+        echo "Unsupported architecture: $arch"
+        return 1
+    fi
+
+    # Download and verify jemalloc library
+    if download_and_verify "$download_url" "$lib_file" "$expected_md5"; then
+        if [[ ":${LD_PRELOAD:-}:" != *"libjemalloc.so:"* ]]; then
+            export LD_PRELOAD="${lib_file}${LD_PRELOAD:+:$LD_PRELOAD}"
+        fi
+    else
+        echo "Failed to verify or download jemalloc for $arch, skipping"
+        return 1
+    fi
+}
+
 function preload_toplingdb() {
     local lib_dir="$1"
     local dest_dir="$2"
@@ -156,24 +221,18 @@ function preload_toplingdb() {
     fi
 
     ensure_libaio_symlink
+    download_and_setup_jemalloc
     extract_so_with_jar "$jar_file" "$dest_dir"
     if [ -d "$dest_dir" ]; then
         if [[ ":${LD_LIBRARY_PATH:-}:" != *":$dest_dir:"* ]]; then
             export LD_LIBRARY_PATH="$dest_dir${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
         fi
 
-        if [ -f "$dest_dir/librocksdbjni-linux64.so" ] && [[ ":${LD_PRELOAD:-}:" != *":librocksdbjni-linux64.so:"* ]]; then
-            export LD_PRELOAD="librocksdbjni-linux64.so${LD_PRELOAD:+:$LD_PRELOAD}"
+        if [ -f "$dest_dir/librocksdbjni-linux64.so" ] && [[ ":${LD_PRELOAD:-}:" != *"librocksdbjni-linux64.so:"* ]]; then
+            export LD_PRELOAD="${LD_PRELOAD:+$LD_PRELOAD:}$dest_dir/librocksdbjni-linux64.so"
         fi
     else
         echo "Warn: LD paths skipped, directory '$dest_dir' does not exist." >&2
-    fi
-    if command -v ldconfig >/dev/null 2>&1; then
-        local jemalloc_found
-        jemalloc_found=$(ldconfig -p 2>/dev/null | grep -F 'libjemalloc.so' || true)
-        if [ -n "$jemalloc_found" ] && [[ ":${LD_PRELOAD:-}:" != *":libjemalloc.so:"* ]]; then
-            export LD_PRELOAD="libjemalloc.so${LD_PRELOAD:+:$LD_PRELOAD}"
-        fi
     fi
     extract_html_css_from_jar "$jar_file" "$dest_dir"
 }
