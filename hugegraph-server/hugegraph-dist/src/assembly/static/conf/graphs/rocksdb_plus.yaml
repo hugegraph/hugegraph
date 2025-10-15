@@ -18,7 +18,7 @@
 http:
   # normally parent path of db path
   document_root: /dev/shm/rocksdb_resource
-  listening_ports: '2011'
+  listening_ports: '127.0.0.1:2011'
 setenv:
   StrSimpleEnvNameNotOverwrite: StringValue
   IntSimpleEnvNameNotOverwrite: 16384

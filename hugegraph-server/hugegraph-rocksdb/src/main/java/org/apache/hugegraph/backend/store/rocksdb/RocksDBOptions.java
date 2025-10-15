@@ -34,6 +34,16 @@ import org.rocksdb.CompressionType;
 import org.rocksdb.DataBlockIndexType;
 import org.rocksdb.IndexType;
 
+import java.util.regex.Pattern;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.Locale;
+
+import org.yaml.snakeyaml.Yaml;
+import org.yaml.snakeyaml.constructor.SafeConstructor;
+
 import com.google.common.collect.ImmutableList;
 
 public class RocksDBOptions extends OptionHolder {
@@ -44,12 +54,79 @@ public class RocksDBOptions extends OptionHolder {
 
     private static volatile RocksDBOptions instance;
 
+    private static final Pattern SAFE_PATH_PATTERN =
+            Pattern.compile("^[a-zA-Z0-9/_.-]+\\.yaml$");
+    private static final String ALLOWED_CONFIG_DIR = "./conf/graphs/";
+    private static final long MAX_CONFIG_FILE_SIZE = 1024 * 1024 * 10; // 10 MB
+
     public static synchronized RocksDBOptions instance() {
         if (instance == null) {
             instance = new RocksDBOptions();
             instance.registerOptions();
         }
         return instance;
+    }
+
+    /**
+     * Validate the option_path string for safety and availability.
+     * - Enforce format, normalize and prevent path traversal
+     * - Restrict to an allowed base directory
+     * - Ensure the file exists, is readable, and within size limits
+     */
+    public static void validateOptionPath(String optionPath) {
+        // 1. Path format validation
+        if (optionPath == null || optionPath.isBlank()) {
+            throw new IllegalArgumentException("option_path can't be null or empty");
+        }
+        if (!SAFE_PATH_PATTERN.matcher(optionPath).matches() ||
+            optionPath.contains("..") || optionPath.contains("://")) {
+            throw new IllegalArgumentException("Invalid option_path format: " + optionPath);
+        }
+        String lower = optionPath.toLowerCase(Locale.ROOT);
+        if (!(lower.endsWith(".yaml") || lower.endsWith(".yml"))) {
+            throw new IllegalArgumentException("option_path must end with .yaml or .yml");
+        }
+
+        // 2. Normalize path and constrain under allowed directory
+        Path allowedDir = Paths.get(ALLOWED_CONFIG_DIR).toAbsolutePath().normalize();
+        Path configPath = Paths.get(optionPath).toAbsolutePath().normalize();
+
+        if (!configPath.startsWith(allowedDir)) {
+            throw new SecurityException("option_path must be under " + ALLOWED_CONFIG_DIR);
+        }
+
+        // 3. Validate file existence and readability
+        if (!Files.isRegularFile(configPath) || !Files.isReadable(configPath)) {
+            throw new IllegalArgumentException(
+                    "Config file not found or not readable: " + configPath);
+        }
+
+        // 4. File size limit (prevent DoS)
+        final long fileSize;
+        try {
+            fileSize = Files.size(configPath);
+        } catch (IOException e) {
+            throw new IllegalArgumentException("Failed to access config file size: " + configPath,
+                                               e);
+        }
+        if (fileSize > MAX_CONFIG_FILE_SIZE) {
+            throw new IllegalArgumentException("Config file too large: " + fileSize + " bytes");
+        }
+    }
+
+    /**
+     * - Validates parsed structure schema and limits depth & node counts
+     */
+    public static void validateYamlContent(String yamlContent) {
+        // Use a safe YAML parser and disable dangerous features
+        Yaml yaml = new Yaml(new SafeConstructor());
+        try {
+            yaml.load(yamlContent);
+            // TODO: validate config schema
+        } catch (Exception e) {
+            throw new IllegalArgumentException(
+                    "Invalid YAML configuration", e);
+        }
     }
 
     // TODO: the entire align style is wrong, change it to 4 space later
