@@ -3,8 +3,6 @@
 - **Status**: Implemented
 - **Pull Request**: [#15](https://github.com/hugegraph/hugegraph/pull/15)
 
-
-
 ## Background knowledge
 
 [ToplingDB](https://github.com/topling/toplingdb) is a high-performance, cloud-native key-value store built as a fork of RocksDB.
@@ -16,8 +14,6 @@ ToplingDB extends RocksDB with several advanced features:
 - **Built-in Observability**: A lightweight HTTP server exposes internal metrics and configuration states, making it easier to monitor and debug storage behavior.
 - **Distributed Compaction**: Designed for cloud environments, ToplingDB supports distributed compaction strategies to reduce write amplification and improve throughput.
 - **Compatibility**: Drop-in replacement for RocksDB in most use cases.
-
-
 
 ## Motivation
 
@@ -35,14 +31,11 @@ Additionally, ToplingDB maintains full compatibility with the existing RocksDB A
 
 By supporting ToplingDB, HugeGraph empowers users with greater control over storage behavior, simplifies deployment through automated dynamic library loading, and enhances operational insight—all while preserving compatibility and ease of use.
 
-
-
 ## Goals
 
 **Introduce ToplingDB as a configurable and observable alternative to RocksDB.**
 
 Enable users to select ToplingDB via configuration, allowing tuning parameters through YAML files without recompilation and real-time monitoring via Web Server—without sacrificing compatibility with existing RocksDB APIs.
-
 
 ## Design
 
@@ -70,8 +63,6 @@ This parameter allows users to specify a YAML file that defines ToplingDB settin
 
 - **Fallback**: If the YAML file is not provided or ToplingDB is unavailable, HugeGraph will fall back to standard RocksDB behavior.
 
-
-
 #### `rocksdb.open_http`: Enable Web Server for Observability
 
 This boolean flag controls whether the embedded Web Server in ToplingDB should be started. The server exposes runtime metrics, configuration status, and internal RocksDB statistics via a browser-accessible interface.
@@ -85,6 +76,7 @@ This boolean flag controls whether the embedded Web Server in ToplingDB should b
   ```
 
   The listening port is defined in the YAML file specified by `option_path`, under the key `http.listening_ports`:
+  
   ```yaml
   http:
     document_root: /dev/shm/rocksdb_resource
@@ -99,7 +91,6 @@ This boolean flag controls whether the embedded Web Server in ToplingDB should b
 
 - **Security**: The Web Server does **not** provide built-in authentication. In production environments, configure firewalls or network access controls carefully to prevent unauthorized access.
 
-
 ### Reflection-Based Loading Mechanism
 
 To support ToplingDB without introducing hard dependencies, HugeGraph uses Java reflection to detect and load enhanced APIs at runtime.
@@ -107,16 +98,14 @@ To support ToplingDB without introducing hard dependencies, HugeGraph uses Java 
 During initialization, HugeGraph checks whether the current JAR contains the class `com.topling.sideplugin.SidePluginRepo`. If present, it assumes ToplingDB is available and proceeds to:
 
 1. **Load the SidePluginRepo class via reflection**   This avoids compile-time coupling and allows fallback to standard RocksDB if the class is missing.
-   * If the ToplingDB API cannot be found, HugeGraph silently falls back to the standard RocksDB API for startup.
+   - If the ToplingDB API cannot be found, HugeGraph silently falls back to the standard RocksDB API for startup.
 2. **Invoke** `importAutoFile(optionPath)`   This method parses the YAML configuration file specified by `rocksdb.option_path` to configure storage engine parameters.
-   *  If the `option_path` is incorrect or parsing fails, ToplingDB throws an error and terminates the startup process.
+   - If the `option_path` is incorrect or parsing fails, ToplingDB throws an error and terminates the startup process.
 3. **Call** `open()` **with a JSON descriptor**   The parsed configuration is converted to a JSON structure and passed to the ToplingDB engine to initialize the database.
 4. **Optionally start the Web Server**   If `rocksdb.open_http` is true and the instance is `GRAPH_STORE`, HugeGraph invokes `startHttpServer()` via reflection to enable observability.
-   * If the Web Server cannot be started due to misconfiguration **or if the specified HTTP port is already in use**, ToplingDB throws an error and the startup process is terminated
+   - If the Web Server cannot be started due to misconfiguration **or if the specified HTTP port is already in use**, ToplingDB throws an error and the startup process is terminated
 
 This design ensures that ToplingDB can be integrated as an optional enhancement, without breaking compatibility or requiring changes to the core HugeGraph codebase.
-
-
 
 ## Impact
 
@@ -124,7 +113,6 @@ This design ensures that ToplingDB can be integrated as an optional enhancement,
 
 The way users operate remains unchanged by default, and adding ToplingDB configuration provides additional functionality.
 The ToplingDB integration is fully embedded into the existing startup scripts (`init-store.sh` and `start-hugegraph.sh`). Users only need to set `rocksdb.option_path` to specify the YAML file path and adjust its contents as needed to tune the storage engine.
-
 
 ### For Developers
 
@@ -166,11 +154,11 @@ Developers need to make two adjustments to enable ToplingDB during development:
    The `preload-topling.sh` script not only extracts the necessary dynamic libraries and web server static resources into the `library` directory next to the `bin` directory,
    but also sets the required environment variables in the current process.
    When executed in a terminal using `source preload-topling.sh`, these variables take effect immediately in that shell session.
-   
+
    However, when launching HugeGraph from an IDE, the program typically runs in a separate process,
    so environment variables defined in scripts run from the terminal are not inherited.
    In this case, developers need to manually configure the IDE's run/debug environment variables to ensure proper preloading of native libraries.
-   
+
    In your IDE’s Run/Debug Configuration, set:
 
    ```bash
@@ -180,11 +168,8 @@ Developers need to make two adjustments to enable ToplingDB during development:
 
 These steps ensure that ToplingDB loads correctly in development environments and behaves consistently with production deployments.
 
-
-
 ## Links
 
-* **ToplingDB**: [https://github.com/topling/toplingdb](https://github.com/topling/toplingdb)
-* **Configuration YAML of ToplingDB**: [https://github.com/topling/sideplugin-wiki-en/wiki](https://github.com/topling/sideplugin-wiki-en/wiki)
-* **Web Server of ToplingDB**: [https://github.com/topling/sideplugin-wiki-en/wiki/WebView](https://github.com/topling/sideplugin-wiki-en/wiki/WebView)
-
+- **ToplingDB**: [https://github.com/topling/toplingdb](https://github.com/topling/toplingdb)
+- **Configuration YAML of ToplingDB**: [https://github.com/topling/sideplugin-wiki-en/wiki](https://github.com/topling/sideplugin-wiki-en/wiki)
+- **Web Server of ToplingDB**: [https://github.com/topling/sideplugin-wiki-en/wiki/WebView](https://github.com/topling/sideplugin-wiki-en/wiki/WebView)

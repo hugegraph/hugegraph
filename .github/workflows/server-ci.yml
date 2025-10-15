@@ -72,13 +72,9 @@ jobs:
           cp $HOME/.m2/settings.xml /tmp/settings.xml
           cp -vf .github/configs/settings.xml $HOME/.m2/settings.xml && cat $HOME/.m2/settings.xml
 
-      - name: Compile
-        run: |
-          mvn clean compile -U -Dmaven.javadoc.skip=true -ntp
-
       - name: Package
         run: |
-          mvn package -Dmaven.test.skip=true -ntp
+          mvn clean package -Dmaven.test.skip=true -ntp
           source $TRAVIS_DIR/install-rocksdb.sh
 
       - name: Prepare backend environment

@@ -447,6 +447,8 @@ public class RocksDBStdSessions extends RocksDBSessions {
         boolean useTopling = false;
         if (!StringUtils.isEmpty(optionPath)) {
             try {
+                RocksDBOptions.validateOptionPath(optionPath);
+                RocksDBOptions.validateYamlContent(optionPath);
                 Class.forName("org.rocksdb.SidePluginRepo");
                 useTopling = true;
                 LOG.info("SidePluginRepo found. Will attempt to open default CF RocksDB using " +
@@ -552,6 +554,8 @@ public class RocksDBStdSessions extends RocksDBSessions {
         boolean useTopling = false;
         if (!StringUtils.isEmpty(optionPath)) {
             try {
+                RocksDBOptions.validateOptionPath(optionPath);
+                RocksDBOptions.validateYamlContent(optionPath);
                 Class.forName("org.rocksdb.SidePluginRepo");
                 useTopling = true;
                 LOG.info("SidePluginRepo found. Will attempt to open multi CFs RocksDB using " +
