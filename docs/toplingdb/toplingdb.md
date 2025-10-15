@@ -57,6 +57,8 @@ This parameter allows users to specify a YAML file that defines ToplingDB settin
 
   The specified YAML file will be automatically loaded during database initialization if ToplingDB is available.
 
+  For security reasons, HugeGraph only allows YAML files to be stored under the `$HUGEGRAPH_HOME/conf/graphs` directory.
+
   For details on the YAML structure and supported configuration fields, please refer to [SidePlugin](https://github.com/topling/sideplugin-wiki-en/wiki).
 
 - **Implementation**: During initialization, HugeGraph checks whether the configured JAR contains ToplingDB APIs. If so, it uses reflection to load the SidePluginRepo class and calls `importAutoFile(optionPath)` to parse the YAML file. The resulting configuration is applied to the RocksDB instance.
@@ -80,9 +82,11 @@ This boolean flag controls whether the embedded Web Server in ToplingDB should b
   ```yaml
   http:
     document_root: /dev/shm/rocksdb_resource
-    listening_ports: '2011'
+    listening_ports: '127.0.0.1:2011' # by default, only local access is allowed
   ```
 
+  For security reasons, the default configuration only allows local access.
+  When adjusting this setting, users should carefully manage port and network access permissions to avoid potential security incidents.
   To preview the Web Server interface and its layout, see [Web Server](https://github.com/topling/sideplugin-wiki-en/wiki/WebView).
 
 - **Implementation**: If `open_http` is set to true and the database instance is `GRAPH_STORE`, HugeGraph invokes `startHttpServer()` on the ToplingDB repo object. This exposes a browser-accessible dashboard for monitoring RocksDB internals.
