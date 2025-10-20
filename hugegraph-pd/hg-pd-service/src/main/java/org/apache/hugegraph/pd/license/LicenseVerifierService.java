@@ -51,16 +51,19 @@ public class LicenseVerifierService {
         machineInfo = new MachineInfo();
     }
 
+    @Deprecated
     public void init() {
     }
 
     public synchronized void install(String md5) {
     }
 
+    @Deprecated
     public HashMap getContext() throws Exception {
         return new HashMap();
     }
 
+    @Deprecated
     public void verify(int cores, int nodeCount) {
     }
 
