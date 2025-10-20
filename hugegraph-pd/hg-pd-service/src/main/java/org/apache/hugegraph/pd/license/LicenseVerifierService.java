@@ -19,24 +19,15 @@
 
 package org.apache.hugegraph.pd.license;
 
-import java.io.File;
-import java.io.IOException;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.nio.charset.Charset;
-import java.text.SimpleDateFormat;
-import java.time.Duration;
-import java.time.Instant;
 import java.time.format.DateTimeFormatter;
-import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
-import java.util.concurrent.CountDownLatch;
-import java.util.prefs.Preferences;
 
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hugegraph.license.MachineInfo;
-import org.apache.hugegraph.pd.KvService;
 import org.apache.hugegraph.pd.common.PDRuntimeException;
 import org.apache.hugegraph.pd.config.PDConfig;
 import org.apache.hugegraph.pd.grpc.Pdpb;
@@ -46,7 +37,6 @@ import org.springframework.util.Base64Utils;
 
 import com.google.gson.Gson;
 
-import io.grpc.ManagedChannel;
 import lombok.extern.slf4j.Slf4j;
 
 @Service
@@ -54,30 +44,18 @@ import lombok.extern.slf4j.Slf4j;
 public class LicenseVerifierService {
 
     private PDConfig pdConfig;
-    private static final Duration CHECK_INTERVAL = Duration.ofMinutes(10);
-    private volatile Instant lastCheckTime = Instant.now();
-    private static KvService kvService;
-    private static String contentKey = "contentKey";
-    private static Gson mapper = new Gson();
     private final MachineInfo machineInfo;
-    private static volatile boolean installed = false;
 
     public LicenseVerifierService(PDConfig pdConfig) {
         this.pdConfig = pdConfig;
         machineInfo = new MachineInfo();
-        kvService = new KvService(pdConfig);
     }
 
     public void init() {
     }
 
     public synchronized void install(String md5) {
-
     }
-
-    private static final DateTimeFormatter FORMATTER =
-            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
-                             .withZone(java.time.ZoneId.systemDefault());
 
     public HashMap getContext() throws Exception {
         return new HashMap();
@@ -85,8 +63,6 @@ public class LicenseVerifierService {
 
     public void verify(int cores, int nodeCount) {
     }
-
-    private ManagedChannel channel;
 
     public boolean isLeader() {
         return RaftEngine.getInstance().isLeader();
