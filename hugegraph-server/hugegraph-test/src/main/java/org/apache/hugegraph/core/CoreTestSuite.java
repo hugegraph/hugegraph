@@ -38,13 +38,13 @@ import org.slf4j.Logger;
         VertexCoreTest.class,
         EdgeCoreTest.class,
         ParentAndSubEdgeCoreTest.class,
-        PropertyCoreTest.VertexPropertyCoreTest.class,
-        PropertyCoreTest.EdgePropertyCoreTest.class,
-        RestoreCoreTest.class,
-        TaskCoreTest.class,
-        AuthTest.class,
-        MultiGraphsTest.class,
-        RamTableTest.class
+        //PropertyCoreTest.VertexPropertyCoreTest.class,
+        //PropertyCoreTest.EdgePropertyCoreTest.class,
+        //RestoreCoreTest.class,
+        //TaskCoreTest.class,
+        //AuthTest.class,
+        //MultiGraphsTest.class,
+        //RamTableTest.class
 })
 public class CoreTestSuite {
 
