@@ -22,6 +22,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 import org.apache.hugegraph.store.meta.base.DBSessionBuilder;
@@ -42,6 +43,7 @@ public class GraphIdManager extends PartitionMetaStore {
 
     protected static final String GRAPH_ID_PREFIX = "@GRAPH_ID@";
     protected static int maxGraphID = 65535;
+    private final AtomicInteger currentGraphId = new AtomicInteger(0);
     static Object graphIdLock = new Object();
     static Object cidLock = new Object();
     final DBSessionBuilder sessionBuilder;
@@ -65,7 +67,7 @@ public class GraphIdManager extends PartitionMetaStore {
                     byte[] key = MetadataKeyHelper.getGraphIDKey(graphName);
                     Int64Value id = get(Int64Value.parser(), key);
                     if (id == null) {
-                        id = Int64Value.of(maxGraphID);
+                        id = Int64Value.of(currentGraphId.getAndIncrement());
                     }
                     l = id.getValue();
                     graphIdCache.put(graphName, l);
