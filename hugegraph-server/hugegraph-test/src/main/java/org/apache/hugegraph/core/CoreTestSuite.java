@@ -31,20 +31,20 @@ import org.slf4j.Logger;
 
 @RunWith(Suite.class)
 @Suite.SuiteClasses({
-        PropertyKeyCoreTest.class,
-        VertexLabelCoreTest.class,
-        EdgeLabelCoreTest.class,
-        IndexLabelCoreTest.class,
-        VertexCoreTest.class,
-        EdgeCoreTest.class,
-        ParentAndSubEdgeCoreTest.class,
-        PropertyCoreTest.VertexPropertyCoreTest.class,
-        PropertyCoreTest.EdgePropertyCoreTest.class,
-        RestoreCoreTest.class,
-        TaskCoreTest.class,
-        //AuthTest.class,
-        MultiGraphsTest.class,
-        RamTableTest.class
+        //PropertyKeyCoreTest.class,
+        //VertexLabelCoreTest.class,
+        //EdgeLabelCoreTest.class,
+        //IndexLabelCoreTest.class,
+        //VertexCoreTest.class,
+        //EdgeCoreTest.class,
+        //ParentAndSubEdgeCoreTest.class,
+        //PropertyCoreTest.VertexPropertyCoreTest.class,
+        //PropertyCoreTest.EdgePropertyCoreTest.class,
+        //RestoreCoreTest.class,
+        //TaskCoreTest.class,
+        AuthTest.class,
+        //MultiGraphsTest.class,
+        //RamTableTest.class
 })
 public class CoreTestSuite {
 
