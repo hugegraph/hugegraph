@@ -34,6 +34,7 @@ public enum HugeType implements SerialEnum {
     PROPERTY_KEY(3, "PK"),
     INDEX_LABEL(4, "IL"),
 
+    META(40, "M"),
     COUNTER(50, "C"),
 
     /* Data types */
@@ -80,7 +81,7 @@ public enum HugeType implements SerialEnum {
     MAX_TYPE(255, "~");
 
     private byte type = 0;
-    private String name;
+    private final String name;
 
     private static final Map<String, HugeType> ALL_NAME = new HashMap<>();
 
