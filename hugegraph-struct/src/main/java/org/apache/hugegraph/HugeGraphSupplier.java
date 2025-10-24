@@ -31,7 +31,7 @@ import org.apache.hugegraph.struct.schema.VertexLabel;
 import org.apache.hugegraph.util.DateUtil;
 
 /**
- * Acturally, it would be better if this interface be called
+ * Actually, it would be better if this interface be called
  * "HugeGraphSchemaSupplier".
  */
 public interface HugeGraphSupplier {
