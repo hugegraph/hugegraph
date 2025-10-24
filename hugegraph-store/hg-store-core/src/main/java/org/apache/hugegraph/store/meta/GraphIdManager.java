@@ -41,7 +41,7 @@ import lombok.extern.slf4j.Slf4j;
 public class GraphIdManager extends PartitionMetaStore {
 
     protected static final String GRAPH_ID_PREFIX = "@GRAPH_ID@";
-    protected static int maxGraphID = 65535;
+    protected static int maxGraphID = 65535 - 1;
     protected static int currentGraphID = 0;
     static Object graphIdLock = new Object();
     static Object cidLock = new Object();
@@ -66,7 +66,7 @@ public class GraphIdManager extends PartitionMetaStore {
                     byte[] key = MetadataKeyHelper.getGraphIDKey(graphName);
                     Int64Value id = get(Int64Value.parser(), key);
                     if (id == null) {
-                        id = Int64Value.of(++currentGraphID);
+                        id = Int64Value.of(maxGraphID);
                     }
                     l = id.getValue();
                     graphIdCache.put(graphName, l);
