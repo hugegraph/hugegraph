@@ -41,6 +41,7 @@ import lombok.extern.slf4j.Slf4j;
 public class GraphIdManager extends PartitionMetaStore {
 
     protected static final String GRAPH_ID_PREFIX = "@GRAPH_ID@";
+    // FIXME: we need to ensure the right num & proper logic for it (IMPORTANT)
     protected static int maxGraphID = 65535 - 1;
     static Object graphIdLock = new Object();
     static Object cidLock = new Object();
