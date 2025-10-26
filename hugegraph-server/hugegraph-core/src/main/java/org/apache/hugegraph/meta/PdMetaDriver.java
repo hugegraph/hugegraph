@@ -47,7 +47,8 @@ public class PdMetaDriver implements MetaDriver {
     private final PdDistributedLock lock;
 
     public PdMetaDriver(String pdPeer) {
-        PDConfig pdConfig = PDConfig.of(pdPeer);
+        PDConfig pdConfig =
+                PDConfig.of(pdPeer).setAuthority(PDAuthConfig.service(), PDAuthConfig.token());
         this.client = new KvClient<>(pdConfig);
         this.pdClient = PDClient.create(pdConfig);
         this.lock = new PdDistributedLock(this.client);
