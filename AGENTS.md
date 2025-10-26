@@ -1,6 +1,6 @@
 # AGENTS.md
 
-This file provides guidance to AI coding tool when working with code in this repository.
+This file provides guidance to an AI coding tool when working with code in this repository.
 
 ## Project Overview
 
@@ -48,9 +48,9 @@ Storage Layer (pluggable backends)
 ### Distributed Components (Optional)
 
 For production distributed deployments:
-- **HugeGraph-PD**: Service discovery, partition management, metadata coordination
-- **HugeGraph-Store**: Distributed storage with Raft consensus (typically 3+ nodes)
-- **HugeGraph-Server**: Multiple server instances (typically 3+)
+- **hugegraph-pd**: Service discovery, partition management, metadata coordination
+- **hugegraph-store**: Distributed storage with Raft consensus (typically 3+ nodes)
+- **hugegraph-server**: Multiple server instances (typically 3+)
 
 All inter-service communication uses gRPC with Protocol Buffers.
 
@@ -159,7 +159,7 @@ mvn clean package -DskipTests
 # Skip assembly creation (if needed)
 mvn clean package -DskipTests -Dskip-assembly-hugegraph
 
-# Output: hugegraph-<version>.tar.gz in project root
+# Output: install-dist/target/hugegraph-<version>.tar.gz
 ```
 
 ## Important File Locations
@@ -189,7 +189,7 @@ Import the code style configuration from `hugegraph-style.xml` in your IDE (Inte
 ### Adding Dependencies
 
 When adding third-party dependencies:
-1. Add license file to `hugegraph-server/hugegraph-dist/release-docs/licenses/` (or `install-dist/release-docs/licenses/`)
+1. Add license file to `install-dist/release-docs/licenses/`
 2. Declare dependency in `install-dist/release-docs/LICENSE`
 3. Append NOTICE info to `install-dist/release-docs/NOTICE` (if upstream has NOTICE)
 4. Update `install-dist/scripts/dependency/known-dependencies.txt` (run `regenerate_known_dependencies.sh`)
