@@ -179,6 +179,10 @@ public final class TaskManager {
         }
     }
 
+    public void forceRemoveScheduler(HugeGraphParams params) {
+        this.schedulers.remove(params);
+    }
+
     private void closeTaskTx(HugeGraphParams graph) {
         final boolean selfIsTaskWorker = Thread.currentThread().getName()
                                                .startsWith(TASK_WORKER_PREFIX);
@@ -356,7 +360,7 @@ public final class TaskManager {
                 if (serverInfoManager != null) {
                     serverInfoManager.changeServerRole(NodeRole.MASTER);
                 } else {
-                    LOG.warn("ServerInfoManager is null for graph {}", entry.graphName());
+                    LOG.warn("ServerInfoManager is null for graph {}", entry.spaceGraphName());
                 }
             }
         } catch (Throwable e) {
@@ -372,7 +376,7 @@ public final class TaskManager {
                 if (serverInfoManager != null) {
                     serverInfoManager.changeServerRole(NodeRole.WORKER);
                 } else {
-                    LOG.warn("ServerInfoManager is null for graph {}", entry.graphName());
+                    LOG.warn("ServerInfoManager is null for graph {}", entry.spaceGraphName());
                 }
             }
         } catch (Throwable e) {
@@ -416,9 +420,9 @@ public final class TaskManager {
         if (scheduler instanceof StandardTaskScheduler) {
             StandardTaskScheduler standardTaskScheduler = (StandardTaskScheduler) (scheduler);
             ServerInfoManager serverManager = scheduler.serverManager();
-            String graph = scheduler.graphName();
+            String spaceGraphName = scheduler.spaceGraphName();
 
-            LockUtil.lock(graph, LockUtil.GRAPH_LOCK);
+            LockUtil.lock(spaceGraphName, LockUtil.GRAPH_LOCK);
             try {
                 /*
                  * Skip if:
@@ -461,18 +465,18 @@ public final class TaskManager {
                 // Cancel tasks scheduled to current server
                 standardTaskScheduler.cancelTasksOnWorker(serverManager.selfNodeId());
             } finally {
-                LockUtil.unlock(graph, LockUtil.GRAPH_LOCK);
+                LockUtil.unlock(spaceGraphName, LockUtil.GRAPH_LOCK);
             }
         }
     }
 
     private static final ThreadLocal<String> CONTEXTS = new ThreadLocal<>();
 
-    protected static void setContext(String context) {
+    public static void setContext(String context) {
         CONTEXTS.set(context);
     }
 
-    protected static void resetContext() {
+    public static void resetContext() {
         CONTEXTS.remove();
     }
 

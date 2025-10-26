@@ -52,6 +52,11 @@
         <dependencies>
             <dependency>
                 <groupId>org.apache.hugegraph</groupId>
+                <artifactId>hugegraph-struct</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.hugegraph</groupId>
                 <artifactId>hg-store-common</artifactId>
                 <version>${project.version}</version>
             </dependency>
@@ -78,6 +83,11 @@
             <dependency>
                 <groupId>org.apache.hugegraph</groupId>
                 <artifactId>hg-store-transfer</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.hugegraph</groupId>
+                <artifactId>hugegraph-struct</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>

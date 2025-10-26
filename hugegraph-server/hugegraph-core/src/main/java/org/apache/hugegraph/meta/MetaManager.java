@@ -32,6 +32,7 @@ import org.apache.hugegraph.auth.HugeAccess;
 import org.apache.hugegraph.auth.HugeBelong;
 import org.apache.hugegraph.auth.HugeGroup;
 import org.apache.hugegraph.auth.HugePermission;
+import org.apache.hugegraph.auth.HugeProject;
 import org.apache.hugegraph.auth.HugeRole;
 import org.apache.hugegraph.auth.HugeTarget;
 import org.apache.hugegraph.auth.HugeUser;
@@ -67,6 +68,8 @@ public class MetaManager {
     public static final String META_PATH_HUGEGRAPH = "HUGEGRAPH";
     public static final String META_PATH_GRAPHSPACE = "GRAPHSPACE";
     public static final String META_PATH_GRAPHSPACE_LIST = "GRAPHSPACE_LIST";
+    public static final String META_PATH_SYS_GRAPH_CONF = "SYS_GRAPH_CONF";
+    public static final String META_PATH_DEFAULT_GS = "DEFAULT";
     public static final String META_PATH_SERVICE = "SERVICE";
     public static final String META_PATH_SERVICE_CONF = "SERVICE_CONF";
     public static final String META_PATH_GRAPH_CONF = "GRAPH_CONF";
@@ -86,6 +89,7 @@ public class MetaManager {
     public static final String META_PATH_TARGET = "TARGET";
     public static final String META_PATH_BELONG = "BELONG";
     public static final String META_PATH_ACCESS = "ACCESS";
+    public static final String META_PATH_PROJECT = "PROJECT";
     public static final String META_PATH_K8S_BINDINGS = "BINDING";
     public static final String META_PATH_REST_PROPERTIES = "REST_PROPERTIES";
     public static final String META_PATH_GREMLIN_YAML = "GREMLIN_YAML";
@@ -410,6 +414,18 @@ public class MetaManager {
         this.graphMetaManager.updateGraphConfig(graphSpace, graph, configs);
     }
 
+    public void addSysGraphConfig(Map<String, Object> configs) {
+        this.graphMetaManager.addSysGraphConfig(configs);
+    }
+
+    public Map<String, Object> getSysGraphConfig() {
+        return this.graphMetaManager.getSysGraphConfig();
+    }
+
+    public void removeSysGraphConfig() {
+        this.graphMetaManager.removeSysGraphConfig();
+    }
+
     public GraphSpace graphSpace(String name) {
         return this.spaceMetaManager.graphSpace(name);
     }
@@ -508,6 +524,10 @@ public class MetaManager {
      */
     public void notifyGraphEdgeCacheClear(String graphSpace, String graph) {
         this.graphMetaManager.notifyGraphEdgeCacheClear(graphSpace, graph);
+    }
+
+    public LockResult lock(String... keys) {
+        return this.lockMetaManager.lock(keys);
     }
 
     public LockResult tryLock(String key) {
@@ -749,7 +769,6 @@ public class MetaManager {
                                 EdgeLabel edgeLabel) {
         this.schemaMetaManager.updateEdgeLabel(graphSpace, graph, edgeLabel);
     }
-
 
     public EdgeLabel getEdgeLabel(String graphSpace, String graph,
                                   Id edgeLabel) {
@@ -1028,6 +1047,13 @@ public class MetaManager {
         return this.authMetaManager.listAccessByRole(graphSpace, role, limit);
     }
 
+    public List<HugeAccess> listAccessByGroup(String graphSpace,
+                                              Id group, long limit)
+            throws IOException,
+                   ClassNotFoundException {
+        return this.authMetaManager.listAccessByGroup(graphSpace, group, limit);
+    }
+
     public String targetFromAccess(String accessKey) {
         return this.authMetaManager.targetFromAccess(accessKey);
     }
@@ -1042,6 +1068,31 @@ public class MetaManager {
                    ClassNotFoundException {
         return this.authMetaManager.listAccessByTarget(graphSpace, target,
                                                        limit);
+    }
+
+    public Id createProject(String graphSpace, HugeProject project)
+            throws IOException {
+        return this.authMetaManager.createProject(graphSpace, project);
+    }
+
+    public HugeProject updateProject(String graphSpace, HugeProject project)
+            throws IOException {
+        return this.authMetaManager.updateProject(graphSpace, project);
+    }
+
+    public HugeProject deleteProject(String graphSpace, Id id)
+            throws IOException, ClassNotFoundException {
+        return this.authMetaManager.deleteProject(graphSpace, id);
+    }
+
+    public HugeProject getProject(String graphSpace, Id id)
+            throws IOException, ClassNotFoundException {
+        return this.authMetaManager.getProject(graphSpace, id);
+    }
+
+    public List<HugeProject> listAllProjects(String graphSpace, long limit)
+            throws IOException, ClassNotFoundException {
+        return this.authMetaManager.listAllProjects(graphSpace, limit);
     }
 
     public List<String> listGraphSpace() {
@@ -1248,6 +1299,7 @@ public class MetaManager {
     }
 
     public static class AuthEvent {
+
         private String op; // ALLOW: CREATE | DELETE | UPDATE
         private String type; // ALLOW: USER | GROUP | TARGET | ACCESS | BELONG
         private String id;
