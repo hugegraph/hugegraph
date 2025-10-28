@@ -21,6 +21,7 @@ import org.apache.hugegraph.HugeGraph;
 import org.apache.hugegraph.dist.RegisterUtil;
 import org.apache.hugegraph.masterelection.GlobalMasterInfo;
 import org.apache.hugegraph.meta.MetaManager;
+import org.apache.hugegraph.meta.PdMetaDriver;
 import org.apache.hugegraph.testutil.Utils;
 import org.apache.hugegraph.util.Log;
 import org.junit.AfterClass;
@@ -29,6 +30,9 @@ import org.junit.BeforeClass;
 import org.junit.runner.RunWith;
 import org.junit.runners.Suite;
 import org.slf4j.Logger;
+
+import java.util.Arrays;
+import java.util.List;
 
 @RunWith(Suite.class)
 @Suite.SuiteClasses({
@@ -52,6 +56,8 @@ public class CoreTestSuite {
     private static boolean registered = false;
     private static HugeGraph graph = null;
 
+    private static MetaManager metaManager = MetaManager.instance();
+
     public static HugeGraph graph() {
         Assert.assertNotNull(graph);
         //Assert.assertFalse(graph.closed());
@@ -71,6 +77,10 @@ public class CoreTestSuite {
 
     @BeforeClass
     public static void init() {
+        PdMetaDriver.PDAuthConfig.setAuthority("hg",
+                                               "$2a$04$i10KooNg6wLvIPVDh909n" +
+                                               ".RBYlZ" +
+                                               "/4pJo978nFK86nrqQiGIKV4UGS");
         graph = Utils.open();
         graph.clearBackend();
         graph.initBackend();
