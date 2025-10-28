@@ -19,19 +19,17 @@ package org.apache.hugegraph.pd.util;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
-import java.util.HashMap;
 import java.util.Map;
 
 import org.apache.hugegraph.auth.AuthConstant;
 import org.apache.hugegraph.auth.TokenGenerator;
-import org.apache.hugegraph.util.StringEncoding;
 
 import com.google.common.base.Charsets;
 import com.google.common.collect.ImmutableMap;
 
 public class TokenUtil {
 
-    private TokenGenerator generator;
+    private final TokenGenerator generator;
     public static final long AUTH_TOKEN_EXPIRE = 3600 * 24L * 1000;
 
     public TokenUtil(String secretKey) {
@@ -47,10 +45,9 @@ public class TokenUtil {
     //    return generator.create(payload, AUTH_TOKEN_EXPIRE);
     // }
     public String getToken(String[] info) {
-        Map<String, ?> payload = ImmutableMap.of(AuthConstant.TOKEN_USER_NAME,
-                                                 info[0]);
-        byte[] bytes =
-                generator.create(payload, AUTH_TOKEN_EXPIRE).getBytes(StandardCharsets.UTF_8);
+        Map<String, ?> payload = ImmutableMap.of(AuthConstant.TOKEN_USER_NAME, info[0]);
+        byte[] bytes = generator.create(payload, AUTH_TOKEN_EXPIRE).
+                                getBytes(StandardCharsets.UTF_8);
         byte[] encode = Base64.getEncoder().encode(bytes);
         return new String(encode, Charsets.UTF_8);
     }
@@ -58,9 +55,6 @@ public class TokenUtil {
     public boolean verify(String token, String[] info) {
         byte[] decode = Base64.getDecoder().decode(token);
         String d = new String(decode, StandardCharsets.UTF_8);
-        if (d.equals(info[1])) {
-            return true;
-        }
-        return false;
+        return d.equals(info[1]);
     }
 }

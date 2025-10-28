@@ -17,10 +17,13 @@
 
 package org.apache.hugegraph.constant;
 
+/**
+ * TODO:
+ *  Strictly prohibited from external exposure; network IP whitelisting must be
+ *  configured in production environments.
+ *  refer: src/main/java/org/apache/hugegraph/pd/service/interceptor/Authentication.java
+ */
 public class ServiceConstant {
-
-    // FIXME: Strictly prohibited from external exposure; network IP whitelisting must be
-    //  configured in production environments.
     public static final String SERVICE_NAME = "hg";
     public static final String AUTHORITY = "";
 }

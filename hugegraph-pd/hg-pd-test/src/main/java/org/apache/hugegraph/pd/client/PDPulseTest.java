@@ -45,8 +45,7 @@ public class PDPulseTest {
 
     @BeforeClass
     public static void beforeClass() throws Exception {
-        pdConfig = PDConfig.of("localhost:8686").setAuthority(SERVICE_NAME,
-                                                              AUTHORITY);
+        pdConfig = PDConfig.of("localhost:8686").setAuthority(SERVICE_NAME, AUTHORITY);
 //        pdConfig.setEnableCache(true);
 //        pdClient = PDClient.create(pdConfig);
 //        pdClient.getLeader();
