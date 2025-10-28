@@ -74,7 +74,9 @@ public class InitStore {
         RegisterUtil.registerServer();
 
         HugeConfig restServerConfig = new HugeConfig(restConf);
-        setPdAuthority(restServerConfig);
+        PDAuthConfig.setAuthority(
+                ServiceConstant.SERVICE_NAME,
+                ServiceConstant.AUTHORITY);
 
         String graphsDir = restServerConfig.get(ServerOptions.GRAPHS);
         Map<String, String> graph2ConfigPaths = ConfigUtil.scanGraphsDir(graphsDir);
@@ -97,12 +99,6 @@ public class InitStore {
             }
             HugeFactory.shutdown(30L, true);
         }
-    }
-
-    private static void setPdAuthority(HugeConfig config) {
-        PDAuthConfig.setAuthority(
-                ServiceConstant.SERVICE_NAME,
-                ServiceConstant.AUTHORITY);
     }
 
     private static HugeGraph initGraph(String configPath) throws Exception {

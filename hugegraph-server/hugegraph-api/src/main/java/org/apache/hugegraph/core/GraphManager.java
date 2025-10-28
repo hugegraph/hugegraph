@@ -2189,12 +2189,11 @@ public final class GraphManager {
             if (!"DEFAULT".equals(this.serviceGraphSpace) &&
                 !parts[0].equals(this.serviceGraphSpace)) {
                 LOG.warn(String.format("Listen event: graph [%s] add was discarded because " +
-                                       "it did " +
-                                       "not belong to the graph space [%s] registered by " +
-                                       "the" + " current server", graphName,
-                                       this.serviceGraphSpace));
+                                       "it did not belong to the graph space [%s] " +
+                                       "registered by the current server",
+                                       graphName, this.serviceGraphSpace));
                 // TODO: further confirmation is required
-                return;
+                continue;
             }
             LOG.info("Accept graph add signal from etcd for {}", graphName);
             if (this.graphs.containsKey(graphName) ||
@@ -2279,9 +2278,11 @@ public final class GraphManager {
                         LOG.error("The graph name format is incorrect: {}", graphName);
                         continue;
                     }
+                    String graphSpace = values[0];
+                    String graphNameInSpace = values[1];
                     Map<String, Object> configs =
-                            this.metaManager.getGraphConfig(values[0],
-                                                            values[1]);
+                            this.metaManager.getGraphConfig(graphSpace,
+                                                            graphNameInSpace);
                     String readMode = configs.getOrDefault(
                             CoreOptions.GRAPH_READ_MODE.name(),
                             CoreOptions.GRAPH_READ_MODE.defaultValue()).toString();
