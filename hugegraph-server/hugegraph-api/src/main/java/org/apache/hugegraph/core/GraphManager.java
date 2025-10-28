@@ -2180,13 +2180,20 @@ public final class GraphManager {
                 .extractGraphsFromResponse(response);
         for (String graphName : names) {
             String[] parts = graphName.split(DELIMITER);
+            if (parts.length < 2) {
+                LOG.error("The graph name format is incorrect: {}", graphName);
+                continue;
+            }
             // If the current server is not registered to the DEFAULT schema,
             // it will only receive graph creation events under the registered schemas.
             if (!"DEFAULT".equals(this.serviceGraphSpace) &&
                 !parts[0].equals(this.serviceGraphSpace)) {
                 LOG.warn(String.format("Listen event: graph [%s] add was discarded because " +
-                                       "it did " + "not belong to the graph space [%s] registered by " +
-                                       "the" + " current server", graphName, this.serviceGraphSpace));
+                                       "it did " +
+                                       "not belong to the graph space [%s] registered by " +
+                                       "the" + " current server", graphName,
+                                       this.serviceGraphSpace));
+                // TODO: further confirmation is required
                 return;
             }
             LOG.info("Accept graph add signal from etcd for {}", graphName);
@@ -2200,6 +2207,10 @@ public final class GraphManager {
                      graphName);
             Map<String, Object> config =
                     this.metaManager.getGraphConfig(parts[0], parts[1]);
+            if (config == null) {
+                LOG.error("The graph config not exist: {}", graphName);
+                continue;
+            }
             Object objc = config.get("creator");
             String creator = null == objc ?
                              GraphSpace.DEFAULT_CREATOR_NAME :
@@ -2208,12 +2219,11 @@ public final class GraphManager {
             // Create graph without init
             try {
                 HugeGraph graph;
+                // TODO: add alias graph
                 // if (config.containsKey(CoreOptions.ALIAS_NAME.name())) {
-                //     // TODO: add alias graph
                 //     //graph = this.createAliasGraph(parts[0], parts[1], config, true);
                 //     LOG.info("Add aliasGraph space:{} graph:{}", parts[0], parts[1]);
                 // } else {
-                    
                 // }
                 graph = this.createGraph(parts[0], parts[1], creator, config, false);
                 LOG.info("Add graph space:{} graph:{}", parts[0], parts[1]);
@@ -2247,6 +2257,10 @@ public final class GraphManager {
 
             // Remove graph without clear
             String[] parts = graphName.split(DELIMITER);
+            if (parts.length < 2) {
+                LOG.error("The graph name format is incorrect: {}", graphName);
+                continue;
+            }
             try {
                 this.dropGraph(parts[0], parts[1], false);
             } catch (HugeException e) {
@@ -2266,6 +2280,10 @@ public final class GraphManager {
                     HugeGraph hugeGraph = (HugeGraph) graph;
                     String[] values =
                             graphName.split(MetaManager.META_PATH_JOIN);
+                    if (values.length < 2) {
+                        LOG.error("The graph name format is incorrect: {}", graphName);
+                        continue;
+                    }
                     Map<String, Object> configs =
                             this.metaManager.getGraphConfig(values[0],
                                                             values[1]);

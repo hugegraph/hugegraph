@@ -21,6 +21,7 @@ import org.apache.hugegraph.HugeException;
 import org.apache.hugegraph.HugeFactory;
 import org.apache.hugegraph.config.HugeConfig;
 import org.apache.hugegraph.config.ServerOptions;
+import org.apache.hugegraph.constant.ServiceConstant;
 import org.apache.hugegraph.event.EventHub;
 import org.apache.hugegraph.meta.MetaManager;
 import org.apache.hugegraph.meta.PdMetaDriver;
@@ -59,7 +60,7 @@ public class HugeGraphServer {
         String graphsDir = restServerConfig.get(ServerOptions.GRAPHS);
         EventHub hub = new EventHub("gremlin=>hub<=rest");
 
-        setPdAuthority(restServerConfig);
+        setPdAuthority();
         //this.metaManager.connect(cluster, MetaManager.MetaDriverType.PD,
         //                         caFile, clientCaFile, clientKeyFile,
         //                         metaEndpoints);
@@ -92,10 +93,10 @@ public class HugeGraphServer {
         this.memoryMonitor.start();
     }
 
-    private void setPdAuthority(HugeConfig config) {
+    private void setPdAuthority() {
         PdMetaDriver.PDAuthConfig.setAuthority(
-                config.get(ServerOptions.SERVICE_ACCESS_PD_NAME),
-                config.get(ServerOptions.SERVICE_ACCESS_PD_TOKEN));
+                ServiceConstant.SERVICE_NAME,
+                ServiceConstant.AUTHORITY);
     }
 
     public void stop() {

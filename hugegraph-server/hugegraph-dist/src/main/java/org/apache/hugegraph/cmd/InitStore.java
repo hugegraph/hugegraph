@@ -31,6 +31,7 @@ import org.apache.hugegraph.backend.store.BackendStoreInfo;
 import org.apache.hugegraph.config.CoreOptions;
 import org.apache.hugegraph.config.HugeConfig;
 import org.apache.hugegraph.config.ServerOptions;
+import org.apache.hugegraph.constant.ServiceConstant;
 import org.apache.hugegraph.dist.RegisterUtil;
 import org.apache.hugegraph.meta.PdMetaDriver.PDAuthConfig;
 import org.apache.hugegraph.util.ConfigUtil;
@@ -98,11 +99,10 @@ public class InitStore {
         }
     }
 
-
     private static void setPdAuthority(HugeConfig config) {
         PDAuthConfig.setAuthority(
-                config.get(ServerOptions.SERVICE_ACCESS_PD_NAME),
-                config.get(ServerOptions.SERVICE_ACCESS_PD_TOKEN));
+                ServiceConstant.SERVICE_NAME,
+                ServiceConstant.AUTHORITY);
     }
 
     private static HugeGraph initGraph(String configPath) throws Exception {
