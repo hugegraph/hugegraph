@@ -1230,7 +1230,7 @@ public final class GraphManager {
             return createGraphLocal(configs.toString(), name);
         }
 
-        // server 注册的图空间不为 DEFAULT 时，只加载其注册的图空间下的图
+        // When the registered graph space is not DEFAULT, only the graphs within that registered graph space are loaded.
         if (!"DEFAULT".equals(this.serviceGraphSpace) &&
             !this.serviceGraphSpace.equals(graphSpace)) {
             throw new HugeException(String.format(
@@ -2193,6 +2193,7 @@ public final class GraphManager {
                                        "registered by the current server",
                                        graphName, this.serviceGraphSpace));
                 // TODO: further confirmation is required
+                // should be completely ignored or require additional processing
                 continue;
             }
             LOG.info("Accept graph add signal from etcd for {}", graphName);
@@ -2221,6 +2222,7 @@ public final class GraphManager {
                 // TODO: add alias graph
                 graph = this.createGraph(parts[0], parts[1], creator, config, false);
                 LOG.info("Add graph space:{} graph:{}", parts[0], parts[1]);
+                // TODO: use a more secure method to determine administrator privileges
                 boolean grpcThread = Thread.currentThread().getName().contains("grpc");
                 if (grpcThread) {
                     HugeGraphAuthProxy.setAdmin();
@@ -2287,8 +2289,9 @@ public final class GraphManager {
                             CoreOptions.GRAPH_READ_MODE.name(),
                             CoreOptions.GRAPH_READ_MODE.defaultValue()).toString();
                     hugeGraph.readMode(GraphReadMode.valueOf(readMode));
-                    // TODO: update alias graph
-                    //this.updateAliasGraph(hugeGraph, configs);
+                    // TODO: Implement alias graph update logic after
+                    // alias graph feature is fully designed and implemented
+                    // this.updateAliasGraph(hugeGraph, configs);
                     LOG.info("Update graph space:{} graph:{}", values[0], values[1]);
                 }
             }

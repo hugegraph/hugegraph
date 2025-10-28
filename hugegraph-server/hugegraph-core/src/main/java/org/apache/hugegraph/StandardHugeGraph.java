@@ -374,7 +374,7 @@ public class StandardHugeGraph implements HugeGraph {
     }
 
     @Override
-    public void started(boolean started) {
+    public synchronized void started(boolean started) {
         this.started = started;
     }
 
