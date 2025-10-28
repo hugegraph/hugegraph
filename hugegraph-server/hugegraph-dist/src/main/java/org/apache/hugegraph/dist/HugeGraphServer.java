@@ -61,9 +61,6 @@ public class HugeGraphServer {
         EventHub hub = new EventHub("gremlin=>hub<=rest");
 
         setPdAuthority();
-        //this.metaManager.connect(cluster, MetaManager.MetaDriverType.PD,
-        //                         caFile, clientCaFile, clientKeyFile,
-        //                         metaEndpoints);
         try {
             // Start HugeRestServer
             this.restServer = HugeRestServer.start(restServerConf, hub);

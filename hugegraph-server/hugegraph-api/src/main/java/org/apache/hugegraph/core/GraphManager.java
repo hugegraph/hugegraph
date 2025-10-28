@@ -2220,11 +2220,6 @@ public final class GraphManager {
             try {
                 HugeGraph graph;
                 // TODO: add alias graph
-                // if (config.containsKey(CoreOptions.ALIAS_NAME.name())) {
-                //     //graph = this.createAliasGraph(parts[0], parts[1], config, true);
-                //     LOG.info("Add aliasGraph space:{} graph:{}", parts[0], parts[1]);
-                // } else {
-                // }
                 graph = this.createGraph(parts[0], parts[1], creator, config, false);
                 LOG.info("Add graph space:{} graph:{}", parts[0], parts[1]);
                 boolean grpcThread = Thread.currentThread().getName().contains("grpc");
