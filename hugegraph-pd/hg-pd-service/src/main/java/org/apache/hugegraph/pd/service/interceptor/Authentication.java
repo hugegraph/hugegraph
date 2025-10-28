@@ -19,6 +19,8 @@ package org.apache.hugegraph.pd.service.interceptor;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
@@ -35,16 +37,16 @@ import org.springframework.stereotype.Component;
 
 @Component
 public class Authentication {
-
-    @Autowired
-    private KvService kvService;
-    @Autowired
-    private PDConfig pdConfig;
-
-    private static final Cache<String> TOKEN_CACHE = new Cache<>();
     private static volatile TokenUtil util;
-    private static String invalidMsg =
-            "invalid token and invalid user name or password, access denied";
+
+    private static final Set<String> innerUsers = new HashSet<>() {
+        {
+            add("hg");
+            add("store");
+            add("hubble");
+            add("vermeer");
+        }
+    };
     private static String invalidBasicInfo = "invalid basic authentication info";
 
     protected <T> T authenticate(String authority, String token, Function<String, T> tokenCall,
@@ -62,49 +64,11 @@ public class Authentication {
             }
             String name = info.substring(0, delim);
             String pwd = info.substring(delim + 1);
-            if (!"store".equals(name)) {
-                if (util == null) {
-                    synchronized (this) {
-                        if (util == null) {
-                            util = new TokenUtil(pdConfig.getSecretKey());
-                        }
-                    }
-                }
-                String[] i = util.getInfo(name);
-                if (i == null) {
-                    throw new AccessDeniedException("invalid service name");
-                }
-                if (!StringUtils.isEmpty(token)) {
-                    String value = TOKEN_CACHE.get(name);
-                    if (StringUtils.isEmpty(value)) {
-                        synchronized (i) {
-                            value = kvService.get(getTokenKey(name));
-                        }
-                    }
-                    if (!StringUtils.isEmpty(value) && token.equals(value)) {
-                        return call.get();
-                    }
-                }
-                if (StringUtils.isEmpty(pwd) || !StringEncoding.checkPassword(i[2], pwd)) {
-                    throw new AccessDeniedException(invalidMsg);
-                }
-                token = util.getToken(name);
-                String tokenKey = getTokenKey(name);
-                String dbToken = kvService.get(tokenKey);
-                if (StringUtils.isEmpty(dbToken)) {
-                    synchronized (i) {
-                        dbToken = kvService.get(tokenKey);
-                        if (StringUtils.isEmpty(dbToken)) {
-                            kvService.put(tokenKey, token,
-                                          TokenUtil.AUTH_TOKEN_EXPIRE);
-                            TOKEN_CACHE.put(name, token,
-                                            TokenUtil.AUTH_TOKEN_EXPIRE);
-                            return tokenCall.apply(token);
-                        }
-                    }
-                }
+            if (innerUsers.contains(name)) {
+                return call.get();
+            } else {
+                throw new AccessDeniedException("invalid service name");
             }
-            return call.get();
         } catch (Exception e) {
             throw new RuntimeException(e);
         }

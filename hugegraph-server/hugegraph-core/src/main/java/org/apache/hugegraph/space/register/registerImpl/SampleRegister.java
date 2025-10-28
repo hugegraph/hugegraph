@@ -22,6 +22,7 @@ import java.io.FileInputStream;
 import java.io.IOException;
 import java.util.Map;
 
+import org.apache.hugegraph.constant.ServiceConstant;
 import org.apache.hugegraph.pd.client.DiscoveryClient;
 import org.apache.hugegraph.pd.client.DiscoveryClientImpl;
 import org.apache.hugegraph.pd.client.PDConfig;
@@ -84,8 +85,8 @@ public class SampleRegister implements IServiceRegister {
 
         try {
             PDConfig pdConfig = PDConfig.of(config.getGrpcAddress());
-            pdConfig.setAuthority("hg",
-                                  "$2a$04$i10KooNg6wLvIPVDh909n.RBYlZ/4pJo978nFK86nrqQiGIKV4UGS");
+            pdConfig.setAuthority(ServiceConstant.SERVICE_NAME,
+                                  ServiceConstant.AUTHORITY);
             DiscoveryClient client = DiscoveryClientImpl.newBuilder().setPdConfig(pdConfig)
                                                         .setCenterAddress(config.getGrpcAddress())
                                                         .setAddress(address)
