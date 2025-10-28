@@ -39,14 +39,7 @@ import org.springframework.stereotype.Component;
 public class Authentication {
     private static volatile TokenUtil util;
 
-    private static final Set<String> innerUsers = new HashSet<>() {
-        {
-            add("hg");
-            add("store");
-            add("hubble");
-            add("vermeer");
-        }
-    };
+    private static final Set<String> innerUsers = Set.of("hg", "store", "hubble", "vermeer");
     private static String invalidBasicInfo = "invalid basic authentication info";
 
     protected <T> T authenticate(String authority, String token, Function<String, T> tokenCall,
