@@ -60,7 +60,9 @@ public class HugeGraphServer {
         String graphsDir = restServerConfig.get(ServerOptions.GRAPHS);
         EventHub hub = new EventHub("gremlin=>hub<=rest");
 
-        setPdAuthority();
+        PdMetaDriver.PDAuthConfig.setAuthority(
+                ServiceConstant.SERVICE_NAME,
+                ServiceConstant.AUTHORITY);
         try {
             // Start HugeRestServer
             this.restServer = HugeRestServer.start(restServerConf, hub);
@@ -88,12 +90,6 @@ public class HugeGraphServer {
         // Start (In-Heap) Memory Monitor
         this.memoryMonitor = new MemoryMonitor(restServerConf);
         this.memoryMonitor.start();
-    }
-
-    private void setPdAuthority() {
-        PdMetaDriver.PDAuthConfig.setAuthority(
-                ServiceConstant.SERVICE_NAME,
-                ServiceConstant.AUTHORITY);
     }
 
     public void stop() {

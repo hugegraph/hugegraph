@@ -24,6 +24,7 @@ import java.util.Map;
 import java.util.function.Consumer;
 
 import org.apache.hugegraph.HugeException;
+import org.apache.hugegraph.constant.ServiceConstant;
 import org.apache.hugegraph.meta.lock.LockResult;
 import org.apache.hugegraph.meta.lock.PdDistributedLock;
 import org.apache.hugegraph.pd.client.KvClient;
@@ -48,7 +49,8 @@ public class PdMetaDriver implements MetaDriver {
 
     public PdMetaDriver(String pdPeer) {
         PDConfig pdConfig =
-                PDConfig.of(pdPeer).setAuthority(PDAuthConfig.service(), PDAuthConfig.token());
+                PDConfig.of(pdPeer)
+                        .setAuthority(ServiceConstant.SERVICE_NAME, ServiceConstant.AUTHORITY);
         this.client = new KvClient<>(pdConfig);
         this.pdClient = PDClient.create(pdConfig);
         this.lock = new PdDistributedLock(this.client);
