@@ -18,7 +18,9 @@
 package org.apache.hugegraph.constant;
 
 public class ServiceConstant {
-    // FIXME: Strictly prohibited from external exposure; network IP whitelisting must be configured in production environments.
+
+    // FIXME: Strictly prohibited from external exposure; network IP whitelisting must be
+    //  configured in production environments.
     public static final String SERVICE_NAME = "hg";
     public static final String AUTHORITY = "";
 }
