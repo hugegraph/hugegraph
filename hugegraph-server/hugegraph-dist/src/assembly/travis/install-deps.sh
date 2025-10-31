@@ -17,11 +17,8 @@
 #
 set -ev
 
-BACKEND=$1
-
-# install rocksdb
-source $TRAVIS_DIR/install-rocksdb.sh
-
-if [[ "$BACKEND" == "memory" ]]; then
-    mvn test -pl hugegraph-server/hugegraph-test -am -P unit-test
+if [ -f /etc/debian_version ]; then
+    sudo apt-get update && sudo apt-get install -y liburing-dev libaio-dev libjemalloc-dev
+elif [ -f /etc/redhat-release ]; then
+    sudo yum install -y liburing-devel libaio-devel jemalloc-devel
 fi

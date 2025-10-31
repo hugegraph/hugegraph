@@ -18,6 +18,9 @@
 package org.apache.hugegraph.backend.store.rocksdb;
 
 import java.io.File;
+import java.lang.reflect.Constructor;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
@@ -31,12 +34,14 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.apache.commons.io.FileUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.tuple.Pair;
 import org.apache.hugegraph.backend.BackendException;
 import org.apache.hugegraph.backend.serializer.BinarySerializer;
 import org.apache.hugegraph.backend.store.BackendEntry.BackendColumn;
 import org.apache.hugegraph.backend.store.BackendEntry.BackendColumnIterator;
 import org.apache.hugegraph.backend.store.BackendEntryIterator;
+import org.apache.hugegraph.backend.store.BackendStoreProvider;
 import org.apache.hugegraph.backend.store.rocksdb.RocksDBIteratorPool.ReusedRocksIterator;
 import org.apache.hugegraph.config.CoreOptions;
 import org.apache.hugegraph.config.HugeConfig;
@@ -71,6 +76,8 @@ import org.slf4j.Logger;
 
 import com.google.common.collect.ImmutableList;
 
+import net.minidev.json.JSONObject;
+
 public class RocksDBStdSessions extends RocksDBSessions {
 
     private static final Logger LOG = Log.logger(RocksDBStdSessions.class);
@@ -78,28 +85,79 @@ public class RocksDBStdSessions extends RocksDBSessions {
     private final HugeConfig config;
     private final String dataPath;
     private final String walPath;
+    private final String optionPath;
+    private final Boolean openHttp;
 
     private volatile OpenedRocksDB rocksdb;
     private final AtomicInteger refCount;
 
     public RocksDBStdSessions(HugeConfig config, String database, String store,
-                              String dataPath, String walPath) throws RocksDBException {
+                              String dataPath, String walPath, Object... optionalArgs) throws
+                                                                                       RocksDBException {
         super(config, database, store);
         this.config = config;
         this.dataPath = dataPath;
         this.walPath = walPath;
-        this.rocksdb = RocksDBStdSessions.openRocksDB(config, dataPath, walPath);
+
+        // Parse optional Args
+        if (optionalArgs.length >= 2) {
+            if (!(optionalArgs[0] instanceof String)) {
+                throw new IllegalArgumentException("Expected String for optionPath at position 0");
+            }
+            if (!(optionalArgs[1] instanceof Boolean)) {
+                throw new IllegalArgumentException("Expected Boolean for openHttp at position 1");
+            }
+            this.optionPath = (String) optionalArgs[0];
+            this.openHttp = (Boolean) optionalArgs[1];
+        } else if (optionalArgs.length == 1) {
+            if (!(optionalArgs[0] instanceof String)) {
+                throw new IllegalArgumentException("Expected String for optionPath at position 0");
+            }
+            this.optionPath = (String) optionalArgs[0];
+            this.openHttp = false;
+        } else {
+            this.optionPath = null;
+            this.openHttp = false;
+        }
+
+        this.rocksdb = RocksDBStdSessions.openRocksDB(config, dataPath, walPath, optionPath,
+                                                      openHttp);
         this.refCount = new AtomicInteger(1);
     }
 
     public RocksDBStdSessions(HugeConfig config, String database, String store,
                               String dataPath, String walPath,
-                              List<String> cfNames) throws RocksDBException {
+                              List<String> cfNames, Object... optionalArgs) throws
+                                                                            RocksDBException {
         super(config, database, store);
         this.config = config;
         this.dataPath = dataPath;
         this.walPath = walPath;
-        this.rocksdb = RocksDBStdSessions.openRocksDB(config, cfNames, dataPath, walPath);
+
+        // Parse optional Args
+        if (optionalArgs.length >= 2) {
+            if (!(optionalArgs[0] instanceof String)) {
+                throw new IllegalArgumentException("Expected String for optionPath at position 0");
+            }
+            if (!(optionalArgs[1] instanceof Boolean)) {
+                throw new IllegalArgumentException("Expected Boolean for openHttp at position 1");
+            }
+            this.optionPath = (String) optionalArgs[0];
+            this.openHttp = (Boolean) optionalArgs[1];
+        } else if (optionalArgs.length == 1) {
+            if (!(optionalArgs[0] instanceof String)) {
+                throw new IllegalArgumentException("Expected String for optionPath at position 0");
+            }
+            this.optionPath = (String) optionalArgs[0];
+            this.openHttp = false;
+        } else {
+            this.optionPath = null;
+            this.openHttp = false;
+        }
+
+        this.rocksdb =
+                RocksDBStdSessions.openRocksDB(config, cfNames, dataPath, walPath, optionPath,
+                                               openHttp);
         this.refCount = new AtomicInteger(1);
 
         this.ingestExternalFile();
@@ -111,6 +169,8 @@ public class RocksDBStdSessions extends RocksDBSessions {
         this.config = config;
         this.dataPath = origin.dataPath;
         this.walPath = origin.walPath;
+        this.optionPath = origin.optionPath;
+        this.openHttp = origin.openHttp;
         this.rocksdb = origin.rocksdb;
         this.refCount = origin.refCount;
         this.refCount.incrementAndGet();
@@ -207,7 +267,8 @@ public class RocksDBStdSessions extends RocksDBSessions {
             this.rocksdb.close();
         }
         this.rocksdb = RocksDBStdSessions.openRocksDB(this.config, ImmutableList.of(),
-                                                      this.dataPath, this.walPath);
+                                                      this.dataPath, this.walPath,
+                                                      this.optionPath, this.openHttp);
     }
 
     @Override
@@ -301,7 +362,8 @@ public class RocksDBStdSessions extends RocksDBSessions {
     public String hardLinkSnapshot(String snapshotPath) throws RocksDBException {
         String snapshotLinkPath = this.dataPath + "_temp";
         try (OpenedRocksDB rocksdb = openRocksDB(this.config, ImmutableList.of(),
-                                                 snapshotPath, null)) {
+                                                 snapshotPath, null, this.optionPath,
+                                                 this.openHttp)) {
             rocksdb.createCheckpoint(snapshotLinkPath);
         }
         LOG.info("The snapshot {} has been hard linked to {}", snapshotPath, snapshotLinkPath);
@@ -366,7 +428,9 @@ public class RocksDBStdSessions extends RocksDBSessions {
     }
 
     private static OpenedRocksDB openRocksDB(HugeConfig config, String dataPath,
-                                             String walPath) throws RocksDBException {
+                                             String walPath, String optionPath,
+                                             Boolean openHttp) throws
+                                                               RocksDBException {
         // Init options
         Options options = new Options();
         RocksDBStdSessions.initOptions(config, options, options, options, options);
@@ -377,14 +441,88 @@ public class RocksDBStdSessions extends RocksDBSessions {
          * Open RocksDB at the first time
          * Don't merge old CFs, we expect a clear DB when using this one
          */
-        RocksDB rocksdb = RocksDB.open(options, dataPath);
+        RocksDB rocksdb = null;
+        Object repo = null;
+
+        boolean useTopling = false;
+        if (!StringUtils.isEmpty(optionPath)) {
+            try {
+                RocksDBOptions.validateOptionPath(optionPath);
+                RocksDBOptions.validateYamlContent(optionPath);
+                Class.forName("org.rocksdb.SidePluginRepo");
+                useTopling = true;
+                LOG.info("SidePluginRepo found. Will attempt to open default CF RocksDB using " +
+                         "Topling.");
+            } catch (ClassNotFoundException e) {
+                LOG.warn("SidePluginRepo not found, even though 'optionPath' was provided. " +
+                         "Falling back to the standard RocksDB default CF opening method. " +
+                         "The configuration in '{}' will be ignored.", optionPath);
+            }
+        }
+
+        if (useTopling) {
+            try {
+                // Dynamically load the SidePluginRepo class by its name at runtime.
+                Class<?> sidePluginRepoClass = Class.forName("org.rocksdb.SidePluginRepo");
+
+                repo = sidePluginRepoClass.getConstructor().newInstance();
+                String dbName = getDbName(dataPath);
+                Method putMethod =
+                        sidePluginRepoClass.getMethod("put", String.class, Options.class);
+                putMethod.invoke(repo, dbName, options);
+                Method importAutoFileMethod =
+                        sidePluginRepoClass.getMethod("importAutoFile", String.class);
+                importAutoFileMethod.invoke(repo, optionPath);
+
+                Method openDBMethod = sidePluginRepoClass.getMethod("openDB", String.class);
+                rocksdb = (RocksDB) openDBMethod.invoke(repo, converseOptionsToJsonString(dataPath,
+                                                                                          null));
+
+                if (Boolean.TRUE.equals(openHttp) &&
+                    BackendStoreProvider.GRAPH_STORE.equals(dbName)) {
+                    Method openHttpMethod =
+                            sidePluginRepoClass.getMethod("startHttpServer");
+                    openHttpMethod.invoke(repo);
+                    LOG.info("Topling HTTP Server has been started according to the " +
+                             "listening_ports specified in " + optionPath);
+                }
+            } catch (ClassNotFoundException e) {
+                // CRITICAL: If the class is not found, the current rocksdbjni library does not
+                // include SidePluginRepo.
+                LOG.error(
+                        "SidePluginRepo not found. This version of rocksdbjni does not support " +
+                        "topling.",
+                        e);
+                // Since the user provided an optionPath, the intent was to use a feature that is
+                // unavailable. Throwing an exception is the correct course of action.
+                throw new IllegalStateException(
+                        "Topling features (SidePluginRepo) are required but not found in the " +
+                        "rocksdbjni library.",
+                        e);
+            } catch (InvocationTargetException e) {
+                Throwable cause = e.getCause();
+                if (cause instanceof RocksDBException) {
+                    throw (RocksDBException) cause;
+                } else {
+                    throw new RocksDBException(
+                            "Failed to open DB with SidePluginRepo: " + cause.getMessage());
+                }
+            } catch (InstantiationException | NoSuchMethodException | IllegalAccessException e) {
+                throw new RocksDBException("SidePluginRepo reflection error: " + e.getMessage());
+            }
+        } else {
+            rocksdb = RocksDB.open(options, dataPath);
+        }
+
         Map<String, OpenedRocksDB.CFHandle> cfs = new ConcurrentHashMap<>();
-        return new OpenedRocksDB(rocksdb, cfs, sstFileManager);
+        return new OpenedRocksDB(rocksdb, cfs, sstFileManager, repo);
     }
 
     private static OpenedRocksDB openRocksDB(HugeConfig config,
                                              List<String> cfNames, String dataPath,
-                                             String walPath) throws RocksDBException {
+                                             String walPath, String optionPath,
+                                             Boolean openHttp) throws
+                                                               RocksDBException {
         // Old CFs should always be opened
         Set<String> mergedCFs = RocksDBStdSessions.mergeOldCFs(dataPath,
                                                                cfNames);
@@ -407,10 +545,85 @@ public class RocksDBStdSessions extends RocksDBSessions {
         }
         SstFileManager sstFileManager = new SstFileManager(Env.getDefault());
         options.setSstFileManager(sstFileManager);
-
         // Open RocksDB with CFs
         List<ColumnFamilyHandle> cfhs = new ArrayList<>();
-        RocksDB rocksdb = RocksDB.open(options, dataPath, cfds, cfhs);
+
+        RocksDB rocksdb = null;
+        Object repo = null;
+
+        boolean useTopling = false;
+        if (!StringUtils.isEmpty(optionPath)) {
+            try {
+                RocksDBOptions.validateOptionPath(optionPath);
+                RocksDBOptions.validateYamlContent(optionPath);
+                Class.forName("org.rocksdb.SidePluginRepo");
+                useTopling = true;
+                LOG.info("SidePluginRepo found. Will attempt to open multi CFs RocksDB using " +
+                         "Topling plugin.");
+            } catch (ClassNotFoundException e) {
+                LOG.warn("SidePluginRepo not found, even though 'optionPath' was provided. " +
+                         "Falling back to the standard RocksDB opening multi CFs method. " +
+                         "The configuration in '{}' will be ignored.", optionPath);
+            }
+        }
+
+        if (useTopling) {
+            try {
+                // Use reflection to check for the existence of the SidePluginRepo class at
+                // runtime.
+                Class<?> sidePluginRepoClass = Class.forName("org.rocksdb.SidePluginRepo");
+
+                // Get the constructor and create a new instance.
+                Constructor<?> constructor = sidePluginRepoClass.getConstructor();
+                repo = constructor.newInstance();
+
+                String dbName = getDbName(dataPath);
+
+                Method putMethod =
+                        sidePluginRepoClass.getMethod("put", String.class, DBOptions.class);
+                putMethod.invoke(repo, dbName, options);
+
+                Method importAutoFileMethod =
+                        sidePluginRepoClass.getMethod("importAutoFile", String.class);
+                importAutoFileMethod.invoke(repo, optionPath);
+
+                Method openDBMethod =
+                        sidePluginRepoClass.getMethod("openDB", String.class, List.class);
+                rocksdb = (RocksDB) openDBMethod.invoke(repo,
+                                                        converseOptionsToJsonString(dataPath, cfs),
+                                                        cfhs);
+
+                if (Boolean.TRUE.equals(openHttp) &&
+                    BackendStoreProvider.GRAPH_STORE.equals(dbName)) {
+                    Method openHttpMethod =
+                            sidePluginRepoClass.getMethod("startHttpServer");
+                    openHttpMethod.invoke(repo);
+                    LOG.info("Topling HTTP Server has been started according to the " +
+                             "listening_ports specified in " + optionPath);
+                }
+
+                LOG.info("Successfully opened DB with SidePluginRepo.");
+            } catch (ClassNotFoundException e) {
+                // In this case, this exception should not occur
+                throw new IllegalStateException(
+                        "Topling features (SidePluginRepo) are required but not found in the " +
+                        "rocksdbjni library.",
+                        e);
+            } catch (InvocationTargetException e) {
+                Throwable cause = e.getCause();
+                if (cause instanceof RocksDBException) {
+                    throw (RocksDBException) cause;
+                } else {
+                    throw new RocksDBException(
+                            "Failed to open DB with SidePluginRepo: " + cause.getMessage());
+                }
+            } catch (InstantiationException | NoSuchMethodException | IllegalAccessException e) {
+                throw new RocksDBException("SidePluginRepo reflection error: " + e.getMessage());
+            }
+        } else {
+            // use rocksdb
+            rocksdb = RocksDB.open(options, dataPath, cfds, cfhs);
+        }
 
         E.checkState(cfhs.size() == cfs.size(),
                      "Expect same size of cf-handles and cf-names");
@@ -419,7 +632,7 @@ public class RocksDBStdSessions extends RocksDBSessions {
         for (int i = 0; i < cfs.size(); i++) {
             cfHandles.put(cfs.get(i), new OpenedRocksDB.CFHandle(rocksdb, cfhs.get(i)));
         }
-        return new OpenedRocksDB(rocksdb, cfHandles, sstFileManager);
+        return new OpenedRocksDB(rocksdb, cfHandles, sstFileManager, repo);
     }
 
     private static Set<String> mergeOldCFs(String path,
@@ -441,6 +654,40 @@ public class RocksDBStdSessions extends RocksDBSessions {
             }
         }
         return cfs;
+    }
+
+    private static String converseOptionsToJsonString(String dataPath, List<String> cfs) {
+        if (dataPath == null || dataPath.trim().isEmpty()) {
+            throw new IllegalArgumentException("dataPath cannot be null or empty");
+        }
+        // construct CFOptions
+        JSONObject columnFamilies = new JSONObject();
+        // multi CFs
+        if (cfs != null) {
+            for (String cf : cfs) {
+                columnFamilies.put(cf, "$default");
+            }
+        } else { // single default CF
+            columnFamilies.put("default", "$default");
+        }
+
+        // construct params
+        JSONObject params = new JSONObject();
+        params.put("db_options", "$dbo");
+        params.put("cf_options", "$default");
+        params.put("column_families", columnFamilies);
+        params.put("path", dataPath);
+
+        // construct wrapper
+        JSONObject wrapper = new JSONObject();
+        wrapper.put("method", "DB::Open");
+        wrapper.put("params", params);
+
+        return wrapper.toString();
+    }
+
+    private static String getDbName(String dataPath) {
+        return Paths.get(dataPath).getFileName().toString();
     }
 
     public static void initOptions(HugeConfig conf,
