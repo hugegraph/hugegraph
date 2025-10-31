@@ -17,19 +17,22 @@
 
 package org.apache.hugegraph.dist;
 
-import java.util.concurrent.CompletableFuture;
-
 import org.apache.hugegraph.HugeException;
 import org.apache.hugegraph.HugeFactory;
 import org.apache.hugegraph.config.HugeConfig;
 import org.apache.hugegraph.config.ServerOptions;
+import org.apache.hugegraph.constant.ServiceConstant;
 import org.apache.hugegraph.event.EventHub;
+import org.apache.hugegraph.meta.MetaManager;
+import org.apache.hugegraph.meta.PdMetaDriver;
 import org.apache.hugegraph.server.RestServer;
 import org.apache.hugegraph.util.ConfigUtil;
 import org.apache.hugegraph.util.Log;
 import org.apache.logging.log4j.LogManager;
 import org.apache.tinkerpop.gremlin.server.GremlinServer;
 import org.slf4j.Logger;
+
+import java.util.concurrent.CompletableFuture;
 
 public class HugeGraphServer {
 
@@ -38,6 +41,7 @@ public class HugeGraphServer {
     private final RestServer restServer;
     private final GremlinServer gremlinServer;
     private final MemoryMonitor memoryMonitor;
+    private final MetaManager metaManager = MetaManager.instance();
 
     public static void register() {
         RegisterUtil.registerBackends();
@@ -56,6 +60,9 @@ public class HugeGraphServer {
         String graphsDir = restServerConfig.get(ServerOptions.GRAPHS);
         EventHub hub = new EventHub("gremlin=>hub<=rest");
 
+        PdMetaDriver.PDAuthConfig.setAuthority(
+                ServiceConstant.SERVICE_NAME,
+                ServiceConstant.AUTHORITY);
         try {
             // Start HugeRestServer
             this.restServer = HugeRestServer.start(restServerConf, hub);

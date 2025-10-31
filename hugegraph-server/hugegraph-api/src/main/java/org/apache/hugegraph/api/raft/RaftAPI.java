@@ -53,7 +53,7 @@ import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.core.Context;
 
-@Path("graphs/{graph}/raft")
+@Path("graphspaces/{graphspace}/graphs/{graph}/raft")
 @Singleton
 @Tag(name = "RaftAPI")
 public class RaftAPI extends API {
@@ -65,15 +65,16 @@ public class RaftAPI extends API {
     @Path("list_peers")
     @Consumes(APPLICATION_JSON)
     @Produces(APPLICATION_JSON_WITH_CHARSET)
-    @RolesAllowed({"admin"})
+    @RolesAllowed({"space_member"})
     public Map<String, List<String>> listPeers(@Context GraphManager manager,
                                                @PathParam("graph") String graph,
+                                               @PathParam("graphspace") String graphSpace,
                                                @QueryParam("group")
                                                @DefaultValue("default")
                                                String group) {
         LOG.debug("Graph [{}] prepare to get leader", graph);
 
-        HugeGraph g = graph(manager, graph);
+        HugeGraph g = graph(manager, graphSpace, graph);
         RaftGroupManager raftManager = raftGroupManager(g, group, "list_peers");
         List<String> peers = raftManager.listPeers();
         return ImmutableMap.of(raftManager.group(), peers);
@@ -84,15 +85,16 @@ public class RaftAPI extends API {
     @Path("get_leader")
     @Consumes(APPLICATION_JSON)
     @Produces(APPLICATION_JSON_WITH_CHARSET)
-    @RolesAllowed({"admin"})
+    @RolesAllowed({"space_member"})
     public Map<String, String> getLeader(@Context GraphManager manager,
                                          @PathParam("graph") String graph,
+                                         @PathParam("graphspace") String graphSpace,
                                          @QueryParam("group")
                                          @DefaultValue("default")
                                          String group) {
         LOG.debug("Graph [{}] prepare to get leader", graph);
 
-        HugeGraph g = graph(manager, graph);
+        HugeGraph g = graph(manager, graphSpace, graph);
         RaftGroupManager raftManager = raftGroupManager(g, group, "get_leader");
         String leaderId = raftManager.getLeader();
         return ImmutableMap.of(raftManager.group(), leaderId);
@@ -104,8 +106,9 @@ public class RaftAPI extends API {
     @Path("transfer_leader")
     @Consumes(APPLICATION_JSON)
     @Produces(APPLICATION_JSON_WITH_CHARSET)
-    @RolesAllowed({"admin"})
+    @RolesAllowed({"space_member"})
     public Map<String, String> transferLeader(@Context GraphManager manager,
+                                              @PathParam("graphspace") String graphSpace,
                                               @PathParam("graph") String graph,
                                               @QueryParam("group")
                                               @DefaultValue("default")
@@ -115,7 +118,7 @@ public class RaftAPI extends API {
         LOG.debug("Graph [{}] prepare to transfer leader to: {}",
                   graph, endpoint);
 
-        HugeGraph g = graph(manager, graph);
+        HugeGraph g = graph(manager, graphSpace, graph);
         RaftGroupManager raftManager = raftGroupManager(g, group,
                                                         "transfer_leader");
         String leaderId = raftManager.transferLeaderTo(endpoint);
@@ -128,8 +131,9 @@ public class RaftAPI extends API {
     @Path("set_leader")
     @Consumes(APPLICATION_JSON)
     @Produces(APPLICATION_JSON_WITH_CHARSET)
-    @RolesAllowed({"admin"})
+    @RolesAllowed({"space_member"})
     public Map<String, String> setLeader(@Context GraphManager manager,
+                                         @PathParam("graphspace") String graphSpace,
                                          @PathParam("graph") String graph,
                                          @QueryParam("group")
                                          @DefaultValue("default")
@@ -139,7 +143,7 @@ public class RaftAPI extends API {
         LOG.debug("Graph [{}] prepare to set leader to: {}",
                   graph, endpoint);
 
-        HugeGraph g = graph(manager, graph);
+        HugeGraph g = graph(manager, graphSpace, graph);
         RaftGroupManager raftManager = raftGroupManager(g, group, "set_leader");
         String leaderId = raftManager.setLeader(endpoint);
         return ImmutableMap.of(raftManager.group(), leaderId);
@@ -151,16 +155,17 @@ public class RaftAPI extends API {
     @Path("add_peer")
     @Consumes(APPLICATION_JSON)
     @Produces(APPLICATION_JSON_WITH_CHARSET)
-    @RolesAllowed({"admin"})
+    @RolesAllowed({"space_member"})
     @RedirectFilter.RedirectMasterRole
     public Map<String, Id> addPeer(@Context GraphManager manager,
+                                   @PathParam("graphspace") String graphSpace,
                                    @PathParam("graph") String graph,
                                    @QueryParam("group") @DefaultValue("default")
                                    String group,
                                    @QueryParam("endpoint") String endpoint) {
         LOG.debug("Graph [{}] prepare to add peer: {}", graph, endpoint);
 
-        HugeGraph g = graph(manager, graph);
+        HugeGraph g = graph(manager, graphSpace, graph);
         RaftGroupManager raftManager = raftGroupManager(g, group, "add_peer");
 
         JobBuilder<String> builder = JobBuilder.of(g);
@@ -181,16 +186,17 @@ public class RaftAPI extends API {
     @Path("remove_peer")
     @Consumes(APPLICATION_JSON)
     @Produces(APPLICATION_JSON_WITH_CHARSET)
-    @RolesAllowed({"admin"})
+    @RolesAllowed({"space_member"})
     @RedirectFilter.RedirectMasterRole
     public Map<String, Id> removePeer(@Context GraphManager manager,
+                                      @PathParam("graphspace") String graphSpace,
                                       @PathParam("graph") String graph,
                                       @QueryParam("group")
                                       @DefaultValue("default") String group,
                                       @QueryParam("endpoint") String endpoint) {
         LOG.debug("Graph [{}] prepare to remove peer: {}", graph, endpoint);
 
-        HugeGraph g = graph(manager, graph);
+        HugeGraph g = graph(manager, graphSpace, graph);
         RaftGroupManager raftManager = raftGroupManager(g, group,
                                                         "remove_peer");
         JobBuilder<String> builder = JobBuilder.of(g);
