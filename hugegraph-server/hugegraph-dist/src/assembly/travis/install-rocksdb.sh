@@ -17,29 +17,37 @@
 #
 
 set -Eeuo pipefail
+# Save original IFS to avoid leaking into parent shell when sourced
+ORIG_IFS="${IFS}"
 IFS=$'\n\t'
 # Unified error capture for easy positioning
 trap 'echo "[install-rocksdb] error at line ${LINENO}: ${BASH_COMMAND}" >&2' ERR
 
 VERSION=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)
 SERVER_DIR="$(pwd)/hugegraph-server/apache-hugegraph-server-incubating-$VERSION"
-BIN="$SERVER_DIR/bin"
-LIB="$SERVER_DIR/lib"
-DEST_DIR="$SERVER_DIR/library"
+SERVER_BIN="$SERVER_DIR/bin"
+SERVER_LIB="$SERVER_DIR/lib"
+INSTALL_DEST_DIR="$SERVER_DIR/library"
 
 if [ ! -d "$SERVER_DIR" ]; then
     echo "Error: SERVER_DIR not found: $SERVER_DIR" >&2
     exit 1
 fi
-if [ ! -d "$LIB" ]; then
-    echo "Error: LIB dir not found: $LIB" >&2
+if [ ! -d "$SERVER_LIB" ]; then
+    echo "Error: SERVER_LIB dir not found: $SERVER_LIB" >&2
     exit 1
 fi
-if [ ! -f "$BIN/common-topling.sh" ]; then
-    echo "Error: common-topling.sh not found under: $BIN" >&2
+if [ ! -f "$SERVER_BIN/common-topling.sh" ]; then
+    echo "Error: common-topling.sh not found under: $SERVER_BIN" >&2
     exit 1
 fi
 
-source "$BIN/common-topling.sh"
+source "$SERVER_BIN/common-topling.sh"
 type preload_toplingdb >/dev/null 2>&1 || { echo "Error: function preload_toplingdb not found" >&2; exit 1; }
-preload_toplingdb "$LIB" "$DEST_DIR"
+preload_toplingdb "$SERVER_LIB" "$INSTALL_DEST_DIR"
+
+# Reset shell options to prevent affecting the parent shell when sourced
+set +Eeuo pipefail
+trap - ERR
+# Restore original IFS
+IFS="$ORIG_IFS"
