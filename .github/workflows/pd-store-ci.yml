@@ -106,6 +106,7 @@ jobs:
 
       - name: Prepare env and service
         run: |
+          source $TRAVIS_DIR/install-rocksdb.sh
           $TRAVIS_DIR/start-pd.sh
 
       - name: Run client test
@@ -164,6 +165,7 @@ jobs:
 
       - name: Prepare env and service
         run: |
+          source $TRAVIS_DIR/install-rocksdb.sh
           $TRAVIS_DIR/start-pd.sh
           $TRAVIS_DIR/start-store.sh
 
@@ -241,6 +243,7 @@ jobs:
         # todo remove --fail-at-end after test
         run: |
           mvn clean package -U -Dmaven.javadoc.skip=true -Dmaven.test.skip=true -ntp --fail-at-end
+          source $TRAVIS_DIR/install-rocksdb.sh
 
       - name: Prepare env and service
         run: |
