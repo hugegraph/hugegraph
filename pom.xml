@@ -103,6 +103,7 @@
         <module>hugegraph-pd</module>
         <module>hugegraph-store</module>
         <module>hugegraph-commons</module>
+        <module>hugegraph-rocksdb-provider</module>
         <module>install-dist</module>
         <module>hugegraph-cluster-test</module>
         <module>hugegraph-struct</module>
