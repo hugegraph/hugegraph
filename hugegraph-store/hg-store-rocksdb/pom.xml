@@ -55,9 +55,9 @@
             <artifactId>hg-store-common</artifactId>
         </dependency>
         <dependency>
-            <groupId>org.rocksdb</groupId>
-            <artifactId>rocksdbjni</artifactId>
-            <version>7.7.3</version>
+            <groupId>org.apache.hugegraph</groupId>
+            <artifactId>hugegraph-rocksdb-provider</artifactId>
+            <version>${revision}</version>
         </dependency>
         <dependency>
             <groupId>org.projectlombok</groupId>
