@@ -74,7 +74,6 @@ function extract_html_css_from_jar() {
     local jar_file="$1"
     local dest_dir="$2"
     local abs_jar_path
-    local resource_target="/dev/shm/rocksdb_resource"
 
     if [ ! -f "$jar_file" ]; then
         echo "Error: JAR file '$jar_file' does not exist." >&2
@@ -105,18 +104,6 @@ function extract_html_css_from_jar() {
             return $code
         fi
     }
-
-    mkdir -p "$resource_target" || {
-        echo "Error: Cannot create target directory '$resource_target'." >&2
-        return 1
-    }
-
-    if compgen -G "$dest_dir"/*.html >/dev/null 2>&1; then
-        cp -f "$dest_dir"/*.html "$resource_target"/
-    fi
-    if compgen -G "$dest_dir"/*.css >/dev/null 2>&1; then
-        cp -f "$dest_dir"/*.css "$resource_target"/
-    fi
 }
 
 function ensure_libaio_symlink() {
@@ -141,8 +128,6 @@ function ensure_libaio_symlink() {
                 else
                     echo "Warn: libaio.so.1t64 not found, skip creating compat symlink" >&2
                 fi
-            else
-                echo "libaio.so.1 found, skip creating compatibility symlink" >&2
             fi
         fi
     fi
@@ -179,7 +164,40 @@ function download_and_verify() {
 }
 
 function download_and_setup_jemalloc() {
-    local arch lib_file download_url expected_md5
+    local arch lib_file download_url expected_md5 system_lib
+
+    # Prefer system-installed jemalloc if available
+    # Try ldconfig first to locate the shared object
+    if command -v ldconfig >/dev/null 2>&1; then
+        system_lib=$(ldconfig -p 2>/dev/null | awk '/jemalloc/{print $4}' | head -n1)
+    fi
+    # Fallback to common library paths if ldconfig is not available or found nothing
+    if [[ -z "$system_lib" ]]; then
+        for p in \
+            /usr/lib/libjemalloc.so \
+            /usr/lib/libjemalloc.so.2 \
+            /usr/lib64/libjemalloc.so \
+            /usr/lib64/libjemalloc.so.2 \
+            /usr/local/lib/libjemalloc.so \
+            /usr/local/lib/libjemalloc.so.2 \
+            /usr/lib/x86_64-linux-gnu/libjemalloc.so \
+            /usr/lib/x86_64-linux-gnu/libjemalloc.so.2 \
+            /usr/lib/aarch64-linux-gnu/libjemalloc.so \
+            /usr/lib/aarch64-linux-gnu/libjemalloc.so.2; do
+            if [[ -f "$p" ]]; then
+                system_lib="$p"
+                break
+            fi
+        done
+    fi
+
+    # If found, set LD_PRELOAD and return immediately
+    if [[ -n "$system_lib" ]]; then
+        if [[ ":${LD_PRELOAD:-}:" != *"libjemalloc"* ]]; then
+            export LD_PRELOAD="${system_lib}${LD_PRELOAD:+:$LD_PRELOAD}"
+        fi
+        return 0
+    fi
 
     # Detect system architecture
     arch=$(uname -m)
@@ -198,7 +216,7 @@ function download_and_setup_jemalloc() {
         return 1
     fi
 
-    # Download and verify jemalloc library
+    # Download and verify jemalloc library (fallback when system lib not found)
     if download_and_verify "$download_url" "$lib_file" "$expected_md5"; then
         if [[ ":${LD_PRELOAD:-}:" != *"libjemalloc.so:"* ]]; then
             export LD_PRELOAD="${lib_file}${LD_PRELOAD:+:$LD_PRELOAD}"
