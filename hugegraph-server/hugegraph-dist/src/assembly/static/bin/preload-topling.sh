@@ -17,24 +17,32 @@
 #
 
 set -Eeuo pipefail
+# Save original IFS to avoid leaking into parent shell when sourced
+ORIG_IFS="${IFS}"
 IFS=$'\n\t'
 # Unified error capture for easy positioning
 trap 'echo "[preload-topling] error at line ${LINENO}: ${BASH_COMMAND}" >&2' ERR
 
-BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-TOP="$(cd "$BIN"/../ && pwd)"
-LIB="$TOP/lib"
-DEST_DIR="$TOP/library"
+SERVER_BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SERVER_TOP="$(cd "$SERVER_BIN"/../ && pwd)"
+SERVER_LIB="$SERVER_TOP/lib"
+DEST_DIR="$SERVER_TOP/library"
 
-if [ ! -d "$LIB" ]; then
-    echo "Error: LIB dir not found: $LIB" >&2
+if [ ! -d "$SERVER_LIB" ]; then
+    echo "Error: LIB dir not found: $SERVER_LIB" >&2
     exit 1
 fi
-if [ ! -f "$BIN/common-topling.sh" ]; then
-    echo "Error: common-topling.sh not found under: $BIN" >&2
+if [ ! -f "$SERVER_BIN/common-topling.sh" ]; then
+    echo "Error: common-topling.sh not found under: $SERVER_BIN" >&2
     exit 1
 fi
 
-source "$BIN/common-topling.sh"
+source "$SERVER_BIN/common-topling.sh"
 type preload_toplingdb >/dev/null 2>&1 || { echo "Error: function preload_toplingdb not found" >&2; exit 1; }
-preload_toplingdb "$LIB" "$DEST_DIR"
+preload_toplingdb "$SERVER_LIB" "$DEST_DIR"
+
+# Reset shell options to prevent affecting the parent shell when sourced
+set +Eeuo pipefail
+trap - ERR
+# Restore original IFS
+IFS="$ORIG_IFS"

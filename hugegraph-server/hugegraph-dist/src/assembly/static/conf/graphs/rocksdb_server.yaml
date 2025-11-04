@@ -17,7 +17,7 @@
 # common parameters
 http:
   # normally parent path of db path
-  document_root: /dev/shm/rocksdb_resource
+  document_root: ./library
   listening_ports: '127.0.0.1:2011'
 setenv:
   StrSimpleEnvNameNotOverwrite: StringValue
