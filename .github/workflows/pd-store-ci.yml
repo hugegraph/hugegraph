@@ -33,10 +33,6 @@ jobs:
         with:
           fetch-depth: 5
 
-      - name: Install deps
-        run: |
-          ${TRAVIS_DIR}/install-deps.sh
-
       - name: Use staged maven repo settings
         run: |
           cp $HOME/.m2/settings.xml /tmp/settings.xml || true
@@ -92,6 +88,10 @@ jobs:
         run: |
           cp $HOME/.m2/settings.xml /tmp/settings.xml
           mv -vf .github/configs/settings.xml $HOME/.m2/settings.xml
+
+      - name: Install deps
+        run: |
+          ${TRAVIS_DIR}/install-deps.sh
 
       - name: Package
         # todo remove --fail-at-end after test
@@ -161,6 +161,10 @@ jobs:
         run: |
           cp $HOME/.m2/settings.xml /tmp/settings.xml
           mv -vf .github/configs/settings.xml $HOME/.m2/settings.xml
+
+      - name: Install deps
+        run: |
+          ${TRAVIS_DIR}/install-deps.sh
 
       - name: Package
         # todo remove --fail-at-end after test
