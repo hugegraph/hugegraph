@@ -25,12 +25,19 @@ import org.apache.commons.lang3.StringUtils;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Locale;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 import net.minidev.json.JSONObject;
+
+import org.yaml.snakeyaml.Yaml;
+import org.yaml.snakeyaml.constructor.SafeConstructor;
+import org.yaml.snakeyaml.LoaderOptions;
 
 /**
  * ToplingRocksDBProvider provides ToplingDB-specific RocksDB functionality.
@@ -46,6 +53,12 @@ public class ToplingRocksDBProvider extends AbstractRocksDBProvider {
     private static final String PROVIDER_NAME = "topling";
     private static final int PROVIDER_PRIORITY = 200; // Higher priority than standard
     private static final String SIDE_PLUGIN_REPO_CLASS = "org.rocksdb.SidePluginRepo";
+
+    // Validation constants migrated from RocksDBOptions
+    private static final Pattern SAFE_PATH_PATTERN =
+            Pattern.compile("^[a-zA-Z0-9/_.-]+\\.yaml$");
+    private static final String ALLOWED_CONFIG_DIR = "./conf/graphs/";
+    private static final long MAX_CONFIG_FILE_SIZE = 1024 * 1024 * 10; // 10 MB
 
     // Store repo objects for proper cleanup
     private final Map<RocksDB, Object> rocksDBToRepoMap = new ConcurrentHashMap<>();
@@ -314,9 +327,10 @@ public class ToplingRocksDBProvider extends AbstractRocksDBProvider {
      * Utility function to convert options to JSON string for ToplingDB
      * Moved from RocksDBStdSessions
      */
-    private static String converseOptionsToJsonString(String dataPath, List<String> cfs) {
+    private static String converseOptionsToJsonString(String dataPath, List<String> cfs)
+            throws RocksDBException {
         if (dataPath == null || dataPath.trim().isEmpty()) {
-            throw new IllegalArgumentException("dataPath cannot be null or empty");
+            throw new RocksDBException("RocksDB dataPath cannot be null or empty");
         }
         // sanitize path to avoid trailing slash causing empty namepart in native side
         String sanitizedPath = sanitizePath(dataPath);
@@ -407,24 +421,43 @@ public class ToplingRocksDBProvider extends AbstractRocksDBProvider {
      * This method will be available when hugegraph-rocksdb is in classpath.
      */
     private static void validateOptionPath(String optionPath) {
+        // 1. Path format validation
+        if (optionPath == null || optionPath.isBlank()) {
+            throw new IllegalArgumentException("option_path can't be null or empty");
+        }
+        if (!SAFE_PATH_PATTERN.matcher(optionPath).matches() ||
+            optionPath.contains("..") || optionPath.contains("://")) {
+            throw new IllegalArgumentException("Invalid option_path format: " + optionPath);
+        }
+        String lower = optionPath.toLowerCase(Locale.ROOT);
+        if (!(lower.endsWith(".yaml") || lower.endsWith(".yml"))) {
+            throw new IllegalArgumentException("option_path must end with .yaml or .yml");
+        }
+
+        // 2. Normalize path and constrain under allowed directory
+        Path allowedDir = Paths.get(ALLOWED_CONFIG_DIR).toAbsolutePath().normalize();
+        Path configPath = Paths.get(optionPath).toAbsolutePath().normalize();
+
+        if (!configPath.startsWith(allowedDir)) {
+            throw new SecurityException("option_path must be under " + ALLOWED_CONFIG_DIR);
+        }
+
+        // 3. Validate file existence and readability
+        if (!Files.isRegularFile(configPath) || !Files.isReadable(configPath)) {
+            throw new IllegalArgumentException(
+                    "Config file not found or not readable: " + configPath);
+        }
+
+        // 4. File size limit (prevent DoS)
+        final long fileSize;
         try {
-            // Use reflection to call RocksDBOptions.validateOptionPath
-            Class<?> rocksDBOptionsClass =
-                    Class.forName("org.apache.hugegraph.backend.store.rocksdb.RocksDBOptions");
-            Method validateMethod =
-                    rocksDBOptionsClass.getMethod("validateOptionPath", String.class);
-            validateMethod.invoke(null, optionPath);
+            fileSize = Files.size(configPath);
         } catch (Exception e) {
-            // Fallback to basic validation if RocksDBOptions is not available
-            LOG.warn("RocksDBOptions.validateOptionPath not available, using basic validation: {}",
-                     e.getMessage());
-            if (optionPath == null || optionPath.isBlank()) {
-                throw new IllegalArgumentException("option_path can't be null or empty");
-            }
-            if (!optionPath.toLowerCase().endsWith(".yaml") &&
-                !optionPath.toLowerCase().endsWith(".yml")) {
-                throw new IllegalArgumentException("option_path must end with .yaml or .yml");
-            }
+            throw new IllegalArgumentException("Failed to access config file size: " + configPath,
+                                               e);
+        }
+        if (fileSize > MAX_CONFIG_FILE_SIZE) {
+            throw new IllegalArgumentException("Config file too large: " + fileSize + " bytes");
         }
     }
 
@@ -433,19 +466,14 @@ public class ToplingRocksDBProvider extends AbstractRocksDBProvider {
      * This method will be available when hugegraph-rocksdb is in classpath.
      */
     private static void validateYamlContent(String yamlContent) {
+        // Use a safe YAML parser and disable dangerous features
+        Yaml yaml = new Yaml(new SafeConstructor(new LoaderOptions()));
         try {
-            // Use reflection to call RocksDBOptions.validateYamlContent
-            Class<?> rocksDBOptionsClass =
-                    Class.forName("org.apache.hugegraph.backend.store.rocksdb.RocksDBOptions");
-            Method validateMethod =
-                    rocksDBOptionsClass.getMethod("validateYamlContent", String.class);
-            validateMethod.invoke(null, yamlContent);
+            yaml.load(yamlContent);
+            // TODO: validate config schema
         } catch (Exception e) {
-            // Fallback to basic validation if RocksDBOptions is not available
-            LOG.warn(
-                    "RocksDBOptions.validateYamlContent not available, skipping YAML validation: " +
-                    "{}",
-                    e.getMessage());
+            throw new IllegalArgumentException(
+                    "Invalid YAML configuration", e);
         }
     }
 

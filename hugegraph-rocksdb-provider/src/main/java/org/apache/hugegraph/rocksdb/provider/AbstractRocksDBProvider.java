@@ -21,7 +21,6 @@ import org.rocksdb.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.File;
 import java.util.List;
 
 /**
@@ -36,9 +35,6 @@ public abstract class AbstractRocksDBProvider implements RocksDBProvider {
     @Override
     public final RocksDB openRocksDB(Options options, String dataPath) throws RocksDBException {
         LOG.debug("Opening RocksDB with provider: {} at path: {}", getProviderName(), dataPath);
-
-        // Ensure directory exists
-        ensureDirectoryExists(dataPath);
 
         // Initialize provider if needed
         initialize();
@@ -59,9 +55,6 @@ public abstract class AbstractRocksDBProvider implements RocksDBProvider {
     public final RocksDB openRocksDB(DBOptions dbOptions, String dataPath,
                                      List<ColumnFamilyDescriptor> cfDescriptors,
                                      List<ColumnFamilyHandle> cfHandles) throws RocksDBException {
-        // Ensure directory exists
-        ensureDirectoryExists(dataPath);
-
         // Initialize provider if needed
         initialize();
 
@@ -85,10 +78,6 @@ public abstract class AbstractRocksDBProvider implements RocksDBProvider {
 
         LOG.debug("Opening RocksDB with extended parameters using provider: {} at path: {}",
                   getProviderName(), dataPath);
-
-        // Ensure directory exists
-        ensureDirectoryExists(dataPath);
-
         // Initialize provider if needed
         initialize();
 
@@ -109,20 +98,6 @@ public abstract class AbstractRocksDBProvider implements RocksDBProvider {
             // Perform provider-specific close operations
             performProviderSpecificClose(rocksDB);
             rocksDB.close();
-        }
-    }
-
-    /**
-     * Ensure database directory exists
-     */
-    protected void ensureDirectoryExists(String dbPath) {
-        File dbDir = new File(dbPath);
-        if (!dbDir.exists()) {
-            boolean created = dbDir.mkdirs();
-            if (!created) {
-                throw new RuntimeException("Failed to create database directory: " + dbPath);
-            }
-            LOG.info("Created database directory: {}", dbPath);
         }
     }
 

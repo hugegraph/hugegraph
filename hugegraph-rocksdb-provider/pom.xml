@@ -18,20 +18,23 @@
 <project xmlns="http://maven.apache.org/POM/4.0.0"
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <artifactId>hugegraph-rocksdb-provider</artifactId>
+    <version>${revision}</version>
+
+    <name>${project.artifactId}</name>
+    <description>
+        HugeGraph RocksDB Provider - A common adapter module for RocksDB and ToplingDB integration
+        using SPI (Service Provider Interface) and Strategy Pattern for loose coupling and plugin-based architecture.
+    </description>
+
     <parent>
         <artifactId>hugegraph</artifactId>
         <groupId>org.apache.hugegraph</groupId>
         <version>${revision}</version>
         <relativePath>../pom.xml</relativePath>
     </parent>
-    <modelVersion>4.0.0</modelVersion>
-
-    <artifactId>hugegraph-rocksdb-provider</artifactId>
-    <name>${project.artifactId}</name>
-    <description>
-        HugeGraph RocksDB Provider - A common adapter module for RocksDB and ToplingDB integration
-        using SPI (Service Provider Interface) and Strategy Pattern for loose coupling and plugin-based architecture.
-    </description>
 
     <dependencies>
         <!-- RocksDB dependency -->
@@ -52,14 +55,21 @@
         <dependency>
             <groupId>org.slf4j</groupId>
             <artifactId>slf4j-api</artifactId>
-            <version>1.7.5</version>
+            <version>2.0.9</version>
+        </dependency>
+
+        <!-- YAML parsing for configuration validation -->
+        <dependency>
+            <groupId>org.yaml</groupId>
+            <artifactId>snakeyaml</artifactId>
+            <version>2.2</version>
         </dependency>
 
         <!-- JSON support for ToplingDB configuration -->
         <dependency>
             <groupId>net.minidev</groupId>
             <artifactId>json-smart</artifactId>
-            <version>2.4.8</version>
+            <version>2.3</version>
         </dependency>
 
         <!-- Test dependencies -->
