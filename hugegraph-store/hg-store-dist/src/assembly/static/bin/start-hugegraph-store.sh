@@ -40,10 +40,6 @@ PID_FILE="$BIN/pid"
 . "$BIN"/util.sh
 PARENT_DIR="$(cd "$TOP"/../ && pwd)"
 SERVER_VERSION_DIR="${SERVER_VERSION_DIR:-$(find_hugegraph_server_dir "$PARENT_DIR")}"
-if [ -z "$SERVER_VERSION_DIR" ] || [ ! -d "$SERVER_VERSION_DIR" ]; then
-    echo "Error: failed to locate ${PARENT_DIR}/apache-hugegraph-server* . Set SERVER_VERSION_DIR manually." >&2
-    exit 1
-fi
 
 arch=$(uname -m)
 echo "Current arch: $arch"
@@ -70,7 +66,10 @@ else
     echo "Unsupported architecture: $arch"
 fi
 
-source "$SERVER_VERSION_DIR/bin/preload-topling.sh"
+# preload rocksdb/toplingdb
+if [ -e "$SERVER_VERSION_DIR/bin/preload-topling.sh" ]; then
+    source "$SERVER_VERSION_DIR/bin/preload-topling.sh"
+fi
 
 ##pd/store max user processes, ulimit -u
 # Reduce the maximum number of processes that can be opened by a normal dev/user

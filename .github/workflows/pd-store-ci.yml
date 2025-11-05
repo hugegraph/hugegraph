@@ -33,6 +33,10 @@ jobs:
         with:
           fetch-depth: 5
 
+      - name: Install deps
+        run: |
+          ${TRAVIS_DIR}/install-deps.sh
+
       - name: Use staged maven repo settings
         run: |
           cp $HOME/.m2/settings.xml /tmp/settings.xml || true
@@ -89,6 +93,12 @@ jobs:
           cp $HOME/.m2/settings.xml /tmp/settings.xml
           mv -vf .github/configs/settings.xml $HOME/.m2/settings.xml
 
+      - name: Package
+        # todo remove --fail-at-end after test
+        run: |
+          mvn clean package -U -Dmaven.javadoc.skip=true -Dmaven.test.skip=true -ntp --fail-at-end
+          source $TRAVIS_DIR/install-rocksdb.sh
+
       - name: Run common test
         run: |
           mvn test -pl hugegraph-pd/hg-pd-test -am -P pd-common-test
@@ -99,14 +109,8 @@ jobs:
 
       # The above tests do not require starting a PD instance.
 
-      - name: Package
-        # todo remove --fail-at-end after test
-        run: |
-          mvn clean package -U -Dmaven.javadoc.skip=true -Dmaven.test.skip=true -ntp --fail-at-end
-
       - name: Prepare env and service
         run: |
-          source $TRAVIS_DIR/install-rocksdb.sh
           $TRAVIS_DIR/start-pd.sh
 
       - name: Run client test
@@ -162,10 +166,10 @@ jobs:
         # todo remove --fail-at-end after test
         run: |
           mvn clean package -U -Dmaven.javadoc.skip=true -Dmaven.test.skip=true -ntp --fail-at-end
+          source $TRAVIS_DIR/install-rocksdb.sh
 
       - name: Prepare env and service
         run: |
-          source $TRAVIS_DIR/install-rocksdb.sh
           $TRAVIS_DIR/start-pd.sh
           $TRAVIS_DIR/start-store.sh
 
