@@ -67,6 +67,36 @@ public class ServerNodeWrapper extends AbstractNodeWrapper {
         }
     }
 
+    private static void addCpJarsToClasspath(File directory, List<String> classpath) {
+        // Add jar starts with hugegraph in proper order
+        String path = directory.getAbsolutePath();
+        String[] jars = {"hugegraph-api-1.7.0.jar", "hugegraph-cassandra-1.7.0.jar", "hugegraph" +
+                                                                                     "-common-1.7" +
+                                                                                     ".0.jar",
+                         "hugegraph-core-1.7.0.jar", "hugegraph-dist-1.7.0.jar",
+                         "hugegraph-hbase-1" +
+                         ".7.0.jar",
+                         "hugegraph-hstore-1.7.0.jar", "hugegraph-mysql-1.7.0.jar",
+                         "hugegraph-palo" +
+                         "-1.7.0.jar",
+                         "hugegraph-postgresql-1.7.0.jar", "hugegraph-rocksdb-1.7.0.jar",
+                         "hugegraph-rpc-1.7.0.jar", "hugegraph-scylladb-1.7.0.jar",
+                         "hugegraph-struct-1.7.0.jar"};
+        for (String jar : jars) {
+            classpath.add(path + File.separator + jar);
+        }
+        if (directory.exists() && directory.isDirectory()) {
+            File[] files =
+                    directory.listFiles((dir, name) -> name.endsWith(".jar") && !name.contains(
+                            "hugegraph"));
+            if (files != null) {
+                for (File file : files) {
+                    classpath.add(file.getAbsolutePath());
+                }
+            }
+        }
+    }
+
     @Override
     public void start() {
         try {
@@ -79,7 +109,7 @@ public class ServerNodeWrapper extends AbstractNodeWrapper {
             }
 
             List<String> classpath = new ArrayList<>();
-            addJarsToClasspath(new File(workPath + LIB_DIR), classpath);
+            addCpJarsToClasspath(new File(workPath + LIB_DIR), classpath);
             addJarsToClasspath(new File(workPath + EXT_DIR), classpath);
             addJarsToClasspath(new File(workPath + PLUGINS_DIR), classpath);
             String storeClassPath = String.join(":", classpath);
