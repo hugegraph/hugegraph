@@ -249,6 +249,17 @@ function preload_toplingdb() {
         if [ -f "$dest_dir/librocksdbjni-linux64.so" ] && [[ ":${LD_PRELOAD:-}:" != *"librocksdbjni-linux64.so:"* ]]; then
             export LD_PRELOAD="${LD_PRELOAD:+$LD_PRELOAD:}$dest_dir/librocksdbjni-linux64.so"
         fi
+
+        # Persist environment for subsequent GitHub Actions steps
+        # so LD_* variables survive across separate run blocks.
+        if [ -n "${GITHUB_ENV:-}" ] && [ -w "$GITHUB_ENV" ]; then
+            {
+                echo "LD_LIBRARY_PATH=$LD_LIBRARY_PATH"
+                echo "LD_PRELOAD=$LD_PRELOAD"
+                echo "SERVER_DIR=$SERVER_DIR"
+            } >> "$GITHUB_ENV" || true
+            echo "[common-topling] Exported LD_LIBRARY_PATH and LD_PRELOAD to GITHUB_ENV" >&2 || true
+        fi
     else
         echo "Warn: LD paths skipped, directory '$dest_dir' does not exist." >&2
     fi
