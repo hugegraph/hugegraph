@@ -24,13 +24,13 @@ IFS=$'\n\t'
 trap 'echo "[install-rocksdb] error at line ${LINENO}: ${BASH_COMMAND}" >&2' ERR
 
 VERSION=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)
-SERVER_DIR="$(pwd)/hugegraph-server/apache-hugegraph-server-incubating-$VERSION"
-SERVER_BIN="$SERVER_DIR/bin"
-SERVER_LIB="$SERVER_DIR/lib"
-INSTALL_DEST_DIR="$SERVER_DIR/library"
+SERVER_VERSION_DIR="$(pwd)/hugegraph-server/apache-hugegraph-server-incubating-$VERSION"
+SERVER_BIN="$SERVER_VERSION_DIR/bin"
+SERVER_LIB="$SERVER_VERSION_DIR/lib"
+INSTALL_DEST_DIR="$SERVER_VERSION_DIR/library"
 
-if [ ! -d "$SERVER_DIR" ]; then
-    echo "Error: SERVER_DIR not found: $SERVER_DIR" >&2
+if [ ! -d "$SERVER_VERSION_DIR" ]; then
+    echo "Error: SERVER_VERSION_DIR not found: $SERVER_VERSION_DIR" >&2
     exit 1
 fi
 if [ ! -d "$SERVER_LIB" ]; then

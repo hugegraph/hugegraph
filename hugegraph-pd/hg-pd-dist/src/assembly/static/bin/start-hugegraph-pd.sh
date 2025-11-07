@@ -60,14 +60,14 @@ PID_FILE="$BIN/pid"
 . "$BIN"/util.sh
 
 PARENT_DIR="$(cd "$TOP"/../ && pwd)"
-SERVER_DIR="${SERVER_DIR:-$(find_hugegraph_server_dir "$PARENT_DIR")}"
+SERVER_VERSION_DIR="${SERVER_VERSION_DIR:-$(find_hugegraph_server_dir "$PARENT_DIR")}"
 
 ensure_path_writable "$LOGS"
 ensure_path_writable "$PLUGINS"
 
 # preload rocksdb/toplingdb
-if [ -e "$SERVER_DIR/bin/preload-topling.sh" ]; then
-    source "$SERVER_DIR/bin/preload-topling.sh"
+if [ -e "$SERVER_VERSION_DIR/bin/preload-topling.sh" ]; then
+    source "$SERVER_VERSION_DIR/bin/preload-topling.sh"
 fi
 
 # The maximum and minimum heap memory that service can use
