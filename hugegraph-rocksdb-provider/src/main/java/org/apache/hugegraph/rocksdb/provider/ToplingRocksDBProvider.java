@@ -57,7 +57,7 @@ public class ToplingRocksDBProvider extends AbstractRocksDBProvider {
     // Validation constants migrated from RocksDBOptions
     private static final Pattern SAFE_PATH_PATTERN =
             Pattern.compile("^[a-zA-Z0-9/_.-]+\\.yaml$");
-    private static final String ALLOWED_CONFIG_DIR = "./conf/graphs/";
+    private static final String ALLOWED_CONFIG_DIR = "./conf/";
     private static final long MAX_CONFIG_FILE_SIZE = 1024 * 1024 * 10; // 10 MB
 
     // Store repo objects for proper cleanup

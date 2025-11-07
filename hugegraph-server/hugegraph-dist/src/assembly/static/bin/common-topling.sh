@@ -19,8 +19,6 @@ set -Eeuo pipefail
 IFS=$'\n\t'
 trap 'echo "[common-topling] error at line ${LINENO}: ${BASH_COMMAND}" >&2' ERR
 
-BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-TOP="$(cd "$BIN"/../ && pwd)"
 GITHUB="https://github.com"
 
 function abs_path() {
@@ -74,6 +72,13 @@ function extract_html_css_from_jar() {
     local jar_file="$1"
     local dest_dir="$2"
     local abs_jar_path
+    # Prefer /dev/shm on Linux for speed; fallback to TMPDIR or /tmp
+    local resource_target
+    if [ "$(uname -s)" = "Linux" ] && [ -d /dev/shm ]; then
+        resource_target="/dev/shm/rocksdb_resource"
+    else
+        resource_target="${TMPDIR:-/tmp}/rocksdb_resource"
+    fi
 
     if [ ! -f "$jar_file" ]; then
         echo "Error: JAR file '$jar_file' does not exist." >&2
@@ -104,6 +109,18 @@ function extract_html_css_from_jar() {
             return $code
         fi
     }
+
+    mkdir -p "$resource_target" || {
+        echo "Error: Cannot create target directory '$resource_target'." >&2
+        return 1
+    }
+
+    if compgen -G "$dest_dir"/*.html >/dev/null 2>&1; then
+        cp -f "$dest_dir"/*.html "$resource_target"/
+    fi
+    if compgen -G "$dest_dir"/*.css >/dev/null 2>&1; then
+        cp -f "$dest_dir"/*.css "$resource_target"/
+    fi
 }
 
 function ensure_libaio_symlink() {
@@ -164,7 +181,8 @@ function download_and_verify() {
 }
 
 function download_and_setup_jemalloc() {
-    local arch lib_file download_url expected_md5 system_lib
+    local arch lib_file download_url expected_md5 system_lib top
+    top=$1
 
     # Prefer system-installed jemalloc if available
     # Try ldconfig first to locate the shared object
@@ -204,11 +222,11 @@ function download_and_setup_jemalloc() {
 
     # System jemalloc not found, try to download the correct library for the architecture
     if [[ $arch == "aarch64" || $arch == "arm64" ]]; then
-        lib_file="$TOP/bin/libjemalloc_aarch64.so"
+        lib_file="$top/bin/libjemalloc_aarch64.so"
         download_url="${GITHUB}/apache/hugegraph-doc/raw/binary-1.5/dist/server/libjemalloc_aarch64.so"
         expected_md5="2a631d2f81837f9d5864586761c5e380"
     elif [[ $arch == "x86_64" ]]; then
-        lib_file="$TOP/bin/libjemalloc.so"
+        lib_file="$top/bin/libjemalloc.so"
         download_url="${GITHUB}/apache/hugegraph-doc/raw/binary-1.5/dist/server/libjemalloc.so"
         expected_md5="fd61765eec3bfea961b646c269f298df"
     else
@@ -230,6 +248,7 @@ function download_and_setup_jemalloc() {
 function preload_toplingdb() {
     local lib_dir="$1"
     local dest_dir="$2"
+    local top="$(cd "$lib_dir"/../ && pwd)"
 
     local jar_file
     jar_file=$(ls -1 "$lib_dir"/rocksdbjni*.jar 2>/dev/null | sort -V | tail -n1 || true)
@@ -239,7 +258,7 @@ function preload_toplingdb() {
     fi
 
     ensure_libaio_symlink
-    download_and_setup_jemalloc
+    download_and_setup_jemalloc "$top"
     extract_so_with_jar "$jar_file" "$dest_dir"
     if [ -d "$dest_dir" ]; then
         if [[ ":${LD_LIBRARY_PATH:-}:" != *":$dest_dir:"* ]]; then
@@ -256,7 +275,7 @@ function preload_toplingdb() {
             {
                 echo "LD_LIBRARY_PATH=$LD_LIBRARY_PATH"
                 echo "LD_PRELOAD=$LD_PRELOAD"
-                echo "SERVER_DIR=$SERVER_DIR"
+                echo "SERVER_VERSION_DIR=$SERVER_VERSION_DIR"
             } >> "$GITHUB_ENV" || true
             echo "[common-topling] Exported LD_LIBRARY_PATH and LD_PRELOAD to GITHUB_ENV" >&2 || true
         fi
