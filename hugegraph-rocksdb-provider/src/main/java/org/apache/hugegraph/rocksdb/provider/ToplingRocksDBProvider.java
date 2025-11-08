@@ -100,6 +100,7 @@ public class ToplingRocksDBProvider extends AbstractRocksDBProvider {
     @Override
     public RocksDB openRocksDB(Options options, String dataPath, String optionPath,
                                Boolean openHttp) throws RocksDBException {
+        initialize();
         return doOpenRocksDB(options, dataPath, optionPath, openHttp);
     }
 
@@ -158,30 +159,37 @@ public class ToplingRocksDBProvider extends AbstractRocksDBProvider {
     private RocksDB openWithToplingFeatures(Options options, String dataPath,
                                             String optionPath, Boolean openHttp)
             throws RocksDBException {
+        Object repo = null;
+        RocksDB opened = null;
+        boolean registered = false;
         try {
             // Initialize ToplingDB repo with common operations
-            Object repo = initializeToplingRepo(options, dataPath, optionPath);
+            repo = initializeToplingRepo(options, dataPath, optionPath);
 
             // Open database with default column families
             Class<?> sidePluginRepoClass = repo.getClass();
             Method openDBMethod = sidePluginRepoClass.getMethod("openDB", String.class);
             Object result = openDBMethod.invoke(repo, converseOptionsToJsonString(dataPath, null));
 
+            // Validate and store result before starting HTTP server
+            opened = validateAndStoreResult(result, repo, dataPath, 0);
+            registered = true;
+
             // Start HTTP server if needed
             startHttpServerIfNeeded(repo, dataPath, openHttp, optionPath);
 
-            // Validate and store result
-            return validateAndStoreResult(result, repo, dataPath, 0);
+            return opened;
 
         } catch (InvocationTargetException e) {
+            cleanupFailedOpen(opened, repo, registered, null);
             Throwable cause = e.getCause();
             if (cause instanceof RocksDBException) {
                 throw (RocksDBException) cause;
-            } else {
-                throw new RocksDBException(
-                        "Failed to open DB with SidePluginRepo: " + cause.getMessage());
             }
+            throw new RocksDBException(
+                    "Failed to open DB with SidePluginRepo: " + cause.getMessage());
         } catch (Exception e) {
+            cleanupFailedOpen(opened, repo, registered, null);
             throw new RocksDBException("Failed to open ToplingDB: " + e.getMessage());
         }
     }
@@ -194,10 +202,12 @@ public class ToplingRocksDBProvider extends AbstractRocksDBProvider {
                                                  List<ColumnFamilyHandle> cfHandles,
                                                  String optionPath, Boolean openHttp)
             throws RocksDBException {
-
+        Object repo = null;
+        RocksDB opened = null;
+        boolean registered = false;
         try {
             // Initialize ToplingDB repo with common operations
-            Object repo = initializeToplingRepo(dbOptions, dataPath, optionPath);
+            repo = initializeToplingRepo(dbOptions, dataPath, optionPath);
 
             // Prepare column family names for JSON
             List<String> cfNames = new java.util.ArrayList<>();
@@ -212,21 +222,25 @@ public class ToplingRocksDBProvider extends AbstractRocksDBProvider {
                                                 converseOptionsToJsonString(dataPath, cfNames),
                                                 cfHandles);
 
+            // Validate and store result before starting HTTP server
+            opened = validateAndStoreResult(result, repo, dataPath, cfDescriptors.size());
+            registered = true;
+
             // Start HTTP server if needed
             startHttpServerIfNeeded(repo, dataPath, openHttp, optionPath);
 
-            // Validate and store result
-            return validateAndStoreResult(result, repo, dataPath, cfDescriptors.size());
+            return opened;
 
         } catch (InvocationTargetException e) {
+            cleanupFailedOpen(opened, repo, registered, cfHandles);
             Throwable cause = e.getCause();
             if (cause instanceof RocksDBException) {
                 throw (RocksDBException) cause;
-            } else {
-                throw new RocksDBException(
-                        "Failed to open DB with SidePluginRepo: " + cause.getMessage());
             }
+            throw new RocksDBException(
+                    "Failed to open DB with SidePluginRepo: " + cause.getMessage());
         } catch (Exception e) {
+            cleanupFailedOpen(opened, repo, registered, cfHandles);
             LOG.error("Failed to open ToplingDB with column families", e);
             throw new RocksDBException("Failed to open ToplingDB: " + e.getMessage());
         }
@@ -320,6 +334,64 @@ public class ToplingRocksDBProvider extends AbstractRocksDBProvider {
         } else {
             throw new RocksDBException("ToplingDB openDB returned unexpected result type: " +
                                        (result != null ? result.getClass().getName() : "null"));
+        }
+    }
+
+    /**
+     * Cleanup resources when opening RocksDB fails after successful openDB call.
+     * This prevents resource leaks when HTTP server startup or other post-open operations fail.
+     *
+     * @param opened     The RocksDB instance that was opened (may be null)
+     * @param repo       The SidePluginRepo instance (may be null)
+     * @param registered Whether the RocksDB was registered in rocksDBToRepoMap
+     * @param cfHandles  List of column family handles to close (may be null)
+     */
+    private void cleanupFailedOpen(RocksDB opened, Object repo, boolean registered,
+                                   List<ColumnFamilyHandle> cfHandles) {
+        if (opened == null && repo == null) {
+            // Nothing to clean up
+            return;
+        }
+
+        LOG.warn("Cleaning up resources after failed RocksDB open operation");
+
+        // Remove from map if registered
+        if (registered && opened != null) {
+            rocksDBToRepoMap.remove(opened);
+        }
+
+        // Close column family handles if provided
+        if (cfHandles != null && !cfHandles.isEmpty()) {
+            for (ColumnFamilyHandle cfHandle : cfHandles) {
+                if (cfHandle != null) {
+                    try {
+                        cfHandle.close();
+                    } catch (Exception e) {
+                        LOG.warn("Failed to close column family handle during cleanup", e);
+                    }
+                }
+            }
+        }
+
+        // Close RocksDB instance
+        if (opened != null) {
+            try {
+                opened.close();
+            } catch (Exception e) {
+                LOG.warn("Failed to close RocksDB instance during cleanup", e);
+            }
+        }
+
+        // Close SidePluginRepo
+        if (repo != null) {
+            try {
+                Class<?> sidePluginRepoClass = repo.getClass();
+                Method closeAllDBMethod = sidePluginRepoClass.getMethod("closeAllDB");
+                closeAllDBMethod.invoke(repo);
+                LOG.debug("Successfully called closeAllDB() on SidePluginRepo during cleanup");
+            } catch (Exception e) {
+                LOG.warn("Failed to call closeAllDB() on SidePluginRepo during cleanup", e);
+            }
         }
     }
 

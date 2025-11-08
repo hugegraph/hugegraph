@@ -91,13 +91,13 @@ jobs:
 
       - name: Install deps
         run: |
-          ${TRAVIS_DIR}/install-deps.sh
+          "${TRAVIS_DIR}/install-deps.sh" || exit 1
 
       - name: Package
         # todo remove --fail-at-end after test
         run: |
           mvn clean package -U -Dmaven.javadoc.skip=true -Dmaven.test.skip=true -ntp --fail-at-end
-          source $TRAVIS_DIR/install-rocksdb.sh
+          source "${TRAVIS_DIR}/install-rocksdb.sh"
 
       - name: Run common test
         run: |
@@ -164,13 +164,13 @@ jobs:
 
       - name: Install deps
         run: |
-          ${TRAVIS_DIR}/install-deps.sh
+          "${TRAVIS_DIR}/install-deps.sh" || exit 1
 
       - name: Package
         # todo remove --fail-at-end after test
         run: |
           mvn clean package -U -Dmaven.javadoc.skip=true -Dmaven.test.skip=true -ntp --fail-at-end
-          source $TRAVIS_DIR/install-rocksdb.sh
+          source "${TRAVIS_DIR}/install-rocksdb.sh"
 
       - name: Prepare env and service
         run: |
@@ -239,7 +239,7 @@ jobs:
 
       - name: Install deps
         run: |
-          ${TRAVIS_DIR}/install-deps.sh
+          "${TRAVIS_DIR}/install-deps.sh" || exit 1
 
       - name: use staged maven repo settings
         if: ${{ env.USE_STAGE == 'true' }}
@@ -251,7 +251,7 @@ jobs:
         # todo remove --fail-at-end after test
         run: |
           mvn clean package -U -Dmaven.javadoc.skip=true -Dmaven.test.skip=true -ntp --fail-at-end
-          source $TRAVIS_DIR/install-rocksdb.sh
+          source "${TRAVIS_DIR}/install-rocksdb.sh"
 
       - name: Prepare env and service
         run: |
