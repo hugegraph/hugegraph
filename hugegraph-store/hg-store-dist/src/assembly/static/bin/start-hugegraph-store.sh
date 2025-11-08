@@ -67,7 +67,7 @@ else
 fi
 
 # preload rocksdb/toplingdb
-if [ -e "$SERVER_VERSION_DIR/bin/preload-topling.sh" ]; then
+if [ -n "$SERVER_VERSION_DIR" ] && [ -e "$SERVER_VERSION_DIR/bin/preload-topling.sh" ]; then
     source "$SERVER_VERSION_DIR/bin/preload-topling.sh"
 fi
 
