@@ -44,7 +44,7 @@ public class SimpleClusterDeployTest extends BaseSimpleTest {
         try {
             List<String> addrs = env.getPDGrpcAddrs();
             for (String addr : addrs) {
-                PDConfig pdConfig = PDConfig.of(addr);
+                PDConfig pdConfig = PDConfig.of(addr,Long.MAX_VALUE);
                 pdClient = PDClient.create(pdConfig);
                 pdClient.dbCompaction();
             }
@@ -76,6 +76,7 @@ public class SimpleClusterDeployTest extends BaseSimpleTest {
             hugeClient = HugeClient.builder("http://" + addr, "hugegraph").build();
             SchemaManager schema = hugeClient.schema();
 
+            // create propertyKey
             schema.propertyKey("name").asText().ifNotExist().create();
             schema.propertyKey("age").asInt().ifNotExist().create();
             schema.propertyKey("city").asText().ifNotExist().create();
@@ -83,7 +84,7 @@ public class SimpleClusterDeployTest extends BaseSimpleTest {
             schema.propertyKey("lang").asText().ifNotExist().create();
             schema.propertyKey("date").asDate().ifNotExist().create();
             schema.propertyKey("price").asInt().ifNotExist().create();
-
+            // create vertexLabel
             schema.vertexLabel("person")
                   .properties("name", "age", "city")
                   .primaryKeys("name")
@@ -95,7 +96,7 @@ public class SimpleClusterDeployTest extends BaseSimpleTest {
                   .primaryKeys("name")
                   .ifNotExist()
                   .create();
-
+            // create indexLabel
             schema.indexLabel("personByCity")
                   .onV("person")
                   .by("city")
@@ -116,7 +117,7 @@ public class SimpleClusterDeployTest extends BaseSimpleTest {
                   .range()
                   .ifNotExist()
                   .create();
-
+            // create edgeLabel
             schema.edgeLabel("knows")
                   .sourceLabel("person")
                   .targetLabel("person")
@@ -151,6 +152,7 @@ public class SimpleClusterDeployTest extends BaseSimpleTest {
                   .ifNotExist()
                   .create();
 
+            // create vertex
             GraphManager graph = hugeClient.graph();
             Vertex marko = graph.addVertex(T.LABEL, "person", "name", "marko",
                                            "age", 29, "city", "Beijing");
@@ -165,6 +167,7 @@ public class SimpleClusterDeployTest extends BaseSimpleTest {
             Vertex peter = graph.addVertex(T.LABEL, "person", "name", "peter",
                                            "age", 35, "city", "Shanghai");
 
+            // create edge
             marko.addEdge("knows", vadas, "date", "2016-01-10", "weight", 0.5);
             marko.addEdge("knows", josh, "date", "2013-02-20", "weight", 1.0);
             marko.addEdge("created", lop, "date", "2017-12-10", "weight", 0.4);
@@ -196,5 +199,66 @@ public class SimpleClusterDeployTest extends BaseSimpleTest {
 
             hugeClient.close();
         }
+    }
+
+    @Test
+    public void testServerNode(){
+        String path = URL_PREFIX + SCHEMA_PKS;
+        createAndAssert(path, "{\n"
+                              + "\"name\": \"name\",\n"
+                              + "\"data_type\": \"TEXT\",\n"
+                              + "\"cardinality\": \"SINGLE\",\n"
+                              + "\"check_exist\": false,\n"
+                              + "\"properties\":[]\n"
+                              + "}", 202);
+        createAndAssert(path, "{\n"
+                              + "\"name\": \"age\",\n"
+                              + "\"data_type\": \"INT\",\n"
+                              + "\"cardinality\": \"SINGLE\",\n"
+                              + "\"check_exist\": false,\n"
+                              + "\"properties\":[]\n"
+                              + "}", 202);
+        createAndAssert(path, "{\n"
+                              + "\"name\": \"city\",\n"
+                              + "\"data_type\": \"TEXT\",\n"
+                              + "\"cardinality\": \"SINGLE\",\n"
+                              + "\"check_exist\": false,\n"
+                              + "\"properties\":[]\n"
+                              + "}", 202);
+        createAndAssert(path, "{\n"
+                              + "\"name\": \"lang\",\n"
+                              + "\"data_type\": \"TEXT\",\n"
+                              + "\"cardinality\": \"SINGLE\",\n"
+                              + "\"check_exist\": false,\n"
+                              + "\"properties\":[]\n"
+                              + "}", 202);
+        createAndAssert(path, "{\n"
+                              + "\"name\": \"date\",\n"
+                              + "\"data_type\": \"TEXT\",\n"
+                              + "\"cardinality\": \"SINGLE\",\n"
+                              + "\"check_exist\": false,\n"
+                              + "\"properties\":[]\n"
+                              + "}", 202);
+        createAndAssert(path, "{\n"
+                              + "\"name\": \"price\",\n"
+                              + "\"data_type\": \"INT\",\n"
+                              + "\"cardinality\": \"SINGLE\",\n"
+                              + "\"check_exist\": false,\n"
+                              + "\"properties\":[]\n"
+                              + "}", 202);
+        createAndAssert(path, "{\n"
+                              + "\"name\": \"weight\",\n"
+                              + "\"data_type\": \"DOUBLE\",\n"
+                              + "\"cardinality\": \"SINGLE\",\n"
+                              + "\"check_exist\": false,\n"
+                              + "\"properties\":[]\n"
+                              + "}", 202);
+        createAndAssert(path, "{\n"
+                              + "\"name\": \"rank\",\n"
+                              + "\"data_type\": \"TEXT\",\n"
+                              + "\"cardinality\": \"SINGLE\",\n"
+                              + "\"check_exist\": false,\n"
+                              + "\"properties\":[]\n"
+                              + "}", 202);
     }
 }
