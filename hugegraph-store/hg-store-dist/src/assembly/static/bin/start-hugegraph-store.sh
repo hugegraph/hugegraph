@@ -38,6 +38,8 @@ GITHUB="https://github.com"
 PID_FILE="$BIN/pid"
 
 . "$BIN"/util.sh
+PARENT_DIR="$(cd "$TOP"/../ && pwd)"
+SERVER_VERSION_DIR="${SERVER_VERSION_DIR:-$(find_hugegraph_server_dir "$PARENT_DIR")}"
 
 arch=$(uname -m)
 echo "Current arch: $arch"
@@ -62,6 +64,11 @@ elif [[ $arch == "x86_64" ]]; then
     fi
 else
     echo "Unsupported architecture: $arch"
+fi
+
+# preload rocksdb/toplingdb
+if [ -n "$SERVER_VERSION_DIR" ] && [ -e "$SERVER_VERSION_DIR/bin/preload-topling.sh" ]; then
+    source "$SERVER_VERSION_DIR/bin/preload-topling.sh"
 fi
 
 ##pd/store max user processes, ulimit -u
