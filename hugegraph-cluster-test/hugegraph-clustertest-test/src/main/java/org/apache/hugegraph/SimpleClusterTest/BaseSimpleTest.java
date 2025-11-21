@@ -24,7 +24,6 @@ import java.util.Map;
 
 import org.apache.hugegraph.ct.env.BaseEnv;
 import org.apache.hugegraph.ct.env.SimpleEnv;
-import org.apache.hugegraph.driver.HugeClient;
 import org.apache.hugegraph.pd.client.PDClient;
 import org.apache.hugegraph.serializer.direct.util.HugeException;
 import org.glassfish.jersey.client.authentication.HttpAuthenticationFeature;
@@ -53,26 +52,14 @@ public class BaseSimpleTest {
     protected static BaseEnv env;
     protected static Process p;
     protected static PDClient pdClient;
-    protected static HugeClient hugeClient;
 
     protected static String BASE_URL = "http://";
     protected static final String GRAPH = "hugegraphapi";
     protected static final String USERNAME = "admin";
-    private static final String PASSWORD = "admin";
-
-    public static final String DELIMETER = "/";
-    private static final int NO_LIMIT = -1;
+    private static final String PASSWORD = "pa";
 
     protected static final String URL_PREFIX = "graphspaces/DEFAULT/graphs/" + GRAPH;
     protected static final String SCHEMA_PKS = "/schema/propertykeys";
-    protected static final String SCHEMA_VLS = "/schema/vertexlabels";
-    protected static final String SCHEMA_ELS = "/schema/edgelabels";
-    protected static final String SCHEMA_ILS = "/schema/indexlabels";
-    protected static final String GRAPH_VERTEX = "/graph/vertices";
-    protected static final String GRAPH_EDGE = "/graph/edges";
-    protected static final String BATCH = "/batch";
-
-    protected static final String TRAVERSERS_API = URL_PREFIX + "/traversers";
     protected static RestClient client;
 
     @BeforeClass

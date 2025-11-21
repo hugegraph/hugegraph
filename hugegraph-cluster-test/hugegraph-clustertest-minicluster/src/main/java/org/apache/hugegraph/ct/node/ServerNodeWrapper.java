@@ -117,10 +117,13 @@ public class ServerNodeWrapper extends AbstractNodeWrapper {
             startCmd.addAll(Arrays.asList(
                     "-Dname=HugeGraphServer" + this.index,
                     "--add-exports=java.base/jdk.internal.reflect=ALL-UNNAMED",
+                    "--add-modules=jdk.unsupported",
+                    "--add-exports=java.base/sun.nio.ch=ALL-UNNAMED",
                     "-cp", storeClassPath,
                     "org.apache.hugegraph.dist.HugeGraphServer",
                     "./conf/gremlin-server.yaml",
                     "./conf/rest-server.properties"));
+            System.out.println("Working dir: ");
             ProcessBuilder processBuilder = runCmd(startCmd, stdoutFile);
             this.instance = processBuilder.start();
         } catch (IOException ex) {
