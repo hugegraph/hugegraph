@@ -34,8 +34,12 @@ import static org.apache.hugegraph.ct.base.ClusterConstant.SERVER_PACKAGE_PATH;
 import static org.apache.hugegraph.ct.base.ClusterConstant.SERVER_TEMPLATE_PATH;
 import static org.apache.hugegraph.ct.base.ClusterConstant.isJava11OrHigher;
 
+import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -43,6 +47,7 @@ import java.util.List;
 
 public class ServerNodeWrapper extends AbstractNodeWrapper {
 
+    private static List<String> hgJars = new ArrayList<>();
     public ServerNodeWrapper(int clusterIndex, int index) {
         super(clusterIndex, index);
         this.fileNames = new ArrayList<>(
@@ -54,6 +59,7 @@ public class ServerNodeWrapper extends AbstractNodeWrapper {
         this.startLine = "INFO: [HttpServer] Started.";
         createNodeDir(Paths.get(SERVER_PACKAGE_PATH), getNodePath());
         createLogDir();
+        loadHgJars();
     }
 
     private static void addJarsToClasspath(File directory, List<String> classpath) {
@@ -70,19 +76,7 @@ public class ServerNodeWrapper extends AbstractNodeWrapper {
     private static void addCpJarsToClasspath(File directory, List<String> classpath) {
         // Add jar starts with hugegraph in proper order
         String path = directory.getAbsolutePath();
-        String[] jars = {"hugegraph-api-1.7.0.jar", "hugegraph-cassandra-1.7.0.jar", "hugegraph" +
-                                                                                     "-common-1.7" +
-                                                                                     ".0.jar",
-                         "hugegraph-core-1.7.0.jar", "hugegraph-dist-1.7.0.jar",
-                         "hugegraph-hbase-1" +
-                         ".7.0.jar",
-                         "hugegraph-hstore-1.7.0.jar", "hugegraph-mysql-1.7.0.jar",
-                         "hugegraph-palo" +
-                         "-1.7.0.jar",
-                         "hugegraph-postgresql-1.7.0.jar", "hugegraph-rocksdb-1.7.0.jar",
-                         "hugegraph-rpc-1.7.0.jar", "hugegraph-scylladb-1.7.0.jar",
-                         "hugegraph-struct-1.7.0.jar"};
-        for (String jar : jars) {
+        for (String jar : hgJars) {
             classpath.add(path + File.separator + jar);
         }
         if (directory.exists() && directory.isDirectory()) {
@@ -94,6 +88,18 @@ public class ServerNodeWrapper extends AbstractNodeWrapper {
                     classpath.add(file.getAbsolutePath());
                 }
             }
+        }
+    }
+
+    private void loadHgJars(){
+        try (InputStream is = ServerNodeWrapper.class.getResourceAsStream("/jar.txt");
+             BufferedReader reader = new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                hgJars.add(line);
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
         }
     }
 
@@ -123,7 +129,6 @@ public class ServerNodeWrapper extends AbstractNodeWrapper {
                     "org.apache.hugegraph.dist.HugeGraphServer",
                     "./conf/gremlin-server.yaml",
                     "./conf/rest-server.properties"));
-            System.out.println("Working dir: ");
             ProcessBuilder processBuilder = runCmd(startCmd, stdoutFile);
             this.instance = processBuilder.start();
         } catch (IOException ex) {

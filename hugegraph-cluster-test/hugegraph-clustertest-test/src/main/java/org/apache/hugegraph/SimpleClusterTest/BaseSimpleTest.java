@@ -74,6 +74,7 @@ public class BaseSimpleTest {
     public static void clearEnv() throws InterruptedException {
         env.stopCluster();
         Thread.sleep(2000);
+        client.close();
     }
 
     protected String execCmd(String[] cmds) throws IOException {
@@ -108,11 +109,10 @@ public class BaseSimpleTest {
         }
     }
 
-
     public static class RestClient {
 
-        private Client client;
-        private WebTarget target;
+        private final Client client;
+        private final WebTarget target;
 
         public RestClient(String url) {
             this.client = ClientBuilder.newClient();
@@ -120,15 +120,6 @@ public class BaseSimpleTest {
             this.client.register(GZipEncoder.class);
             this.client.register(HttpAuthenticationFeature.basic(USERNAME,
                                                                  PASSWORD));
-            this.target = this.client.target(url);
-        }
-
-        public RestClient(String url, String username, String password) {
-            this.client = ClientBuilder.newClient();
-            this.client.register(EncodingFilter.class);
-            this.client.register(GZipEncoder.class);
-            this.client.register(HttpAuthenticationFeature.basic(username,
-                                                                 password));
             this.target = this.client.target(url);
         }
 
@@ -180,42 +171,6 @@ public class BaseSimpleTest {
         public Response post(String path, Entity<?> entity) {
             return this.target.path(path).request().post(entity);
         }
-
-        public Response put(String path, String id, String content,
-                            Map<String, Object> params) {
-            WebTarget target = this.target.path(path).path(id);
-            for (Map.Entry<String, Object> i : params.entrySet()) {
-                target = target.queryParam(i.getKey(), i.getValue());
-            }
-            return target.request().put(Entity.json(content));
-        }
-
-        public Response put(String path, String content) {
-            return this.target.path(path).request().put(Entity.json(content));
-        }
-
-        public Response delete(String path, String id) {
-            return this.target.path(path).path(id).request().delete();
-        }
-
-        public Response delete(String path, Map<String, Object> params) {
-            WebTarget target = this.target.path(path);
-            for (Map.Entry<String, Object> i : params.entrySet()) {
-                target = target.queryParam(i.getKey(), i.getValue());
-            }
-            return target.request().delete();
-        }
-
-        public Response delete(String path,
-                               MultivaluedMap<String, Object> headers) {
-            WebTarget target = this.target.path(path);
-            return target.request().headers(headers).delete();
-        }
-
-        public void registerBasic(String username, String password) {
-            this.client.register(HttpAuthenticationFeature.basic(username,
-                                                                 password));
-        }
     }
 
     protected static String assertResponseStatus(int status,
@@ -227,8 +182,8 @@ public class BaseSimpleTest {
         return content;
     }
 
-    protected static Response createAndAssert(String path, String body,
-                                              int status) {
+    public static Response createAndAssert(String path, String body,
+                                           int status) {
         Response r = client.post(path, body);
         assertResponseStatus(status, r);
         return r;
