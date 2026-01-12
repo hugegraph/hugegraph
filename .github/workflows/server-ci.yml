@@ -12,8 +12,11 @@ jobs:
   build-server:
     # TODO: we need test & replace it to ubuntu-24.04 or ubuntu-latest
     runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+      packages: read
     env:
-      USE_STAGE: 'false' # Whether to include the stage repository.
+      USE_STAGE: 'true' # Whether to include the stage repository.
       TRAVIS_DIR: hugegraph-server/hugegraph-dist/src/assembly/travis
       REPORT_DIR: target/site/jacoco
       BACKEND: ${{ matrix.BACKEND }}
@@ -23,6 +26,8 @@ jobs:
       TARGET_BRANCH_NAME: ${{ github.base_ref != '' && github.base_ref || github.ref_name }}
       RELEASE_BRANCH: ${{ startsWith(github.ref_name, 'release-') || startsWith(github.ref_name, 'test-') }}
       RAFT_MODE: ${{ startsWith(github.head_ref, 'test') || startsWith(github.head_ref, 'raft') }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GITHUB_ACTOR: ${{ github.actor }}
 
     strategy:
       fail-fast: false
@@ -43,15 +48,15 @@ jobs:
           java-version: '8'
           distribution: 'zulu'
 
-      - name: Prepare backend environment
-        run: |
-          $TRAVIS_DIR/install-backend.sh $BACKEND && jps -l
-
       - name: Install Java ${{ matrix.JAVA_VERSION }}
         uses: actions/setup-java@v4
         with:
           java-version: ${{ matrix.JAVA_VERSION }}
           distribution: 'zulu'
+
+      - name: Install deps
+        run: |
+          ${TRAVIS_DIR}/install-deps.sh
 
       - name: Cache Maven packages
         uses: actions/cache@v4
@@ -66,9 +71,14 @@ jobs:
           cp $HOME/.m2/settings.xml /tmp/settings.xml
           cp -vf .github/configs/settings.xml $HOME/.m2/settings.xml && cat $HOME/.m2/settings.xml
 
-      - name: Compile
+      - name: Package
         run: |
-          mvn clean compile -U -Dmaven.javadoc.skip=true -ntp
+          mvn clean package -Dmaven.test.skip=true -ntp
+          source $TRAVIS_DIR/install-rocksdb.sh
+
+      - name: Prepare backend environment
+        run: |
+          $TRAVIS_DIR/install-backend.sh $BACKEND && jps -l
 
       - name: Run unit test
         run: |

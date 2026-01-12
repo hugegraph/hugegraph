@@ -38,6 +38,7 @@ import java.util.stream.Collectors;
 import org.apache.commons.io.FileUtils;
 import org.apache.hugegraph.config.HugeConfig;
 import org.apache.hugegraph.rocksdb.access.util.Asserts;
+import org.apache.hugegraph.rocksdb.provider.RocksDBProviderLoader;
 import org.apache.hugegraph.store.term.HgPair;
 import org.apache.hugegraph.util.Bytes;
 import org.apache.hugegraph.util.E;
@@ -450,8 +451,11 @@ public class RocksDBSession implements AutoCloseable, Cloneable {
                         new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY, cfOptions));
             }
             List<ColumnFamilyHandle> columnFamilyHandleList = new ArrayList<>();
-            this.rocksDB = RocksDB.open(dbOptions, dbPath, columnFamilyDescriptorList,
-                                        columnFamilyHandleList);
+            this.rocksDB =
+                    RocksDBProviderLoader.openRocksDB(dbOptions, dbPath, columnFamilyDescriptorList,
+                                                      columnFamilyHandleList,
+                                                      hugeConfig.get(RocksDBOptions.OPTION_PATH),
+                                                      hugeConfig.get(RocksDBOptions.OPEN_HTTP));
             Asserts.isTrue(columnFamilyHandleList.size() > 0, "must have column family");
 
             for (ColumnFamilyHandle handle : columnFamilyHandleList) {
@@ -636,7 +640,7 @@ public class RocksDBSession implements AutoCloseable, Cloneable {
                 } catch (RocksDBException e) {
                     log.warn("exception ", e);
                 }
-                this.rocksDB.close();
+                RocksDBProviderLoader.closeRocksDB(this.rocksDB);
             }
             rocksDB = null;
             if (dbOptions != null) {

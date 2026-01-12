@@ -35,9 +35,9 @@
             <version>${revision}</version>
         </dependency>
         <dependency>
-            <groupId>org.rocksdb</groupId>
-            <artifactId>rocksdbjni</artifactId>
-            <version>8.10.2</version>
+            <groupId>org.apache.hugegraph</groupId>
+            <artifactId>hugegraph-rocksdb-provider</artifactId>
+            <version>${revision}</version>
         </dependency>
     </dependencies>
 
