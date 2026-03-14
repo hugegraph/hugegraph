@@ -109,7 +109,7 @@ mvn clean package -pl hugegraph-store/hugegraph-store-dist -am -DskipTests
 
 The assembled distribution will be available at:
 ```
-hugegraph-store/apache-hugegraph-store-incubating-1.7.0/lib/hg-store-node-1.7.0.jar```
+hugegraph-store/apache-hugegraph-store-1.7.0/lib/hg-store-node-1.7.0.jar
 ```
 
 ### Configuration
@@ -214,7 +214,7 @@ Start the Store server:
 
 ```bash
 # Replace {version} with your hugegraph version
-cd apache-hugegraph-store-incubating-{version}
+cd apache-hugegraph-store-{version}
 
 # Start Store node
 bin/start-hugegraph-store.sh
