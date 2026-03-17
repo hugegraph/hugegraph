@@ -23,9 +23,11 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
@@ -40,7 +42,6 @@ import com.alipay.remoting.config.BoltServerOption;
 import com.alipay.sofa.jraft.JRaftUtils;
 import com.alipay.sofa.jraft.Node;
 import com.alipay.sofa.jraft.RaftGroupService;
-import com.alipay.sofa.jraft.ReplicatorGroup;
 import com.alipay.sofa.jraft.Status;
 import com.alipay.sofa.jraft.conf.Configuration;
 import com.alipay.sofa.jraft.core.Replicator;
@@ -54,7 +55,6 @@ import com.alipay.sofa.jraft.rpc.RaftRpcServerFactory;
 import com.alipay.sofa.jraft.rpc.RpcServer;
 import com.alipay.sofa.jraft.rpc.impl.BoltRpcServer;
 import com.alipay.sofa.jraft.util.Endpoint;
-import com.alipay.sofa.jraft.util.ThreadId;
 import com.alipay.sofa.jraft.util.internal.ThrowUtil;
 
 import io.netty.channel.ChannelHandler;
@@ -313,23 +313,66 @@ public class RaftEngine {
 
     public Status changePeerList(String peerList) {
         AtomicReference<Status> result = new AtomicReference<>();
+        Configuration newPeers = new Configuration();
         try {
             String[] peers = peerList.split(",", -1);
             if ((peers.length & 1) != 1) {
                 throw new PDException(-1, "the number of peer list must be odd.");
             }
-            Configuration newPeers = new Configuration();
             newPeers.parse(peerList);
             CountDownLatch latch = new CountDownLatch(1);
             this.raftNode.changePeers(newPeers, status -> {
-                result.set(status);
+                // Use compareAndSet so a late callback does not overwrite a timeout status
+                result.compareAndSet(null, status);
+                // Refresh inside callback so it fires even if caller already timed out
+                // Note: changePeerList() uses Configuration.parse() which only supports
+                // plain comma-separated peer addresses with no learner syntax.
+                // getLearners() will always be empty here. Learner support is handled
+                // in PDService.updatePdRaft() which uses PeerUtil.parseConfig()
+                // and supports the /learner suffix.
+                if (status != null && status.isOk()) {
+                    IpAuthHandler handler = IpAuthHandler.getInstance();
+                    if (handler != null) {
+                        Set<String> newIps = newPeers.getPeers()
+                                                     .stream()
+                                                     .map(PeerId::getIp)
+                                                     .collect(Collectors.toSet());
+                        handler.refresh(newIps);
+                        log.info("IpAuthHandler refreshed after peer list change to: {}",
+                                 peerList);
+                    } else {
+                        log.warn("IpAuthHandler not initialized, skipping refresh for "
+                                 + "peer list: {}", peerList);
+                    }
+                }
                 latch.countDown();
             });
-            latch.await();
+            // Use 3x configured RPC timeout — bare await() would block forever if
+            // the callback is never invoked (e.g. node not started / RPC failure)
+            boolean completed = latch.await(3L * config.getRpcTimeout(),
+                                            TimeUnit.MILLISECONDS);
+            if (!completed && result.get() == null) {
+                Status timeoutStatus = new Status(RaftError.EINTERNAL,
+                                                  "changePeerList timed out after %d ms",
+                                                  3L * config.getRpcTimeout());
+                if (!result.compareAndSet(null, timeoutStatus)) {
+                    // Callback arrived just before us — keep its result
+                    timeoutStatus = null;
+                }
+                if (timeoutStatus != null) {
+                    log.error("changePeerList to {} timed out after {} ms",
+                              peerList, 3L * config.getRpcTimeout());
+                }
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            result.set(new Status(RaftError.EINTERNAL, "changePeerList interrupted"));
+            log.error("changePeerList to {} was interrupted", peerList, e);
         } catch (Exception e) {
             log.error("failed to changePeerList to {},{}", peerList, e);
             result.set(new Status(-1, e.getMessage()));
         }
+
         return result.get();
     }
 
@@ -366,7 +409,8 @@ public class RaftEngine {
         if (p1 == null || p2 == null) {
             return false;
         }
-        return Objects.equals(p1.getIp(), p2.getIp()) && Objects.equals(p1.getPort(), p2.getPort());
+        return Objects.equals(p1.getIp(), p2.getIp()) &&
+               Objects.equals(p1.getPort(), p2.getPort());
     }
 
     private Replicator.State getReplicatorState(PeerId peerId) {
