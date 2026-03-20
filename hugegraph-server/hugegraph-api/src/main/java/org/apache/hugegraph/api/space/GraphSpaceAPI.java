@@ -78,6 +78,7 @@ public class GraphSpaceAPI extends API {
     @Produces(APPLICATION_JSON_WITH_CHARSET)
     public Object list(@Context GraphManager manager,
                        @Context SecurityContext sc) {
+        ensurePdModeEnabled(manager);
         Set<String> spaces = manager.graphSpaces();
         return ImmutableMap.of("graphSpaces", spaces);
     }
@@ -89,6 +90,7 @@ public class GraphSpaceAPI extends API {
     public Object get(@Context GraphManager manager,
                       @Parameter(description = "The name of the graph space")
                       @PathParam("graphspace") String graphSpace) {
+        ensurePdModeEnabled(manager);
         manager.getSpaceStorage(graphSpace);
         GraphSpace gs = space(manager, graphSpace);
 
@@ -111,6 +113,7 @@ public class GraphSpaceAPI extends API {
                                                         "name or nickname prefix")
                               @QueryParam("prefix") String prefix,
                               @Context SecurityContext sc) {
+        ensurePdModeEnabled(manager);
         Set<String> spaces = manager.graphSpaces();
         List<Map<String, Object>> spaceList = new ArrayList<>();
         List<Map<String, Object>> result = new ArrayList<>();
@@ -160,7 +163,7 @@ public class GraphSpaceAPI extends API {
     @RolesAllowed({"admin"})
     public String create(@Context GraphManager manager,
                          JsonGraphSpace jsonGraphSpace) {
-
+        ensurePdModeEnabled(manager);
         jsonGraphSpace.checkCreate(false);
 
         String creator = HugeGraphAuthProxy.username();
@@ -192,7 +195,7 @@ public class GraphSpaceAPI extends API {
                                       @Parameter(description = "The name of the graph space")
                                       @PathParam("name") String name,
                                       Map<String, Object> actionMap) {
-
+        ensurePdModeEnabled(manager);
         E.checkArgument(actionMap != null && actionMap.size() == 2 &&
                         actionMap.containsKey(GRAPH_SPACE_ACTION),
                         "Invalid request body '%s'", actionMap);
@@ -322,6 +325,7 @@ public class GraphSpaceAPI extends API {
     public void delete(@Context GraphManager manager,
                        @Parameter(description = "The name of the graph space")
                        @PathParam("name") String name) {
+        ensurePdModeEnabled(manager);
         manager.dropGraphSpace(name);
     }
 
