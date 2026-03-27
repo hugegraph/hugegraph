@@ -57,10 +57,12 @@ jobs:
     runs-on: ubuntu-latest
     env:
       # TODO: avoid duplicated env setup in pd & store
-      USE_STAGE: 'false' # Whether to include the stage repository.
+      USE_STAGE: 'true' # Whether to include the stage repository.
       # TODO: remove outdated env
       TRAVIS_DIR: hugegraph-server/hugegraph-dist/src/assembly/travis
       REPORT_DIR: target/site/jacoco
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GITHUB_ACTOR: ${{ github.actor }}
 
     steps:
       - name: Install JDK 11
@@ -87,6 +89,16 @@ jobs:
           cp $HOME/.m2/settings.xml /tmp/settings.xml
           mv -vf .github/configs/settings.xml $HOME/.m2/settings.xml
 
+      - name: Install deps
+        run: |
+          "${TRAVIS_DIR}/install-deps.sh" || exit 1
+
+      - name: Package
+        # todo remove --fail-at-end after test
+        run: |
+          mvn clean package -U -Dmaven.javadoc.skip=true -Dmaven.test.skip=true -ntp --fail-at-end
+          source "${TRAVIS_DIR}/install-rocksdb.sh"
+
       - name: Run common test
         run: |
           mvn test -pl hugegraph-pd/hg-pd-test -am -P pd-common-test
@@ -96,11 +108,6 @@ jobs:
           mvn test -pl hugegraph-pd/hg-pd-test -am -P pd-core-test
 
       # The above tests do not require starting a PD instance.
-
-      - name: Package
-        # todo remove --fail-at-end after test
-        run: |
-          mvn clean package -U -Dmaven.javadoc.skip=true -Dmaven.test.skip=true -ntp --fail-at-end
 
       - name: Prepare env and service
         run: |
@@ -123,10 +130,12 @@ jobs:
     needs: struct
     runs-on: ubuntu-latest
     env:
-      USE_STAGE: 'false' # Whether to include the stage repository.
+      USE_STAGE: 'true' # Whether to include the stage repository.
       # TODO: remove outdated env
       TRAVIS_DIR: hugegraph-server/hugegraph-dist/src/assembly/travis
       REPORT_DIR: target/site/jacoco
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GITHUB_ACTOR: ${{ github.actor }}
 
     steps:
       - name: Install JDK 11
@@ -153,10 +162,15 @@ jobs:
           cp $HOME/.m2/settings.xml /tmp/settings.xml
           mv -vf .github/configs/settings.xml $HOME/.m2/settings.xml
 
+      - name: Install deps
+        run: |
+          "${TRAVIS_DIR}/install-deps.sh" || exit 1
+
       - name: Package
         # todo remove --fail-at-end after test
         run: |
           mvn clean package -U -Dmaven.javadoc.skip=true -Dmaven.test.skip=true -ntp --fail-at-end
+          source "${TRAVIS_DIR}/install-rocksdb.sh"
 
       - name: Prepare env and service
         run: |
@@ -196,11 +210,13 @@ jobs:
     needs: struct
     runs-on: ubuntu-latest
     env:
-      USE_STAGE: 'false' # Whether to include the stage repository.
+      USE_STAGE: 'true' # Whether to include the stage repository.
       TRAVIS_DIR: hugegraph-server/hugegraph-dist/src/assembly/travis
       REPORT_DIR: target/site/jacoco
       BACKEND: hstore
       RELEASE_BRANCH: ${{ startsWith(github.ref_name, 'release-') || startsWith(github.ref_name, 'test-') || startsWith(github.base_ref, 'release-') }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GITHUB_ACTOR: ${{ github.actor }}
 
     steps:
       - name: Install JDK 11
@@ -221,6 +237,10 @@ jobs:
         with:
           fetch-depth: 2
 
+      - name: Install deps
+        run: |
+          "${TRAVIS_DIR}/install-deps.sh" || exit 1
+
       - name: use staged maven repo settings
         if: ${{ env.USE_STAGE == 'true' }}
         run: |
@@ -231,6 +251,7 @@ jobs:
         # todo remove --fail-at-end after test
         run: |
           mvn clean package -U -Dmaven.javadoc.skip=true -Dmaven.test.skip=true -ntp --fail-at-end
+          source "${TRAVIS_DIR}/install-rocksdb.sh"
 
       - name: Prepare env and service
         run: |

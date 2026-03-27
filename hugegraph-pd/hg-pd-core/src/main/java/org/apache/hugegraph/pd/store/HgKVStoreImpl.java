@@ -36,6 +36,7 @@ import org.apache.hugegraph.pd.common.PDException;
 import org.apache.hugegraph.pd.config.PDConfig;
 import org.apache.hugegraph.pd.grpc.Pdpb;
 import org.apache.hugegraph.pd.grpc.discovery.RegisterInfo;
+import org.apache.hugegraph.rocksdb.provider.RocksDBProviderLoader;
 import org.rocksdb.Checkpoint;
 import org.rocksdb.Options;
 import org.rocksdb.ReadOptions;
@@ -59,6 +60,8 @@ public class HgKVStoreImpl implements HgKVStore {
     private RocksDB db;
     private String dbPath;
     private Options dbOptions;
+    private String optionPath;
+    private Boolean openHttp;
 
     @Override
     public void init(PDConfig config) {
@@ -76,6 +79,8 @@ public class HgKVStoreImpl implements HgKVStore {
                     log.warn("Failed to create data file,{}", e);
                 }
             }
+            this.optionPath = config.getOptionPath();
+            this.openHttp = config.getOpenHttp();
             openRocksDB(dbPath);
         } catch (PDException e) {
             log.error("Failed to open data file,{}", e);
@@ -327,14 +332,15 @@ public class HgKVStoreImpl implements HgKVStore {
 
     private void closeRocksDB() {
         if (this.db != null) {
-            this.db.close();
+            RocksDBProviderLoader.closeRocksDB(this.db);
             this.db = null;
         }
     }
 
     private void openRocksDB(String dbPath) throws PDException {
         try {
-            this.db = RocksDB.open(dbOptions, dbPath);
+            this.db = RocksDBProviderLoader.openRocksDB(dbOptions, dbPath, this.optionPath,
+                                                        this.openHttp);
         } catch (RocksDBException e) {
             log.error("Failed to open RocksDB from {}", dbPath, e);
             throw new PDException(Pdpb.ErrorType.ROCKSDB_LOAD_SNAPSHOT_ERROR_VALUE, e);
