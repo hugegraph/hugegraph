@@ -312,13 +312,12 @@ gremlin> :remote connect tinkerpop.server conf/remote.yaml
 gremlin> :> g.V().limit(5)
 ```
 
-> **Troubleshooting for Java 17+ users:**
-> The bundled Gremlin Console is only compatible with Java 11. If you run it with Java 17 or newer, you may encounter native library errors or startup failures. Please ensure you are using Java 11 when running `bin/gremlin-console.sh`.
+ > **Troubleshooting for Java 17+ users:**
+ > The bundled Gremlin Console is only compatible with Java 11. If you run it with Java 17 or newer, you may encounter native library errors or startup failures. Please ensure you are using Java 11 when running `bin/gremlin-console.sh`.
 
-
-> **Troubleshooting for Apple Silicon (M1/M2/M3/M4) users:**
-> The bundled Gremlin Console may fail with a native library error due to incompatible architecture (Jansi native library is x86_64 only).
-> Download the ARM64 version of Gremlin Console from the [TinkerPop website](https://tinkerpop.apache.org/download.html) and use its `bin/gremlin.sh` to connect to your HugeGraph server.
+ > **Troubleshooting for Apple Silicon (M1/M2/M3/M4) users:**
+ > Starting from this release, an aarch64-compatible `jansi 2.4.0` is bundled into `lib/`, which should resolve the native-library `UnsatisfiedLinkError` on Apple Silicon.
+ > If you still hit native errors, download the ARM64 Gremlin Console from the [TinkerPop website](https://tinkerpop.apache.org/download.html) and use its `bin/gremlin.sh` to connect to your HugeGraph server.
 
 For comprehensive documentation, visit the [HugeGraph Documentation](https://hugegraph.apache.org/docs/).
 
