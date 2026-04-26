@@ -582,3 +582,4 @@ xstream-1.4.10.jar
 zjsonpatch-0.3.0.jar
 zstd-jni-1.5.5-1.jar
 zt-zip-1.14.jar
+jansi-2.4.0.jar
