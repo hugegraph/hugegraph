@@ -274,7 +274,7 @@ ls apache-hugegraph-*
 cd apache-hugegraph-*
 
 # Enter the server package directory:
-cd apache-hugegraph-server-1.7.0
+cd apache-hugegraph-server-*
 
 # Initialize and start
 bin/init-store.sh
