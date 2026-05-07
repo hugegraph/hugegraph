@@ -157,7 +157,7 @@ mvn clean package -DskipTests
 # Skip assembly creation (if needed)
 mvn clean package -DskipTests -Dskip-assembly-hugegraph
 
-# Output: install-dist/target/hugegraph-<version>.tar.gz
+# Output: apache-hugegraph-<version>/ (unpacked distribution directory in the project root)
 ```
 
 ## Important File Locations
