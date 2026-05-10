@@ -8,7 +8,7 @@ Sample log output:
 
 ```java
 2025-10-15 01:55:50 [db-open-1] [INFO] o.a.h.b.s.r.RocksDBStdSessions - SidePluginRepo found. Will attempt to open multi CFs RocksDB using Topling plugin.
-21:1: (891B):ERROR: 
+21:1: (891B):ERROR:
 sideplugin/rockside/3rdparty/rapidyaml/src/c4/yml/parse.cpp:3310: ERROR parsing yml: parse error: incorrect indentation?
 ```
 
@@ -82,7 +82,7 @@ Caused by: org.rocksdb.RocksDBException: While lock file: rocksdb-data/data/m/LO
 
 ```properties
 # conf/log4j2.xml
-<Logger name="org.apache.hugegraph.backend.store.rocksdb" 
+<Logger name="org.apache.hugegraph.backend.store.rocksdb"
         level="DEBUG"/>
 ```
 

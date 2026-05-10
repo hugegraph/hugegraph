@@ -78,7 +78,7 @@ This boolean flag controls whether the embedded Web Server in ToplingDB should b
   ```
 
   The listening port is defined in the YAML file specified by `option_path`, under the key `http.listening_ports`:
-  
+
   ```yaml
   http:
     document_root: /dev/shm/rocksdb_resource
@@ -135,7 +135,7 @@ Developers need to make two adjustments to enable ToplingDB during development:
            <password>YOUR_GITHUB_TOKEN</password>
        </server>
    </servers>
-   
+
    <profiles>
        <profile>
             <id>...</id>

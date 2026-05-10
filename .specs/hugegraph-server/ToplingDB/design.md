@@ -81,7 +81,7 @@ There are two ways to obtain the JAR package:
 
 #### Pull JAR from GitHub Repository
 
-Since ToplingDB is not published to Maven Central, the JAR can only be obtained from GitHub Actions releases:  
+Since ToplingDB is not published to Maven Central, the JAR can only be obtained from GitHub Actions releases:
 [JAR Package](https://github.com/hugegraph/toplingdb/packages/2550860)
 
 Add GitHub repository configuration to your Maven `settings.xml`:
@@ -187,7 +187,7 @@ public static final ConfigOption<String> OPTION_PATH =
                 "The YAML file for configuring Topling/RocksDB parameters",
                 null,
                 ""
-        );    
+        );
 
 public static final ConfigOption<Boolean> OPEN_HTTP =
         new ConfigOption<>(
