@@ -59,9 +59,10 @@ RUN set -eux; \
             if [ "$expected_hash" = "$actual_hash" ]; then \
                 echo "SHA512 verified OK"; \
             else \
-                echo "WARNING: SHA512 mismatch (continuing anyway)"; \
+                echo "ERROR: SHA512 mismatch"; \
                 echo "  Expected: $expected_hash"; \
                 echo "  Actual:   $actual_hash"; \
+                exit 1; \
             fi; \
         else \
             echo "WARNING: Could not parse SHA512 file (continuing anyway)"; \

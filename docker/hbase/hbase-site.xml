@@ -53,7 +53,7 @@
     </property>
     <property>
         <name>zookeeper.session.timeout</name>
-        <value>1200000</value>
+        <value>180000</value>
     </property>
     <!-- Pseudo-distributed mode so master + regionserver run as distinct daemons -->
     <property>

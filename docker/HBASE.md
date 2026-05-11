@@ -10,9 +10,25 @@ This guide explains how to start HBase locally with Docker, verify it is working
 
 ## Quick Start
 
-### 0. (Optional) Clean Up Leftover HBase Tables
+### 0. Start HBase with Docker
 
-If you have run tests before, drop any leftover HugeGraph tables to start fresh:
+```bash
+docker compose -f docker/hbase/docker-compose.hbase.yml up -d
+```
+
+### 1. Wait for HBase to be Ready (~2 minutes)
+
+```bash
+# Check ZooKeeper connectivity
+nc -z localhost 2181 && echo "Ready" || echo "Not ready"
+
+# Or watch the logs
+docker compose -f docker/hbase/docker-compose.hbase.yml logs
+```
+
+### 2. (Optional) Clean Up Leftover HBase Tables
+
+For reruns, drop any leftover HugeGraph tables after the container is up:
 
 ```bash
 docker exec hg-hbase-test bash -c '
@@ -29,32 +45,19 @@ docker exec hg-hbase-test bash -lc "echo 'list' | hbase shell -n"
 # Expected: TABLE (empty), 0 row(s)
 ```
 
-### 1. Start HBase with Docker
-
-```bash
-docker compose -f docker/hbase/docker-compose.hbase.yml up -d
-```
-
-### 2. Wait for HBase to be Ready (~2 minutes)
-
-```bash
-# Check ZooKeeper connectivity
-nc -z localhost 2181 && echo "Ready" || echo "Not ready"
-
-# Or watch the logs
-docker compose -f docker/hbase/docker-compose.hbase.yml logs
-```
 
 ### 3. Configure and Init the HugeGraph Server (required for API tests)
 
 > This step is only needed for HugeGraph API sanity checks.
 
-> **Prerequisite**: Run `mvn clean package -DskipTests` from the repository root to generate the distribution. This creates the `apache-hugegraph-1.7.0/` directory with all necessary binaries and configs.
+> **Prerequisite**: Run `mvn clean package -DskipTests` from the repository root to generate the distribution. This creates an `apache-hugegraph-<version>/` directory with all necessary binaries and configs.
 
 Set backend to HBase in the server config:
 
 ```bash
-SERVER_DIR="apache-hugegraph-1.7.0/apache-hugegraph-server-1.7.0"
+SERVER_DIR="$(find . -maxdepth 3 -type d -path './apache-hugegraph-*/apache-hugegraph-server-*' | head -n 1)"
+SERVER_DIR="${SERVER_DIR#./}"
+[ -n "$SERVER_DIR" ] || { echo "HugeGraph server runtime not found. Run mvn clean package -DskipTests first."; exit 1; }
 CONF="$SERVER_DIR/conf/graphs/hugegraph.properties"
 
 # Switch backend to hbase
@@ -163,7 +166,7 @@ docker compose -f docker/hbase/docker-compose.hbase.yml logs
 
 These steps assume the HugeGraph server is running at `http://localhost:8080` with auth enabled (`admin/pa`).
 
-> **Note on Idempotency**: All schema creation calls below use `"check_exist": false`, which makes them safe to re-run — they return the existing definition instead of erroring if the schema already exists.
+> **Note on Idempotency**: Schema creation calls below use `"check_exist": false`. Re-running is safe only when the submitted schema definition matches the existing one. If definitions conflict, HugeGraph returns `ExistedException`.
 >
 > **Prerequisite**: The HBase backend tables must be initialized before any API calls will work. If you see `TableNotFoundException` errors, re-run `init-store.sh` (see Step 0 below or the Quick Start section).
 
@@ -174,7 +177,9 @@ These steps assume the HugeGraph server is running at `http://localhost:8080` wi
 > **Prerequisite**: Run `mvn clean package -DskipTests` from the repository root first to generate the distribution.
 
 ```bash
-SERVER_DIR="apache-hugegraph-1.7.0/apache-hugegraph-server-1.7.0"
+SERVER_DIR="$(find . -maxdepth 3 -type d -path './apache-hugegraph-*/apache-hugegraph-server-*' | head -n 1)"
+SERVER_DIR="${SERVER_DIR#./}"
+[ -n "$SERVER_DIR" ] || { echo "HugeGraph server runtime not found. Run mvn clean package -DskipTests first."; exit 1; }
 
 # Initialize HBase tables (enter password 'pa' when prompted)
 printf 'pa\npa\n' | "$SERVER_DIR/bin/init-store.sh"
@@ -199,7 +204,7 @@ curl -s -u admin:pa http://localhost:8080/graphspaces/DEFAULT/graphs | python3 -
 
 ### 3. Create Property Keys
 
-Create multiple property keys for testing. These are idempotent—running again simply returns the definition:
+Create multiple property keys for testing. Re-running with the same schema returns the existing definition.
 
 ```bash
 # Text property
@@ -298,7 +303,9 @@ Port 8182 (Gremlin WebSocket) is held by a stale Java process from a previous se
 # Find the process holding port 8182
 lsof -i :8182
 
-SERVER_DIR="apache-hugegraph-1.7.0/apache-hugegraph-server-1.7.0"
+SERVER_DIR="$(find . -maxdepth 3 -type d -path './apache-hugegraph-*/apache-hugegraph-server-*' | head -n 1)"
+SERVER_DIR="${SERVER_DIR#./}"
+[ -n "$SERVER_DIR" ] || { echo "HugeGraph server runtime not found. Run mvn clean package -DskipTests first."; exit 1; }
 
 # Graceful stop (works if pid file exists)
 "$SERVER_DIR/bin/stop-hugegraph.sh"
@@ -318,7 +325,9 @@ lsof -i :8182 || echo "Port 8182 is free"
 If you see `org.apache.hadoop.hbase.TableNotFoundException` when calling schema or graph APIs, the HBase backend tables have not been initialized (or were dropped). Re-run `init-store.sh`:
 
 ```bash
-SERVER_DIR="apache-hugegraph-1.7.0/apache-hugegraph-server-1.7.0"
+SERVER_DIR="$(find . -maxdepth 3 -type d -path './apache-hugegraph-*/apache-hugegraph-server-*' | head -n 1)"
+SERVER_DIR="${SERVER_DIR#./}"
+[ -n "$SERVER_DIR" ] || { echo "HugeGraph server runtime not found. Run mvn clean package -DskipTests first."; exit 1; }
 "$SERVER_DIR/bin/stop-hugegraph.sh"
 printf 'pa\npa\n' | "$SERVER_DIR/bin/init-store.sh"
 "$SERVER_DIR/bin/start-hugegraph.sh" -t 60
@@ -363,7 +372,9 @@ mvn clean package -DskipTests
 ### 1. Stop the HugeGraph Server
 
 ```bash
-SERVER_DIR="apache-hugegraph-1.7.0/apache-hugegraph-server-1.7.0"
+SERVER_DIR="$(find . -maxdepth 3 -type d -path './apache-hugegraph-*/apache-hugegraph-server-*' | head -n 1)"
+SERVER_DIR="${SERVER_DIR#./}"
+[ -n "$SERVER_DIR" ] || { echo "HugeGraph server runtime not found. Run mvn clean package -DskipTests first."; exit 1; }
 "$SERVER_DIR/bin/stop-hugegraph.sh"
 ```
 
