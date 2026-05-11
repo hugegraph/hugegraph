@@ -21,6 +21,7 @@ FROM eclipse-temurin:11-jre-jammy
 ARG HBASE_VERSION=2.6.5
 ARG HBASE_PRIMARY_URL=https://downloads.apache.org/hbase/${HBASE_VERSION}/hbase-${HBASE_VERSION}-bin.tar.gz
 ARG HBASE_FALLBACK_URL=https://archive.apache.org/dist/hbase/${HBASE_VERSION}/hbase-${HBASE_VERSION}-bin.tar.gz
+ARG ALLOW_UNVERIFIED_DOWNLOAD=false
 
 ENV HBASE_VERSION=${HBASE_VERSION}
 ENV HBASE_HOME=/opt/hbase
@@ -65,10 +66,20 @@ RUN set -eux; \
                 exit 1; \
             fi; \
         else \
-            echo "WARNING: Could not parse SHA512 file (continuing anyway)"; \
+            if [ "${ALLOW_UNVERIFIED_DOWNLOAD}" = "true" ]; then \
+                echo "WARNING: Could not parse SHA512 file (ALLOW_UNVERIFIED_DOWNLOAD=true)"; \
+            else \
+                echo "ERROR: Could not parse SHA512 file"; \
+                exit 1; \
+            fi; \
         fi; \
     else \
-        echo "WARNING: Could not download SHA512 file (continuing without verification)"; \
+        if [ "${ALLOW_UNVERIFIED_DOWNLOAD}" = "true" ]; then \
+            echo "WARNING: Could not download SHA512 file (ALLOW_UNVERIFIED_DOWNLOAD=true)"; \
+        else \
+            echo "ERROR: Could not download SHA512 file"; \
+            exit 1; \
+        fi; \
     fi; \
     tar -xzf /tmp/hbase.tar.gz -C /opt; \
     mv /opt/hbase-${HBASE_VERSION} ${HBASE_HOME}; \
