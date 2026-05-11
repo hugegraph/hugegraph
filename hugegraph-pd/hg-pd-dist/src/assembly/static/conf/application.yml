@@ -40,7 +40,7 @@ grpc:
   # The service address of grpc needs to be changed to the actual local IPv4 address when deploying.
   host: 127.0.0.1
 # rocksdb:
-  # option-path: ./conf/graphs/rocksdb_pd.yaml
+  # option-path: ./conf/rocksdb_pd.yaml
   # open-http: true
 
 server:
