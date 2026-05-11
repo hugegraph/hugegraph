@@ -18,7 +18,7 @@ sideplugin/rockside/3rdparty/rapidyaml/src/c4/yml/parse.cpp:3310: ERROR parsing 
 2. Validate YAML syntax:
 
    ```bash
-   python -c "import yaml; yaml.safe_load(open('conf/graphs/rocksdb_plus.yaml'))"
+   python -c "import yaml; yaml.safe_load(open('conf/graphs/rocksdb_server.yaml'))"
    ```
 
 3. Review the specific error message in the logs for further clues.
@@ -64,7 +64,7 @@ Caused by: org.rocksdb.RocksDBException: While lock file: rocksdb-data/data/m/LO
 1. Confirm the configuration file path is correct:
 
    ```properties
-   rocksdb.option_path=./conf/graphs/rocksdb_plus.yaml
+   rocksdb.option_path=./conf/graphs/rocksdb_server.yaml
    ```
 
 2. Check permissions on the data directory to ensure the running user has read/write access.

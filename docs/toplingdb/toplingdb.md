@@ -52,7 +52,7 @@ This parameter allows users to specify a YAML file that defines ToplingDB settin
 - **Usage**: Add the following line to your `hugegraph.properties` file:
 
   ```properties
-  rocksdb.option_path=./conf/graphs/rocksdb_plus.yaml
+  rocksdb.option_path=./conf/graphs/rocksdb_server.yaml
   ```
 
   The specified YAML file will be automatically loaded during database initialization if ToplingDB is available.
@@ -99,12 +99,12 @@ This boolean flag controls whether the embedded Web Server in ToplingDB should b
 
 To support ToplingDB without introducing hard dependencies, HugeGraph uses Java reflection to detect and load enhanced APIs at runtime.
 
-During initialization, HugeGraph checks whether the current JAR contains the class `com.topling.sideplugin.SidePluginRepo`. If present, it assumes ToplingDB is available and proceeds to:
+During initialization, HugeGraph checks whether the current JAR contains the class `org.rocksdb.SidePluginRepo`. If present, it assumes ToplingDB is available and proceeds to:
 
 1. **Load the SidePluginRepo class via reflection**   This avoids compile-time coupling and allows fallback to standard RocksDB if the class is missing.
    - If the ToplingDB API cannot be found, HugeGraph silently falls back to the standard RocksDB API for startup.
 2. **Invoke** `importAutoFile(optionPath)`   This method parses the YAML configuration file specified by `rocksdb.option_path` to configure storage engine parameters.
-   - If the `option_path` is incorrect or parsing fails, ToplingDB throws an error and terminates the startup process.
+   - If the `option_path` is incorrect or parsing fails, HugeGraph falls back to standard RocksDB startup.
 3. **Call** `open()` **with a JSON descriptor**   The parsed configuration is converted to a JSON structure and passed to the ToplingDB engine to initialize the database.
 4. **Optionally start the Web Server**   If `rocksdb.open_http` is true and the instance is `GRAPH_STORE`, HugeGraph invokes `startHttpServer()` via reflection to enable observability.
    - If the Web Server cannot be started due to misconfiguration **or if the specified HTTP port is already in use**, ToplingDB throws an error and the startup process is terminated

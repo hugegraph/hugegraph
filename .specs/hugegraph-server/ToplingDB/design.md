@@ -174,7 +174,7 @@ Two new configuration options were added to `hugegraph.properties`: `option_path
 # rocksdb backend config
 #rocksdb.data_path=/path/to/disk
 #rocksdb.wal_path=/path/to/disk
-#rocksdb.option_path=./conf/graphs/rocksdb_plus.yaml
+#rocksdb.option_path=./conf/graphs/rocksdb_server.yaml
 #rocksdb.open_http=true
 ```
 
