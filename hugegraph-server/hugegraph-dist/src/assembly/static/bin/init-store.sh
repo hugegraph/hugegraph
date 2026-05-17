@@ -47,6 +47,8 @@ cd "${TOP}" || exit
 
 DEFAULT_JAVA_OPTIONS="--add-exports=java.base/jdk.internal.reflect=ALL-UNNAMED"
 
+source $BIN/preload-topling.sh
+
 echo "Initializing HugeGraph Store..."
 
 # Build classpath with hugegraph*.jar first to avoid class loading conflicts
