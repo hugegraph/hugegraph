@@ -505,7 +505,9 @@ The text of each license is also included in licenses/LICENSE-[project].txt.
     https://central.sonatype.com/artifact/net.java.dev.jna/jna/5.7.0 -> Apache 2.0
     https://central.sonatype.com/artifact/net.jodah/failsafe/2.4.1 -> Apache 2.0
     https://central.sonatype.com/artifact/net.minidev/accessors-smart/1.2 -> Apache 2.0
+    https://central.sonatype.com/artifact/net.minidev/accessors-smart/2.5.2 -> Apache 2.0
     https://central.sonatype.com/artifact/net.minidev/json-smart/2.3 -> Apache 2.0
+    https://central.sonatype.com/artifact/net.minidev/json-smart/2.5.2 -> Apache 2.0
     https://central.sonatype.com/artifact/net.objecthunter/exp4j/0.4.8 -> Apache 2.0
     https://central.sonatype.com/artifact/net.openhft/chronicle-bytes/2.20.111 -> Apache 2.0
     https://central.sonatype.com/artifact/net.openhft/chronicle-core/2.20.126 -> Apache 2.0
@@ -678,7 +680,6 @@ The text of each license is also included in licenses/LICENSE-[project].txt.
     https://central.sonatype.com/artifact/org.powermock/powermock-reflect/2.0.0-RC.3 -> Apache 2.0
     https://central.sonatype.com/artifact/org.roaringbitmap/RoaringBitmap/0.9.38 -> Apache 2.0
     https://central.sonatype.com/artifact/org.roaringbitmap/shims/0.9.38 -> Apache 2.0
-    https://central.sonatype.com/artifact/org.rocksdb/rocksdbjni/8.10.2 -> Apache 2.0
     https://github.com/hugegraph/toplingdb/packages/2550860 -> Apache 2.0
     https://central.sonatype.com/artifact/org.skyscreamer/jsonassert/1.5.0 -> Apache 2.0
     https://central.sonatype.com/artifact/org.springframework.boot/spring-boot-actuator-autoconfigure/2.5.14 -> Apache 2.0
@@ -773,6 +774,7 @@ The text of each license is also included in licenses/LICENSE-[project].txt.
     https://central.sonatype.com/artifact/org.psjava/psjava/0.1.19 -> MIT
     https://central.sonatype.com/artifact/org.slf4j/jcl-over-slf4j/1.7.25 -> MIT
     https://central.sonatype.com/artifact/org.slf4j/jul-to-slf4j/1.7.36 -> MIT
+    https://central.sonatype.com/artifact/org.slf4j/slf4j-api/1.7.5 -> MIT
     https://central.sonatype.com/artifact/org.slf4j/slf4j-api/1.7.21 -> MIT
     https://central.sonatype.com/artifact/org.slf4j/slf4j-api/1.7.25 -> MIT
     https://central.sonatype.com/artifact/org.slf4j/slf4j-api/1.7.31 -> MIT
@@ -835,6 +837,7 @@ The text of each license is also included in licenses/LICENSE-[project].txt.
     https://central.sonatype.com/artifact/com.google.protobuf/protobuf-java/3.5.1 -> BSD-3-Clause
     https://central.sonatype.com/artifact/com.sun.activation/jakarta.activation/2.0.0 -> BSD-3-Clause
     https://central.sonatype.com/artifact/org.hamcrest/hamcrest/2.2 -> BSD-3-Clause
+    https://central.sonatype.com/artifact/org.ow2.asm/asm/9.7.1 -> BSD-3-Clause
     https://central.sonatype.com/artifact/org.ow2.asm/asm-analysis/9.2 -> BSD-3-Clause
     https://central.sonatype.com/artifact/org.ow2.asm/asm-commons/9.2 -> BSD-3-Clause
     https://central.sonatype.com/artifact/org.ow2.asm/asm-tree/9.2 -> BSD-3-Clause

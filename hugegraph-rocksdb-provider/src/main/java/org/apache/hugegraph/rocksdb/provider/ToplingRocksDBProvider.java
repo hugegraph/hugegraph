@@ -24,6 +24,7 @@ import org.apache.commons.lang3.StringUtils;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -36,6 +37,7 @@ import java.util.regex.Pattern;
 import net.minidev.json.JSONObject;
 
 import org.yaml.snakeyaml.Yaml;
+import org.yaml.snakeyaml.constructor.BaseConstructor;
 import org.yaml.snakeyaml.constructor.SafeConstructor;
 import org.yaml.snakeyaml.LoaderOptions;
 
@@ -56,7 +58,7 @@ public class ToplingRocksDBProvider extends AbstractRocksDBProvider {
 
     // Validation constants migrated from RocksDBOptions
     private static final Pattern SAFE_PATH_PATTERN =
-            Pattern.compile("^[a-zA-Z0-9/_.-]+\\.yaml$");
+            Pattern.compile("^[a-zA-Z0-9/_.-]+\\.ya?ml$");
     private static final String ALLOWED_CONFIG_DIR = "./conf/";
     private static final long MAX_CONFIG_FILE_SIZE = 1024 * 1024 * 10; // 10 MB
 
@@ -113,10 +115,7 @@ public class ToplingRocksDBProvider extends AbstractRocksDBProvider {
         if (useTopling) {
             return openWithToplingFeatures(options, dataPath, optionPath, openHttp);
         } else {
-            LOG.warn(
-                    "optionPath: {} is not ToplingDB configuration, opening RocksDB without " +
-                    "ToplingDB features",
-                    optionPath);
+            logStandardFallback(optionPath);
             return RocksDB.open(options, dataPath);
         }
     }
@@ -145,10 +144,7 @@ public class ToplingRocksDBProvider extends AbstractRocksDBProvider {
             return openWithToplingFeaturesAndCF(dbOptions, dataPath, cfDescriptors, cfHandles,
                                                 optionPath, openHttp);
         } else {
-            LOG.warn(
-                    "optionPath: {} is not ToplingDB configuration, opening RocksDB without " +
-                    "ToplingDB features",
-                    optionPath);
+            logStandardFallback(optionPath);
             return RocksDB.open(dbOptions, dataPath, cfDescriptors, cfHandles);
         }
     }
@@ -467,7 +463,8 @@ public class ToplingRocksDBProvider extends AbstractRocksDBProvider {
                 validateOptionPath(optionPath);
 
                 // Read and validate YAML content
-                String yamlContent = Files.readString(Paths.get(optionPath));
+                String yamlContent = Files.readString(Paths.get(optionPath),
+                                                      StandardCharsets.UTF_8);
                 validateYamlContent(yamlContent);
 
                 Class.forName(SIDE_PLUGIN_REPO_CLASS);
@@ -539,13 +536,41 @@ public class ToplingRocksDBProvider extends AbstractRocksDBProvider {
      */
     private static void validateYamlContent(String yamlContent) {
         // Use a safe YAML parser and disable dangerous features
-        Yaml yaml = new Yaml(new SafeConstructor(new LoaderOptions()));
+        Yaml yaml = new Yaml(createSafeConstructor());
         try {
             yaml.load(yamlContent);
             // TODO: validate config schema
         } catch (Exception e) {
             throw new IllegalArgumentException(
                     "Invalid YAML configuration", e);
+        }
+    }
+
+    private static BaseConstructor createSafeConstructor() {
+        try {
+            return SafeConstructor.class.getConstructor(LoaderOptions.class)
+                                        .newInstance(new LoaderOptions());
+        } catch (NoSuchMethodException e) {
+            try {
+                return SafeConstructor.class.getConstructor().newInstance();
+            } catch (Exception fallback) {
+                throw new IllegalStateException("Failed to create SnakeYAML SafeConstructor",
+                                                fallback);
+            }
+        } catch (Exception e) {
+            throw new IllegalStateException("Failed to create SnakeYAML SafeConstructor", e);
+        }
+    }
+
+    private static void logStandardFallback(String optionPath) {
+        if (StringUtils.isNotEmpty(optionPath)) {
+            LOG.warn(
+                    "optionPath: {} is not ToplingDB configuration, opening RocksDB without " +
+                    "ToplingDB features",
+                    optionPath);
+        } else {
+            LOG.debug("No ToplingDB optionPath configured, opening RocksDB without ToplingDB " +
+                      "features");
         }
     }
 

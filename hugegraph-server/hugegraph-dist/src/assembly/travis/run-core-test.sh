@@ -18,9 +18,9 @@
 set -ev
 
 BACKEND=$1
-TRAVIS_DIR=$(dirname $0)
+TRAVIS_DIR=$(cd "$(dirname "$0")" && pwd)
 
 # install rocksdb
-source $TRAVIS_DIR/install-rocksdb.sh
+source "$TRAVIS_DIR/install-rocksdb.sh"
 
 mvn test -pl hugegraph-server/hugegraph-test -am -P core-test,$BACKEND

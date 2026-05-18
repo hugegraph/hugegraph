@@ -41,6 +41,7 @@ public class RocksDBProviderLoader {
 
     private final Map<String, RocksDBProvider> providerCache = new ConcurrentHashMap<>();
     private volatile boolean loaded = false;
+    private volatile RocksDBProvider bestProvider = null;
 
     private RocksDBProviderLoader() {
         // Private constructor for singleton
@@ -113,28 +114,40 @@ public class RocksDBProviderLoader {
             loadProviders();
         }
 
+        RocksDBProvider cached = this.bestProvider;
+        if (cached != null) {
+            return cached;
+        }
+
         if (providerCache.isEmpty()) {
             throw new RuntimeException("No RocksDB providers available");
         }
 
-        // Find provider with highest priority
-        RocksDBProvider bestProvider = null;
-        int highestPriority = Integer.MIN_VALUE;
-
-        for (RocksDBProvider provider : providerCache.values()) {
-            if (provider.isAvailable() && provider.getPriority() > highestPriority) {
-                bestProvider = provider;
-                highestPriority = provider.getPriority();
+        synchronized (this) {
+            if (this.bestProvider != null) {
+                return this.bestProvider;
             }
-        }
 
-        if (bestProvider == null) {
-            throw new RuntimeException("No available RocksDB providers found");
-        }
+            // Find provider with highest priority
+            RocksDBProvider selected = null;
+            int highestPriority = Integer.MIN_VALUE;
 
-        LOG.info("Auto-selected RocksDB provider: {} (priority: {})",
-                 bestProvider.getProviderName(), bestProvider.getPriority());
-        return bestProvider;
+            for (RocksDBProvider provider : providerCache.values()) {
+                if (provider.isAvailable() && provider.getPriority() > highestPriority) {
+                    selected = provider;
+                    highestPriority = provider.getPriority();
+                }
+            }
+
+            if (selected == null) {
+                throw new RuntimeException("No available RocksDB providers found");
+            }
+
+            this.bestProvider = selected;
+            LOG.info("Auto-selected RocksDB provider: {} (priority: {})",
+                     selected.getProviderName(), selected.getPriority());
+            return selected;
+        }
     }
 
     /**
@@ -184,6 +197,7 @@ public class RocksDBProviderLoader {
     public synchronized void reload() {
         loaded = false;
         providerCache.clear();
+        bestProvider = null;
         loadProviders();
     }
 

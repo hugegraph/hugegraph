@@ -67,7 +67,7 @@ JACOCO_PORT=36320
 mvn package -Dmaven.test.skip=true -ntp
 
 # install rocksdb
-source $TRAVIS_DIR/install-rocksdb.sh
+source "$TRAVIS_DIR/install-rocksdb.sh"
 
 # add mysql dependency
 download_to_dir "$SERVER_DIR/lib/" \

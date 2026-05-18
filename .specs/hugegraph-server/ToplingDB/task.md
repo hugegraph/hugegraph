@@ -25,7 +25,7 @@ When running from the terminal, simply use `init-store.sh` and `start-hugegraph.
 
 ## 2. Compatibility with ToplingDB and Standard RocksDB
 
-- [x] **2.1 Modify openRocksDB logic in RocksDBStdSession**
+- [x] **2.1 Modify openRocksDB logic in RocksDBStdSessions**
   - Use reflection to detect whether the current JAR contains ToplingDB APIs; if so, start the storage engine using ToplingDB
   - If not available, fall back to the standard RocksDB API for engine startup
 

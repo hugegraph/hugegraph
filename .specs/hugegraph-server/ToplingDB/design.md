@@ -164,7 +164,7 @@ Main tasks of `preload-topling.sh`:
 - Set `LD_LIBRARY_PATH` and `LD_PRELOAD` environment variables
 - Handle `libaio` compatibility issues on Ubuntu 24.04+
 
-Both `init-hugegraph.sh` and `start-hugegraph.sh` now invoke `preload-topling.sh`, so users don’t need to worry about preload details.
+Both `init-store.sh` and `start-hugegraph.sh` now invoke `preload-topling.sh`, so users don't need to worry about preload details.
 
 ### HugeGraph Configuration Options for RocksDB
 

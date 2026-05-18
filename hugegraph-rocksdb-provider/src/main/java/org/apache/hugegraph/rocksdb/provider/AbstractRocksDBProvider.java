@@ -95,9 +95,12 @@ public abstract class AbstractRocksDBProvider implements RocksDBProvider {
     @Override
     public void closeRocksDB(RocksDB rocksDB) {
         if (rocksDB != null) {
-            // Perform provider-specific close operations
-            performProviderSpecificClose(rocksDB);
-            rocksDB.close();
+            try {
+                // Perform provider-specific close operations
+                performProviderSpecificClose(rocksDB);
+            } finally {
+                rocksDB.close();
+            }
         }
     }
 

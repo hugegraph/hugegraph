@@ -1,7 +1,7 @@
 # ToplingDB Support and Configuration
 
 - **Status**: Implemented
-- **Pull Request**: [#15](https://github.com/hugegraph/hugegraph/pull/15)
+- **Pull Request**: [#3024](https://github.com/apache/hugegraph/pull/3024)
 
 ## Background knowledge
 
@@ -17,7 +17,7 @@ ToplingDB extends RocksDB with several advanced features:
 
 ## Motivation
 
-Introduce a new optional storage component in HugeGraph to support [ToplingDB](https://github.com/topling/toplingdb)), a configurable and observable extension of the RocksDB storage engine.
+Introduce a new optional storage component in HugeGraph to support [ToplingDB](https://github.com/topling/toplingdb), a configurable and observable extension of the RocksDB storage engine.
 
 ToplingDB resolves key limitations in HugeGraph’s  current `rocksdbjni` integration, which relies heavily on hard-coding parameters and lacks runtime configurability and observability.
 

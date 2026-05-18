@@ -222,8 +222,8 @@
                             <exclude>**/src/main/java/org/apache/hugegraph/pd/grpc/**</exclude>
                             <exclude>**/src/main/java/org/apache/hugegraph/store/grpc/**</exclude>
                             <!-- HTML and CSS extracted from ToplingDB -->
-                            <exclude>**/library/*.html</exclude>
-                            <exclude>**/library/*.css</exclude>
+                            <exclude>**/apache-hugegraph-server-*/library/*.html</exclude>
+                            <exclude>**/apache-hugegraph-server-*/library/*.css</exclude>
                         </excludes>
                         <consoleOutput>true</consoleOutput>
                     </configuration>

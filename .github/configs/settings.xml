@@ -30,6 +30,9 @@
                 <repository>
                     <id>github</id>
                     <url>https://maven.pkg.github.com/hugegraph/toplingdb</url>
+                    <releases>
+                        <enabled>false</enabled>
+                    </releases>
                     <snapshots>
                         <enabled>true</enabled>
                     </snapshots>
