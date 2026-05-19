@@ -237,7 +237,7 @@ function download_and_setup_jemalloc() {
 
     # Download and verify jemalloc library (fallback when system lib not found)
     if download_and_verify "$download_url" "$lib_file" "$expected_sha256"; then
-        if [[ ":${LD_PRELOAD:-}:" != *"libjemalloc.so:"* ]]; then
+        if [[ ":${LD_PRELOAD:-}:" != *":${lib_file}:"* ]]; then
             export LD_PRELOAD="${lib_file}${LD_PRELOAD:+:$LD_PRELOAD}"
         fi
     else

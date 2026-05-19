@@ -16,6 +16,11 @@
 # limitations under the License.
 #
 
+if [ "$(uname -s)" != "Linux" ]; then
+    echo "[install-rocksdb] Skip ToplingDB native preload on non-Linux platform: $(uname -s)"
+    return 0 2>/dev/null || exit 0
+fi
+
 ORIG_SHELL_FLAGS="$-"
 ORIG_PIPEFAIL="$(set -o | awk '$1 == "pipefail" { print $2 }')"
 ORIG_ERR_TRAP="$(trap -p ERR || true)"

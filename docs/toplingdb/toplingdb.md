@@ -37,6 +37,11 @@ By supporting ToplingDB, HugeGraph empowers users with greater control over stor
 
 Enable users to select ToplingDB via configuration, allowing tuning parameters through YAML files without recompilation and real-time monitoring via Web Server—without sacrificing compatibility with existing RocksDB APIs.
 
+## Platform Scope
+
+The current ToplingDB native integration supports Linux only.
+On macOS and other non-Linux platforms, HugeGraph should continue to use the standard RocksDB `rocksdbjni` dependency instead of preloading ToplingDB native libraries.
+
 ## Design
 
 ### Configuration Parameters
@@ -57,7 +62,8 @@ This parameter allows users to specify a YAML file that defines ToplingDB settin
 
   The specified YAML file will be automatically loaded during database initialization if ToplingDB is available.
 
-  For security reasons, HugeGraph only allows YAML files to be stored under the `$HUGEGRAPH_HOME/conf/graphs` directory.
+  For security reasons, HugeGraph only allows YAML files to be stored under the `$HUGEGRAPH_HOME/conf/` directory.
+  The Server example above uses `$HUGEGRAPH_HOME/conf/graphs/`, while PD and Store YAML files can be placed directly under `$HUGEGRAPH_HOME/conf/`.
 
   For details on the YAML structure and supported configuration fields, please refer to [SidePlugin](https://github.com/topling/sideplugin-wiki-en/wiki).
 

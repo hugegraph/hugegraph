@@ -20,7 +20,6 @@ package org.apache.hugegraph.rocksdb.provider;
 import org.rocksdb.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.apache.commons.lang3.StringUtils;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
@@ -457,7 +456,7 @@ public class ToplingRocksDBProvider extends AbstractRocksDBProvider {
 
     private static boolean validateConfiguration(String optionPath) {
         boolean result = false;
-        if (!StringUtils.isEmpty(optionPath)) {
+        if (optionPath != null && !optionPath.isEmpty()) {
             try {
                 // Validate option path first
                 validateOptionPath(optionPath);
@@ -563,7 +562,7 @@ public class ToplingRocksDBProvider extends AbstractRocksDBProvider {
     }
 
     private static void logStandardFallback(String optionPath) {
-        if (StringUtils.isNotEmpty(optionPath)) {
+        if (optionPath != null && !optionPath.isEmpty()) {
             LOG.warn(
                     "optionPath: {} is not ToplingDB configuration, opening RocksDB without " +
                     "ToplingDB features",
