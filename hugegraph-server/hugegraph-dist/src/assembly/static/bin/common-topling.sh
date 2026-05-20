@@ -249,6 +249,16 @@ function download_and_setup_jemalloc() {
 function preload_toplingdb() {
     local lib_dir="$1"
     local dest_dir="$2"
+    local os_name
+
+    # NOTE: The current ToplingDB rocksdbjni snapshot bundles Linux x86_64 native libraries.
+    # Linux arm64/aarch64 support requires a matching native rocksdbjni artifact.
+    os_name="$(uname -s)"
+    if [ "$os_name" != "Linux" ]; then
+        echo "[common-topling] Skip ToplingDB native preload on non-Linux platform: $os_name" >&2
+        return 0
+    fi
+
     local top="$(cd "$lib_dir"/../ && pwd)"
 
     local jar_file
@@ -276,7 +286,9 @@ function preload_toplingdb() {
             {
                 echo "LD_LIBRARY_PATH=$LD_LIBRARY_PATH"
                 echo "LD_PRELOAD=$LD_PRELOAD"
-                echo "SERVER_VERSION_DIR=$SERVER_VERSION_DIR"
+                if [ -n "${SERVER_VERSION_DIR:-}" ]; then
+                    echo "SERVER_VERSION_DIR=$SERVER_VERSION_DIR"
+                fi
             } >> "$GITHUB_ENV" || true
             echo "[common-topling] Exported LD_LIBRARY_PATH and LD_PRELOAD to GITHUB_ENV" >&2 || true
         fi

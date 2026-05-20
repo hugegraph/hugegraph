@@ -39,8 +39,8 @@ Enable users to select ToplingDB via configuration, allowing tuning parameters t
 
 ## Platform Scope
 
-The current ToplingDB native integration supports Linux only.
-On macOS and other non-Linux platforms, HugeGraph should continue to use the standard RocksDB `rocksdbjni` dependency instead of preloading ToplingDB native libraries.
+The current ToplingDB native integration supports Linux x86_64 only.
+On macOS, Linux arm64/aarch64, and other non-x86_64 platforms, HugeGraph should continue to use the standard RocksDB `rocksdbjni` dependency instead of preloading ToplingDB native libraries.
 
 ## Design
 
