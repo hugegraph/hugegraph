@@ -697,7 +697,7 @@ non-Apache-2.0 license text is required for a bundled component.
     https://central.sonatype.com/artifact/org.powermock/powermock-reflect/2.0.0-RC.3 -> Apache 2.0
     https://central.sonatype.com/artifact/org.roaringbitmap/RoaringBitmap/0.9.38 -> Apache 2.0
     https://central.sonatype.com/artifact/org.roaringbitmap/shims/0.9.38 -> Apache 2.0
-    https://github.com/hugegraph/toplingdb/packages/2550860 -> Apache 2.0
+    https://github.com/hugegraph/toplingdb/packages/2550860 (org.rocksdb:rocksdbjni:8.10.2-SNAPSHOT) -> Apache 2.0
     https://central.sonatype.com/artifact/org.skyscreamer/jsonassert/1.5.0 -> Apache 2.0
     https://central.sonatype.com/artifact/org.springframework.boot/spring-boot-actuator-autoconfigure/2.5.14 -> Apache 2.0
     https://central.sonatype.com/artifact/org.springframework.boot/spring-boot-actuator/2.5.14 -> Apache 2.0
