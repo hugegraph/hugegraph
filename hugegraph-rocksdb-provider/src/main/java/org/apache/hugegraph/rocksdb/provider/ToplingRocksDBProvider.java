@@ -207,7 +207,7 @@ public class ToplingRocksDBProvider extends AbstractRocksDBProvider {
             // Prepare column family names for JSON
             List<String> cfNames = new java.util.ArrayList<>();
             for (ColumnFamilyDescriptor cfDescriptor : cfDescriptors) {
-                cfNames.add(new String(cfDescriptor.getName()));
+                cfNames.add(new String(cfDescriptor.getName(), StandardCharsets.UTF_8));
             }
 
             // Open database with column families

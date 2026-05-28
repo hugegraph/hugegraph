@@ -58,7 +58,7 @@ public class PDConfig {
     @Value("${grpc.host}")
     private String host;
 
-    @Value("${rocksdb.option-path: ''}")
+    @Value("${rocksdb.option-path:}")
     private String optionPath;
     @Value("${rocksdb.open-http:false}")
     private Boolean openHttp;

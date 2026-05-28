@@ -41,7 +41,6 @@ public class RocksDBProviderLoader {
 
     private final Map<String, RocksDBProvider> providerCache = new ConcurrentHashMap<>();
     private volatile boolean loaded = false;
-    private volatile RocksDBProvider bestProvider = null;
 
     private RocksDBProviderLoader() {
         // Private constructor for singleton
@@ -65,7 +64,7 @@ public class RocksDBProviderLoader {
 
         for (RocksDBProvider provider : serviceLoader) {
             try {
-                if (provider.isAvailable()) {
+                if (isProviderAvailable(provider)) {
                     providerCache.put(provider.getProviderName(), provider);
                     LOG.info("Loaded RocksDB provider: {} (priority: {})",
                              provider.getProviderName(), provider.getPriority());
@@ -114,40 +113,28 @@ public class RocksDBProviderLoader {
             loadProviders();
         }
 
-        RocksDBProvider cached = this.bestProvider;
-        if (cached != null) {
-            return cached;
-        }
-
         if (providerCache.isEmpty()) {
             throw new RuntimeException("No RocksDB providers available");
         }
 
-        synchronized (this) {
-            if (this.bestProvider != null) {
-                return this.bestProvider;
+        // Find provider with highest priority
+        RocksDBProvider bestProvider = null;
+        int highestPriority = Integer.MIN_VALUE;
+
+        for (RocksDBProvider provider : providerCache.values()) {
+            if (isProviderAvailable(provider) && provider.getPriority() > highestPriority) {
+                bestProvider = provider;
+                highestPriority = provider.getPriority();
             }
-
-            // Find provider with highest priority
-            RocksDBProvider selected = null;
-            int highestPriority = Integer.MIN_VALUE;
-
-            for (RocksDBProvider provider : providerCache.values()) {
-                if (provider.isAvailable() && provider.getPriority() > highestPriority) {
-                    selected = provider;
-                    highestPriority = provider.getPriority();
-                }
-            }
-
-            if (selected == null) {
-                throw new RuntimeException("No available RocksDB providers found");
-            }
-
-            this.bestProvider = selected;
-            LOG.info("Auto-selected RocksDB provider: {} (priority: {})",
-                     selected.getProviderName(), selected.getPriority());
-            return selected;
         }
+
+        if (bestProvider == null) {
+            throw new RuntimeException("No available RocksDB providers found");
+        }
+
+        LOG.info("Auto-selected RocksDB provider: {} (priority: {})",
+                 bestProvider.getProviderName(), bestProvider.getPriority());
+        return bestProvider;
     }
 
     /**
@@ -188,7 +175,7 @@ public class RocksDBProviderLoader {
         }
 
         RocksDBProvider provider = providerCache.get(providerName);
-        return provider != null && provider.isAvailable();
+        return provider != null && isProviderAvailable(provider);
     }
 
     /**
@@ -197,8 +184,17 @@ public class RocksDBProviderLoader {
     public synchronized void reload() {
         loaded = false;
         providerCache.clear();
-        bestProvider = null;
         loadProviders();
+    }
+
+    private boolean isProviderAvailable(RocksDBProvider provider) {
+        try {
+            return provider.isAvailable();
+        } catch (RuntimeException | LinkageError e) {
+            LOG.warn("Failed to check RocksDB provider availability: {}",
+                     provider.getClass().getName(), e);
+            return false;
+        }
     }
 
     // Static convenience methods
