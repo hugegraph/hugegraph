@@ -51,7 +51,7 @@ import org.apache.hugegraph.structure.BaseProperty;
 import org.apache.hugegraph.structure.BaseVertex;
 import org.apache.hugegraph.type.HugeType;
 import org.apache.hugegraph.util.Blob;
-import org.codehaus.groovy.jsr223.GroovyScriptEngineImpl;
+import org.apache.groovy.jsr223.GroovyScriptEngineImpl;
 
 import com.google.protobuf.ByteString;
 import com.google.protobuf.Descriptors;

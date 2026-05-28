@@ -66,7 +66,7 @@ import scala.collection.Seq;
 /**
  * Description of the modifications:
  * <p>
- * 1) Changed the method signature to adopt the gremlin-server 3.5.1.
+ * 1) Changed the method signature to adopt the gremlin-server Context API.
  * <pre>
  * public Optional<ThrowingConsumer<Context>> selectOther(RequestMessage requestMessage)
  * -->
