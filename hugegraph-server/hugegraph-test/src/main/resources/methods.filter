@@ -39,6 +39,10 @@ org.apache.tinkerpop.gremlin.structure.PropertyTest.PropertyFeatureSupportTest.s
 org.apache.tinkerpop.gremlin.structure.PropertyTest.PropertyFeatureSupportTest.shouldSetValueOnEdge[supportsUniformListValues([100, 200, 300])]: Not support uniform of Integer because define uniform as String list
 org.apache.tinkerpop.gremlin.structure.PropertyTest.PropertyFeatureSupportTest.shouldSetValueOnVertexOnAdd[supportsUniformListValues([try1, try2])]: Uniform list can't be accessed by vertex.property() which is supposed right by tinkerpop
 org.apache.tinkerpop.gremlin.structure.PropertyTest.PropertyFeatureSupportTest.shouldSetValueOnVertex[supportsUniformListValues([try1, try2])]: Uniform list can't be accessed by vertex.property() which is supposed right by tinkerpop
+org.apache.tinkerpop.gremlin.structure.PropertyTest.PropertyFeatureSupportTest.shouldSetValueOnVertexOnAdd[supportsUniformListValues]: Not support uniform list values with TinkerPop 3.7 parameterized test names
+org.apache.tinkerpop.gremlin.structure.PropertyTest.PropertyFeatureSupportTest.shouldSetValueOnEdgeOnAdd[supportsUniformListValues]: Not support uniform list values with TinkerPop 3.7 parameterized test names
+org.apache.tinkerpop.gremlin.structure.PropertyTest.PropertyFeatureSupportTest.shouldSetValueOnVertex[supportsUniformListValues]: Not support uniform list values with TinkerPop 3.7 parameterized test names
+org.apache.tinkerpop.gremlin.structure.PropertyTest.PropertyFeatureSupportTest.shouldSetValueOnEdge[supportsUniformListValues]: Not support uniform list values with TinkerPop 3.7 parameterized test names
 
 # expect multi properties after setting single property multi times
 org.apache.tinkerpop.gremlin.structure.GraphTest.shouldOverwriteEarlierKeyValuesWithLaterKeyValuesOnAddVertexIfMultiProperty: Expect multi properties after setting single property multi times

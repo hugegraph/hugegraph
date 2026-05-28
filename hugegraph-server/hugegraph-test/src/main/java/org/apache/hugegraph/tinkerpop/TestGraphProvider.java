@@ -89,6 +89,8 @@ public class TestGraphProvider extends AbstractGraphProvider {
     private static final String AKEY_CLASS_PREFIX =
             "org.apache.tinkerpop.gremlin.structure." +
             "PropertyTest.PropertyFeatureSupportTest";
+    private static final String SUPPORTS_PREFIX = "supports";
+    private static final String FEATURE_VALUES_SUFFIX = "Values";
     private static final String IO_CLASS_PREFIX =
             "org.apache.tinkerpop.gremlin.structure.io.IoGraphTest";
     private static final String IO_TEST_PREFIX =
@@ -217,8 +219,27 @@ public class TestGraphProvider extends AbstractGraphProvider {
 
     private static String getAKeyType(Class<?> clazz, String method) {
         if (clazz.getCanonicalName().startsWith(AKEY_CLASS_PREFIX)) {
-            return method.substring(method.indexOf('[') + 9,
-                                    method.indexOf('(') - 6);
+            String feature = method;
+            int featureStart = method.indexOf('[');
+            int featureEnd = method.indexOf(']');
+            if (featureStart >= 0 && featureEnd > featureStart) {
+                feature = method.substring(featureStart + 1, featureEnd);
+            }
+
+            if (!feature.startsWith(SUPPORTS_PREFIX)) {
+                return null;
+            }
+            feature = feature.substring(SUPPORTS_PREFIX.length());
+
+            int valueStart = feature.indexOf('(');
+            if (valueStart >= 0) {
+                feature = feature.substring(0, valueStart);
+            }
+            if (!feature.endsWith(FEATURE_VALUES_SUFFIX)) {
+                return null;
+            }
+            return feature.substring(0, feature.length() -
+                                        FEATURE_VALUES_SUFFIX.length());
         }
         return null;
     }
