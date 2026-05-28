@@ -25,11 +25,11 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.function.BiPredicate;
 
 import org.apache.tinkerpop.gremlin.process.traversal.Compare;
 import org.apache.tinkerpop.gremlin.process.traversal.Contains;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
+import org.apache.tinkerpop.gremlin.process.traversal.PBiPredicate;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.TraversalStrategy;
@@ -62,8 +62,8 @@ public final class HugeCountStrategy
         extends AbstractTraversalStrategy<TraversalStrategy.OptimizationStrategy>
         implements TraversalStrategy.OptimizationStrategy {
 
-    private static final Map<BiPredicate, Long> RANGE_PREDICATES =
-            new HashMap<BiPredicate, Long>() {{
+    private static final Map<PBiPredicate, Long> RANGE_PREDICATES =
+            new HashMap<PBiPredicate, Long>() {{
                 put(Contains.within, 1L);
                 put(Contains.without, 0L);
             }};
@@ -99,7 +99,7 @@ public final class HugeCountStrategy
                            ((ConnectiveP<?>) isStepPredicate).getPredicates() :
                            Collections.singletonList(isStepPredicate)) {
                     final Object value = p.getValue();
-                    final BiPredicate predicate = p.getBiPredicate();
+                    final PBiPredicate predicate = p.getBiPredicate();
                     if (value instanceof Number) {
                         final long highRangeOffset =
                                 INCREASED_OFFSET_SCALAR_PREDICATES.contains(predicate) ?

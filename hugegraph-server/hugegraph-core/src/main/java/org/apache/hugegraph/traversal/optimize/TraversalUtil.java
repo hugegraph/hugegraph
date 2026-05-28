@@ -24,7 +24,6 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.function.BiPredicate;
 import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -57,6 +56,7 @@ import org.apache.tinkerpop.gremlin.process.traversal.Compare;
 import org.apache.tinkerpop.gremlin.process.traversal.Contains;
 import org.apache.tinkerpop.gremlin.process.traversal.Order;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
+import org.apache.tinkerpop.gremlin.process.traversal.PBiPredicate;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal;
@@ -351,7 +351,7 @@ public final class TraversalUtil {
     public static Condition convHas2Condition(HasContainer has, HugeType type, HugeGraph graph) {
         P<?> p = has.getPredicate();
         E.checkArgument(p != null, "The predicate of has(%s) is null", has);
-        BiPredicate<?, ?> bp = p.getBiPredicate();
+        PBiPredicate<?, ?> bp = p.getBiPredicate();
         Condition condition;
         if (keyForContainsKeyOrValue(has.getKey())) {
             condition = convContains2Relation(graph, has);
@@ -424,7 +424,7 @@ public final class TraversalUtil {
                                                   HugeType type,
                                                   HasContainer has) {
         assert type.isGraph();
-        BiPredicate<?, ?> bp = has.getPredicate().getBiPredicate();
+        PBiPredicate<?, ?> bp = has.getPredicate().getBiPredicate();
         assert bp instanceof Compare;
 
         return isSysProp(has.getKey()) ?
@@ -435,7 +435,7 @@ public final class TraversalUtil {
     private static Condition.Relation convCompare2SyspropRelation(HugeGraph graph,
                                                                   HugeType type,
                                                                   HasContainer has) {
-        BiPredicate<?, ?> bp = has.getPredicate().getBiPredicate();
+        PBiPredicate<?, ?> bp = has.getPredicate().getBiPredicate();
         assert bp instanceof Compare;
 
         HugeKeys key = token2HugeKey(has.getKey());
@@ -463,7 +463,7 @@ public final class TraversalUtil {
     private static Condition convCompare2UserpropRelation(HugeGraph graph,
                                                           HugeType type,
                                                           HasContainer has) {
-        BiPredicate<?, ?> bp = has.getPredicate().getBiPredicate();
+        PBiPredicate<?, ?> bp = has.getPredicate().getBiPredicate();
         assert bp instanceof Compare;
 
         String key = has.getKey();
@@ -523,7 +523,7 @@ public final class TraversalUtil {
                                                        HugeType type,
                                                        HasContainer has) {
         assert type.isGraph();
-        BiPredicate<?, ?> bp = has.getPredicate().getBiPredicate();
+        PBiPredicate<?, ?> bp = has.getPredicate().getBiPredicate();
         assert bp instanceof Condition.RelationType;
 
         String key = has.getKey();
@@ -536,7 +536,7 @@ public final class TraversalUtil {
     public static Condition convIn2Relation(HugeGraph graph,
                                             HugeType type,
                                             HasContainer has) {
-        BiPredicate<?, ?> bp = has.getPredicate().getBiPredicate();
+        PBiPredicate<?, ?> bp = has.getPredicate().getBiPredicate();
         assert bp instanceof Contains;
         Collection<?> values = (Collection<?>) has.getValue();
 
@@ -579,7 +579,7 @@ public final class TraversalUtil {
     public static Condition convContains2Relation(HugeGraph graph,
                                                   HasContainer has) {
         // Convert contains-key or contains-value
-        BiPredicate<?, ?> bp = has.getPredicate().getBiPredicate();
+        PBiPredicate<?, ?> bp = has.getPredicate().getBiPredicate();
         E.checkArgument(bp == Compare.eq, "CONTAINS query with relation " +
                                           "'%s' is not supported", bp);
 
