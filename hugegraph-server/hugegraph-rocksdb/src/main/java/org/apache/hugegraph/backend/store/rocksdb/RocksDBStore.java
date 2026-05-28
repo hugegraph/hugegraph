@@ -372,7 +372,8 @@ public abstract class RocksDBStore extends AbstractBackendStore<RocksDBSessions.
 
     protected RocksDBSessions openSessionPool(HugeConfig config,
                                               String dataPath, String walPath,
-                                              List<String> tableNames) throws RocksDBException {
+                                              List<String> tableNames) throws
+                                                                       RocksDBException {
         if (tableNames == null) {
             return new RocksDBStdSessions(config, this.database, this.store, dataPath, walPath);
         } else {

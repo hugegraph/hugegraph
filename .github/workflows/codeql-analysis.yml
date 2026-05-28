@@ -12,12 +12,15 @@ on:
 jobs:
   analyze:
     env:
-      USE_STAGE: 'false' # Whether to include the stage repository.
+      USE_STAGE: 'true' # Whether to include the stage repository.
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GITHUB_ACTOR: ${{ github.actor }}
     name: Analyze
     runs-on: ubuntu-latest
     permissions:
       actions: read
       contents: read
+      packages: read
       security-events: write
 
     strategy:

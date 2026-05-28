@@ -86,6 +86,22 @@ public class RocksDBOptions extends OptionHolder {
                     "rocksdb-data/wal"
             );
 
+    public static final ConfigOption<String> OPTION_PATH =
+            new ConfigOption<>(
+                    "rocksdb.option_path",
+                    "The YAML file for configuring Topling/RocksDB parameters",
+                    null,
+                    ""
+            );
+
+    public static final ConfigOption<Boolean> OPEN_HTTP =
+            new ConfigOption<>(
+                    "rocksdb.open_http",
+                    "Whether to start Topling's HTTP service",
+                    disallowEmpty(),
+                    false
+            );
+
     public static final ConfigOption<String> SST_PATH =
             new ConfigOption<>(
                     "rocksdb.sst_path",
