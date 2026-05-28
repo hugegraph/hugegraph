@@ -18,6 +18,7 @@
 package org.apache.hugegraph.api.cypher;
 
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
@@ -29,6 +30,7 @@ import javax.annotation.Nullable;
 import javax.annotation.concurrent.ThreadSafe;
 
 import org.apache.commons.configuration2.Configuration;
+import org.apache.hugegraph.backend.id.Id;
 import org.apache.hugegraph.util.E;
 import org.apache.hugegraph.util.Log;
 import org.apache.tinkerpop.gremlin.driver.Client;
@@ -105,10 +107,32 @@ public final class CypherClient {
 
         while (iter.hasNext()) {
             Result data = iter.next();
-            list.add(data.getObject());
+            list.add(normalize(data.getObject()));
         }
 
         return list;
+    }
+
+    private static Object normalize(Object value) {
+        if (value instanceof Id) {
+            return ((Id) value).asObject();
+        }
+        if (value instanceof Map) {
+            Map<Object, Object> normalized = new LinkedHashMap<>();
+            for (Map.Entry<?, ?> entry : ((Map<?, ?>) value).entrySet()) {
+                normalized.put(normalize(entry.getKey()),
+                               normalize(entry.getValue()));
+            }
+            return normalized;
+        }
+        if (value instanceof Iterable) {
+            List<Object> normalized = new LinkedList<>();
+            for (Object item : (Iterable<?>) value) {
+                normalized.add(normalize(item));
+            }
+            return normalized;
+        }
+        return value;
     }
 
     /**
