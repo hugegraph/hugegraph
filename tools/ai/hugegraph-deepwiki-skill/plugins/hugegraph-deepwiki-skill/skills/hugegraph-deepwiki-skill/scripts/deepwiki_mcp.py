@@ -26,6 +26,7 @@ import sys
 import tempfile
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 from typing import Any, Optional
@@ -101,6 +102,16 @@ def preview_text(text: str, limit: int = 500) -> str:
     if len(text) <= limit:
         return text
     return f"{text[:limit]}..."
+
+
+def positive_int(value: str) -> int:
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("--limit must be an integer") from exc
+    if parsed < 1:
+        raise argparse.ArgumentTypeError("--limit must be >= 1")
+    return parsed
 
 
 def load_repos() -> dict[str, dict[str, Any]]:
@@ -244,6 +255,10 @@ def read_sse_response(response: Any, expected_id: Optional[int]) -> dict[str, An
 
 class McpClient:
     def __init__(self, endpoint: str, protocol_version: str) -> None:
+        parsed_endpoint = urllib.parse.urlparse(endpoint)
+        if parsed_endpoint.scheme not in {"http", "https"}:
+            scheme = parsed_endpoint.scheme or "<empty>"
+            raise McpError(f"Unsupported DeepWiki MCP endpoint scheme: {scheme}")
         self.endpoint = endpoint
         self.protocol_version = protocol_version
         self.session_id: Optional[str] = None
@@ -438,7 +453,7 @@ def output_context(client: McpClient, repo_name: str, query: str, limit: int, re
 
     print("# DeepWiki Cached Context")
     print(f"Repository: {repo_name}")
-    print(f"Cache: {path}")
+    print(f"Cache file: {path.name}")
     print(f"Cache status: {'refreshed from DeepWiki' if fetched else 'reused local cache'}")
     print(f"Query: {query}")
     print()
@@ -485,7 +500,7 @@ def build_parser() -> argparse.ArgumentParser:
     context = subparsers.add_parser("context", help="Search cached DeepWiki wiki contents for a question.")
     context.add_argument("--repo", default="hugegraph", help="Repository alias.")
     context.add_argument("--query", required=True, help="Question or keywords to search in cached wiki contents.")
-    context.add_argument("--limit", type=int, default=6, help="Maximum number of snippets to print.")
+    context.add_argument("--limit", type=positive_int, default=6, help="Maximum number of snippets to print.")
     context.add_argument("--refresh", action="store_true", help="Refresh the local DeepWiki contents cache before search.")
 
     tools = subparsers.add_parser("tools", help="List MCP tools for troubleshooting.")
@@ -497,9 +512,9 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> int:
     parser = build_parser()
     args = parser.parse_args()
-    client = McpClient(args.endpoint, args.protocol_version)
 
     try:
+        client = McpClient(args.endpoint, args.protocol_version)
         if args.command == "ask":
             repo_name = resolve_repo(args.repo)
             output_tool_result(
