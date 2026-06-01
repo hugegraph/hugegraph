@@ -33,10 +33,11 @@ from typing import Any, Optional
 
 DEFAULT_ENDPOINT = "https://mcp.deepwiki.com/mcp"
 CLIENT_NAME = "hugegraph-deepwiki-skill"
-CLIENT_VERSION = "0.1.4"
 SCRIPT_DIR = Path(__file__).resolve().parent
 SKILL_DIR = SCRIPT_DIR.parent
+PLUGIN_MANIFEST_PATH = SKILL_DIR.parent.parent / ".codex-plugin" / "plugin.json"
 REPOS_PATH = SKILL_DIR / "references" / "repos.json"
+CLIENT_VERSION_FALLBACK = "0.1.4"
 CONTEXT_WINDOW_SIZE = 30
 CONTEXT_STRIDE = 10
 STOPWORDS = {
@@ -83,6 +84,25 @@ def stream_timeout_seconds() -> float:
     return max(1.0, env_float("DEEPWIKI_MCP_STREAM_TIMEOUT", 120.0))
 
 
+def load_client_version() -> str:
+    try:
+        parsed = json.loads(PLUGIN_MANIFEST_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return CLIENT_VERSION_FALLBACK
+    if isinstance(parsed, dict) and isinstance(parsed.get("version"), str):
+        return parsed["version"]
+    return CLIENT_VERSION_FALLBACK
+
+
+CLIENT_VERSION = load_client_version()
+
+
+def preview_text(text: str, limit: int = 500) -> str:
+    if len(text) <= limit:
+        return text
+    return f"{text[:limit]}..."
+
+
 def load_repos() -> dict[str, dict[str, Any]]:
     try:
         with REPOS_PATH.open("r", encoding="utf-8") as file:
@@ -103,6 +123,8 @@ def resolve_repo(alias_or_name: str) -> str:
     if profile is None:
         known = ", ".join(sorted(repos))
         raise McpError(f"Unknown repository alias '{alias_or_name}'. Known aliases: {known}.")
+    if not isinstance(profile, dict):
+        raise McpError(f"Repository profile for '{alias_or_name}' must be a JSON object.")
     if not profile.get("enabled", False):
         raise McpError(
             f"Repository alias '{alias_or_name}' is reserved but not enabled yet "
@@ -121,7 +143,10 @@ def cache_root() -> Path:
     xdg_cache = os.environ.get("XDG_CACHE_HOME")
     if xdg_cache:
         return Path(xdg_cache).expanduser() / "deepwiki-mcp"
-    return Path.home() / ".cache" / "deepwiki-mcp"
+    try:
+        return Path.home() / ".cache" / "deepwiki-mcp"
+    except RuntimeError:
+        return Path(tempfile.gettempdir()) / "deepwiki-mcp"
 
 
 def repo_cache_dir(repo_name: str) -> Path:
@@ -156,9 +181,9 @@ def parse_json(data: str) -> dict[str, Any]:
     try:
         parsed = json.loads(data)
     except json.JSONDecodeError as exc:
-        raise McpError(f"DeepWiki MCP returned non-JSON content: {data[:500]}") from exc
+        raise McpError(f"DeepWiki MCP returned non-JSON content: {preview_text(data)}") from exc
     if not isinstance(parsed, dict):
-        raise McpError(f"DeepWiki MCP returned an unexpected JSON payload: {data[:500]}")
+        raise McpError(f"DeepWiki MCP returned an unexpected JSON payload: {preview_text(data)}")
     return parsed
 
 
@@ -183,7 +208,10 @@ def read_sse_response(response: Any, expected_id: Optional[int]) -> dict[str, An
 
         line = raw_line.decode("utf-8", errors="replace").rstrip("\r\n")
         if line.startswith("data:"):
-            data_lines.append(line[5:].lstrip())
+            data_content = line[5:]
+            if data_content.startswith(" "):
+                data_content = data_content[1:]
+            data_lines.append(data_content)
             continue
         if line:
             continue
@@ -209,9 +237,9 @@ def read_sse_response(response: Any, expected_id: Optional[int]) -> dict[str, An
     if timed_out:
         raise McpError(
             f"DeepWiki MCP stream timed out waiting for response id {expected_id} "
-            f"after {max_seconds:.0f}s: {preview[:500]}"
+            f"after {max_seconds:.0f}s: {preview_text(preview)}"
         )
-    raise McpError(f"DeepWiki MCP stream ended without response id {expected_id}: {preview[:500]}")
+    raise McpError(f"DeepWiki MCP stream ended without response id {expected_id}: {preview_text(preview)}")
 
 
 class McpClient:
@@ -250,7 +278,10 @@ class McpClient:
                     parsed = parse_json(text)
         except urllib.error.HTTPError as exc:
             details = exc.read().decode("utf-8", errors="replace")
-            raise McpError(f"DeepWiki MCP HTTP {exc.code}: {details}") from exc
+            content_type = exc.headers.get("Content-Type", "unknown")
+            raise McpError(
+                f"DeepWiki MCP HTTP {exc.code} ({content_type}): {preview_text(details)}"
+            ) from exc
         except (TimeoutError, socket.timeout) as exc:
             raise McpError(f"DeepWiki MCP request timed out after {stream_timeout_seconds():.0f}s.") from exc
         except urllib.error.URLError as exc:
@@ -356,8 +387,7 @@ def build_term_patterns(terms: list[str]) -> list[tuple[re.Pattern[str], int]]:
     return patterns
 
 
-def score_window(text: str, patterns: list[tuple[re.Pattern[str], int]]) -> int:
-    lowered = text.lower()
+def score_window(lowered: str, patterns: list[tuple[re.Pattern[str], int]]) -> int:
     score = 0
     for pattern, weight in patterns:
         count = len(pattern.findall(lowered))
@@ -384,7 +414,7 @@ def search_cached_context(contents: str, query: str, limit: int) -> list[tuple[i
         window = "\n".join(lines[start:end]).strip()
         if not window:
             continue
-        score = score_window(window, patterns)
+        score = score_window(window.lower(), patterns)
         if score > 0:
             candidates.append((score, start + 1, end, window))
 
