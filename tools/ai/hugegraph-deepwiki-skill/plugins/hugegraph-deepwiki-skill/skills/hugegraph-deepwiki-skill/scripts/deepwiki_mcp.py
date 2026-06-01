@@ -33,6 +33,8 @@ DEFAULT_ENDPOINT = "https://mcp.deepwiki.com/mcp"
 SCRIPT_DIR = Path(__file__).resolve().parent
 SKILL_DIR = SCRIPT_DIR.parent
 REPOS_PATH = SKILL_DIR / "references" / "repos.json"
+CONTEXT_WINDOW_SIZE = 30
+CONTEXT_STRIDE = 10
 STOPWORDS = {
     "a",
     "an",
@@ -64,8 +66,17 @@ class McpError(RuntimeError):
 
 
 def load_repos() -> dict[str, dict[str, Any]]:
-    with REPOS_PATH.open("r", encoding="utf-8") as file:
-        return json.load(file)
+    try:
+        with REPOS_PATH.open("r", encoding="utf-8") as file:
+            repos = json.load(file)
+    except FileNotFoundError as exc:
+        raise McpError(f"Repository profile file is missing: {REPOS_PATH}") from exc
+    except json.JSONDecodeError as exc:
+        raise McpError(f"Repository profile file is not valid JSON: {REPOS_PATH}") from exc
+
+    if not isinstance(repos, dict):
+        raise McpError(f"Repository profile file must contain a JSON object: {REPOS_PATH}")
+    return repos
 
 
 def resolve_repo(alias_or_name: str) -> str:
@@ -79,7 +90,10 @@ def resolve_repo(alias_or_name: str) -> str:
             f"Repository alias '{alias_or_name}' is reserved but not enabled yet "
             f"({profile.get('repoName')})."
         )
-    return str(profile["repoName"])
+    repo_name = profile.get("repoName")
+    if not isinstance(repo_name, str) or not repo_name:
+        raise McpError(f"Repository alias '{alias_or_name}' is missing a valid repoName.")
+    return repo_name
 
 
 def cache_root() -> Path:
@@ -122,9 +136,11 @@ def read_sse_response(response: Any, expected_id: Optional[int]) -> dict[str, An
     seen_payloads: list[str] = []
     max_seconds = float(os.environ.get("DEEPWIKI_MCP_STREAM_TIMEOUT", "120"))
     deadline = time.monotonic() + max_seconds
+    timed_out = False
 
     while True:
         if time.monotonic() > deadline:
+            timed_out = True
             break
         raw_line = response.readline()
         if not raw_line:
@@ -155,10 +171,12 @@ def read_sse_response(response: Any, expected_id: Optional[int]) -> dict[str, An
             return parsed
 
     preview = "\n".join(seen_payloads[-3:])
-    raise McpError(
-        f"DeepWiki MCP stream ended without response id {expected_id} "
-        f"within {max_seconds:.0f}s: {preview[:500]}"
-    )
+    if timed_out:
+        raise McpError(
+            f"DeepWiki MCP stream timed out waiting for response id {expected_id} "
+            f"after {max_seconds:.0f}s: {preview[:500]}"
+        )
+    raise McpError(f"DeepWiki MCP stream ended without response id {expected_id}: {preview[:500]}")
 
 
 class McpClient:
@@ -191,7 +209,7 @@ class McpClient:
                 if "text/event-stream" in content_type:
                     parsed = read_sse_response(response, payload.get("id"))
                 else:
-                    text = response.read().decode("utf-8")
+                    text = response.read().decode("utf-8", errors="replace")
                     if not text.strip():
                         raise McpError("DeepWiki MCP returned an empty response.")
                     parsed = parse_json(text)
@@ -290,14 +308,22 @@ def query_terms(query: str) -> list[str]:
     return terms
 
 
-def score_window(text: str, terms: list[str]) -> int:
-    lowered = text.lower()
-    score = 0
+def build_term_patterns(terms: list[str]) -> list[tuple[re.Pattern[str], int]]:
+    patterns: list[tuple[re.Pattern[str], int]] = []
     for term in terms:
         pattern = rf"(?<![a-z0-9_]){re.escape(term)}(?![a-z0-9_])"
-        count = len(re.findall(pattern, lowered))
+        weight = max(1, min(len(term), 12))
+        patterns.append((re.compile(pattern), weight))
+    return patterns
+
+
+def score_window(text: str, patterns: list[tuple[re.Pattern[str], int]]) -> int:
+    lowered = text.lower()
+    score = 0
+    for pattern, weight in patterns:
+        count = len(pattern.findall(lowered))
         if count:
-            score += count * max(1, min(len(term), 12))
+            score += count * weight
     if "relevant source files" in lowered:
         score -= 40
     if lowered.count("src/main/") > 4 or lowered.count(".java") > 6:
@@ -309,18 +335,17 @@ def search_cached_context(contents: str, query: str, limit: int) -> list[tuple[i
     terms = query_terms(query)
     if not terms:
         return []
+    patterns = build_term_patterns(terms)
 
     lines = contents.splitlines()
-    window_size = 30
-    stride = 10
     candidates: list[tuple[int, int, int, str]] = []
 
-    for start in range(0, len(lines), stride):
-        end = min(len(lines), start + window_size)
+    for start in range(0, len(lines), CONTEXT_STRIDE):
+        end = min(len(lines), start + CONTEXT_WINDOW_SIZE)
         window = "\n".join(lines[start:end]).strip()
         if not window:
             continue
-        score = score_window(window, terms)
+        score = score_window(window, patterns)
         if score > 0:
             candidates.append((score, start + 1, end, window))
 
