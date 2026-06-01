@@ -46,10 +46,12 @@ claude plugin marketplace add "$(pwd)"
 claude plugin install hugegraph-deepwiki-skill@hugegraph-deepwiki-skill
 ```
 
-模块发布后，也可以从 Git marketplace 安装：
+从已发布分支安装时，先 clone 仓库，再从本地模块路径安装：
 
 ```bash
-claude plugin marketplace add <owner>/hugegraph --sparse tools/ai/hugegraph-deepwiki-skill
+git clone -b <branch> https://github.com/<owner>/hugegraph.git
+cd hugegraph/tools/ai/hugegraph-deepwiki-skill
+claude plugin marketplace add "$(pwd)"
 claude plugin install hugegraph-deepwiki-skill@hugegraph-deepwiki-skill
 ```
 
@@ -78,10 +80,12 @@ codex plugin marketplace add "$(pwd)"
 codex plugin add hugegraph-deepwiki-skill@hugegraph-deepwiki-skill
 ```
 
-模块发布后，也可以从 Git marketplace 安装：
+从已发布分支安装时，先 clone 仓库，再从本地模块路径安装：
 
 ```bash
-codex plugin marketplace add <owner>/hugegraph --ref master --sparse tools/ai/hugegraph-deepwiki-skill
+git clone -b <branch> https://github.com/<owner>/hugegraph.git
+cd hugegraph/tools/ai/hugegraph-deepwiki-skill
+codex plugin marketplace add "$(pwd)"
 codex plugin add hugegraph-deepwiki-skill@hugegraph-deepwiki-skill
 ```
 
