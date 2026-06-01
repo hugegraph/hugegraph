@@ -21,7 +21,9 @@ import argparse
 import json
 import os
 import re
+import socket
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.request
@@ -30,6 +32,8 @@ from typing import Any, Optional
 
 
 DEFAULT_ENDPOINT = "https://mcp.deepwiki.com/mcp"
+CLIENT_NAME = "hugegraph-deepwiki-skill"
+CLIENT_VERSION = "0.1.4"
 SCRIPT_DIR = Path(__file__).resolve().parent
 SKILL_DIR = SCRIPT_DIR.parent
 REPOS_PATH = SKILL_DIR / "references" / "repos.json"
@@ -63,6 +67,20 @@ STOPWORDS = {
 
 class McpError(RuntimeError):
     pass
+
+
+def env_float(name: str, default: float) -> float:
+    raw_value = os.environ.get(name)
+    if raw_value is None:
+        return default
+    try:
+        return float(raw_value)
+    except ValueError as exc:
+        raise McpError(f"{name} must be a number, got {raw_value!r}.") from exc
+
+
+def stream_timeout_seconds() -> float:
+    return max(1.0, env_float("DEEPWIKI_MCP_STREAM_TIMEOUT", 120.0))
 
 
 def load_repos() -> dict[str, dict[str, Any]]:
@@ -116,9 +134,22 @@ def contents_cache_path(repo_name: str) -> Path:
 
 def write_text_atomic(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = path.with_suffix(path.suffix + ".tmp")
-    tmp_path.write_text(text, encoding="utf-8")
-    tmp_path.replace(path)
+    tmp_path: Optional[Path] = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            "w",
+            encoding="utf-8",
+            dir=path.parent,
+            prefix=f"{path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as tmp_file:
+            tmp_file.write(text)
+            tmp_path = Path(tmp_file.name)
+        tmp_path.replace(path)
+    finally:
+        if tmp_path is not None and tmp_path.exists():
+            tmp_path.unlink()
 
 
 def parse_json(data: str) -> dict[str, Any]:
@@ -134,7 +165,7 @@ def parse_json(data: str) -> dict[str, Any]:
 def read_sse_response(response: Any, expected_id: Optional[int]) -> dict[str, Any]:
     data_lines: list[str] = []
     seen_payloads: list[str] = []
-    max_seconds = float(os.environ.get("DEEPWIKI_MCP_STREAM_TIMEOUT", "120"))
+    max_seconds = stream_timeout_seconds()
     deadline = time.monotonic() + max_seconds
     timed_out = False
 
@@ -142,7 +173,11 @@ def read_sse_response(response: Any, expected_id: Optional[int]) -> dict[str, An
         if time.monotonic() > deadline:
             timed_out = True
             break
-        raw_line = response.readline()
+        try:
+            raw_line = response.readline()
+        except (TimeoutError, socket.timeout):
+            timed_out = True
+            break
         if not raw_line:
             break
 
@@ -192,14 +227,14 @@ class McpClient:
             "Accept": "application/json, text/event-stream",
             "Content-Type": "application/json",
             "Mcp-Protocol-Version": self.protocol_version,
-            "User-Agent": "hugegraph-deepwiki-skill/0.1.4",
+            "User-Agent": f"{CLIENT_NAME}/{CLIENT_VERSION}",
         }
         if self.session_id:
             headers["Mcp-Session-Id"] = self.session_id
 
         req = urllib.request.Request(self.endpoint, data=body, headers=headers, method="POST")
         try:
-            with urllib.request.urlopen(req, timeout=90) as response:
+            with urllib.request.urlopen(req, timeout=stream_timeout_seconds()) as response:
                 session_id = response.headers.get("Mcp-Session-Id")
                 if session_id:
                     self.session_id = session_id
@@ -216,7 +251,11 @@ class McpClient:
         except urllib.error.HTTPError as exc:
             details = exc.read().decode("utf-8", errors="replace")
             raise McpError(f"DeepWiki MCP HTTP {exc.code}: {details}") from exc
+        except (TimeoutError, socket.timeout) as exc:
+            raise McpError(f"DeepWiki MCP request timed out after {stream_timeout_seconds():.0f}s.") from exc
         except urllib.error.URLError as exc:
+            if isinstance(exc.reason, (TimeoutError, socket.timeout)):
+                raise McpError(f"DeepWiki MCP request timed out after {stream_timeout_seconds():.0f}s.") from exc
             raise McpError(f"Could not reach DeepWiki MCP endpoint: {exc.reason}") from exc
 
         if "error" in parsed:
@@ -245,7 +284,7 @@ class McpClient:
             {
                 "protocolVersion": self.protocol_version,
                 "capabilities": {},
-                "clientInfo": {"name": "hugegraph-deepwiki-skill", "version": "0.1.4"},
+                "clientInfo": {"name": CLIENT_NAME, "version": CLIENT_VERSION},
             },
         )
         self.notify("notifications/initialized", {})
