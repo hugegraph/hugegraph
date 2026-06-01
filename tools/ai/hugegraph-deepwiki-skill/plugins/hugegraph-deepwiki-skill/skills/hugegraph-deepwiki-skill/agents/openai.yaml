@@ -1,0 +1,15 @@
+interface:
+  display_name: "HugeGraph Repository Assistant"
+  short_description: "Answers Apache HugeGraph repository questions"
+  default_prompt: "Use $hugegraph-deepwiki-skill to answer my Apache HugeGraph repository question."
+
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "deepwiki"
+      description: "Official DeepWiki MCP server used as the repository knowledge retrieval channel"
+      transport: "streamable_http"
+      url: "https://mcp.deepwiki.com/mcp"
+
+policy:
+  allow_implicit_invocation: true
