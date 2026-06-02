@@ -371,14 +371,20 @@ def read_wiki_contents(client: McpClient, repo_name: str) -> str:
     return extract_text(result)
 
 
-def ensure_cached_contents(client: McpClient, repo_name: str, refresh: bool = False) -> tuple[str, Path, bool]:
+def ensure_cached_contents(client: McpClient, repo_name: str, refresh: bool = False) -> tuple[str, Path, str]:
     path = contents_cache_path(repo_name)
     if path.exists() and not refresh:
-        return path.read_text(encoding="utf-8"), path, False
+        try:
+            return path.read_text(encoding="utf-8"), path, "reused local cache"
+        except (OSError, UnicodeError):
+            pass
 
     text = read_wiki_contents(client, repo_name)
-    write_text_atomic(path, text)
-    return text, path, True
+    try:
+        write_text_atomic(path, text)
+    except (OSError, UnicodeError) as exc:
+        return text, path, f"fetched from DeepWiki; cache write skipped ({exc})"
+    return text, path, "refreshed from DeepWiki"
 
 
 def query_terms(query: str) -> list[str]:
@@ -448,13 +454,13 @@ def search_cached_context(contents: str, query: str, limit: int) -> list[tuple[i
 
 
 def output_context(client: McpClient, repo_name: str, query: str, limit: int, refresh: bool) -> None:
-    contents, path, fetched = ensure_cached_contents(client, repo_name, refresh)
+    contents, path, cache_status = ensure_cached_contents(client, repo_name, refresh)
     matches = search_cached_context(contents, query, limit)
 
     print("# DeepWiki Cached Context")
     print(f"Repository: {repo_name}")
     print(f"Cache file: {path.name}")
-    print(f"Cache status: {'refreshed from DeepWiki' if fetched else 'reused local cache'}")
+    print(f"Cache status: {cache_status}")
     print(f"Query: {query}")
     print()
 
