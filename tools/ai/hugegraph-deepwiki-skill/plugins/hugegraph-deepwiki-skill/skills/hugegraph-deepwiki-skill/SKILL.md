@@ -13,6 +13,7 @@ Answer questions about the Apache HugeGraph source repository. Use the official 
 - DeepWiki page: `https://deepwiki.com/apache/hugegraph`
 - MCP endpoint: `https://mcp.deepwiki.com/mcp`
 - Default repository: `apache/hugegraph`
+- Runtime requirements: Python 3.9+ and network access to the MCP endpoint.
 
 ## Default Workflow
 

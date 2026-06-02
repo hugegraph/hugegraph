@@ -18,6 +18,11 @@ https://mcp.deepwiki.com/mcp
 - Uses `ask_question` when the cached context does not directly and precisely answer the question.
 - Avoids cloning upstream repositories for ordinary Q&A.
 
+## Requirements
+
+- Python 3.9 or later for the bundled MCP client script.
+- Network access to `https://mcp.deepwiki.com/mcp`.
+
 ## Layout
 
 ```text

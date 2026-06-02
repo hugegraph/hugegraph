@@ -240,9 +240,10 @@ def read_sse_response(response: Any, expected_id: Optional[int]) -> dict[str, An
     if data_lines:
         data = "\n".join(data_lines)
         seen_payloads.append(data)
-        parsed = parse_json(data)
-        if expected_id is None or parsed.get("id") == expected_id:
-            return parsed
+        if not timed_out:
+            parsed = parse_json(data)
+            if expected_id is None or parsed.get("id") == expected_id:
+                return parsed
 
     preview = "\n".join(seen_payloads[-3:])
     if timed_out:

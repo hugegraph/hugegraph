@@ -18,6 +18,11 @@ https://mcp.deepwiki.com/mcp
 - 当缓存内容不能直接、精准回答问题时，使用 `ask_question` 获取线上答案。
 - 普通问答不会 clone 上游源码仓库。
 
+## 前置要求
+
+- Python 3.9 或更高版本，用于运行随附的 MCP 客户端脚本。
+- 当前环境需要能访问 `https://mcp.deepwiki.com/mcp`。
+
 ## 目录结构
 
 ```text
