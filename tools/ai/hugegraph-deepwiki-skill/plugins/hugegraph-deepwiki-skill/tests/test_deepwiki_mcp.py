@@ -35,7 +35,9 @@ SCRIPT_PATH = (
 
 
 def load_mcp_module():
-    spec = importlib.util.spec_from_file_location("deepwiki_mcp_under_test", SCRIPT_PATH)
+    spec = importlib.util.spec_from_file_location(
+        "deepwiki_mcp_under_test", SCRIPT_PATH
+    )
     if spec is None or spec.loader is None:
         raise RuntimeError(f"Could not load {SCRIPT_PATH}")
     module = importlib.util.module_from_spec(spec)
@@ -55,16 +57,26 @@ class TimeoutResponse:
 class DeepWikiMcpTest(unittest.TestCase):
     def test_read_sse_response_reports_socket_timeout(self):
         with mock.patch.dict(os.environ, {"DEEPWIKI_MCP_STREAM_TIMEOUT": "1"}):
-            with self.assertRaisesRegex(mcp.McpError, "timed out waiting for response id 7"):
+            with self.assertRaisesRegex(
+                mcp.McpError, "timed out waiting for response id 7"
+            ):
                 mcp.read_sse_response(TimeoutResponse(), 7)
 
     def test_cache_write_failure_returns_fetched_contents(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             cache_path = Path(tmp_dir) / "apache__hugegraph" / "wiki-contents.md"
-            with mock.patch.object(mcp, "contents_cache_path", return_value=cache_path), mock.patch.object(
-                mcp, "read_wiki_contents", return_value="fresh wiki"
-            ) as read_wiki, mock.patch.object(mcp, "write_text_atomic", side_effect=OSError("readonly")):
-                text, path, status = mcp.ensure_cached_contents(object(), "apache/hugegraph")
+            with (
+                mock.patch.object(mcp, "contents_cache_path", return_value=cache_path),
+                mock.patch.object(
+                    mcp, "read_wiki_contents", return_value="fresh wiki"
+                ) as read_wiki,
+                mock.patch.object(
+                    mcp, "write_text_atomic", side_effect=OSError("readonly")
+                ),
+            ):
+                text, path, status = mcp.ensure_cached_contents(
+                    object(), "apache/hugegraph"
+                )
 
         self.assertEqual("fresh wiki", text)
         self.assertEqual(cache_path, path)
@@ -76,10 +88,15 @@ class DeepWikiMcpTest(unittest.TestCase):
             cache_path = Path(tmp_dir) / "apache__hugegraph" / "wiki-contents.md"
             cache_path.parent.mkdir(parents=True)
             cache_path.write_bytes(b"\xff\xfe")
-            with mock.patch.object(mcp, "contents_cache_path", return_value=cache_path), mock.patch.object(
-                mcp, "read_wiki_contents", return_value="fresh wiki"
-            ) as read_wiki:
-                text, path, status = mcp.ensure_cached_contents(object(), "apache/hugegraph")
+            with (
+                mock.patch.object(mcp, "contents_cache_path", return_value=cache_path),
+                mock.patch.object(
+                    mcp, "read_wiki_contents", return_value="fresh wiki"
+                ) as read_wiki,
+            ):
+                text, path, status = mcp.ensure_cached_contents(
+                    object(), "apache/hugegraph"
+                )
 
             self.assertEqual("fresh wiki", text)
             self.assertEqual(cache_path, path)
@@ -97,7 +114,9 @@ class DeepWikiMcpTest(unittest.TestCase):
         self.assertEqual(2, len(matches))
         self.assertGreater(matches[0][0], 0)
         self.assertGreater(matches[1][0], 0)
-        self.assertFalse(matches[0][1] <= matches[1][2] and matches[0][2] >= matches[1][1])
+        self.assertFalse(
+            matches[0][1] <= matches[1][2] and matches[0][2] >= matches[1][1]
+        )
 
 
 if __name__ == "__main__":
