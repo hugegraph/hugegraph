@@ -29,6 +29,7 @@ import org.apache.hugegraph.unit.cache.CachedGraphTransactionTest;
 import org.apache.hugegraph.unit.cache.CachedSchemaTransactionTest;
 import org.apache.hugegraph.unit.cache.RamTableTest;
 import org.apache.hugegraph.unit.cassandra.CassandraTest;
+import org.apache.hugegraph.unit.config.GremlinConfigCompatibilityTest;
 import org.apache.hugegraph.unit.core.AnalyzerTest;
 import org.apache.hugegraph.unit.core.BackendMutationTest;
 import org.apache.hugegraph.unit.core.BackendStoreInfoTest;
@@ -37,6 +38,7 @@ import org.apache.hugegraph.unit.core.ConditionTest;
 import org.apache.hugegraph.unit.core.DataTypeTest;
 import org.apache.hugegraph.unit.core.DirectionsTest;
 import org.apache.hugegraph.unit.core.ExceptionTest;
+import org.apache.hugegraph.unit.core.GroovyScriptEngineCompatibilityTest;
 import org.apache.hugegraph.unit.core.LocksTableTest;
 import org.apache.hugegraph.unit.core.PageStateTest;
 import org.apache.hugegraph.unit.core.QueryTest;
@@ -62,6 +64,7 @@ import org.apache.hugegraph.unit.serializer.BinaryBackendEntryTest;
 import org.apache.hugegraph.unit.serializer.BinaryScatterSerializerTest;
 import org.apache.hugegraph.unit.serializer.BinarySerializerTest;
 import org.apache.hugegraph.unit.serializer.BytesBufferTest;
+import org.apache.hugegraph.unit.serializer.HugeGraphSONModuleTest;
 import org.apache.hugegraph.unit.serializer.SerializerFactoryTest;
 import org.apache.hugegraph.unit.serializer.StoreSerializerTest;
 import org.apache.hugegraph.unit.serializer.TableBackendEntryTest;
@@ -118,6 +121,7 @@ import org.junit.runners.Suite;
         AnalyzerTest.class,
         BackendMutationTest.class,
         ConditionTest.class,
+        GroovyScriptEngineCompatibilityTest.class,
         ConditionQueryFlattenTest.class,
         QueryTest.class,
         RangeTest.class,
@@ -141,8 +145,12 @@ import org.junit.runners.Suite;
         BinaryBackendEntryTest.class,
         BinarySerializerTest.class,
         BinaryScatterSerializerTest.class,
+        HugeGraphSONModuleTest.class,
         StoreSerializerTest.class,
         TextSerializerTest.class,
+
+        /* config */
+        GremlinConfigCompatibilityTest.class,
 
         /* cassandra */
         CassandraTest.class,

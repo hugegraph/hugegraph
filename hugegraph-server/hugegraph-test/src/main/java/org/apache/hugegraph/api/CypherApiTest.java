@@ -21,6 +21,7 @@ import static org.apache.hugegraph.testutil.Assert.assertContains;
 
 import java.util.Map;
 
+import org.apache.hugegraph.testutil.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -72,13 +73,49 @@ public class CypherApiTest extends BaseApiTest {
         this.testCypherQueryAndContains(cypher, "friend");
     }
 
-    private void testCypherQueryAndContains(String cypher, String containsText) {
-        Response r = client().post(PATH, cypher);
-        this.validStatusAndTextContains(containsText, r);
+    @Test
+    public void testReturnNodeIdAsPrimitiveValue() {
+        String cypher = "MATCH (n:person) WHERE n.name = 'marko' " +
+                        "RETURN id(n) AS nodeId";
+
+        String content = this.testCypherQueryAndContains(cypher, "nodeId");
+        assertNoHugeGraphIdLeak(content);
     }
 
-    private void validStatusAndTextContains(String value, Response r) {
+    @Test
+    public void testReturnNodeDoesNotLeakInternalIdTypes() {
+        String cypher = "MATCH (n:person) WHERE n.name = 'marko' RETURN n";
+
+        String content = this.testCypherQueryAndContains(cypher, "marko");
+        assertNoHugeGraphIdLeak(content);
+    }
+
+    @Test
+    public void testReturnNestedIdDoesNotLeakInternalIdTypes() {
+        String cypher = "MATCH (n:person) WHERE n.name = 'marko' " +
+                        "RETURN {nodeId: id(n), values: [id(n), n.name]} " +
+                        "AS payload";
+
+        String content = this.testCypherQueryAndContains(cypher, "payload");
+        assertNoHugeGraphIdLeak(content);
+    }
+
+    private String testCypherQueryAndContains(String cypher,
+                                             String containsText) {
+        Response r = client().post(PATH, cypher);
+        return this.validStatusAndTextContains(containsText, r);
+    }
+
+    private String validStatusAndTextContains(String value, Response r) {
         String content = assertResponseStatus(200, r);
         assertContains(value, content);
+        return content;
+    }
+
+    private static void assertNoHugeGraphIdLeak(String content) {
+        Assert.assertFalse(content.contains("org.apache.hugegraph.backend.id"));
+        Assert.assertFalse(content.contains("StringId"));
+        Assert.assertFalse(content.contains("LongId"));
+        Assert.assertFalse(content.contains("UuidId"));
     }
 }
