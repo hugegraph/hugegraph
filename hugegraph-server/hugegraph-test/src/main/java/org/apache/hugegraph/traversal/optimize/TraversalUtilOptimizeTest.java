@@ -61,6 +61,16 @@ public class TraversalUtilOptimizeTest {
     }
 
     @Test
+    public void testIndexLabelOrNullWithMissingIndexLabel() {
+        HugeGraph graph = Mockito.mock(HugeGraph.class);
+        Id id = IdGenerator.of(1L);
+        Mockito.when(graph.indexLabel(id))
+               .thenThrow(new IllegalArgumentException("missing"));
+
+        Assert.assertNull(TraversalUtil.indexLabelOrNull(graph, id));
+    }
+
+    @Test
     public void testCanExtractHasContainerWithNonTextProperty() {
         HugeGraph graph = Mockito.mock(HugeGraph.class);
         PropertyKey age = propertyKey(1L, "age", DataType.INT);
@@ -107,6 +117,20 @@ public class TraversalUtilOptimizeTest {
     public void testExtractHasContainerKeepsTextRangeWithoutGraph() {
         Traversal.Admin<?, ?> traversal = __.V()
                                            .has("name", P.lt("marko"))
+                                           .asAdmin();
+        HugeGraphStep<?, ?> newStep = replaceGraphStep(traversal);
+
+        TraversalUtil.extractHasContainer(newStep, traversal);
+
+        Assert.assertTrue(newStep.getHasContainers().isEmpty());
+        Assert.assertTrue(hasStepExists(traversal));
+    }
+
+    @Test
+    public void testExtractHasContainerKeepsMatchRangeWithoutGraph() {
+        Traversal.Admin<?, ?> traversal = __.V()
+                                           .has("age", P.gt(18))
+                                           .match(__.as("v").identity().as("m"))
                                            .asAdmin();
         HugeGraphStep<?, ?> newStep = replaceGraphStep(traversal);
 
