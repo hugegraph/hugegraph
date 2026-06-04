@@ -30,8 +30,11 @@ else
 fi
 
 PD_DIR=$HOME_DIR/hugegraph-pd/apache-hugegraph-pd-$VersionInBash
+TRAVIS_DIR=$(dirname "$0")
+
+source "$TRAVIS_DIR"/ci-service-utils.sh
 
 pushd $PD_DIR
 . bin/start-hugegraph-pd.sh
-sleep 10
+wait_for_tcp_port HugeGraphPD 127.0.0.1 8686 "$PD_DIR"/bin/pid "$PD_DIR"
 popd

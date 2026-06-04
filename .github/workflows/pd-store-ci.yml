@@ -119,6 +119,18 @@ jobs:
         run: |
           mvn test -pl hugegraph-pd/hg-pd-test -am -P pd-rest-test
 
+      - name: Show PD diagnostics on failure
+        if: failure()
+        run: |
+          source hugegraph-commons/hugegraph-common/src/main/resources/version.properties
+          PD_DIR=hugegraph-pd/apache-hugegraph-pd-$VersionInBash
+          bash $TRAVIS_DIR/ci-service-utils.sh dump "$PD_DIR" HugeGraphPD || true
+          find . -path '*/surefire-reports/*' -type f \
+            \( -name '*.txt' -o -name '*.xml' \) | sort | while read -r report; do
+            echo "--- tail -n 120 $report ---"
+            tail -n 120 "$report" || true
+          done
+
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v3.0.0
         with:
@@ -192,6 +204,20 @@ jobs:
         run: |
           mvn test -pl hugegraph-store/hg-store-test -am -P store-raftcore-test
 
+      - name: Show Store diagnostics on failure
+        if: failure()
+        run: |
+          source hugegraph-commons/hugegraph-common/src/main/resources/version.properties
+          PD_DIR=hugegraph-pd/apache-hugegraph-pd-$VersionInBash
+          STORE_DIR=hugegraph-store/apache-hugegraph-store-$VersionInBash
+          bash $TRAVIS_DIR/ci-service-utils.sh dump "$PD_DIR" HugeGraphPD || true
+          bash $TRAVIS_DIR/ci-service-utils.sh dump "$STORE_DIR" HugeGraphStore || true
+          find . -path '*/surefire-reports/*' -type f \
+            \( -name '*.txt' -o -name '*.xml' \) | sort | while read -r report; do
+            echo "--- tail -n 120 $report ---"
+            tail -n 120 "$report" || true
+          done
+
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v3.0.0
         with:
@@ -262,6 +288,20 @@ jobs:
         if: ${{ env.RELEASE_BRANCH == 'true' }}
         run: |
           $TRAVIS_DIR/run-tinkerpop-test.sh $BACKEND tinkerpop
+
+      - name: Show HStore diagnostics on failure
+        if: failure()
+        run: |
+          source hugegraph-commons/hugegraph-common/src/main/resources/version.properties
+          PD_DIR=hugegraph-pd/apache-hugegraph-pd-$VersionInBash
+          STORE_DIR=hugegraph-store/apache-hugegraph-store-$VersionInBash
+          bash $TRAVIS_DIR/ci-service-utils.sh dump "$PD_DIR" HugeGraphPD || true
+          bash $TRAVIS_DIR/ci-service-utils.sh dump "$STORE_DIR" HugeGraphStore || true
+          find . -path '*/surefire-reports/*' -type f \
+            \( -name '*.txt' -o -name '*.xml' \) | sort | while read -r report; do
+            echo "--- tail -n 120 $report ---"
+            tail -n 120 "$report" || true
+          done
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v3.0.0
