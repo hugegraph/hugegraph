@@ -64,6 +64,10 @@ class PartialTimeoutResponse:
 
 
 class DeepWikiMcpTest(unittest.TestCase):
+    def test_resolve_repo_accepts_alias_and_full_repo_name(self):
+        self.assertEqual("apache/hugegraph", mcp.resolve_repo("hugegraph"))
+        self.assertEqual("apache/hugegraph", mcp.resolve_repo("apache/hugegraph"))
+
     def test_read_sse_response_reports_socket_timeout(self):
         with (
             mock.patch.dict(os.environ, {"DEEPWIKI_MCP_STREAM_TIMEOUT": "1"}),

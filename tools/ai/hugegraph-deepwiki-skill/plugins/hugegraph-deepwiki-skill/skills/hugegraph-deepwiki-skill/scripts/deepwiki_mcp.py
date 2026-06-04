@@ -132,8 +132,26 @@ def resolve_repo(alias_or_name: str) -> str:
     repos = load_repos()
     profile = repos.get(alias_or_name)
     if profile is None:
+        for candidate in repos.values():
+            if not isinstance(candidate, dict) or not candidate.get("enabled", False):
+                continue
+            repo_name = candidate.get("repoName")
+            if repo_name == alias_or_name:
+                return alias_or_name
         known = ", ".join(sorted(repos))
-        raise McpError(f"Unknown repository alias '{alias_or_name}'. Known aliases: {known}.")
+        known_repo_names = ", ".join(
+            sorted(
+                profile["repoName"]
+                for profile in repos.values()
+                if isinstance(profile, dict)
+                and profile.get("enabled", False)
+                and isinstance(profile.get("repoName"), str)
+            )
+        )
+        raise McpError(
+            f"Unknown repository '{alias_or_name}'. Known aliases: {known}. "
+            f"Known repository names: {known_repo_names}."
+        )
     if not isinstance(profile, dict):
         raise McpError(f"Repository profile for '{alias_or_name}' must be a JSON object.")
     if not profile.get("enabled", False):
