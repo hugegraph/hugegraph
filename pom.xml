@@ -90,6 +90,7 @@
         <revision>1.7.0</revision>
         <hugegraph-commons.version>1.7.0</hugegraph-commons.version>
         <groovy.version>4.0.32</groovy.version>
+        <snakeyaml.version>1.28</snakeyaml.version>
         <lombok.version>1.18.30</lombok.version>
         <release.name>hugegraph</release.name>
         <maven.compiler.source>11</maven.compiler.source>
@@ -117,6 +118,11 @@
                 <version>${groovy.version}</version>
                 <type>pom</type>
                 <scope>import</scope>
+            </dependency>
+            <dependency>
+                <groupId>org.yaml</groupId>
+                <artifactId>snakeyaml</artifactId>
+                <version>${snakeyaml.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.projectlombok</groupId>
