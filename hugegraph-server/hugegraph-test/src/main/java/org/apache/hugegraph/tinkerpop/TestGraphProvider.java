@@ -193,7 +193,8 @@ public class TestGraphProvider extends AbstractGraphProvider {
         String store = storePrefix + "_" + this.suite + "_" + graphName;
         confMap.put(CoreOptions.STORE.name(), store);
         if (isRocksDBBackend(config)) {
-            this.isolateRocksDBPaths(confMap, graphName);
+            this.isolateRocksDBPaths(confMap, graphName, testClass,
+                                     testMethod);
         }
         confMap.put(GREMLIN_GRAPH_KEY, GREMLIN_GRAPH_VALUE);
         confMap.put(TEST_CLASS, testClass);
@@ -205,8 +206,15 @@ public class TestGraphProvider extends AbstractGraphProvider {
     }
 
     private void isolateRocksDBPaths(Map<String, Object> confMap,
-                                     String graphName) {
-        String pathSuffix = sanitizePathPart(this.suite + "_" + graphName);
+                                     String graphName, Class<?> testClass,
+                                     String testMethod) {
+        String testClassName = testClass.getName();
+        String rawSuffix = this.suite + "_" + graphName + "_" +
+                           testClassName + "_" + testMethod;
+        String pathSuffix = sanitizePathPart(this.suite + "_" + graphName +
+                                            "_" + testClass.getSimpleName() +
+                                            "_" + testMethod) +
+                            "_" + shortHash(rawSuffix);
         isolatePath(confMap, ROCKSDB_DATA_PATH, pathSuffix);
         isolatePath(confMap, ROCKSDB_WAL_PATH, pathSuffix);
 
@@ -266,6 +274,10 @@ public class TestGraphProvider extends AbstractGraphProvider {
 
     private static String sanitizePathPart(String value) {
         return value.replaceAll("[^A-Za-z0-9._-]", "_");
+    }
+
+    private static String shortHash(String value) {
+        return Integer.toHexString(value.hashCode());
     }
 
     private static boolean isRocksDBBackend(Configuration config) {
