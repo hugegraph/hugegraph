@@ -59,6 +59,7 @@ import org.apache.hugegraph.unit.mysql.WhereBuilderTest;
 import org.apache.hugegraph.unit.rocksdb.RocksDBCountersTest;
 import org.apache.hugegraph.unit.rocksdb.RocksDBSessionTest;
 import org.apache.hugegraph.unit.rocksdb.RocksDBSessionsTest;
+import org.apache.hugegraph.unit.rocksdb.RocksDBTableQueryByIdsTest;
 import org.apache.hugegraph.unit.serializer.BinaryBackendEntryTest;
 import org.apache.hugegraph.unit.serializer.BinaryScatterSerializerTest;
 import org.apache.hugegraph.unit.serializer.BinarySerializerTest;
@@ -157,6 +158,7 @@ import org.junit.runners.Suite;
         RocksDBSessionsTest.class,
         RocksDBSessionTest.class,
         RocksDBCountersTest.class,
+        RocksDBTableQueryByIdsTest.class,
 
         /* utils */
         VersionTest.class,
