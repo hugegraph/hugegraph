@@ -100,6 +100,15 @@ public class CypherApiTest extends BaseApiTest {
         assertNoHugeGraphIdLeak(content);
     }
 
+    @Test
+    public void testReturnRelationIdDoesNotLeakInternalIdTypes() {
+        String cypher = "MATCH (n:person)-[r:knows]->(friend:person) " +
+                        "WHERE n.name = 'marko' RETURN id(r) AS relationId";
+
+        String content = this.testCypherQueryAndContains(cypher, "relationId");
+        assertNoHugeGraphIdLeak(content);
+    }
+
     private String testCypherQueryAndContains(String cypher,
                                              String containsText) {
         Response r = client().post(PATH, cypher);
@@ -117,5 +126,6 @@ public class CypherApiTest extends BaseApiTest {
         Assert.assertFalse(content.contains("StringId"));
         Assert.assertFalse(content.contains("LongId"));
         Assert.assertFalse(content.contains("UuidId"));
+        Assert.assertFalse(content.contains("EdgeId"));
     }
 }

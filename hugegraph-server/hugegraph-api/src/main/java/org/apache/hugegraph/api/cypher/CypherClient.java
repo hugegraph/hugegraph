@@ -17,6 +17,8 @@
 
 package org.apache.hugegraph.api.cypher;
 
+import java.lang.reflect.Array;
+import java.util.IdentityHashMap;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.LinkedList;
@@ -45,6 +47,9 @@ import org.slf4j.Logger;
 public final class CypherClient {
 
     private static final Logger LOG = Log.logger(CypherClient.class);
+    private static final int NORMALIZE_MAX_DEPTH = 32;
+    private static final String CYCLIC_REFERENCE = "[cyclic-reference]";
+    private static final String MAX_DEPTH_EXCEEDED = "[max-depth-exceeded]";
     private final Supplier<Configuration> configurationSupplier;
     private String userName;
     private String password;
@@ -113,22 +118,63 @@ public final class CypherClient {
         return list;
     }
 
-    private static Object normalize(Object value) {
+    static Object normalize(Object value) {
+        return normalize(value, 0, new IdentityHashMap<>());
+    }
+
+    private static Object normalize(Object value, int depth,
+                                    IdentityHashMap<Object, Boolean> seen) {
+        if (value == null) {
+            return null;
+        }
+        if (depth >= NORMALIZE_MAX_DEPTH) {
+            return MAX_DEPTH_EXCEEDED;
+        }
         if (value instanceof Id) {
             return ((Id) value).asObject();
         }
         if (value instanceof Map) {
+            if (seen.put(value, Boolean.TRUE) != null) {
+                return CYCLIC_REFERENCE;
+            }
             Map<Object, Object> normalized = new LinkedHashMap<>();
-            for (Map.Entry<?, ?> entry : ((Map<?, ?>) value).entrySet()) {
-                normalized.put(normalize(entry.getKey()),
-                               normalize(entry.getValue()));
+            try {
+                for (Map.Entry<?, ?> entry : ((Map<?, ?>) value).entrySet()) {
+                    normalized.put(normalize(entry.getKey(), depth + 1, seen),
+                                   normalize(entry.getValue(), depth + 1, seen));
+                }
+            } finally {
+                seen.remove(value);
             }
             return normalized;
         }
         if (value instanceof Iterable) {
+            if (seen.put(value, Boolean.TRUE) != null) {
+                return CYCLIC_REFERENCE;
+            }
             List<Object> normalized = new LinkedList<>();
-            for (Object item : (Iterable<?>) value) {
-                normalized.add(normalize(item));
+            try {
+                for (Object item : (Iterable<?>) value) {
+                    normalized.add(normalize(item, depth + 1, seen));
+                }
+            } finally {
+                seen.remove(value);
+            }
+            return normalized;
+        }
+        if (value.getClass().isArray()) {
+            if (seen.put(value, Boolean.TRUE) != null) {
+                return CYCLIC_REFERENCE;
+            }
+            List<Object> normalized = new LinkedList<>();
+            try {
+                int length = Array.getLength(value);
+                for (int i = 0; i < length; i++) {
+                    normalized.add(normalize(Array.get(value, i), depth + 1,
+                                             seen));
+                }
+            } finally {
+                seen.remove(value);
             }
             return normalized;
         }

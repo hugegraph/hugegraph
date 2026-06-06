@@ -67,6 +67,18 @@ public class HugeGraphSONModuleTest extends BaseUnitTest {
         Assert.assertContains("\"name\"", json);
     }
 
+    @Test
+    public void testSerializeSchemaWithGraphSONTypeInfoFailsOnNestedEnumTypes() {
+        FakeObjects objects = new FakeObjects();
+        PropertyKey propertyKey = objects.newPropertyKey(IdGenerator.of(1L),
+                                                         "name");
+
+        Throwable e = Assert.assertThrows(IOException.class, () -> {
+            writeTyped(propertyKey);
+        });
+        Assert.assertContains("DataType", e.getMessage());
+    }
+
     private static String writeTyped(Object object) throws IOException {
         GraphSONMapper mapper = mapper(TypeInfo.PARTIAL_TYPES);
         GraphSONWriter writer = GraphSONWriter.build().mapper(mapper).create();

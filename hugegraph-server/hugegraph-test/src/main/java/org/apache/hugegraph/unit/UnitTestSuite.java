@@ -19,6 +19,7 @@ package org.apache.hugegraph.unit;
 
 import org.apache.hugegraph.core.RoleElectionStateMachineTest;
 import org.apache.hugegraph.meta.MetaManagerSchemaCacheClearEventTest;
+import org.apache.hugegraph.api.cypher.CypherClientTest;
 import org.apache.hugegraph.unit.api.filter.LoadDetectFilterTest;
 import org.apache.hugegraph.unit.api.filter.PathFilterTest;
 import org.apache.hugegraph.unit.api.gremlin.GremlinQueryAPITest;
@@ -93,6 +94,7 @@ import org.junit.runners.Suite;
 
         /* api gremlin */
         GremlinQueryAPITest.class,
+        CypherClientTest.class,
 
         /* cache */
         CacheTest.RamCacheTest.class,

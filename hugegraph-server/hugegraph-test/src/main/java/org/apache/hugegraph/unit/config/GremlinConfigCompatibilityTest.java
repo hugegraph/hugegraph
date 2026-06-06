@@ -22,6 +22,8 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -50,9 +52,9 @@ public class GremlinConfigCompatibilityTest extends BaseUnitTest {
     @Test
     public void testRemoteSerializersUseTinkerPopUtilPackage() throws IOException {
         for (String file : new String[]{
-                "gremlin-driver-settings.yaml",
-                "remote.yaml",
-                "remote-objects.yaml"
+            "gremlin-driver-settings.yaml",
+            "remote.yaml",
+            "remote-objects.yaml"
         }) {
             String content = readConfig(file);
 
@@ -67,29 +69,58 @@ public class GremlinConfigCompatibilityTest extends BaseUnitTest {
     }
 
     private static Path findConfDir() {
+        String configuredDir = System.getProperty("hugegraph.conf.dir");
+        Path configuredPath = resolveConfiguredDir(configuredDir);
+        if (configuredPath != null) {
+            return configuredPath;
+        }
+
+        String envDir = System.getenv("HUGEGRAPH_CONF_DIR");
+        Path envPath = resolveConfiguredDir(envDir);
+        if (envPath != null) {
+            return envPath;
+        }
+
         Path userDir = Paths.get(System.getProperty("user.dir"));
-        Path moduleCandidate = userDir.getParent()
-                                      .resolve("hugegraph-dist")
-                                      .resolve("src")
-                                      .resolve("assembly")
-                                      .resolve("static")
-                                      .resolve("conf");
-        Path rootCandidate = userDir.resolve("hugegraph-server")
-                                    .resolve("hugegraph-dist")
-                                    .resolve("src")
-                                    .resolve("assembly")
-                                    .resolve("static")
-                                    .resolve("conf");
+        List<Path> candidates = new ArrayList<>();
 
-        if (Files.isDirectory(moduleCandidate)) {
-            return moduleCandidate;
+        Path parent = userDir.getParent();
+        if (parent != null) {
+            candidates.add(parent.resolve("hugegraph-dist")
+                                 .resolve("src")
+                                 .resolve("assembly")
+                                 .resolve("static")
+                                 .resolve("conf"));
         }
-        if (Files.isDirectory(rootCandidate)) {
-            return rootCandidate;
+        candidates.add(userDir.resolve("hugegraph-server")
+                              .resolve("hugegraph-dist")
+                              .resolve("src")
+                              .resolve("assembly")
+                              .resolve("static")
+                              .resolve("conf"));
+
+        for (Path candidate : candidates) {
+            if (Files.isDirectory(candidate)) {
+                return candidate;
+            }
         }
 
-        Assert.fail("Can't find hugegraph-dist static conf from " + userDir);
-        return moduleCandidate;
+        Assert.fail(String.format("Can't find hugegraph-dist static conf from" +
+                                  " %s (hugegraph.conf.dir=%s," +
+                                  " HUGEGRAPH_CONF_DIR=%s, candidates=%s)",
+                                  userDir, configuredDir, envDir, candidates));
+        return userDir;
+    }
+
+    private static Path resolveConfiguredDir(String path) {
+        if (path == null || path.isEmpty()) {
+            return null;
+        }
+        Path configured = Paths.get(path);
+        if (Files.isDirectory(configured)) {
+            return configured;
+        }
+        return null;
     }
 
     private static void assertUsesHugeGraphIoRegistry(String fileName,
