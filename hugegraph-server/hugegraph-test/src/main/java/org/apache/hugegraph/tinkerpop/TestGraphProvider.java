@@ -91,6 +91,7 @@ public class TestGraphProvider extends AbstractGraphProvider {
     private static final String ROCKSDB_WAL_PATH = "rocksdb.wal_path";
     private static final String ROCKSDB_DATA_DISKS = "rocksdb.data_disks";
     private static final String TEST_PATH_SEPARATOR = "/";
+    private static final int MAX_ROCKSDB_PATH_SUFFIX_PREFIX_LENGTH = 80;
 
     private static final String AKEY_CLASS_PREFIX =
             "org.apache.tinkerpop.gremlin.structure." +
@@ -211,10 +212,14 @@ public class TestGraphProvider extends AbstractGraphProvider {
         String testClassName = testClass.getName();
         String rawSuffix = this.suite + "_" + graphName + "_" +
                            testClassName + "_" + testMethod;
-        String pathSuffix = sanitizePathPart(this.suite + "_" + graphName +
-                                            "_" + testClass.getSimpleName() +
-                                            "_" + testMethod) +
-                            "_" + shortHash(rawSuffix);
+        String prefix = sanitizePathPart(this.suite + "_" + graphName + "_" +
+                                         testClass.getSimpleName() + "_" +
+                                         testMethod);
+        if (prefix.length() > MAX_ROCKSDB_PATH_SUFFIX_PREFIX_LENGTH) {
+            prefix = prefix.substring(0,
+                                      MAX_ROCKSDB_PATH_SUFFIX_PREFIX_LENGTH);
+        }
+        String pathSuffix = prefix + "_" + shortHash(rawSuffix);
         isolatePath(confMap, ROCKSDB_DATA_PATH, pathSuffix);
         isolatePath(confMap, ROCKSDB_WAL_PATH, pathSuffix);
 
