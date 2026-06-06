@@ -17,9 +17,10 @@
 
 package org.apache.hugegraph.unit;
 
+import org.apache.hugegraph.api.cypher.CypherClientTest;
 import org.apache.hugegraph.core.RoleElectionStateMachineTest;
 import org.apache.hugegraph.meta.MetaManagerSchemaCacheClearEventTest;
-import org.apache.hugegraph.api.cypher.CypherClientTest;
+import org.apache.hugegraph.traversal.optimize.TraversalUtilOptimizeTest;
 import org.apache.hugegraph.unit.api.filter.LoadDetectFilterTest;
 import org.apache.hugegraph.unit.api.filter.PathFilterTest;
 import org.apache.hugegraph.unit.api.gremlin.GremlinQueryAPITest;
@@ -61,6 +62,7 @@ import org.apache.hugegraph.unit.mysql.WhereBuilderTest;
 import org.apache.hugegraph.unit.rocksdb.RocksDBCountersTest;
 import org.apache.hugegraph.unit.rocksdb.RocksDBSessionTest;
 import org.apache.hugegraph.unit.rocksdb.RocksDBSessionsTest;
+import org.apache.hugegraph.unit.rocksdb.RocksDBTableQueryByIdsTest;
 import org.apache.hugegraph.unit.serializer.BinaryBackendEntryTest;
 import org.apache.hugegraph.unit.serializer.BinaryScatterSerializerTest;
 import org.apache.hugegraph.unit.serializer.BinarySerializerTest;
@@ -132,6 +134,7 @@ import org.junit.runners.Suite;
         ExceptionTest.class,
         BackendStoreInfoTest.class,
         TraversalUtilTest.class,
+        TraversalUtilOptimizeTest.class,
         PageStateTest.class,
         SystemSchemaStoreTest.class,
         ServerInfoManagerTest.class,
@@ -165,6 +168,7 @@ import org.junit.runners.Suite;
         RocksDBSessionsTest.class,
         RocksDBSessionTest.class,
         RocksDBCountersTest.class,
+        RocksDBTableQueryByIdsTest.class,
 
         /* utils */
         VersionTest.class,

@@ -17,7 +17,44 @@
 #
 set -e
 
+HBASE_HOSTNAME="${HBASE_HOSTNAME:-hbase}"
+HBASE_MASTER_HOSTNAME="${HBASE_MASTER_HOSTNAME:-${HBASE_HOSTNAME}}"
+HBASE_REGIONSERVER_HOSTNAME="${HBASE_REGIONSERVER_HOSTNAME:-${HBASE_HOSTNAME}}"
+HBASE_SITE_XML="${HBASE_HOME}/conf/hbase-site.xml"
+
+escape_sed_replacement() {
+    local value="$1"
+    if [[ "$value" == *$'\n'* ]]; then
+        echo "Property values must not contain newlines" >&2
+        exit 1
+    fi
+    printf '%s' "$value" | sed -e 's/[\\&|]/\\&/g'
+}
+
+set_xml_property_value() {
+    local property_name="$1"
+    local property_value
+    property_value=$(escape_sed_replacement "$2")
+
+    # The in-place replacement below expects the standard HBase layout where
+    # <name>...</name> is followed by <value>...</value> on the next line.
+    # Fail loudly if the property entry is missing to avoid silent misconfig.
+    if ! grep -Fq "<name>${property_name}</name>" "${HBASE_SITE_XML}"; then
+        echo "Missing required property '${property_name}' in ${HBASE_SITE_XML}" >&2
+        exit 1
+    fi
+
+    sed -i "/<name>${property_name//./\\.}<\\/name>/ {n; s|<value>.*</value>|<value>${property_value}</value>|;}" "${HBASE_SITE_XML}"
+}
+
+set_xml_property_value "hbase.master.hostname" "${HBASE_MASTER_HOSTNAME}"
+set_xml_property_value "hbase.regionserver.hostname" "${HBASE_REGIONSERVER_HOSTNAME}"
+
 echo "Starting HBase ${HBASE_VERSION} standalone..."
+echo "HBase container hostname fallback: ${HBASE_HOSTNAME}"
+echo "HBase advertised master hostname: ${HBASE_MASTER_HOSTNAME}"
+echo "HBase advertised regionserver hostname: ${HBASE_REGIONSERVER_HOSTNAME}"
+
 
 # Start services explicitly to avoid SSH-based helper assumptions in containers
 ${HBASE_HOME}/bin/hbase-daemon.sh start zookeeper
