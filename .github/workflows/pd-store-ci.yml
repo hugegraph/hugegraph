@@ -284,10 +284,19 @@ jobs:
         run: |
           $TRAVIS_DIR/run-api-test-for-raft.sh $BACKEND $REPORT_DIR
 
-      - name: Run TinkerPop test
-        if: ${{ env.RELEASE_BRANCH == 'true' }}
+      # HStore remains covered by unit/core/API here; TinkerPop compliance is
+      # exercised in Server CI on memory and rocksdb.
+      - name: Run TinkerPop structure test
+        if: ${{ env.RELEASE_BRANCH == 'true' && env.BACKEND != 'hstore' }}
+        timeout-minutes: 60
         run: |
-          $TRAVIS_DIR/run-tinkerpop-test.sh $BACKEND tinkerpop
+          $TRAVIS_DIR/run-tinkerpop-test.sh $BACKEND structure
+
+      - name: Run TinkerPop process test
+        if: ${{ env.RELEASE_BRANCH == 'true' && env.BACKEND != 'hstore' }}
+        timeout-minutes: 60
+        run: |
+          $TRAVIS_DIR/run-tinkerpop-test.sh $BACKEND process
 
       - name: Show HStore diagnostics on failure
         if: failure()

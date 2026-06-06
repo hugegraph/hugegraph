@@ -88,12 +88,21 @@ jobs:
         run: |
           $TRAVIS_DIR/run-api-test-for-raft.sh $BACKEND $REPORT_DIR
 
-      - name: Run TinkerPop test
-        if: ${{ env.RELEASE_BRANCH == 'true' }}
+      # TinkerPop compliance is covered by memory and rocksdb in CI.
+      # HBase still runs compile/unit/core/API because its full suite exceeds the CI budget.
+      - name: Run TinkerPop structure test
+        if: ${{ env.RELEASE_BRANCH == 'true' && env.BACKEND != 'hbase' }}
         timeout-minutes: 60
         run: |
-          echo "[WARNING] Enter Tinkerpop Test, current 'github.ref_name' is ${{ github.ref_name }}"
-          $TRAVIS_DIR/run-tinkerpop-test.sh $BACKEND tinkerpop
+          echo "[WARNING] Enter Tinkerpop Structure Test, current 'github.ref_name' is ${{ github.ref_name }}"
+          $TRAVIS_DIR/run-tinkerpop-test.sh $BACKEND structure
+
+      - name: Run TinkerPop process test
+        if: ${{ env.RELEASE_BRANCH == 'true' && env.BACKEND != 'hbase' }}
+        timeout-minutes: 60
+        run: |
+          echo "[WARNING] Enter Tinkerpop Process Test, current 'github.ref_name' is ${{ github.ref_name }}"
+          $TRAVIS_DIR/run-tinkerpop-test.sh $BACKEND process
 
       - name: Upload coverage to Codecov
         # TODO: update to v5 later
