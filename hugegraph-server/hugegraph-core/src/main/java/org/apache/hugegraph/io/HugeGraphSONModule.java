@@ -103,6 +103,7 @@ public class HugeGraphSONModule extends TinkerPopJacksonModule {
         TYPE_DEFINITIONS = new ConcurrentHashMap<>();
 
         TYPE_DEFINITIONS.put(Optional.class, "Optional");
+        TYPE_DEFINITIONS.put(File.class, "File");
         TYPE_DEFINITIONS.put(Date.class, "Date");
         TYPE_DEFINITIONS.put(UUID.class, "UUID");
 
@@ -665,6 +666,18 @@ public class HugeGraphSONModule extends TinkerPopJacksonModule {
                 throws IOException {
             writeEntry(jsonGenerator, SCHEMA_SERIALIZER.writePropertyKey(pk));
         }
+
+        @Override
+        public void serializeWithType(PropertyKey pk,
+                                      JsonGenerator jsonGenerator,
+                                      SerializerProvider provider,
+                                      TypeSerializer typeSer)
+                throws IOException {
+            WritableTypeId typeId = typeSer.typeId(pk, JsonToken.VALUE_STRING);
+            typeSer.writeTypePrefix(jsonGenerator, typeId);
+            this.serialize(pk, jsonGenerator, provider);
+            typeSer.writeTypeSuffix(jsonGenerator, typeId);
+        }
     }
 
     private static class VertexLabelSerializer
@@ -681,6 +694,18 @@ public class HugeGraphSONModule extends TinkerPopJacksonModule {
                 throws IOException {
             writeEntry(jsonGenerator, SCHEMA_SERIALIZER.writeVertexLabel(vl));
         }
+
+        @Override
+        public void serializeWithType(VertexLabel vl,
+                                      JsonGenerator jsonGenerator,
+                                      SerializerProvider provider,
+                                      TypeSerializer typeSer)
+                throws IOException {
+            WritableTypeId typeId = typeSer.typeId(vl, JsonToken.VALUE_STRING);
+            typeSer.writeTypePrefix(jsonGenerator, typeId);
+            this.serialize(vl, jsonGenerator, provider);
+            typeSer.writeTypeSuffix(jsonGenerator, typeId);
+        }
     }
 
     private static class EdgeLabelSerializer extends StdSerializer<EdgeLabel> {
@@ -695,6 +720,18 @@ public class HugeGraphSONModule extends TinkerPopJacksonModule {
                               SerializerProvider provider)
                 throws IOException {
             writeEntry(jsonGenerator, SCHEMA_SERIALIZER.writeEdgeLabel(el));
+        }
+
+        @Override
+        public void serializeWithType(EdgeLabel el,
+                                      JsonGenerator jsonGenerator,
+                                      SerializerProvider provider,
+                                      TypeSerializer typeSer)
+                throws IOException {
+            WritableTypeId typeId = typeSer.typeId(el, JsonToken.VALUE_STRING);
+            typeSer.writeTypePrefix(jsonGenerator, typeId);
+            this.serialize(el, jsonGenerator, provider);
+            typeSer.writeTypeSuffix(jsonGenerator, typeId);
         }
     }
 
@@ -711,6 +748,18 @@ public class HugeGraphSONModule extends TinkerPopJacksonModule {
                               SerializerProvider provider)
                 throws IOException {
             writeEntry(jsonGenerator, SCHEMA_SERIALIZER.writeIndexLabel(il));
+        }
+
+        @Override
+        public void serializeWithType(IndexLabel il,
+                                      JsonGenerator jsonGenerator,
+                                      SerializerProvider provider,
+                                      TypeSerializer typeSer)
+                throws IOException {
+            WritableTypeId typeId = typeSer.typeId(il, JsonToken.VALUE_STRING);
+            typeSer.writeTypePrefix(jsonGenerator, typeId);
+            this.serialize(il, jsonGenerator, provider);
+            typeSer.writeTypeSuffix(jsonGenerator, typeId);
         }
     }
 
@@ -926,6 +975,18 @@ public class HugeGraphSONModule extends TinkerPopJacksonModule {
             jsonGenerator.writeStartObject();
             jsonGenerator.writeStringField("file", file.getName());
             jsonGenerator.writeEndObject();
+        }
+
+        @Override
+        public void serializeWithType(File file,
+                                      JsonGenerator jsonGenerator,
+                                      SerializerProvider provider,
+                                      TypeSerializer typeSer)
+                throws IOException {
+            WritableTypeId typeId = typeSer.typeId(file, JsonToken.VALUE_STRING);
+            typeSer.writeTypePrefix(jsonGenerator, typeId);
+            this.serialize(file, jsonGenerator, provider);
+            typeSer.writeTypeSuffix(jsonGenerator, typeId);
         }
     }
 

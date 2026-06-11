@@ -30,8 +30,11 @@ else
 fi
 
 STORE_DIR=$HOME_DIR/hugegraph-store/apache-hugegraph-store-$VersionInBash
+TRAVIS_DIR=$(dirname "$0")
+
+source "$TRAVIS_DIR"/ci-service-utils.sh
 
 pushd $STORE_DIR
 . bin/start-hugegraph-store.sh
-sleep 10
+wait_for_tcp_port HugeGraphStore 127.0.0.1 8500 "$STORE_DIR"/bin/pid "$STORE_DIR"
 popd

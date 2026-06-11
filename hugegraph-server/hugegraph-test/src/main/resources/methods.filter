@@ -39,6 +39,10 @@ org.apache.tinkerpop.gremlin.structure.PropertyTest.PropertyFeatureSupportTest.s
 org.apache.tinkerpop.gremlin.structure.PropertyTest.PropertyFeatureSupportTest.shouldSetValueOnEdge[supportsUniformListValues([100, 200, 300])]: Not support uniform of Integer because define uniform as String list
 org.apache.tinkerpop.gremlin.structure.PropertyTest.PropertyFeatureSupportTest.shouldSetValueOnVertexOnAdd[supportsUniformListValues([try1, try2])]: Uniform list can't be accessed by vertex.property() which is supposed right by tinkerpop
 org.apache.tinkerpop.gremlin.structure.PropertyTest.PropertyFeatureSupportTest.shouldSetValueOnVertex[supportsUniformListValues([try1, try2])]: Uniform list can't be accessed by vertex.property() which is supposed right by tinkerpop
+org.apache.tinkerpop.gremlin.structure.PropertyTest.PropertyFeatureSupportTest.shouldSetValueOnVertexOnAdd[supportsUniformListValues]: Not support uniform list values with TinkerPop 3.7 parameterized test names
+org.apache.tinkerpop.gremlin.structure.PropertyTest.PropertyFeatureSupportTest.shouldSetValueOnEdgeOnAdd[supportsUniformListValues]: Not support uniform list values with TinkerPop 3.7 parameterized test names
+org.apache.tinkerpop.gremlin.structure.PropertyTest.PropertyFeatureSupportTest.shouldSetValueOnVertex[supportsUniformListValues]: Not support uniform list values with TinkerPop 3.7 parameterized test names
+org.apache.tinkerpop.gremlin.structure.PropertyTest.PropertyFeatureSupportTest.shouldSetValueOnEdge[supportsUniformListValues]: Not support uniform list values with TinkerPop 3.7 parameterized test names
 
 # expect multi properties after setting single property multi times
 org.apache.tinkerpop.gremlin.structure.GraphTest.shouldOverwriteEarlierKeyValuesWithLaterKeyValuesOnAddVertexIfMultiProperty: Expect multi properties after setting single property multi times
@@ -79,6 +83,16 @@ org.apache.tinkerpop.gremlin.structure.GraphTest.shouldRemoveVertices: Random UU
 org.apache.tinkerpop.gremlin.structure.GraphTest.shouldRemoveEdges: Random UUID as edge label
 org.apache.tinkerpop.gremlin.structure.TransactionTest.shouldExecuteWithCompetingThreads: Hang the tests because property 'test' have both String and long value
 
+## gryo-v3 migration tests reopen source graph path before RocksDB releases lock
+org.apache.tinkerpop.gremlin.structure.io.IoGraphTest.shouldMigrateModernGraph[gryo-v3]: RocksDB lock not released between source and target graph in gryo-v3 migration test
+org.apache.tinkerpop.gremlin.structure.io.IoGraphTest.shouldMigrateClassicGraph[gryo-v3]: RocksDB lock not released between source and target graph in gryo-v3 migration test
+
+## TinkerPop 3.7 transaction lifecycle checks spawned thread transactions
+org.apache.tinkerpop.gremlin.structure.TransactionTest.shouldExecuteCompetingThreadsOnMultipleDbInstances: HugeGraph uses ThreadLocal transactions, spawned thread tx not auto-closed on graph close
+org.apache.tinkerpop.gremlin.structure.TransactionTest.shouldAllowReferenceOfEdgeIdOutsideOfOriginalThreadManual: HugeGraph uses ThreadLocal transactions, spawned thread tx not auto-closed on graph close
+org.apache.tinkerpop.gremlin.structure.TransactionTest.shouldSupportTransactionIsolationCommitCheck: HugeGraph uses ThreadLocal transactions, spawned thread tx not auto-closed on graph close
+org.apache.tinkerpop.gremlin.structure.TransactionTest.shouldAllowReferenceOfVertexIdOutsideOfOriginalThreadManual: HugeGraph uses ThreadLocal transactions, spawned thread tx not auto-closed on graph close
+
 ## vertex properties doesn't have nested structures with HugeVertexSerializer
 org.apache.tinkerpop.gremlin.structure.SerializationTest.GraphSONTest.shouldSerializeVertex: Vertex properties doesn't have nested structures with HugeVertexSerializer
 org.apache.tinkerpop.gremlin.structure.SerializationTest.GraphSONTest.shouldSerializePath: Vertex properties doesn't have nested structures with HugeVertexSerializer
@@ -94,9 +108,12 @@ org.apache.tinkerpop.gremlin.structure.util.reference.ReferenceEdgeTest.shouldCo
 # unsupported automatic edge id, therefore number of edge is wrong
 org.apache.tinkerpop.gremlin.process.traversal.strategy.decoration.EventStrategyProcessTest.shouldTriggerAddEdge: Unsupported automatic edge id, therefore number of edge is wrong
 org.apache.tinkerpop.gremlin.process.traversal.strategy.decoration.EventStrategyProcessTest.shouldTriggerAddEdgeByPath: Unsupported automatic edge id, therefore number of edge is wrong
+org.apache.tinkerpop.gremlin.process.traversal.strategy.decoration.EventStrategyProcessTest.shouldTriggerAddEdgeViaMergeE: Unsupported automatic edge id/event tracking for mergeE
+org.apache.tinkerpop.gremlin.process.traversal.strategy.decoration.EventStrategyProcessTest.shouldTriggerAddVertexWithPropertyThenPropertyAdded: Unsupported vertex property changed event tracking for addV().property()
 # shouldWriteToMultiplePartitions
 org.apache.tinkerpop.gremlin.process.traversal.strategy.decoration.PartitionStrategyProcessTest.shouldWriteToMultiplePartitions: It's not allowed to query by index when there are uncommitted records
 org.apache.tinkerpop.gremlin.process.traversal.strategy.decoration.PartitionStrategyProcessTest.shouldWriteVerticesToMultiplePartitions: It's not allowed to query by index when there are uncommitted records
+org.apache.tinkerpop.gremlin.process.traversal.strategy.decoration.PartitionStrategyProcessTest.shouldPartitionWithAbstractLambdaChildTraversal: Unsupported partition test schema label
 
 # assert error, long time, reason: replicated edges treated as one
 org.apache.tinkerpop.gremlin.process.traversal.step.map.CountTest.Traversals.g_V_both_both_count: Replicated edges treated as one
@@ -121,17 +138,28 @@ org.apache.tinkerpop.gremlin.process.traversal.step.map.AddVertexTest.Traversals
 org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasTest.Traversals.g_V_hasIdXwithoutXemptyXX_count: Unsupported query 'NOT IN []'
 org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasTest.Traversals.g_V_hasIdXemptyX_count: Unsupported query 'hasId(EmptyList)'
 
+org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasTest.Traversals.g_V_hasXnull_testnullkeyX: Unsupported null key/value has predicate
+org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasTest.Traversals.g_V_hasLabelXnullX: Unsupported null label
+org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasTest.Traversals.g_V_hasLabelXnull_personX: Unsupported null label
+org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasTest.Traversals.g_E_hasLabelXnullX: Unsupported null label
 org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasTest.Traversals.g_V_hasXname_containingXarkXX: Unsupported predicate 'containing(ark)'
 org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasTest.Traversals.g_V_hasXname_endingWithXasXX: Unsupported predicate 'endingWith(as)'
 org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasTest.Traversals.g_V_hasXname_startingWithXmarXX: Unsupported predicate 'startingWith(mar)'
 org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasTest.Traversals.g_V_hasXage_withoutX27X_count: Unsupported relation 'NEQ'
 org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasTest.Traversals.g_V_hasXperson_name_containingXoX_andXltXmXXX: Unsupported predicate 'containing(o)'
+org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasTest.Traversals.g_V_hasXname_regexXrMarXX: Unsupported predicate 'regex(^mar)'
+org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasTest.Traversals.g_V_hasXname_regexXTinkerXX: Unsupported predicate 'regex(Tinker)'
+org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasTest.Traversals.g_V_hasXname_regexXTinkerUnicodeXX: Unsupported predicate 'regex(Tinker.*)'
 org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasTest.Traversals.g_V_hasXname_not_startingWithXmarXX: Unsupported predicate 'notStartingWith(mar)'
 org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasTest.Traversals.g_V_hasXname_not_containingXarkXX: Unsupported predicate 'notContaining(ark)'
 org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasTest.Traversals.g_V_hasXname_not_endingWithXasXX: Unsupported predicate 'notEndingWith(as)'
+org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasTest.Traversals.g_V_hasXname_notRegexXrMarXX: Unsupported predicate 'notRegex(^mar)'
 org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasTest.Traversals.g_V_hasXage_withoutX27_29X_count: Unsupported relation 'NEQ'
 org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasTest.Traversals.g_V_hasXname_gtXmX_andXcontainingXoXXX: Unsupported predicate 'containing(o)'
 org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasTest.Traversals.g_V_hasXp_neqXvXX: Don't accept query based on properties [p] that are not indexed in any label, may not match not-equal condition
+
+org.apache.tinkerpop.gremlin.process.traversal.strategy.decoration.ElementIdStrategyProcessTest.shouldSetIdOnAddEWithNamePropertyKeySpecifiedAndNameSuppliedAsProperty: Unsupported ElementIdStrategy edge id/property index query
+org.apache.tinkerpop.gremlin.process.traversal.strategy.decoration.ElementIdStrategyProcessTest.shouldGenerateDefaultIdOnGraphAddVWithGeneratedCustomId: Unsupported ElementIdStrategy generated custom id schema
 
 # Unsupport edge label 'created': 'software' -> 'person', has existed an edgelabel (created: person -> software) in this case
 org.apache.tinkerpop.gremlin.process.traversal.step.map.AddEdgeTest.Traversals.g_V_hasXname_markoX_asXaX_outEXcreatedX_asXbX_inV_addEXselectXbX_labelX_toXaX: Unsupport edge from inV to outV
