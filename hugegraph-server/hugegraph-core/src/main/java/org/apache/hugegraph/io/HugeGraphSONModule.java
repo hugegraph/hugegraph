@@ -935,9 +935,10 @@ public class HugeGraphSONModule extends TinkerPopJacksonModule {
                                       SerializerProvider provider,
                                       TypeSerializer typeSer)
                 throws IOException {
-            WritableTypeId typeId = typeSer.typeId(file, JsonToken.START_OBJECT);
+            WritableTypeId typeId = typeSer.typeId(file,
+                                                   JsonToken.VALUE_EMBEDDED_OBJECT);
             typeSer.writeTypePrefix(jsonGenerator, typeId);
-            jsonGenerator.writeStringField("file", file.getName());
+            this.serialize(file, jsonGenerator, provider);
             typeSer.writeTypeSuffix(jsonGenerator, typeId);
         }
     }
