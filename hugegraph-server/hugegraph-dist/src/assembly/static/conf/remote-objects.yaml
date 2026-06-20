@@ -28,3 +28,6 @@ serializer: {
     ]
   }
 }
+# Typed GraphSON fallback for clients that require @type/@value:
+# use org.apache.tinkerpop.gremlin.util.ser.GraphSONMessageSerializerV1 in
+# place of GraphSONUntypedMessageSerializerV1, and keep HugeGraphIoRegistry.

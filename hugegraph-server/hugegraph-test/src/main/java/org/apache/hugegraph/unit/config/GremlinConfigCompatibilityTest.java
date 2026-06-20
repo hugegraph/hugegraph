@@ -23,12 +23,14 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import org.apache.hugegraph.testutil.Assert;
 import org.apache.hugegraph.unit.BaseUnitTest;
+import org.apache.tinkerpop.gremlin.server.Settings;
 import org.junit.Test;
 
 public class GremlinConfigCompatibilityTest extends BaseUnitTest {
@@ -39,23 +41,37 @@ public class GremlinConfigCompatibilityTest extends BaseUnitTest {
             "org.apache.tinkerpop.gremlin.util.ser.";
     private static final String IO_REGISTRY =
             "org.apache.hugegraph.io.HugeGraphIoRegistry";
+    private static final String GREMLIN_SERVER_CONFIG = "gremlin-server.yaml";
+    private static final List<String> REMOTE_CONFIGS = Arrays.asList(
+            "gremlin-driver-settings.yaml",
+            "remote.yaml",
+            "remote-objects.yaml"
+    );
+    private static final List<String> ALL_CONFIGS = Arrays.asList(
+            GREMLIN_SERVER_CONFIG,
+            "gremlin-driver-settings.yaml",
+            "remote.yaml",
+            "remote-objects.yaml"
+    );
+    private static final List<String> TYPED_FALLBACK_SERIALIZERS =
+            Arrays.asList(
+                    SERIALIZER_PACKAGE + "GraphSONMessageSerializerV1",
+                    SERIALIZER_PACKAGE + "GraphSONMessageSerializerV2",
+                    SERIALIZER_PACKAGE + "GraphSONMessageSerializerV3"
+            );
 
     @Test
     public void testGremlinServerSerializersUseTinkerPopUtilPackage() throws IOException {
-        String content = readConfig("gremlin-server.yaml");
+        String content = readConfig(GREMLIN_SERVER_CONFIG);
 
-        assertUsesHugeGraphIoRegistry("gremlin-server.yaml", content);
-        assertSerializerClassNamesUseUtilPackage("gremlin-server.yaml",
+        assertUsesHugeGraphIoRegistry(GREMLIN_SERVER_CONFIG, content);
+        assertSerializerClassNamesUseUtilPackage(GREMLIN_SERVER_CONFIG,
                                                  content);
     }
 
     @Test
     public void testRemoteSerializersUseTinkerPopUtilPackage() throws IOException {
-        for (String file : new String[]{
-            "gremlin-driver-settings.yaml",
-            "remote.yaml",
-            "remote-objects.yaml"
-        }) {
+        for (String file : REMOTE_CONFIGS) {
             String content = readConfig(file);
 
             assertUsesHugeGraphIoRegistry(file, content);
@@ -63,9 +79,37 @@ public class GremlinConfigCompatibilityTest extends BaseUnitTest {
         }
     }
 
+    @Test
+    public void testGremlinServerSettingsCanBeParsed() throws Exception {
+        Settings settings = Settings.read(configPath(GREMLIN_SERVER_CONFIG)
+                                                  .toString());
+
+        Assert.assertNotNull(settings);
+        Assert.assertFalse(settings.serializers.isEmpty());
+    }
+
+    @Test
+    public void testConfiguredSerializerClassesAreLoadable() throws Exception {
+        for (String file : ALL_CONFIGS) {
+            assertConfiguredSerializerClassesAreLoadable(file,
+                                                         readConfig(file));
+        }
+    }
+
+    @Test
+    public void testTypedFallbackSerializerClassesAreLoadable()
+            throws Exception {
+        for (String serializer : TYPED_FALLBACK_SERIALIZERS) {
+            Class.forName(serializer);
+        }
+    }
+
     private static String readConfig(String fileName) throws IOException {
-        Path config = findConfDir().resolve(fileName);
-        return Files.readString(config, StandardCharsets.UTF_8);
+        return Files.readString(configPath(fileName), StandardCharsets.UTF_8);
+    }
+
+    private static Path configPath(String fileName) {
+        return findConfDir().resolve(fileName);
     }
 
     private static Path findConfDir() {
@@ -144,6 +188,18 @@ public class GremlinConfigCompatibilityTest extends BaseUnitTest {
             Assert.assertTrue(fileName + " has outdated serializer " +
                               className,
                               className.startsWith(SERIALIZER_PACKAGE));
+        }
+        Assert.assertTrue("No serializer className found in " + fileName,
+                          found);
+    }
+
+    private static void assertConfiguredSerializerClassesAreLoadable(
+            String fileName, String content) throws ClassNotFoundException {
+        Matcher matcher = CLASS_NAME.matcher(content);
+        boolean found = false;
+        while (matcher.find()) {
+            found = true;
+            Class.forName(matcher.group(1));
         }
         Assert.assertTrue("No serializer className found in " + fileName,
                           found);

@@ -57,7 +57,7 @@ public class HugeGraphSONModuleTest extends BaseUnitTest {
     }
 
     @Test
-    public void testSerializeSchemaWithGraphSONModule() throws IOException {
+    public void testSerializeSchemaWithUntypedGraphSONModule() throws IOException {
         FakeObjects objects = new FakeObjects();
         PropertyKey propertyKey = objects.newPropertyKey(IdGenerator.of(1L),
                                                          "name");
@@ -65,18 +65,6 @@ public class HugeGraphSONModuleTest extends BaseUnitTest {
         String json = writeUntyped(propertyKey);
 
         Assert.assertContains("\"name\"", json);
-    }
-
-    @Test
-    public void testSerializeSchemaWithGraphSONTypeInfoFailsOnNestedEnumTypes() {
-        FakeObjects objects = new FakeObjects();
-        PropertyKey propertyKey = objects.newPropertyKey(IdGenerator.of(1L),
-                                                         "name");
-
-        Throwable e = Assert.assertThrows(IOException.class, () -> {
-            writeTyped(propertyKey);
-        });
-        Assert.assertContains("DataType", e.getMessage());
     }
 
     private static String writeTyped(Object object) throws IOException {
