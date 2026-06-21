@@ -20,10 +20,13 @@ package org.apache.hugegraph.api.cypher;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import org.apache.hugegraph.backend.id.IdGenerator;
 import org.apache.hugegraph.testutil.Assert;
 import org.apache.hugegraph.unit.BaseUnitTest;
+import org.apache.tinkerpop.gremlin.process.traversal.Path;
+import org.apache.tinkerpop.gremlin.process.traversal.step.util.MutablePath;
 import org.junit.Test;
 
 public class CypherClientTest extends BaseUnitTest {
@@ -77,5 +80,37 @@ public class CypherClientTest extends BaseUnitTest {
         }
 
         Assert.assertEquals("[max-depth-exceeded]", current);
+    }
+
+    @Test
+    public void testNormalizePreservesPathLabelsAndObjects() {
+        Path path = MutablePath.make()
+                               .extend(IdGenerator.of("marko"),
+                                       Set.of("a"))
+                               .extend(IdGenerator.of("lop"),
+                                       Set.of("b", "software"));
+
+        Object normalized = CypherClient.normalize(path);
+
+        Assert.assertInstanceOf(Map.class, normalized);
+        Map<?, ?> map = (Map<?, ?>) normalized;
+        Assert.assertTrue(map.containsKey("labels"));
+        Assert.assertTrue(map.containsKey("objects"));
+
+        Assert.assertInstanceOf(List.class, map.get("labels"));
+        Assert.assertInstanceOf(List.class, map.get("objects"));
+
+        List<?> labels = (List<?>) map.get("labels");
+        List<?> objects = (List<?>) map.get("objects");
+        Assert.assertEquals(2, labels.size());
+        Assert.assertEquals(2, objects.size());
+
+        Assert.assertEquals("marko", objects.get(0));
+        Assert.assertEquals("lop", objects.get(1));
+        List<?> firstLabels = (List<?>) labels.get(0);
+        List<?> secondLabels = (List<?>) labels.get(1);
+        Assert.assertTrue(firstLabels.contains("a"));
+        Assert.assertTrue(secondLabels.contains("b"));
+        Assert.assertTrue(secondLabels.contains("software"));
     }
 }

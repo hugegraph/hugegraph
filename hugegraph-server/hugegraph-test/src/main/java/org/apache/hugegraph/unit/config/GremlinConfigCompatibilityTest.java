@@ -19,6 +19,7 @@ package org.apache.hugegraph.unit.config;
 
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -29,6 +30,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -37,10 +39,12 @@ import org.apache.hugegraph.backend.id.IdGenerator;
 import org.apache.hugegraph.testutil.Assert;
 import org.apache.hugegraph.unit.BaseUnitTest;
 import org.apache.tinkerpop.gremlin.server.Settings;
+import org.apache.tinkerpop.gremlin.process.traversal.step.util.MutablePath;
 import org.apache.tinkerpop.gremlin.util.message.ResponseMessage;
 import org.apache.tinkerpop.gremlin.util.message.ResponseStatusCode;
 import org.apache.tinkerpop.gremlin.util.ser.MessageTextSerializer;
 import org.junit.Test;
+import org.yaml.snakeyaml.Yaml;
 
 import io.netty.buffer.ByteBufAllocator;
 
@@ -55,10 +59,11 @@ public class GremlinConfigCompatibilityTest extends BaseUnitTest {
     private static final String IO_REGISTRY =
             "org.apache.hugegraph.io.HugeGraphIoRegistry";
     private static final String GREMLIN_SERVER_CONFIG = "gremlin-server.yaml";
+    private static final String REMOTE_OBJECTS_CONFIG = "remote-objects.yaml";
     private static final List<String> REMOTE_CONFIGS = Arrays.asList(
             "gremlin-driver-settings.yaml",
             "remote.yaml",
-            "remote-objects.yaml"
+            REMOTE_OBJECTS_CONFIG
     );
     private static final List<String> ALL_CONFIGS = Arrays.asList(
             GREMLIN_SERVER_CONFIG,
@@ -145,6 +150,27 @@ public class GremlinConfigCompatibilityTest extends BaseUnitTest {
             textSerializer.configure(config(config), Collections.emptyMap());
             assertCanSerializeHugeGraphTypes(textSerializer, true);
         }
+    }
+
+    @Test
+    public void testRemoteObjectsSerializerCanSerializePathShape()
+            throws Exception {
+        RemoteSerializerSettings settings =
+                readRemoteSerializerSettings(REMOTE_OBJECTS_CONFIG);
+        MessageTextSerializer<?> serializer =
+                newTextSerializer(settings.className);
+
+        serializer.configure(config(settings.config), Collections.emptyMap());
+
+        String json = serializeResponse(serializer, testPath());
+
+        Assert.assertContains("\"labels\"", json);
+        Assert.assertContains("\"objects\"", json);
+        Assert.assertContains("marko", json);
+        Assert.assertContains("lop", json);
+        Assert.assertContains("\"a\"", json);
+        Assert.assertContains("\"b\"", json);
+        Assert.assertContains("\"software\"", json);
     }
 
     private static Settings readGremlinServerSettings() throws Exception {
@@ -275,6 +301,27 @@ public class GremlinConfigCompatibilityTest extends BaseUnitTest {
                                                     ByteBufAllocator.DEFAULT);
     }
 
+    @SuppressWarnings("unchecked")
+    private static RemoteSerializerSettings readRemoteSerializerSettings(
+            String fileName) throws IOException {
+        try (InputStream input = Files.newInputStream(configPath(fileName))) {
+            Map<String, Object> root = new Yaml().load(input);
+            Map<String, Object> serializer =
+                    (Map<String, Object>) root.get("serializer");
+
+            Assert.assertNotNull("No serializer in " + fileName, serializer);
+            String className = (String) serializer.get("className");
+            Map<String, Object> config =
+                    (Map<String, Object>) serializer.get("config");
+
+            Assert.assertNotNull("No serializer className in " + fileName,
+                                 className);
+            Assert.assertNotNull("No serializer config in " + fileName,
+                                 config);
+            return new RemoteSerializerSettings(className, config);
+        }
+    }
+
     private static Map<String, Object> graphSONV1Config(Settings settings) {
         for (Settings.SerializerSettings serializer : settings.serializers) {
             if (GRAPHSON_UNTYPED_V1.equals(serializer.className)) {
@@ -293,6 +340,13 @@ public class GremlinConfigCompatibilityTest extends BaseUnitTest {
             return Collections.emptyMap();
         }
         return new HashMap<>(config);
+    }
+
+    private static org.apache.tinkerpop.gremlin.process.traversal.Path testPath() {
+        return MutablePath.make()
+                          .extend(IdGenerator.of("marko"), Set.of("a"))
+                          .extend(IdGenerator.of("lop"),
+                                  Set.of("b", "software"));
     }
 
     private static void assertCanSerializeHugeGraphTypes(
@@ -326,5 +380,17 @@ public class GremlinConfigCompatibilityTest extends BaseUnitTest {
                           " type: " + json,
                           json.contains(graphSONType) ||
                           json.contains(javaType));
+    }
+
+    private static final class RemoteSerializerSettings {
+
+        private final String className;
+        private final Map<String, Object> config;
+
+        private RemoteSerializerSettings(String className,
+                                         Map<String, Object> config) {
+            this.className = className;
+            this.config = config;
+        }
     }
 }

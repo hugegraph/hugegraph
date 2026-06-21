@@ -39,6 +39,7 @@ import org.apache.tinkerpop.gremlin.driver.Client;
 import org.apache.tinkerpop.gremlin.driver.Cluster;
 import org.apache.tinkerpop.gremlin.driver.Result;
 import org.apache.tinkerpop.gremlin.driver.ResultSet;
+import org.apache.tinkerpop.gremlin.process.traversal.Path;
 import org.apache.tinkerpop.gremlin.util.Tokens;
 import org.apache.tinkerpop.gremlin.util.message.RequestMessage;
 import org.slf4j.Logger;
@@ -143,6 +144,22 @@ public final class CypherClient {
                     normalized.put(normalize(entry.getKey(), depth + 1, seen),
                                    normalize(entry.getValue(), depth + 1, seen));
                 }
+            } finally {
+                seen.remove(value);
+            }
+            return normalized;
+        }
+        if (value instanceof Path) {
+            if (seen.put(value, Boolean.TRUE) != null) {
+                return CYCLIC_REFERENCE;
+            }
+            Map<String, Object> normalized = new LinkedHashMap<>();
+            try {
+                Path path = (Path) value;
+                normalized.put("labels",
+                               normalize(path.labels(), depth + 1, seen));
+                normalized.put("objects",
+                               normalize(path.objects(), depth + 1, seen));
             } finally {
                 seen.remove(value);
             }
