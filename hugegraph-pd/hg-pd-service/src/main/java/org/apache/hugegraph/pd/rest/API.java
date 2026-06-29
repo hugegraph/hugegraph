@@ -22,6 +22,7 @@ import java.util.List;
 import java.util.Map;
 
 import org.apache.hugegraph.pd.common.PDException;
+import org.apache.hugegraph.util.VersionUtil;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -33,7 +34,7 @@ public class API {
 
     // TODO: use a flexible way to define the version
     // refer: https://github.com/apache/hugegraph/pull/2528#discussion_r1573823996
-    public static final String VERSION = "1.5.0";
+    public static final String VERSION = VersionUtil.getVersionFromProperties();
     public static final String PD = "PD";
     public static final String STORE = "STORE";
     public static String STATUS_KEY = "status";
@@ -117,25 +118,18 @@ public class API {
     }
 
     public String toJSON(PDException exception) {
-        String builder = "{" +
-                         QUOTATION + STATUS_KEY + QUOTATION + COLON +
-                         exception.getErrorCode() + COMMA +
-                         QUOTATION + ERROR_KEY + QUOTATION + COLON +
-                         QUOTATION + exception.getMessage() + QUOTATION +
-                         "}";
-
-        return builder;
+        Map<String, Object> m = new HashMap<>();
+        m.put(STATUS_KEY, exception.getErrorCode());
+        m.put(ERROR_KEY, exception.getMessage() == null ? "" : exception.getMessage());
+        return toJSON(m);
     }
 
-    public String toJSON(Exception exception) {
-        String builder = "{" +
-                         QUOTATION + STATUS_KEY + QUOTATION + COLON + "-1" +
-                         COMMA +
-                         QUOTATION + ERROR_KEY + QUOTATION + COLON +
-                         QUOTATION + exception.getMessage() + QUOTATION +
-                         "}";
-
-        return builder;
+    public String toJSON(Throwable exception) {
+        Map<String, Object> m = new HashMap<>();
+        m.put(STATUS_KEY, -1);
+        m.put(ERROR_KEY,
+              exception == null || exception.getMessage() == null ? "" : exception.getMessage());
+        return toJSON(m);
     }
 
     public String toJSON(Object object) {
