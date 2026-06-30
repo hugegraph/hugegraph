@@ -210,6 +210,20 @@ public class CountStrategyCoreTest extends BaseCoreTest {
     }
 
     @Test
+    public void testOptimizedGraphCountCanBeResetAndReused() {
+        this.initSchema();
+        this.initGraph();
+
+        GraphTraversal<Vertex, Long> traversal = graph().traversal().V().count();
+
+        Assert.assertEquals(3L, traversal.next());
+
+        traversal.asAdmin().reset();
+
+        Assert.assertEquals(3L, traversal.next());
+    }
+
+    @Test
     public void testRepeatAfterTextRangeFilterWithEmptyResult() {
         this.initTextRangeSchema(true);
 

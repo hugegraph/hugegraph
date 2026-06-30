@@ -64,6 +64,12 @@ public final class HugeCountStep<S extends Element>
     }
 
     @Override
+    public void reset() {
+        super.reset();
+        this.done = false;
+    }
+
+    @Override
     protected Admin<Long> processNextStart() throws NoSuchElementException {
         if (this.done) {
             throw FastNoSuchElementException.instance();
