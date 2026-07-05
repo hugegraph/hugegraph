@@ -318,7 +318,7 @@ public final class TraversalUtil {
     private static void addPositiveLabelValues(HasContainer has,
                                                List<Object> labels) {
         P<?> predicate = has.getPredicate();
-        BiPredicate<?, ?> bp = predicate.getBiPredicate();
+        PBiPredicate<?, ?> bp = predicate.getBiPredicate();
         if (bp == Compare.eq) {
             labels.add(predicate.getValue());
         } else {
@@ -390,7 +390,7 @@ public final class TraversalUtil {
         }
 
         P<?> predicate = has.getPredicate();
-        BiPredicate<?, ?> bp = predicate.getBiPredicate();
+        PBiPredicate<?, ?> bp = predicate.getBiPredicate();
         if (bp == Compare.eq) {
             return true;
         }
