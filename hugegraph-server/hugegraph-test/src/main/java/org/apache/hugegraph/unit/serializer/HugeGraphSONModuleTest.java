@@ -21,13 +21,17 @@ import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.util.Map;
+import java.util.UUID;
 
+import org.apache.hugegraph.backend.id.EdgeId;
 import org.apache.hugegraph.backend.id.IdGenerator;
 import org.apache.hugegraph.io.HugeGraphIoRegistry;
 import org.apache.hugegraph.schema.PropertyKey;
 import org.apache.hugegraph.testutil.Assert;
 import org.apache.hugegraph.unit.BaseUnitTest;
 import org.apache.hugegraph.unit.FakeObjects;
+import org.apache.hugegraph.util.JsonUtil;
 import org.apache.tinkerpop.gremlin.structure.io.graphson.GraphSONMapper;
 import org.apache.tinkerpop.gremlin.structure.io.graphson.GraphSONVersion;
 import org.apache.tinkerpop.gremlin.structure.io.graphson.GraphSONWriter;
@@ -39,7 +43,12 @@ public class HugeGraphSONModuleTest extends BaseUnitTest {
     @Test
     public void testSerializeFileWithGraphSONTypeInfo() throws IOException {
         String json = writeTyped(new File("test.text"));
+        Map<?, ?> typedFile = JsonUtil.fromJson(json, Map.class);
+        Object value = typedFile.get("@value");
 
+        Assert.assertEquals("hugegraph:File", typedFile.get("@type"));
+        Assert.assertInstanceOf(Map.class, value);
+        Assert.assertEquals("test.text", ((Map<?, ?>) value).get("file"));
         Assert.assertContains("hugegraph:File", json);
         Assert.assertContains("\"file\"", json);
         Assert.assertContains("test.text", json);
@@ -49,11 +58,19 @@ public class HugeGraphSONModuleTest extends BaseUnitTest {
     public void testSerializeIdWithGraphSONTypeInfo() throws IOException {
         String stringId = writeTyped(IdGenerator.of("marko"));
         String longId = writeTyped(IdGenerator.of(123L));
+        String uuidId = writeTyped(IdGenerator.of(
+                UUID.fromString("3cfcafc8-7906-4ab7-a207-4ded056f58de")));
+        String edgeId = writeTyped(EdgeId.parse("S1>2>3>4>L6"));
 
         Assert.assertContains("hugegraph:StringId", stringId);
         Assert.assertContains("marko", stringId);
         Assert.assertContains("hugegraph:LongId", longId);
         Assert.assertContains("123", longId);
+        Assert.assertContains("hugegraph:UuidId", uuidId);
+        Assert.assertContains("3cfcafc8-7906-4ab7-a207-4ded056f58de",
+                              uuidId);
+        Assert.assertContains("hugegraph:EdgeId", edgeId);
+        Assert.assertContains("S1>2>3>4>L6", edgeId);
     }
 
     @Test

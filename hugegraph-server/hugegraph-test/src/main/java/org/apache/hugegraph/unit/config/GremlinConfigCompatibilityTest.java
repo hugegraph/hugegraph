@@ -35,17 +35,22 @@ import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import org.apache.hugegraph.backend.id.EdgeId;
 import org.apache.hugegraph.backend.id.IdGenerator;
 import org.apache.hugegraph.testutil.Assert;
+import org.apache.hugegraph.traversal.optimize.ConditionP;
 import org.apache.hugegraph.unit.BaseUnitTest;
-import org.apache.tinkerpop.gremlin.server.Settings;
+import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.step.util.MutablePath;
+import org.apache.tinkerpop.gremlin.server.Settings;
+import org.apache.tinkerpop.gremlin.util.MessageSerializer;
 import org.apache.tinkerpop.gremlin.util.message.ResponseMessage;
 import org.apache.tinkerpop.gremlin.util.message.ResponseStatusCode;
 import org.apache.tinkerpop.gremlin.util.ser.MessageTextSerializer;
 import org.junit.Test;
 import org.yaml.snakeyaml.Yaml;
 
+import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufAllocator;
 
 public class GremlinConfigCompatibilityTest extends BaseUnitTest {
@@ -148,7 +153,46 @@ public class GremlinConfigCompatibilityTest extends BaseUnitTest {
             MessageTextSerializer<?> textSerializer = newTextSerializer(serializer);
 
             textSerializer.configure(config(config), Collections.emptyMap());
-            assertCanSerializeHugeGraphTypes(textSerializer, true);
+            assertCanSerializeHugeGraphTypes(textSerializer,
+                                             usesStableGraphSONTypes(serializer));
+        }
+    }
+
+    @Test
+    public void testConfiguredGraphBinarySerializersCanSerializeConditionPPredicates()
+            throws Exception {
+        Settings settings = readGremlinServerSettings();
+        boolean found = false;
+
+        for (Settings.SerializerSettings serializerSettings :
+             settings.serializers) {
+            if (!serializerSettings.className.startsWith(SERIALIZER_PACKAGE +
+                                                         "GraphBinary")) {
+                continue;
+            }
+
+            MessageSerializer<?> serializer =
+                    newMessageSerializer(serializerSettings.className);
+            serializer.configure(config(serializerSettings.config),
+                                 Collections.emptyMap());
+            assertCanSerializeBinaryConditionPredicates(serializer);
+            found = true;
+        }
+
+        Assert.assertTrue("No GraphBinary serializer settings found in " +
+                          GREMLIN_SERVER_CONFIG, found);
+    }
+
+    @Test
+    public void testTypedFallbackSerializersPreserveConditionPPredicateNames()
+            throws Exception {
+        Map<String, Object> config = graphSONV1Config(readGremlinServerSettings());
+
+        for (String serializer : TYPED_FALLBACK_SERIALIZERS) {
+            MessageTextSerializer<?> textSerializer = newTextSerializer(serializer);
+
+            textSerializer.configure(config(config), Collections.emptyMap());
+            assertSerializesConditionPredicateNames(textSerializer);
         }
     }
 
@@ -280,13 +324,22 @@ public class GremlinConfigCompatibilityTest extends BaseUnitTest {
 
     private static MessageTextSerializer<?> newTextSerializer(String className)
             throws Exception {
-        Object serializer = Class.forName(className)
-                                 .getDeclaredConstructor()
-                                 .newInstance();
+        MessageSerializer<?> serializer = newMessageSerializer(className);
 
         Assert.assertTrue(className + " should be a MessageTextSerializer",
                           serializer instanceof MessageTextSerializer);
         return (MessageTextSerializer<?>) serializer;
+    }
+
+    private static MessageSerializer<?> newMessageSerializer(String className)
+            throws Exception {
+        Object serializer = Class.forName(className)
+                                 .getDeclaredConstructor()
+                                 .newInstance();
+
+        Assert.assertTrue(className + " should be a MessageSerializer",
+                          serializer instanceof MessageSerializer);
+        return (MessageSerializer<?>) serializer;
     }
 
     private static String serializeResponse(MessageTextSerializer<?> serializer,
@@ -299,6 +352,24 @@ public class GremlinConfigCompatibilityTest extends BaseUnitTest {
 
         return serializer.serializeResponseAsString(response,
                                                     ByteBufAllocator.DEFAULT);
+    }
+
+    private static byte[] serializeBinaryResponse(
+            MessageSerializer<?> serializer, Object result)
+            throws Exception {
+        ResponseMessage response = ResponseMessage.build(UUID.randomUUID())
+                                                  .code(ResponseStatusCode.SUCCESS)
+                                                  .result(result)
+                                                  .create();
+        ByteBuf buffer = serializer.serializeResponseAsBinary(
+                response, ByteBufAllocator.DEFAULT);
+        try {
+            byte[] bytes = new byte[buffer.readableBytes()];
+            buffer.readBytes(bytes);
+            return bytes;
+        } finally {
+            buffer.release();
+        }
     }
 
     @SuppressWarnings("unchecked")
@@ -353,33 +424,86 @@ public class GremlinConfigCompatibilityTest extends BaseUnitTest {
             MessageTextSerializer<?> serializer, boolean typed)
             throws Exception {
         Object id = IdGenerator.of("marko");
+        Object uuidId = IdGenerator.of(
+                UUID.fromString("3cfcafc8-7906-4ab7-a207-4ded056f58de"));
+        Object edgeId = EdgeId.parse("S1>2>3>4>L6");
         String fileJson = serializeResponse(serializer, new File("test.text"));
         String idJson = serializeResponse(serializer, id);
+        String uuidJson = serializeResponse(serializer, uuidId);
+        String edgeJson = serializeResponse(serializer, edgeId);
 
         Assert.assertContains("\"file\"", fileJson);
         Assert.assertContains("test.text", fileJson);
         Assert.assertContains("marko", idJson);
+        Assert.assertContains("3cfcafc8-7906-4ab7-a207-4ded056f58de",
+                              uuidJson);
+        Assert.assertContains("S1>2>3>4>L6", edgeJson);
 
         if (typed) {
-            assertContainsTypeInfo(fileJson, "hugegraph:File",
-                                   File.class.getName());
-            assertContainsTypeInfo(idJson, "hugegraph:StringId",
-                                   id.getClass().getName());
+            assertContainsGraphSONType(fileJson, "hugegraph:File");
+            assertContainsGraphSONType(idJson, "hugegraph:StringId");
+            assertContainsGraphSONType(uuidJson, "hugegraph:UuidId");
+            assertContainsGraphSONType(edgeJson, "hugegraph:EdgeId");
         }
     }
 
-    private static void assertContainsTypeInfo(String json,
-                                               String graphSONType,
-                                               String javaType) {
-        Assert.assertTrue("Typed GraphSON should contain type metadata: " +
-                          json,
-                          json.contains("@type") || json.contains("@class") ||
-                          json.contains(graphSONType) ||
-                          json.contains(javaType));
-        Assert.assertTrue("Typed GraphSON should contain HugeGraph or Java" +
-                          " type: " + json,
-                          json.contains(graphSONType) ||
-                          json.contains(javaType));
+    private static boolean usesStableGraphSONTypes(String serializer) {
+        // GraphSON V1 uses legacy @class wrapping; assert stable
+        // hugegraph:* @type names for V2/V3 typed fallback serializers.
+        return !serializer.endsWith("GraphSONMessageSerializerV1");
+    }
+
+    private static void assertCanSerializeBinaryConditionPredicates(
+            MessageSerializer<?> serializer) throws Exception {
+        for (P<Object> predicate : conditionPredicates()) {
+            Assert.assertTrue(serializeBinaryResponse(serializer,
+                                                     predicate).length > 0);
+        }
+    }
+
+    private static void assertSerializesConditionPredicateNames(
+            MessageTextSerializer<?> serializer) throws Exception {
+        String textContains = serializeResponse(serializer,
+                                                conditionP(
+                                                        ConditionP.textContains("ark")));
+        String contains = serializeResponse(serializer,
+                                            conditionP(
+                                                    ConditionP.contains("marko")));
+        String containsKey = serializeResponse(serializer,
+                                               conditionP(
+                                                       ConditionP.containsK("name")));
+        String containsValue = serializeResponse(serializer,
+                                                 conditionP(
+                                                         ConditionP.containsV("marko")));
+        String eq = serializeResponse(serializer,
+                                      conditionP(ConditionP.eq("marko")));
+
+        Assert.assertContains("textcontains", textContains);
+        Assert.assertContains("contains", contains);
+        Assert.assertContains("containsk", containsKey);
+        Assert.assertContains("containsv", containsValue);
+        Assert.assertContains("==", eq);
+    }
+
+    private static List<P<Object>> conditionPredicates() {
+        return Arrays.asList(
+                conditionP(ConditionP.textContains("ark")),
+                conditionP(ConditionP.contains("marko")),
+                conditionP(ConditionP.containsK("name")),
+                conditionP(ConditionP.containsV("marko")),
+                conditionP(ConditionP.eq("marko"))
+        );
+    }
+
+    @SuppressWarnings("unchecked")
+    private static P<Object> conditionP(ConditionP predicate) {
+        return P.test(predicate.getBiPredicate(), predicate.getValue());
+    }
+
+    private static void assertContainsGraphSONType(String json,
+                                                   String graphSONType) {
+        Assert.assertContains("\"@type\"", json);
+        Assert.assertContains(graphSONType, json);
     }
 
     private static final class RemoteSerializerSettings {

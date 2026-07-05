@@ -110,6 +110,7 @@ public class HugeGraphSONModule extends TinkerPopJacksonModule {
         // HugeGraph id serializer
         TYPE_DEFINITIONS.put(StringId.class, "StringId");
         TYPE_DEFINITIONS.put(LongId.class, "LongId");
+        TYPE_DEFINITIONS.put(UuidId.class, "UuidId");
         TYPE_DEFINITIONS.put(EdgeId.class, "EdgeId");
 
         // HugeGraph schema serializer
@@ -935,8 +936,8 @@ public class HugeGraphSONModule extends TinkerPopJacksonModule {
                                       SerializerProvider provider,
                                       TypeSerializer typeSer)
                 throws IOException {
-            WritableTypeId typeId = typeSer.typeId(file,
-                                                   JsonToken.VALUE_EMBEDDED_OBJECT);
+            WritableTypeId typeId = typeSer.typeId(
+                    file, JsonToken.VALUE_EMBEDDED_OBJECT);
             typeSer.writeTypePrefix(jsonGenerator, typeId);
             this.serialize(file, jsonGenerator, provider);
             typeSer.writeTypeSuffix(jsonGenerator, typeId);
