@@ -36,5 +36,6 @@ source "$TRAVIS_DIR"/ci-service-utils.sh
 
 pushd $PD_DIR
 . bin/start-hugegraph-pd.sh
-wait_for_tcp_port HugeGraphPD 127.0.0.1 8686 "$PD_DIR"/bin/pid "$PD_DIR"
+wait_for_http_status HugeGraphPD http://127.0.0.1:8620/v1/health \
+                     "$PD_DIR"/bin/pid "$PD_DIR" 90 200,401
 popd

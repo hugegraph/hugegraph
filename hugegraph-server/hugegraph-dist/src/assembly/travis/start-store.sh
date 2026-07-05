@@ -36,5 +36,6 @@ source "$TRAVIS_DIR"/ci-service-utils.sh
 
 pushd $STORE_DIR
 . bin/start-hugegraph-store.sh
-wait_for_tcp_port HugeGraphStore 127.0.0.1 8500 "$STORE_DIR"/bin/pid "$STORE_DIR"
+wait_for_http_status HugeGraphStore http://127.0.0.1:8520/v1/health \
+                     "$STORE_DIR"/bin/pid "$STORE_DIR" 90 200,401
 popd

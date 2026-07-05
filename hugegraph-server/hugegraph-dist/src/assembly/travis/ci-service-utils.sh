@@ -75,19 +75,87 @@ function wait_for_tcp_port() {
     return 1
 }
 
+function http_status_is_accepted() {
+    local status="$1"
+    local accepted_statuses="$2"
+
+    case ",${accepted_statuses}," in
+        *",${status},"*)
+            return 0
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+function wait_for_http_status() {
+    local service_name="$1"
+    local url="$2"
+    local pid_file="$3"
+    local service_dir="$4"
+    local timeout_seconds="${5:-90}"
+    local accepted_statuses="${6:-200}"
+
+    echo "[ci] waiting for ${service_name} HTTP readiness at ${url}"
+    echo "[ci] accepted HTTP statuses: ${accepted_statuses}"
+    for second in $(seq 1 "${timeout_seconds}"); do
+        local status
+        status="$(curl -s -o /dev/null -w "%{http_code}" \
+                  "${url}" 2>/dev/null)"
+        if [ "$?" -ne 0 ]; then
+            status="000"
+        fi
+        if http_status_is_accepted "${status}" "${accepted_statuses}"; then
+            echo "[ci] ${service_name} is HTTP ready at ${url}" \
+                 "(status ${status})"
+            return 0
+        fi
+
+        if [ -f "${pid_file}" ]; then
+            local pid
+            pid="$(cat "${pid_file}")"
+            if [ -n "${pid}" ] && ! kill -0 "${pid}" >/dev/null 2>&1; then
+                echo "[ci] ${service_name} process ${pid} exited before" \
+                     "HTTP readiness"
+                dump_service_diagnostics "${service_dir}" "${service_name}"
+                return 1
+            fi
+        fi
+
+        if [ "$((second % 10))" -eq 0 ]; then
+            echo "[ci] still waiting for ${service_name} HTTP readiness" \
+                 "(${second}s, last status ${status})"
+        fi
+        sleep 1
+    done
+
+    echo "[ci] timeout waiting for ${service_name} HTTP readiness at ${url}"
+    dump_service_diagnostics "${service_dir}" "${service_name}"
+    return 1
+}
+
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
     command="$1"
     shift || true
     case "${command}" in
         dump)
             dump_service_diagnostics "$@"
+            exit $?
             ;;
         wait)
             wait_for_tcp_port "$@"
+            exit $?
+            ;;
+        wait-http)
+            wait_for_http_status "$@"
+            exit $?
             ;;
         *)
             echo "Usage: $0 dump SERVICE_DIR SERVICE_NAME"
             echo "       $0 wait SERVICE_NAME HOST PORT PID_FILE SERVICE_DIR [TIMEOUT_SECONDS]"
+            echo "       $0 wait-http SERVICE_NAME URL PID_FILE SERVICE_DIR" \
+                 "[TIMEOUT_SECONDS] [ACCEPTED_STATUSES]"
             exit 2
             ;;
     esac
