@@ -17,6 +17,7 @@
 
 package org.apache.hugegraph.unit.serializer;
 
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
@@ -33,6 +34,7 @@ import org.apache.hugegraph.unit.BaseUnitTest;
 import org.apache.hugegraph.unit.FakeObjects;
 import org.apache.hugegraph.util.JsonUtil;
 import org.apache.tinkerpop.gremlin.structure.io.graphson.GraphSONMapper;
+import org.apache.tinkerpop.gremlin.structure.io.graphson.GraphSONReader;
 import org.apache.tinkerpop.gremlin.structure.io.graphson.GraphSONVersion;
 import org.apache.tinkerpop.gremlin.structure.io.graphson.GraphSONWriter;
 import org.apache.tinkerpop.gremlin.structure.io.graphson.TypeInfo;
@@ -52,6 +54,9 @@ public class HugeGraphSONModuleTest extends BaseUnitTest {
         Assert.assertContains("hugegraph:File", json);
         Assert.assertContains("\"file\"", json);
         Assert.assertContains("test.text", json);
+
+        File file = readTyped(json, File.class);
+        Assert.assertEquals("test.text", file.getName());
     }
 
     @Test
@@ -92,6 +97,16 @@ public class HugeGraphSONModuleTest extends BaseUnitTest {
         writer.writeObject(output, object);
 
         return output.toString(StandardCharsets.UTF_8.name());
+    }
+
+    private static <T> T readTyped(String json, Class<T> clazz)
+            throws IOException {
+        GraphSONMapper mapper = mapper(TypeInfo.PARTIAL_TYPES);
+        GraphSONReader reader = GraphSONReader.build().mapper(mapper).create();
+        ByteArrayInputStream input = new ByteArrayInputStream(
+                json.getBytes(StandardCharsets.UTF_8));
+
+        return reader.readObject(input, clazz);
     }
 
     private static String writeUntyped(Object object) throws IOException {
