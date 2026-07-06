@@ -65,6 +65,13 @@ public class GremlinConfigCompatibilityTest extends BaseUnitTest {
             "org.apache.hugegraph.io.HugeGraphIoRegistry";
     private static final String GREMLIN_SERVER_CONFIG = "gremlin-server.yaml";
     private static final String REMOTE_OBJECTS_CONFIG = "remote-objects.yaml";
+    private static final List<String> GREMLIN_SERVER_CONFIG_VARIANTS =
+            Arrays.asList(
+                    "static/conf/gremlin-server.yaml",
+                    "travis/conf-raft1/gremlin-server.yaml",
+                    "travis/conf-raft2/gremlin-server.yaml",
+                    "travis/conf-raft3/gremlin-server.yaml"
+            );
     private static final List<String> REMOTE_CONFIGS = Arrays.asList(
             "gremlin-driver-settings.yaml",
             "remote.yaml",
@@ -81,6 +88,18 @@ public class GremlinConfigCompatibilityTest extends BaseUnitTest {
                     SERIALIZER_PACKAGE + "GraphSONMessageSerializerV1",
                     SERIALIZER_PACKAGE + "GraphSONMessageSerializerV2",
                     SERIALIZER_PACKAGE + "GraphSONMessageSerializerV3"
+            );
+    private static final List<String> TYPED_GRAPHSON_MIME_TYPES =
+            Arrays.asList(
+                    "application/vnd.gremlin-v1.0+json",
+                    "application/vnd.gremlin-v2.0+json",
+                    "application/vnd.gremlin-v3.0+json"
+            );
+    private static final List<String> UNTYPED_GRAPHSON_MIME_TYPES =
+            Arrays.asList(
+                    "application/vnd.gremlin-v1.0+json;types=false",
+                    "application/vnd.gremlin-v2.0+json;types=false",
+                    "application/vnd.gremlin-v3.0+json;types=false"
             );
 
     @Test
@@ -117,6 +136,75 @@ public class GremlinConfigCompatibilityTest extends BaseUnitTest {
             assertConfiguredSerializerClassesAreLoadable(file,
                                                          readConfig(file));
         }
+    }
+
+    @Test
+    public void testGremlinServerSupportsTypedAndUntypedGraphSONMimeTypes()
+            throws Exception {
+        Map<String, String> graphSONMimeTypes =
+                graphSONMimeTypes(readGremlinServerSettings());
+
+        assertSupportsTypedAndUntypedGraphSONMimeTypes(GREMLIN_SERVER_CONFIG,
+                                                       graphSONMimeTypes);
+    }
+
+    @Test
+    public void testGremlinServerConfigVariantsSupportGraphSONMimeTypes()
+            throws Exception {
+        Path assembly = serverAssemblyPath();
+
+        for (String variant : GREMLIN_SERVER_CONFIG_VARIANTS) {
+            Settings settings = Settings.read(assembly.resolve(variant)
+                                                   .toString());
+
+            assertSupportsTypedAndUntypedGraphSONMimeTypes(variant,
+                                                           graphSONMimeTypes(settings));
+        }
+    }
+
+    @Test
+    public void testConfiguredTypedGraphSONSerializersCanSerializeTypeInfo()
+            throws Exception {
+        Settings settings = readGremlinServerSettings();
+        boolean found = false;
+
+        for (Settings.SerializerSettings serializerSettings :
+             settings.serializers) {
+            if (!TYPED_FALLBACK_SERIALIZERS.contains(
+                    serializerSettings.className)) {
+                continue;
+            }
+
+            MessageTextSerializer<?> serializer =
+                    newTextSerializer(serializerSettings.className);
+            serializer.configure(config(serializerSettings.config),
+                                 Collections.emptyMap());
+            assertCanSerializeHugeGraphTypes(
+                    serializer,
+                    usesStableGraphSONTypes(serializerSettings.className));
+            found = true;
+        }
+
+        Assert.assertTrue("No typed GraphSON serializer settings found in " +
+                          GREMLIN_SERVER_CONFIG, found);
+    }
+
+    private static void assertSupportsTypedAndUntypedGraphSONMimeTypes(
+            String fileName, Map<String, String> graphSONMimeTypes) {
+        for (String mimeType : UNTYPED_GRAPHSON_MIME_TYPES) {
+            Assert.assertTrue(fileName + " should support untyped " +
+                              "GraphSON MIME " + mimeType,
+                              graphSONMimeTypes.containsKey(mimeType));
+        }
+        for (String mimeType : TYPED_GRAPHSON_MIME_TYPES) {
+            Assert.assertTrue(fileName + " should support typed GraphSON " +
+                              "MIME " + mimeType,
+                              graphSONMimeTypes.containsKey(mimeType));
+        }
+        Assert.assertEquals(fileName + " should keep application/json " +
+                            "mapped to the untyped V1 serializer",
+                            GRAPHSON_UNTYPED_V1,
+                            graphSONMimeTypes.get("application/json"));
     }
 
     @Test
@@ -229,6 +317,10 @@ public class GremlinConfigCompatibilityTest extends BaseUnitTest {
         return findConfDir().resolve(fileName);
     }
 
+    private static Path serverAssemblyPath() {
+        return findConfDir().getParent().getParent();
+    }
+
     private static Path findConfDir() {
         String configuredDir = System.getProperty("hugegraph.conf.dir");
         Path configuredPath = resolveConfiguredDir(configuredDir);
@@ -320,6 +412,27 @@ public class GremlinConfigCompatibilityTest extends BaseUnitTest {
         }
         Assert.assertTrue("No serializer className found in " + fileName,
                           found);
+    }
+
+    private static Map<String, String> graphSONMimeTypes(Settings settings)
+            throws Exception {
+        Map<String, String> mimeTypes = new HashMap<>();
+
+        for (Settings.SerializerSettings serializerSettings :
+             settings.serializers) {
+            if (!serializerSettings.className.startsWith(SERIALIZER_PACKAGE +
+                                                         "GraphSON")) {
+                continue;
+            }
+
+            MessageSerializer<?> serializer =
+                    newMessageSerializer(serializerSettings.className);
+            for (String mimeType : serializer.mimeTypesSupported()) {
+                mimeTypes.putIfAbsent(mimeType, serializerSettings.className);
+            }
+        }
+
+        return mimeTypes;
     }
 
     private static MessageTextSerializer<?> newTextSerializer(String className)

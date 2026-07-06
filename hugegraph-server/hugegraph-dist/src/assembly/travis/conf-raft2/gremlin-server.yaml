@@ -98,6 +98,24 @@ serializers:
        ioRegistries: [org.apache.hugegraph.io.HugeGraphIoRegistry]
      }
   }
+  - {className: org.apache.tinkerpop.gremlin.util.ser.GraphSONMessageSerializerV1,
+     config: {
+       serializeResultToString: false,
+       ioRegistries: [org.apache.hugegraph.io.HugeGraphIoRegistry]
+     }
+  }
+  - {className: org.apache.tinkerpop.gremlin.util.ser.GraphSONMessageSerializerV2,
+     config: {
+       serializeResultToString: false,
+       ioRegistries: [org.apache.hugegraph.io.HugeGraphIoRegistry]
+     }
+  }
+  - {className: org.apache.tinkerpop.gremlin.util.ser.GraphSONMessageSerializerV3,
+     config: {
+       serializeResultToString: false,
+       ioRegistries: [org.apache.hugegraph.io.HugeGraphIoRegistry]
+     }
+  }
 metrics: {
   consoleReporter: {enabled: false, interval: 180000},
   csvReporter: {enabled: false, interval: 180000, fileName: ./metrics/gremlin-server-metrics.csv},
