@@ -42,6 +42,7 @@ import org.apache.hugegraph.unit.core.DataTypeTest;
 import org.apache.hugegraph.unit.core.DirectionsTest;
 import org.apache.hugegraph.unit.core.ExceptionTest;
 import org.apache.hugegraph.unit.core.GroovyScriptEngineCompatibilityTest;
+import org.apache.hugegraph.unit.core.HugeFeaturesTest;
 import org.apache.hugegraph.unit.core.LocksTableTest;
 import org.apache.hugegraph.unit.core.PageStateTest;
 import org.apache.hugegraph.unit.core.QueryTest;
@@ -128,6 +129,7 @@ import org.junit.runners.Suite;
         BackendMutationTest.class,
         ConditionTest.class,
         GroovyScriptEngineCompatibilityTest.class,
+        HugeFeaturesTest.class,
         ConditionQueryFlattenTest.class,
         QueryTest.class,
         RangeTest.class,
