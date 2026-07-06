@@ -102,10 +102,7 @@ function wait_for_http_status() {
     for second in $(seq 1 "${timeout_seconds}"); do
         local status
         status="$(curl -s -o /dev/null -w "%{http_code}" \
-                  "${url}" 2>/dev/null)"
-        if [ "$?" -ne 0 ]; then
-            status="000"
-        fi
+                  "${url}" 2>/dev/null)" || status="000"
         if http_status_is_accepted "${status}" "${accepted_statuses}"; then
             echo "[ci] ${service_name} is HTTP ready at ${url}" \
                  "(status ${status})"

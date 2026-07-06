@@ -142,16 +142,20 @@ public class CypherApiTest extends BaseApiTest {
         String content = this.testCypherQueryAndContains(cypher, "path");
         List<?> data = assertCypherSuccessData(content);
         Map<?, ?> row = assertSingleMapRow(data);
-        Map<?, ?> path = assertMapValue(row, "path");
-        List<?> labels = assertListValue(path, "labels");
-        List<?> objects = assertListValue(path, "objects");
+        List<?> path = assertListValue(row, "path");
 
-        Assert.assertEquals(3, labels.size());
-        Assert.assertEquals(3, objects.size());
-        Assert.assertEquals(labels.size(), objects.size());
-        Assert.assertInstanceOf(List.class, labels.get(0));
-        Assert.assertInstanceOf(List.class, labels.get(1));
-        Assert.assertInstanceOf(List.class, labels.get(2));
+        Assert.assertEquals(3, path.size());
+        Map<?, ?> source = assertMapValue(path, 0);
+        Map<?, ?> relation = assertMapValue(path, 1);
+        Map<?, ?> target = assertMapValue(path, 2);
+
+        Assert.assertEquals("node", source.get("_type"));
+        Assert.assertEquals("person", source.get("_label"));
+        Assert.assertEquals("marko", source.get("name"));
+        Assert.assertEquals("knows", relation.get("_label"));
+        Assert.assertEquals("node", target.get("_type"));
+        Assert.assertEquals("person", target.get("_label"));
+        Assert.assertEquals("peter", target.get("name"));
         assertContains("marko", content);
         assertContains("peter", content);
         assertNoHugeGraphIdLeak(content);
@@ -202,6 +206,12 @@ public class CypherApiTest extends BaseApiTest {
         Assert.assertTrue(map.containsKey(key));
         Assert.assertInstanceOf(Map.class, map.get(key));
         return (Map<?, ?>) map.get(key);
+    }
+
+    private static Map<?, ?> assertMapValue(List<?> list, int index) {
+        Assert.assertTrue(list.size() > index);
+        Assert.assertInstanceOf(Map.class, list.get(index));
+        return (Map<?, ?>) list.get(index);
     }
 
     private static List<?> assertListValue(Map<?, ?> map, String key) {

@@ -146,8 +146,13 @@ jobs:
       - name: Show PD diagnostics on failure
         if: failure()
         run: |
-          source hugegraph-commons/hugegraph-common/src/main/resources/version.properties
-          PD_DIR=hugegraph-pd/apache-hugegraph-pd-$VersionInBash
+          VERSION=$(grep -E '^VersionInBash=' \
+            hugegraph-commons/hugegraph-common/src/main/resources/version.properties | cut -d'=' -f2-)
+          [[ "$VERSION" =~ ^[0-9A-Za-z._-]+$ ]] || {
+            echo "Invalid VersionInBash: $VERSION"
+            exit 1
+          }
+          PD_DIR=hugegraph-pd/apache-hugegraph-pd-$VERSION
           bash $TRAVIS_DIR/ci-service-utils.sh dump "$PD_DIR" HugeGraphPD || true
           find . -path '*/surefire-reports/*' -type f \
             \( -name '*.txt' -o -name '*.xml' \) | sort | while read -r report; do
@@ -261,9 +266,14 @@ jobs:
       - name: Show Store diagnostics on failure
         if: failure()
         run: |
-          source hugegraph-commons/hugegraph-common/src/main/resources/version.properties
-          PD_DIR=hugegraph-pd/apache-hugegraph-pd-$VersionInBash
-          STORE_DIR=hugegraph-store/apache-hugegraph-store-$VersionInBash
+          VERSION=$(grep -E '^VersionInBash=' \
+            hugegraph-commons/hugegraph-common/src/main/resources/version.properties | cut -d'=' -f2-)
+          [[ "$VERSION" =~ ^[0-9A-Za-z._-]+$ ]] || {
+            echo "Invalid VersionInBash: $VERSION"
+            exit 1
+          }
+          PD_DIR=hugegraph-pd/apache-hugegraph-pd-$VERSION
+          STORE_DIR=hugegraph-store/apache-hugegraph-store-$VERSION
           bash $TRAVIS_DIR/ci-service-utils.sh dump "$PD_DIR" HugeGraphPD || true
           bash $TRAVIS_DIR/ci-service-utils.sh dump "$STORE_DIR" HugeGraphStore || true
           find . -path '*/surefire-reports/*' -type f \
@@ -355,9 +365,14 @@ jobs:
       - name: Show HStore diagnostics on failure
         if: failure()
         run: |
-          source hugegraph-commons/hugegraph-common/src/main/resources/version.properties
-          PD_DIR=hugegraph-pd/apache-hugegraph-pd-$VersionInBash
-          STORE_DIR=hugegraph-store/apache-hugegraph-store-$VersionInBash
+          VERSION=$(grep -E '^VersionInBash=' \
+            hugegraph-commons/hugegraph-common/src/main/resources/version.properties | cut -d'=' -f2-)
+          [[ "$VERSION" =~ ^[0-9A-Za-z._-]+$ ]] || {
+            echo "Invalid VersionInBash: $VERSION"
+            exit 1
+          }
+          PD_DIR=hugegraph-pd/apache-hugegraph-pd-$VERSION
+          STORE_DIR=hugegraph-store/apache-hugegraph-store-$VERSION
           bash $TRAVIS_DIR/ci-service-utils.sh dump "$PD_DIR" HugeGraphPD || true
           bash $TRAVIS_DIR/ci-service-utils.sh dump "$STORE_DIR" HugeGraphStore || true
           find . -path '*/surefire-reports/*' -type f \
