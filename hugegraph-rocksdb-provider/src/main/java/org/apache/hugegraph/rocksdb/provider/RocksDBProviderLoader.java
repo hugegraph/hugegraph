@@ -121,6 +121,12 @@ public class RocksDBProviderLoader {
      */
     public synchronized void selectProviderIfNeeded(String providerName) {
         if (activeProvider != null) {
+            if (!activeProvider.getProviderName().equals(providerName)) {
+                throw new IllegalStateException(String.format(
+                        "RocksDB provider '%s' is already active, cannot switch to '%s'. "
+                        + "Ensure all components use the same rocksdb.provider configuration.",
+                        activeProvider.getProviderName(), providerName));
+            }
             return;
         }
         selectProvider(providerName);
@@ -200,10 +206,6 @@ public class RocksDBProviderLoader {
 
     public static void closeRocksDB(RocksDB rocksDB) {
         getInstance().getActiveProvider().closeRocksDB(rocksDB);
-    }
-
-    public static RocksDBProvider getProviderByName(String providerName) {
-        return getInstance().getProvider(providerName);
     }
 
     /**

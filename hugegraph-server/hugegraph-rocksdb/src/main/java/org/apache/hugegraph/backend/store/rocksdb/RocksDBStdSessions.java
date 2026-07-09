@@ -92,6 +92,8 @@ public class RocksDBStdSessions extends RocksDBSessions {
         this.dataPath = dataPath;
         this.walPath = walPath;
 
+        RocksDBProviderLoader.getInstance()
+                .selectProviderIfNeeded(config.get(RocksDBOptions.PROVIDER));
         this.rocksdb = RocksDBStdSessions.openRocksDB(config, dataPath, walPath);
         this.refCount = new AtomicInteger(1);
     }
@@ -105,6 +107,8 @@ public class RocksDBStdSessions extends RocksDBSessions {
         this.dataPath = dataPath;
         this.walPath = walPath;
 
+        RocksDBProviderLoader.getInstance()
+                .selectProviderIfNeeded(config.get(RocksDBOptions.PROVIDER));
         this.rocksdb =
                 RocksDBStdSessions.openRocksDB(config, cfNames, dataPath, walPath);
         this.refCount = new AtomicInteger(1);
@@ -375,10 +379,6 @@ public class RocksDBStdSessions extends RocksDBSessions {
     private static OpenedRocksDB openRocksDB(HugeConfig config, String dataPath,
                                              String walPath) throws
                                                              RocksDBException {
-        // Select provider based on explicit configuration
-        RocksDBProviderLoader.getInstance()
-                .selectProviderIfNeeded(config.get(RocksDBOptions.PROVIDER));
-
         // Init options
         Options options = new Options();
         RocksDBStdSessions.initOptions(config, options, options, options, options);
@@ -402,10 +402,6 @@ public class RocksDBStdSessions extends RocksDBSessions {
                                              List<String> cfNames, String dataPath,
                                              String walPath) throws
                                                              RocksDBException {
-        // Select provider based on explicit configuration
-        RocksDBProviderLoader.getInstance()
-                .selectProviderIfNeeded(config.get(RocksDBOptions.PROVIDER));
-
         // Old CFs should always be opened
         Set<String> mergedCFs = RocksDBStdSessions.mergeOldCFs(dataPath,
                                                                cfNames);

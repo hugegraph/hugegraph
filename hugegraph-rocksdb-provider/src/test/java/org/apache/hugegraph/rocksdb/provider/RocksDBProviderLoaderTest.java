@@ -20,6 +20,7 @@ package org.apache.hugegraph.rocksdb.provider;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
@@ -86,7 +87,7 @@ public class RocksDBProviderLoaderTest {
 
     /**
      * Test: selectProviderIfNeeded is idempotent - calling it multiple times with the same
-     * or different name should not change the already-activated provider.
+     * name should not change the already-activated provider.
      * This ensures that multiple RocksDB instances opening in the same JVM don't conflict.
      */
     @Test
@@ -94,11 +95,29 @@ public class RocksDBProviderLoaderTest {
         loader.selectProviderIfNeeded("standard");
         RocksDBProvider first = loader.getActiveProvider();
 
-        // Second call should be a no-op
+        // Second call with same name should be a no-op
         loader.selectProviderIfNeeded("standard");
         RocksDBProvider second = loader.getActiveProvider();
 
         assertSame(first, second);
+    }
+
+    /**
+     * Test: selectProviderIfNeeded with a different name than the already-active provider
+     * should throw IllegalStateException to surface configuration inconsistency.
+     */
+    @Test
+    public void testSelectProviderIfNeededMismatchThrows() {
+        loader.selectProviderIfNeeded("standard");
+
+        try {
+            loader.selectProviderIfNeeded("topling");
+            fail("Expected IllegalStateException for provider mismatch");
+        } catch (IllegalStateException e) {
+            assertTrue(e.getMessage().contains("already active"));
+            assertTrue(e.getMessage().contains("standard"));
+            assertTrue(e.getMessage().contains("topling"));
+        }
     }
 
     /**
@@ -158,13 +177,13 @@ public class RocksDBProviderLoaderTest {
     }
 
     /**
-     * Test: getProviderByName returns the provider instance or null without requiring activation.
+     * Test: getProvider returns the provider instance or null without requiring activation.
      * Useful for inspection/diagnostic purposes.
      */
     @Test
-    public void testGetProviderByName() {
-        assertNotNull(RocksDBProviderLoader.getProviderByName("standard"));
-        assertNotNull(RocksDBProviderLoader.getProviderByName("topling"));
-        assertEquals(null, RocksDBProviderLoader.getProviderByName("unknown"));
+    public void testGetProvider() {
+        assertNotNull(loader.getProvider("standard"));
+        assertNotNull(loader.getProvider("topling"));
+        assertNull(loader.getProvider("unknown"));
     }
 }

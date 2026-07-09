@@ -75,7 +75,7 @@ public class ToplingRocksDBProviderTest {
     }
 
     /**
-     * Test: The topling provider is still discoverable via getProviderByName even when unavailable.
+     * Test: The topling provider is still discoverable via getProvider even when unavailable.
      * This distinguishes between "provider JAR not on classpath" (not found)
      * and "provider JAR present but native libs missing" (found but not available).
      */
