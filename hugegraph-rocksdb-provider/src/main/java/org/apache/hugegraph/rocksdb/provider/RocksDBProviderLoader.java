@@ -26,12 +26,17 @@ import org.rocksdb.RocksDBException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.*;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.ServiceLoader;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * RocksDB Provider SPI Loader that manages the loading and selection
- * of RocksDB providers using Java's ServiceLoader mechanism.
+ * RocksDB Provider Loader that manages provider discovery and selection.
+ * Providers are discovered via Java SPI (ServiceLoader) and selected
+ * explicitly by configuration name (rocksdb.provider).
  */
 public class RocksDBProviderLoader {
 
@@ -39,11 +44,11 @@ public class RocksDBProviderLoader {
 
     private static final RocksDBProviderLoader INSTANCE = new RocksDBProviderLoader();
 
-    private final Map<String, RocksDBProvider> providerCache = new ConcurrentHashMap<>();
+    private final Map<String, RocksDBProvider> providerRegistry = new ConcurrentHashMap<>();
+    private volatile RocksDBProvider activeProvider;
     private volatile boolean loaded = false;
 
     private RocksDBProviderLoader() {
-        // Private constructor for singleton
     }
 
     public static RocksDBProviderLoader getInstance() {
@@ -51,7 +56,7 @@ public class RocksDBProviderLoader {
     }
 
     /**
-     * Load all available RocksDB providers using SPI
+     * Load all available RocksDB providers via SPI into the registry.
      */
     public synchronized void loadProviders() {
         if (loaded) {
@@ -63,214 +68,151 @@ public class RocksDBProviderLoader {
         ServiceLoader<RocksDBProvider> serviceLoader = ServiceLoader.load(RocksDBProvider.class);
 
         for (RocksDBProvider provider : serviceLoader) {
-            try {
-                if (provider.isAvailable()) {
-                    providerCache.put(provider.getProviderName(), provider);
-                    LOG.info("Loaded RocksDB provider: {} (priority: {})",
-                             provider.getProviderName(), provider.getPriority());
-                } else {
-                    LOG.warn("RocksDB provider {} is not available in current environment",
-                             provider.getProviderName());
-                }
-            } catch (Exception e) {
-                LOG.error("Failed to load RocksDB provider: {}", provider.getClass().getName(), e);
-            }
+            providerRegistry.put(provider.getProviderName(), provider);
+            LOG.info("Discovered RocksDB provider: {} (available: {})",
+                     provider.getProviderName(), provider.isAvailable());
         }
 
-        if (providerCache.isEmpty()) {
-            LOG.warn(
-                    "No RocksDB providers found! Make sure providers are properly registered in " +
-                    "META-INF/services");
-        } else {
-            LOG.info("Successfully loaded {} RocksDB provider(s): {}",
-                     providerCache.size(), providerCache.keySet());
+        if (providerRegistry.isEmpty()) {
+            LOG.warn("No RocksDB providers found! Ensure providers are registered in "
+                     + "META-INF/services");
         }
 
         loaded = true;
     }
 
     /**
-     * Get a specific provider by name
+     * Select and activate a provider by name. Throws if not found or not available.
      *
-     * @param providerName provider name
-     * @return RocksDB provider or null if not found
+     * @param providerName the provider name matching rocksdb.provider config value
+     * @return the activated provider
      */
-    public RocksDBProvider getProvider(String providerName) {
+    public synchronized RocksDBProvider selectProvider(String providerName) {
         if (!loaded) {
             loadProviders();
         }
 
-        return providerCache.get(providerName);
+        RocksDBProvider provider = providerRegistry.get(providerName);
+        if (provider == null) {
+            throw new IllegalStateException(String.format(
+                    "RocksDB provider '%s' not found. Available: %s. "
+                    + "If using ToplingDB, ensure the addon is installed in lib/.",
+                    providerName, providerRegistry.keySet()));
+        }
+
+        if (!provider.isAvailable()) {
+            throw new IllegalStateException(String.format(
+                    "RocksDB provider '%s' found but not available in current environment. "
+                    + "Check native libraries and LD_PRELOAD configuration.",
+                    providerName));
+        }
+
+        this.activeProvider = provider;
+        provider.initialize();
+        LOG.info("Activated RocksDB provider: {}", providerName);
+        return provider;
     }
 
     /**
-     * Get the best available provider based on priority
+     * Idempotent version of selectProvider. If a provider is already active, skip.
+     * This avoids redundant initialization when multiple RocksDB instances are opened.
      *
-     * @return best available RocksDB provider
+     * @param providerName the provider name
      */
-    public RocksDBProvider getBestProvider() {
-        if (!loaded) {
-            loadProviders();
+    public synchronized void selectProviderIfNeeded(String providerName) {
+        if (activeProvider != null) {
+            return;
         }
-
-        if (providerCache.isEmpty()) {
-            throw new RuntimeException("No RocksDB providers available");
-        }
-
-        // Find provider with highest priority
-        RocksDBProvider bestProvider = null;
-        int highestPriority = Integer.MIN_VALUE;
-
-        for (RocksDBProvider provider : providerCache.values()) {
-            if (provider.isAvailable() && provider.getPriority() > highestPriority) {
-                bestProvider = provider;
-                highestPriority = provider.getPriority();
-            }
-        }
-
-        if (bestProvider == null) {
-            throw new RuntimeException("No available RocksDB providers found");
-        }
-
-        LOG.info("Auto-selected RocksDB provider: {} (priority: {})",
-                 bestProvider.getProviderName(), bestProvider.getPriority());
-        return bestProvider;
+        selectProvider(providerName);
     }
 
     /**
-     * Get all loaded providers
+     * Get the currently active provider. Throws if no provider has been selected.
      *
-     * @return collection of all providers
+     * @return the active provider
      */
-    public Collection<RocksDBProvider> getAllProviders() {
-        if (!loaded) {
-            loadProviders();
+    public RocksDBProvider getActiveProvider() {
+        RocksDBProvider provider = activeProvider;
+        if (provider == null) {
+            throw new IllegalStateException(
+                    "No RocksDB provider has been activated. "
+                    + "Ensure rocksdb.provider is configured and selectProvider() is called.");
         }
-
-        return Collections.unmodifiableCollection(providerCache.values());
+        return provider;
     }
 
     /**
-     * Get names of all available providers
-     *
-     * @return set of provider names
+     * Get names of all discovered providers.
      */
     public Set<String> getAvailableProviderNames() {
         if (!loaded) {
             loadProviders();
         }
-
-        return Collections.unmodifiableSet(providerCache.keySet());
+        return Collections.unmodifiableSet(providerRegistry.keySet());
     }
 
     /**
-     * Check if a specific provider is available
-     *
-     * @param providerName provider name
-     * @return true if provider is available
+     * Check if a specific provider is discovered (regardless of availability).
      */
     public boolean isProviderAvailable(String providerName) {
         if (!loaded) {
             loadProviders();
         }
-
-        RocksDBProvider provider = providerCache.get(providerName);
+        RocksDBProvider provider = providerRegistry.get(providerName);
         return provider != null && provider.isAvailable();
     }
 
     /**
-     * Reload all providers
+     * Reset loader state. After reload, selectProvider must be called again.
      */
     public synchronized void reload() {
         loaded = false;
-        providerCache.clear();
+        activeProvider = null;
+        providerRegistry.clear();
         loadProviders();
     }
 
-    // Static convenience methods
+    // ========== Static convenience methods ==========
 
-    /**
-     * Open RocksDB with simple options
-     *
-     * @param options  RocksDB options
-     * @param dataPath database path
-     * @return opened RocksDB instance
-     * @throws RocksDBException if opening fails
-     */
     public static RocksDB openRocksDB(Options options, String dataPath) throws RocksDBException {
         return openRocksDB(options, dataPath, null, null);
     }
 
-    /**
-     * Open RocksDB with options and optional parameters
-     *
-     * @param options    RocksDB options
-     * @param dataPath   database path
-     * @param optionPath optional path to options file
-     * @param openHttp   optional HTTP server flag
-     * @return opened RocksDB instance
-     * @throws RocksDBException if opening fails
-     */
     public static RocksDB openRocksDB(Options options, String dataPath, String optionPath,
                                       Boolean openHttp) throws RocksDBException {
-        RocksDBProvider provider = getInstance().getBestProvider();
-        return provider.openRocksDB(options, dataPath, optionPath, openHttp);
+        return getInstance().getActiveProvider()
+                .openRocksDB(options, dataPath, optionPath, openHttp);
     }
 
-    /**
-     * Open RocksDB with column families
-     *
-     * @param dbOptions     database options
-     * @param dataPath      database path
-     * @param cfDescriptors column family descriptors
-     * @param cfHandles     column family handles (output)
-     * @return opened RocksDB instance
-     * @throws RocksDBException if opening fails
-     */
     public static RocksDB openRocksDB(DBOptions dbOptions, String dataPath,
                                       List<ColumnFamilyDescriptor> cfDescriptors,
                                       List<ColumnFamilyHandle> cfHandles) throws RocksDBException {
         return openRocksDB(dbOptions, dataPath, cfDescriptors, cfHandles, null, null);
     }
 
-    /**
-     * Open RocksDB with column families and optional parameters
-     *
-     * @param dbOptions     database options
-     * @param dataPath      database path
-     * @param cfDescriptors column family descriptors
-     * @param cfHandles     column family handles (output)
-     * @param optionPath    optional path to options file
-     * @param openHttp      optional HTTP server flag
-     * @return opened RocksDB instance
-     * @throws RocksDBException if opening fails
-     */
     public static RocksDB openRocksDB(DBOptions dbOptions, String dataPath,
                                       List<ColumnFamilyDescriptor> cfDescriptors,
                                       List<ColumnFamilyHandle> cfHandles,
                                       String optionPath, Boolean openHttp) throws RocksDBException {
-        RocksDBProvider provider = getInstance().getBestProvider();
-        return provider.openRocksDB(dbOptions, dataPath, cfDescriptors, cfHandles, optionPath,
-                                    openHttp);
+        return getInstance().getActiveProvider()
+                .openRocksDB(dbOptions, dataPath, cfDescriptors, cfHandles, optionPath, openHttp);
     }
 
-    /**
-     * Close RocksDB instance
-     *
-     * @param rocksDB RocksDB instance to close
-     */
     public static void closeRocksDB(RocksDB rocksDB) {
-        RocksDBProvider provider = getInstance().getBestProvider();
-        provider.closeRocksDB(rocksDB);
+        getInstance().getActiveProvider().closeRocksDB(rocksDB);
     }
 
-    /**
-     * Get provider by name (static method)
-     *
-     * @param providerName provider name
-     * @return RocksDB provider or null if not found
-     */
     public static RocksDBProvider getProviderByName(String providerName) {
         return getInstance().getProvider(providerName);
+    }
+
+    /**
+     * Get a provider by name without requiring it to be active.
+     */
+    public RocksDBProvider getProvider(String providerName) {
+        if (!loaded) {
+            loadProviders();
+        }
+        return providerRegistry.get(providerName);
     }
 }

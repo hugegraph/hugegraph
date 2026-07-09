@@ -37,11 +37,11 @@
     </parent>
 
     <dependencies>
-        <!-- RocksDB dependency -->
+        <!-- RocksDB engine dependency (standard or ToplingDB, controlled by profile) -->
         <dependency>
-            <groupId>org.rocksdb</groupId>
-            <artifactId>rocksdbjni</artifactId>
-            <version>8.10.2-SNAPSHOT</version>
+            <groupId>${rocksdb.engine.groupId}</groupId>
+            <artifactId>${rocksdb.engine.artifactId}</artifactId>
+            <version>${rocksdb.engine.version}</version>
         </dependency>
 
         <!-- HugeGraph Commons for configuration and utilities -->

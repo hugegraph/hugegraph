@@ -81,6 +81,8 @@ public class HgKVStoreImpl implements HgKVStore {
             }
             this.optionPath = config.getOptionPath();
             this.openHttp = config.getOpenHttp();
+            RocksDBProviderLoader.getInstance()
+                    .selectProviderIfNeeded(config.getProvider());
             openRocksDB(dbPath);
         } catch (PDException e) {
             log.error("Failed to open data file,{}", e);

@@ -56,6 +56,14 @@ public class RocksDBOptions extends OptionHolder {
                     disallowEmpty(),
                     false
             );
+    public static final ConfigOption<String> PROVIDER =
+            new ConfigOption<>(
+                    "rocksdb.provider",
+                    "The RocksDB engine provider. 'standard' for vanilla RocksDB, "
+                    + "'topling' for ToplingDB (requires addon installation).",
+                    allowValues("standard", "topling"),
+                    "standard"
+            );
     public static final ConfigOption<String> OPTION_PATH =
             new ConfigOption<>(
                     "rocksdb.option_path",

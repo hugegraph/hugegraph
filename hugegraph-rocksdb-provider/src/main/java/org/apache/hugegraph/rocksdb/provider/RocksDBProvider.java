@@ -42,13 +42,6 @@ public interface RocksDBProvider {
     String getProviderName();
 
     /**
-     * Get the priority of this provider (higher priority providers are preferred)
-     *
-     * @return priority value
-     */
-    int getPriority();
-
-    /**
      * Check if this provider is available in the current environment
      *
      * @return true if the provider can be used

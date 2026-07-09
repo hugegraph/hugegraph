@@ -32,16 +32,10 @@ public class StandardRocksDBProvider extends AbstractRocksDBProvider {
     private static final Logger LOG = LoggerFactory.getLogger(StandardRocksDBProvider.class);
 
     private static final String PROVIDER_NAME = "standard";
-    private static final int PROVIDER_PRIORITY = 100; // Lower priority than ToplingDB
 
     @Override
     public String getProviderName() {
         return PROVIDER_NAME;
-    }
-
-    @Override
-    public int getPriority() {
-        return PROVIDER_PRIORITY;
     }
 
     @Override

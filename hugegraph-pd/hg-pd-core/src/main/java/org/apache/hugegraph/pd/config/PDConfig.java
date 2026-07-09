@@ -58,6 +58,8 @@ public class PDConfig {
     @Value("${grpc.host}")
     private String host;
 
+    @Value("${rocksdb.provider:standard}")
+    private String provider;
     @Value("${rocksdb.option-path: ''}")
     private String optionPath;
     @Value("${rocksdb.open-http:false}")

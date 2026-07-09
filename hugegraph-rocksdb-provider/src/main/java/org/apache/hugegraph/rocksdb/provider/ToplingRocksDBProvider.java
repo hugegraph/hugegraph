@@ -51,7 +51,6 @@ public class ToplingRocksDBProvider extends AbstractRocksDBProvider {
     private static final Logger LOG = LoggerFactory.getLogger(ToplingRocksDBProvider.class);
 
     private static final String PROVIDER_NAME = "topling";
-    private static final int PROVIDER_PRIORITY = 200; // Higher priority than standard
     private static final String SIDE_PLUGIN_REPO_CLASS = "org.rocksdb.SidePluginRepo";
 
     // Validation constants migrated from RocksDBOptions
@@ -66,11 +65,6 @@ public class ToplingRocksDBProvider extends AbstractRocksDBProvider {
     @Override
     public String getProviderName() {
         return PROVIDER_NAME;
-    }
-
-    @Override
-    public int getPriority() {
-        return PROVIDER_PRIORITY;
     }
 
     @Override

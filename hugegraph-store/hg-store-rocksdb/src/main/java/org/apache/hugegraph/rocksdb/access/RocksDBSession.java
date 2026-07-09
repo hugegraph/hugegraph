@@ -413,6 +413,9 @@ public class RocksDBSession implements AutoCloseable, Cloneable {
     }
 
     private void openRocksDB(String dbDataPath, long version) {
+        // Select provider based on explicit configuration
+        RocksDBProviderLoader.getInstance()
+                .selectProviderIfNeeded(hugeConfig.get(RocksDBOptions.PROVIDER));
 
         if (dbDataPath.endsWith(File.separator)) {
             this.dbPath = dbDataPath + this.graphName;
