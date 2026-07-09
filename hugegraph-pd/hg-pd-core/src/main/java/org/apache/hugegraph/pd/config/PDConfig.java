@@ -60,7 +60,7 @@ public class PDConfig {
 
     @Value("${rocksdb.provider:standard}")
     private String provider;
-    @Value("${rocksdb.option-path: ''}")
+    @Value("${rocksdb.option-path:}")
     private String optionPath;
     @Value("${rocksdb.open-http:false}")
     private Boolean openHttp;

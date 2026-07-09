@@ -2,13 +2,13 @@
 
 ## Issues
 
-### Issue 1: Startup Failure Due to YAML Format Error
+### Issue 1: YAML Configuration Error
 
 Sample log output:
 
 ```java
-2025-10-15 01:55:50 [db-open-1] [INFO] o.a.h.b.s.r.RocksDBStdSessions - SidePluginRepo found. Will attempt to open multi CFs RocksDB using Topling plugin.
-21:1: (891B):ERROR: 
+2025-10-15 01:55:50 [db-open-1] [INFO] o.a.h.r.p.ToplingRocksDBProvider - SidePluginRepo found. Will attempt to open default CF RocksDB using Topling.
+21:1: (891B):ERROR:
 sideplugin/rockside/3rdparty/rapidyaml/src/c4/yml/parse.cpp:3310: ERROR parsing yml: parse error: incorrect indentation?
 ```
 
@@ -18,19 +18,49 @@ sideplugin/rockside/3rdparty/rapidyaml/src/c4/yml/parse.cpp:3310: ERROR parsing 
 2. Validate YAML syntax:
 
    ```bash
-   python -c "import yaml; yaml.safe_load(open('conf/graphs/rocksdb_plus.yaml'))"
+   python -c "import yaml; yaml.safe_load(open('conf/graphs/rocksdb_server.yaml'))"
    ```
 
 3. Review the specific error message in the logs for further clues.
 
+HugeGraph performs basic path and YAML validation before enabling ToplingDB. If this
+pre-validation fails, HugeGraph falls back to standard RocksDB behavior inside the ToplingDB
+provider. If the file passes basic YAML validation but `SidePluginRepo.importAutoFile()` or
+`openDB()` fails, startup fails with the corresponding ToplingDB error and the YAML file should
+be fixed.
+
 ---
 
-### Issue 2: Web Server Port Conflict
+### Issue 2: ToplingDB Provider Not Available
+
+When `rocksdb.provider=topling` is configured but the runtime `rocksdbjni` JAR does not contain
+`org.rocksdb.SidePluginRepo`, HugeGraph fails provider activation instead of silently switching
+to the standard provider.
+
+**Solution**:
+
+1. If you want standard RocksDB, set:
+
+   ```properties
+   rocksdb.provider=standard
+   ```
+
+2. If you want ToplingDB, confirm that Maven or the deployment addon provides a ToplingDB-capable
+   `rocksdbjni` artifact.
+3. Inspect the runtime JAR:
+
+   ```bash
+   jar tf lib/rocksdbjni-*.jar | grep org/rocksdb/SidePluginRepo.class
+   ```
+
+---
+
+### Issue 3: Web Server Port Conflict
 
 Sample log output:
 
 ```java
-2025-10-15 01:57:34 [db-open-1] [INFO] o.a.h.b.s.r.RocksDBStdSessions - SidePluginRepo found. Will attempt to open multi CFs RocksDB using Topling plugin.
+2025-10-15 01:57:34 [db-open-1] [INFO] o.a.h.r.p.ToplingRocksDBProvider - SidePluginRepo found. Will attempt to open default CF RocksDB using Topling.
 2025-10-15 01:57:34 [db-open-1] [ERROR] o.a.h.b.s.r.RocksDBStore - Failed to open RocksDB 'rocksdb-data/data/g'
 org.rocksdb.RocksDBException: rocksdb::Status rocksdb::SidePluginRepo::StartHttpServer(): null context when constructing CivetServer. Possible problem binding to port.
     at org.rocksdb.SidePluginRepo.startHttpServer(Native Method) ~[rocksdbjni-8.10.2-20250804.074027-4.jar:?]
@@ -49,7 +79,7 @@ org.rocksdb.RocksDBException: rocksdb::Status rocksdb::SidePluginRepo::StartHttp
 
 ---
 
-### Issue 3: Database Initialization Failure
+### Issue 4: Database Initialization Failure
 
 This error indicates the database lock file cannot be acquired, possibly due to insufficient write permissions or another process holding the lock:
 
@@ -64,7 +94,8 @@ Caused by: org.rocksdb.RocksDBException: While lock file: rocksdb-data/data/m/LO
 1. Confirm the configuration file path is correct:
 
    ```properties
-   rocksdb.option_path=./conf/graphs/rocksdb_plus.yaml
+   rocksdb.provider=topling
+   rocksdb.option_path=./conf/graphs/rocksdb_server.yaml
    ```
 
 2. Check permissions on the data directory to ensure the running user has read/write access.
@@ -73,6 +104,23 @@ Caused by: org.rocksdb.RocksDBException: While lock file: rocksdb-data/data/m/LO
    ```bash
    bin/init-store.sh 2>&1 | tee init.log
    ```
+
+---
+
+### Issue 5: Ubuntu 24.04+ libaio Compatibility
+
+Some ToplingDB native libraries may expect the legacy `libaio.so.1` name, while Ubuntu 24.04+
+ships the time64 library as `libaio.so.1t64`. The preload script currently creates a
+compatibility symlink when running on Ubuntu 24.04+ and `libaio.so.1` is missing.
+
+If startup fails with a missing `libaio.so.1` error, install the system package first:
+
+```bash
+sudo apt-get install libaio1t64
+```
+
+Then retry startup. If your environment does not allow scripts to use `sudo`, create the
+compatibility symlink manually or ask the system administrator to provide it.
 
 ---
 

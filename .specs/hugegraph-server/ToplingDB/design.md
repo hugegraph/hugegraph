@@ -40,34 +40,39 @@ sequenceDiagram
 
 ### RocksDB Startup Logic
 
-Use reflection to detect whether ToplingDB APIs are available. If present, attempt to start the storage engine using ToplingDB; otherwise, fall back to standard RocksDB APIs.
+HugeGraph routes the main RocksDB open/close paths through `RocksDBProviderLoader`.
+Providers are discovered via Java SPI, but the active provider is selected explicitly by
+`rocksdb.provider`. `standard` uses vanilla RocksDB; `topling` requires
+`org.rocksdb.SidePluginRepo` to be available at runtime.
 
 ```mermaid
 sequenceDiagram
   autonumber
-  participant Store as HugeGraph Store
+  participant Store as HugeGraph Server/PD/Store
   participant Config as HugeConfig
-  participant Sessions as RocksDBStdSessions
-  participant SPR as SidePluginRepo (Reflection)
+  participant Loader as RocksDBProviderLoader
+  participant Provider as Configured Provider
   participant Repo as Repo Instance
   participant Rocks as RocksDB
 
-  Store->>Config: Read OPTION_PATH / OPEN_HTTP
-  Store->>Sessions: Create Sessions(..., optionPath, openHttp)
-  alt optionPath provided and SPR available
-    Sessions->>SPR: Reflectively load/create Repo
-    Sessions->>Repo: importAutoFile(optionPath)
-    Sessions->>Repo: open (with JSON descriptor)
-    opt openHttp is true and instance is GRAPH_STORE
-      Sessions->>Repo: startHttpServer()
+  Store->>Config: Read PROVIDER / OPTION_PATH / OPEN_HTTP
+  Store->>Loader: selectProviderIfNeeded(provider)
+  Store->>Loader: openRocksDB(..., optionPath, openHttp)
+  Loader->>Provider: openRocksDB(...)
+  alt provider is standard
+    Provider->>Rocks: RocksDB.open(...)
+  else provider is topling and optionPath valid
+    Provider->>Repo: Reflectively create SidePluginRepo
+    Provider->>Repo: importAutoFile(optionPath)
+    Provider->>Repo: openDB(JSON descriptor)
+    opt Server openHttp is true and instance is GRAPH_STORE
+      Provider->>Repo: startHttpServer()
     end
-    Sessions->>Rocks: Get RocksDB instance (with CF handles)
-    Sessions-->>Store: Return OpenedRocksDB(repo, handles)
-  else optionPath not provided or SPR unavailable
-    Sessions->>Rocks: Standard open()
-    Sessions-->>Store: Return OpenedRocksDB(null, handles)
+  else provider is topling but optionPath pre-validation fails
+    Provider->>Rocks: RocksDB.open(...)
   end
-  note over Store,Sessions: On shutdown, if repo exists, call repo.closeAllDB()
+  Loader-->>Store: Return RocksDB instance
+  note over Store,Loader: On shutdown, close through the active provider; Topling closes Repo when present.
 ```
 
 ## Involved Modules
@@ -168,19 +173,30 @@ Both `init-hugegraph.sh` and `start-hugegraph.sh` now invoke `preload-topling.sh
 
 ### HugeGraph Configuration Options for RocksDB
 
-Two new configuration options were added to `hugegraph.properties`: `option_path` for the YAML file and `open_http` to enable the Web Server.
+Three RocksDB provider options were added: `provider` selects standard RocksDB or ToplingDB,
+`option_path` points to the YAML file, and `open_http` enables the Web Server.
 
 ```properties
 # rocksdb backend config
 #rocksdb.data_path=/path/to/disk
 #rocksdb.wal_path=/path/to/disk
-#rocksdb.option_path=./conf/graphs/rocksdb_plus.yaml
+#rocksdb.provider=topling
+#rocksdb.option_path=./conf/graphs/rocksdb_server.yaml
 #rocksdb.open_http=true
 ```
 
 Java-side parsing and default values:
 
 ```java
+public static final ConfigOption<String> PROVIDER =
+        new ConfigOption<>(
+                "rocksdb.provider",
+                "The RocksDB engine provider. 'standard' for vanilla RocksDB, "
+                + "'topling' for ToplingDB (requires addon installation).",
+                allowValues("standard", "topling"),
+                "standard"
+        );
+
 public static final ConfigOption<String> OPTION_PATH =
         new ConfigOption<>(
                 "rocksdb.option_path",
@@ -200,29 +216,30 @@ public static final ConfigOption<Boolean> OPEN_HTTP =
 
 ### ToplingDB Startup Logic
 
-When `option_path` is configured and the JAR contains ToplingDB APIs, HugeGraph will load the YAML file and start ToplingDB. Otherwise, it falls back to standard RocksDB.
+When `rocksdb.provider=topling`, `option_path` is configured, pre-validation passes, and the JAR
+contains ToplingDB APIs, HugeGraph will load the YAML file and start ToplingDB. If
+`rocksdb.provider=standard`, HugeGraph uses standard RocksDB.
 
-To keep port configuration simple, the Web Server is only enabled for the `GRAPH_STORE` instance.
+For HugeGraph Server, the Web Server is only enabled for the `GRAPH_STORE` instance. PD and
+Store pass their component-level HTTP flag to the provider.
 
 ```mermaid
 flowchart LR
-    A[Start Initialization] --> B{Is optionPath provided?}
+    A[Start Initialization] --> P{rocksdb.provider}
+    P -- standard --> Z[Use StandardRocksDBProvider] --> O[Finish standard init]
+    P -- topling --> S{Is SidePluginRepo available?}
+    S -- No --> F[Fail startup]
+    S -- Yes --> B{Is optionPath provided and valid?}
 
-    B -- No --> Z[Use standard RocksDB to open DB] --> O[Finish standard init]
+    B -- No --> Z
+    B -- Yes --> E["ToplingRocksDBProvider calls importAutoFile(optionPath)"]
 
-    B -- Yes --> C{Is SidePluginRepo class available?}
-    C -- No --> Z
-
-    C -- Yes --> D[Set useTopling = true] --> E["Load SidePluginRepo class and call importAutoFile(optionPath)"]
-
-    E --> K{Is openHttp true?}
+    E --> K{Should this component start HTTP?}
     K -- No --> M[Finish Topling init]
-    K -- Yes --> L{Is dbName GRAPH_STORE?}
-    L -- No --> M
-    L -- Yes --> N["startHttpServer()"] --> M
+    K -- Yes --> N["startHttpServer()"] --> M
 ```
 
 ## Design Decisions and Rationale
 
-1. **Why is the Web Server only started for GRAPH_STORE?**
+1. **Why does HugeGraph Server only start the Web Server for GRAPH_STORE?**
     - All graph data is stored in GRAPH_STORE, and performance tuning and observability are primarily focused on this instance.

@@ -12,7 +12,7 @@ When using an IDE such as IntelliJ IDEA, you need to configure the following env
 
 ```shell
 LD_LIBRARY_PATH=/path/to/your/library:$LD_LIBRARY_PATH
-LD_PRELOAD=libjemalloc.so:librocksdbjni-linux64.so
+LD_PRELOAD=/path/to/libjemalloc.so:/path/to/your/library/librocksdbjni-linux64.so
 ```
 
 When running from the terminal, simply use `init-store.sh` and `start-hugegraph.sh`, as `preload-topling.sh` is already embedded in these scripts.
@@ -25,9 +25,10 @@ When running from the terminal, simply use `init-store.sh` and `start-hugegraph.
 
 ## 2. Compatibility with ToplingDB and Standard RocksDB
 
-- [x] **2.1 Modify openRocksDB logic in RocksDBStdSession**
-  - Use reflection to detect whether the current JAR contains ToplingDB APIs; if so, start the storage engine using ToplingDB
-  - If not available, fall back to the standard RocksDB API for engine startup
+- [x] **2.1 Add a RocksDB provider SPI and route main open/close paths through it**
+  - Use `RocksDBProviderLoader` to discover standard RocksDB and ToplingDB providers
+  - Select the active provider explicitly with `rocksdb.provider`
+  - Use reflection in `ToplingRocksDBProvider` to detect whether the current JAR contains `org.rocksdb.SidePluginRepo`
 
 ## 3. Add Configuration Options for ToplingDB in HugeGraph
 
@@ -40,7 +41,12 @@ When running from the terminal, simply use `init-store.sh` and `start-hugegraph.
   - Type: boolean, used to specify whether to enable the ToplingDB Web Server
   - Allow users to configure Web Server activation via `rocksdb.open_http` in `hugegraph.properties`
   - The Web Server port is defined in the YAML file specified by `option_path`, under `http.listening_ports`
-  - For simplicity, the Web Server is only enabled for the `GRAPH_STORE` instance that stores graph data
+  - For HugeGraph Server, the Web Server is only enabled for the `GRAPH_STORE` instance that stores graph data
+
+- [x] **3.3 Add `rocksdb.provider` configuration**
+  - Type: string, valid values: `standard` and `topling`
+  - Default: `standard`
+  - Prevent ToplingDB from being enabled implicitly just because a ToplingDB-capable JAR is on the classpath
 
 ## 4. End-to-End Performance Testing
 
