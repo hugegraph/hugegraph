@@ -153,27 +153,28 @@ function ensure_libaio_symlink() {
 function download_and_verify() {
     local url=$1
     local filepath=$2
-    local expected_md5=$3
+    local expected_sha256=$3
+    local actual_sha256
 
-    if [[ -f $filepath ]]; then
-        echo "File $filepath exists. Verifying MD5 checksum..."
-        actual_md5=$(md5sum $filepath | awk '{ print $1 }')
-        if [[ $actual_md5 != $expected_md5 ]]; then
-            echo "MD5 checksum verification failed for $filepath. Expected: $expected_md5, but got: $actual_md5"
+    if [[ -f "$filepath" ]]; then
+        echo "File $filepath exists. Verifying SHA-256 checksum..."
+        actual_sha256=$(sha256sum "$filepath" | awk '{ print $1 }')
+        if [[ "$actual_sha256" != "$expected_sha256" ]]; then
+            echo "SHA-256 checksum verification failed for $filepath. Expected: $expected_sha256, but got: $actual_sha256"
             echo "Deleting $filepath..."
-            rm -f $filepath
+            rm -f "$filepath"
         else
-            echo "MD5 checksum verification succeeded for $filepath."
+            echo "SHA-256 checksum verification succeeded for $filepath."
             return 0
         fi
     fi
 
     echo "Downloading $filepath..."
-    curl -L -o $filepath $url
+    curl -fL -o "$filepath" "$url"
 
-    actual_md5=$(md5sum $filepath | awk '{ print $1 }')
-    if [[ $actual_md5 != $expected_md5 ]]; then
-        echo "MD5 checksum verification failed for $filepath after download. Expected: $expected_md5, but got: $actual_md5"
+    actual_sha256=$(sha256sum "$filepath" | awk '{ print $1 }')
+    if [[ "$actual_sha256" != "$expected_sha256" ]]; then
+        echo "SHA-256 checksum verification failed for $filepath after download. Expected: $expected_sha256, but got: $actual_sha256"
         return 1
     fi
 
@@ -181,7 +182,7 @@ function download_and_verify() {
 }
 
 function download_and_setup_jemalloc() {
-    local arch lib_file download_url expected_md5 system_lib top
+    local arch lib_file download_url expected_sha256 system_lib top
     top=$1
 
     # Prefer system-installed jemalloc if available
@@ -224,19 +225,19 @@ function download_and_setup_jemalloc() {
     if [[ $arch == "aarch64" || $arch == "arm64" ]]; then
         lib_file="$top/bin/libjemalloc_aarch64.so"
         download_url="${GITHUB}/apache/hugegraph-doc/raw/binary-1.5/dist/server/libjemalloc_aarch64.so"
-        expected_md5="2a631d2f81837f9d5864586761c5e380"
+        expected_sha256="6b7e6099b6da798829c6ce6fcb55a787508841edd52446332a73300889dcd1dc"
     elif [[ $arch == "x86_64" ]]; then
         lib_file="$top/bin/libjemalloc.so"
         download_url="${GITHUB}/apache/hugegraph-doc/raw/binary-1.5/dist/server/libjemalloc.so"
-        expected_md5="fd61765eec3bfea961b646c269f298df"
+        expected_sha256="53b25e8626e1605cbd8b60befb3431cabc1b8851a54285e0dda412796feab67d"
     else
         echo "Unsupported architecture: $arch"
         return 1
     fi
 
     # Download and verify jemalloc library (fallback when system lib not found)
-    if download_and_verify "$download_url" "$lib_file" "$expected_md5"; then
-        if [[ ":${LD_PRELOAD:-}:" != *"libjemalloc.so:"* ]]; then
+    if download_and_verify "$download_url" "$lib_file" "$expected_sha256"; then
+        if [[ ":${LD_PRELOAD:-}:" != *":${lib_file}:"* ]]; then
             export LD_PRELOAD="${lib_file}${LD_PRELOAD:+:$LD_PRELOAD}"
         fi
     else
@@ -248,6 +249,25 @@ function download_and_setup_jemalloc() {
 function preload_toplingdb() {
     local lib_dir="$1"
     local dest_dir="$2"
+    local os_name machine_arch
+
+    # NOTE: The current ToplingDB rocksdbjni snapshot bundles Linux x86_64 native libraries.
+    # Linux arm64/aarch64 support requires a matching native rocksdbjni artifact.
+    os_name="$(uname -s)"
+    if [ "$os_name" != "Linux" ]; then
+        echo "[common-topling] Skip ToplingDB native preload on non-Linux platform: $os_name" >&2
+        return 0
+    fi
+    machine_arch="$(uname -m)"
+    case "$machine_arch" in
+        x86_64 | amd64)
+            ;;
+        *)
+            echo "[common-topling] Skip ToplingDB native preload on unsupported platform: $os_name/$machine_arch" >&2
+            return 0
+            ;;
+    esac
+
     local top="$(cd "$lib_dir"/../ && pwd)"
 
     local jar_file
@@ -275,7 +295,9 @@ function preload_toplingdb() {
             {
                 echo "LD_LIBRARY_PATH=$LD_LIBRARY_PATH"
                 echo "LD_PRELOAD=$LD_PRELOAD"
-                echo "SERVER_VERSION_DIR=$SERVER_VERSION_DIR"
+                if [ -n "${SERVER_VERSION_DIR:-}" ]; then
+                    echo "SERVER_VERSION_DIR=$SERVER_VERSION_DIR"
+                fi
             } >> "$GITHUB_ENV" || true
             echo "[common-topling] Exported LD_LIBRARY_PATH and LD_PRELOAD to GITHUB_ENV" >&2 || true
         fi

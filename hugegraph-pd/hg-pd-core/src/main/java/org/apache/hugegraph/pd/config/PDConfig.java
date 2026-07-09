@@ -59,11 +59,11 @@ public class PDConfig {
     private String host;
 
     @Value("${rocksdb.provider:standard}")
-    private String provider;
+    private String provider = "standard";
     @Value("${rocksdb.option-path:}")
-    private String optionPath;
+    private String optionPath = "";
     @Value("${rocksdb.open-http:false}")
-    private Boolean openHttp;
+    private Boolean openHttp = false;
 
     @Value("${license.verify-path}")
     private String verifyPath;

@@ -37,6 +37,11 @@ By supporting ToplingDB, HugeGraph empowers users with greater control over stor
 
 Enable users to select ToplingDB via configuration, allowing tuning parameters through YAML files without recompilation and real-time monitoring via Web Server—without sacrificing compatibility with existing RocksDB APIs.
 
+## Platform Scope
+
+The current ToplingDB native integration supports Linux x86_64 only.
+On macOS, Linux arm64/aarch64, and other non-x86_64 platforms, HugeGraph should continue to use the standard RocksDB `rocksdbjni` dependency instead of preloading ToplingDB native libraries.
+
 ## Design
 
 ### Provider Selection
@@ -79,7 +84,7 @@ This parameter allows users to specify a YAML file that defines ToplingDB settin
   ```yaml
   rocksdb:
     provider: topling
-    option-path: ./conf/graphs/rocksdb_pd.yaml
+    option-path: ./conf/rocksdb_pd.yaml
     open-http: true
   ```
 

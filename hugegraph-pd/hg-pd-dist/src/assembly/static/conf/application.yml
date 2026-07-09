@@ -41,7 +41,7 @@ grpc:
   host: 127.0.0.1
 # rocksdb:
   # provider: topling
-  # option-path: ./conf/graphs/rocksdb_pd.yaml
+  # option-path: ./conf/rocksdb_pd.yaml
   # open-http: true
 
 server:
