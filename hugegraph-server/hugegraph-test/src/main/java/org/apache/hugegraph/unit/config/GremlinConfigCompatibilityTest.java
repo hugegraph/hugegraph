@@ -77,12 +77,6 @@ public class GremlinConfigCompatibilityTest extends BaseUnitTest {
             "remote.yaml",
             REMOTE_OBJECTS_CONFIG
     );
-    private static final List<String> ALL_CONFIGS = Arrays.asList(
-            GREMLIN_SERVER_CONFIG,
-            "gremlin-driver-settings.yaml",
-            "remote.yaml",
-            "remote-objects.yaml"
-    );
     private static final List<String> TYPED_FALLBACK_SERIALIZERS =
             Arrays.asList(
                     SERIALIZER_PACKAGE + "GraphSONMessageSerializerV1",
@@ -122,30 +116,13 @@ public class GremlinConfigCompatibilityTest extends BaseUnitTest {
     }
 
     @Test
-    public void testGremlinServerSettingsCanBeParsed() throws Exception {
-        Settings settings = Settings.read(configPath(GREMLIN_SERVER_CONFIG)
-                                                  .toString());
-
-        Assert.assertNotNull(settings);
-        Assert.assertFalse(settings.serializers.isEmpty());
-    }
-
-    @Test
     public void testConfiguredSerializerClassesAreLoadable() throws Exception {
-        for (String file : ALL_CONFIGS) {
+        assertConfiguredSerializerClassesAreLoadable(
+                GREMLIN_SERVER_CONFIG, readConfig(GREMLIN_SERVER_CONFIG));
+        for (String file : REMOTE_CONFIGS) {
             assertConfiguredSerializerClassesAreLoadable(file,
                                                          readConfig(file));
         }
-    }
-
-    @Test
-    public void testGremlinServerSupportsTypedAndUntypedGraphSONMimeTypes()
-            throws Exception {
-        Map<String, String> graphSONMimeTypes =
-                graphSONMimeTypes(readGremlinServerSettings());
-
-        assertSupportsTypedAndUntypedGraphSONMimeTypes(GREMLIN_SERVER_CONFIG,
-                                                       graphSONMimeTypes);
     }
 
     @Test
@@ -160,33 +137,6 @@ public class GremlinConfigCompatibilityTest extends BaseUnitTest {
             assertSupportsTypedAndUntypedGraphSONMimeTypes(variant,
                                                            graphSONMimeTypes(settings));
         }
-    }
-
-    @Test
-    public void testConfiguredTypedGraphSONSerializersCanSerializeTypeInfo()
-            throws Exception {
-        Settings settings = readGremlinServerSettings();
-        boolean found = false;
-
-        for (Settings.SerializerSettings serializerSettings :
-             settings.serializers) {
-            if (!TYPED_FALLBACK_SERIALIZERS.contains(
-                    serializerSettings.className)) {
-                continue;
-            }
-
-            MessageTextSerializer<?> serializer =
-                    newTextSerializer(serializerSettings.className);
-            serializer.configure(config(serializerSettings.config),
-                                 Collections.emptyMap());
-            assertCanSerializeHugeGraphTypes(
-                    serializer,
-                    usesStableGraphSONTypes(serializerSettings.className));
-            found = true;
-        }
-
-        Assert.assertTrue("No typed GraphSON serializer settings found in " +
-                          GREMLIN_SERVER_CONFIG, found);
     }
 
     private static void assertSupportsTypedAndUntypedGraphSONMimeTypes(
@@ -211,7 +161,8 @@ public class GremlinConfigCompatibilityTest extends BaseUnitTest {
     public void testConfiguredGraphSONSerializersCanSerializeHugeGraphTypes()
             throws Exception {
         Settings settings = readGremlinServerSettings();
-        boolean found = false;
+        List<String> typedSerializers = new ArrayList<>();
+        boolean foundUntyped = false;
 
         for (Settings.SerializerSettings serializerSettings :
              settings.serializers) {
@@ -224,26 +175,24 @@ public class GremlinConfigCompatibilityTest extends BaseUnitTest {
                     newTextSerializer(serializerSettings.className);
             serializer.configure(config(serializerSettings.config),
                                  Collections.emptyMap());
-            assertCanSerializeHugeGraphTypes(serializer, false);
-            found = true;
+            boolean typed = !serializerSettings.className.startsWith(
+                    SERIALIZER_PACKAGE + "GraphSONUntyped");
+            if (typed) {
+                typedSerializers.add(serializerSettings.className);
+            } else {
+                foundUntyped = true;
+            }
+            assertCanSerializeHugeGraphTypes(
+                    serializer,
+                    typed && usesStableGraphSONTypes(
+                            serializerSettings.className));
         }
 
-        Assert.assertTrue("No GraphSON serializer settings found in " +
-                          GREMLIN_SERVER_CONFIG, found);
-    }
-
-    @Test
-    public void testTypedFallbackSerializersCanSerializeHugeGraphTypes()
-            throws Exception {
-        Map<String, Object> config = graphSONV1Config(readGremlinServerSettings());
-
-        for (String serializer : TYPED_FALLBACK_SERIALIZERS) {
-            MessageTextSerializer<?> textSerializer = newTextSerializer(serializer);
-
-            textSerializer.configure(config(config), Collections.emptyMap());
-            assertCanSerializeHugeGraphTypes(textSerializer,
-                                             usesStableGraphSONTypes(serializer));
-        }
+        Assert.assertTrue("No untyped GraphSON serializer settings found in " +
+                          GREMLIN_SERVER_CONFIG, foundUntyped);
+        Assert.assertEquals("Configured typed GraphSON serializers should " +
+                            "match the fallback set",
+                            TYPED_FALLBACK_SERIALIZERS, typedSerializers);
     }
 
     @Test

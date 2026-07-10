@@ -26,6 +26,8 @@ import org.apache.tinkerpop.gremlin.process.traversal.CoreTraversalTest;
 import org.apache.tinkerpop.gremlin.process.traversal.TraversalEngine;
 import org.apache.tinkerpop.gremlin.process.traversal.TraversalInterruptionTest;
 import org.apache.tinkerpop.gremlin.process.traversal.step.ComplexTest;
+import org.apache.tinkerpop.gremlin.process.traversal.step.OrderabilityTest;
+import org.apache.tinkerpop.gremlin.process.traversal.step.TernaryBooleanLogicsTest;
 import org.apache.tinkerpop.gremlin.process.traversal.step.branch.BranchTest;
 import org.apache.tinkerpop.gremlin.process.traversal.step.branch.ChooseTest;
 import org.apache.tinkerpop.gremlin.process.traversal.step.branch.LocalTest;
@@ -51,6 +53,7 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.map.AddVertexTest;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.CoalesceTest;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.ConstantTest;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.CountTest;
+import org.apache.tinkerpop.gremlin.process.traversal.step.map.ElementMapTest;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.FlatMapTest;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.FoldTest;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.GraphTest;
@@ -61,6 +64,8 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.map.MatchTest;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.MathTest;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.MaxTest;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.MeanTest;
+import org.apache.tinkerpop.gremlin.process.traversal.step.map.MergeEdgeTest;
+import org.apache.tinkerpop.gremlin.process.traversal.step.map.MergeVertexTest;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.MinTest;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.OrderTest;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.PathTest;
@@ -87,6 +92,7 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.sideEffect.TreeTest;
 import org.apache.tinkerpop.gremlin.process.traversal.strategy.decoration.ElementIdStrategyProcessTest;
 import org.apache.tinkerpop.gremlin.process.traversal.strategy.decoration.EventStrategyProcessTest;
 import org.apache.tinkerpop.gremlin.process.traversal.strategy.decoration.PartitionStrategyProcessTest;
+import org.apache.tinkerpop.gremlin.process.traversal.strategy.decoration.SeedStrategyProcessTest;
 import org.apache.tinkerpop.gremlin.process.traversal.strategy.decoration.SubgraphStrategyProcessTest;
 import org.apache.tinkerpop.gremlin.process.traversal.strategy.decoration.TranslationStrategyProcessTest;
 import org.apache.tinkerpop.gremlin.process.traversal.strategy.optimization.EarlyLimitStrategyProcessTest;
@@ -105,7 +111,9 @@ public class ProcessBasicSuite extends AbstractGremlinSuite {
 
     /**
      * This list of tests in the suite that will be executed
-     * as part of this suite.
+     * as part of this suite. It is synchronized with TinkerPop 3.7.6's
+     * official ProcessStandardSuite; HugeGraphWriteTest
+     * intentionally replaces WriteTest.Traversals.
      */
     private static final Class<?>[] ALL_TESTS = new Class<?>[]{
             // branch
@@ -138,6 +146,7 @@ public class ProcessBasicSuite extends AbstractGremlinSuite {
             CoalesceTest.Traversals.class,
             ConstantTest.Traversals.class,
             CountTest.Traversals.class,
+            ElementMapTest.Traversals.class,
             FlatMapTest.Traversals.class,
             FoldTest.Traversals.class,
             GraphTest.Traversals.class,
@@ -149,6 +158,8 @@ public class ProcessBasicSuite extends AbstractGremlinSuite {
             MathTest.Traversals.class,
             MaxTest.Traversals.class,
             MeanTest.Traversals.class,
+            MergeEdgeTest.Traversals.class,
+            MergeVertexTest.Traversals.class,
             MinTest.Traversals.class,
             SumTest.Traversals.class,
             OrderTest.Traversals.class,
@@ -161,7 +172,7 @@ public class ProcessBasicSuite extends AbstractGremlinSuite {
             VertexTest.Traversals.class,
             UnfoldTest.Traversals.class,
             ValueMapTest.Traversals.class,
-            // Override WriteTest.Traversals.class
+            // Intentionally replace WriteTest.Traversals.class
             HugeGraphWriteTest.class,
 
             // sideEffect
@@ -190,11 +201,16 @@ public class ProcessBasicSuite extends AbstractGremlinSuite {
             EventStrategyProcessTest.class,
             ReadOnlyStrategyProcessTest.class,
             PartitionStrategyProcessTest.class,
+            SeedStrategyProcessTest.class,
             SubgraphStrategyProcessTest.class,
 
             // optimizations
             IncidentToAdjacentStrategyProcessTest.class,
-            EarlyLimitStrategyProcessTest.class
+            EarlyLimitStrategyProcessTest.class,
+
+            // semantics
+            OrderabilityTest.Traversals.class,
+            TernaryBooleanLogicsTest.class
     };
 
     /**
@@ -232,6 +248,7 @@ public class ProcessBasicSuite extends AbstractGremlinSuite {
             CoalesceTest.class,
             ConstantTest.class,
             CountTest.class,
+            ElementMapTest.class,
             FlatMapTest.class,
             FoldTest.class,
             LoopsTest.class,

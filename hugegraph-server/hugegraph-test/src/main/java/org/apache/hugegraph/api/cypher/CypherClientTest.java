@@ -52,34 +52,47 @@ public class CypherClientTest extends BaseUnitTest {
     @Test
     public void testNormalizeHandlesCyclicReferences() {
         Map<String, Object> value = new LinkedHashMap<>();
-        value.put("self", value);
+        value.put("private-value", value);
 
-        Object normalized = CypherClient.normalize(value);
-
-        Assert.assertInstanceOf(Map.class, normalized);
-        Assert.assertEquals("[cyclic-reference]",
-                            ((Map<?, ?>) normalized).get("self"));
+        Assert.assertThrows(IllegalArgumentException.class,
+                            () -> CypherClient.normalize(value), e -> {
+            Assert.assertContains("cyclic Cypher result", e.getMessage());
+            Assert.assertFalse(e.getMessage().contains("private-value"));
+        });
     }
 
     @Test
-    public void testNormalizeBoundsDeeplyNestedArrays() {
+    public void testNormalizePreservesThirtyTwoContainerLayers() {
         Object value = "leaf";
-        for (int i = 0; i < 40; i++) {
+        for (int i = 0; i < 32; i++) {
             value = new Object[]{value};
         }
 
         Object normalized = CypherClient.normalize(value);
         Object current = normalized;
-        for (int i = 0; i < 40; i++) {
-            if (!(current instanceof List)) {
-                break;
-            }
+        for (int i = 0; i < 32; i++) {
+            Assert.assertInstanceOf(List.class, current);
             List<?> list = (List<?>) current;
             Assert.assertEquals(1, list.size());
             current = list.get(0);
         }
 
-        Assert.assertEquals("[max-depth-exceeded]", current);
+        Assert.assertEquals("leaf", current);
+    }
+
+    @Test
+    public void testNormalizeRejectsThirtyThirdContainerLayer() {
+        Object value = "leaf";
+        for (int i = 0; i < 33; i++) {
+            value = new Object[]{value};
+        }
+        Object deeplyNestedValue = value;
+
+        Assert.assertThrows(IllegalArgumentException.class,
+                            () -> CypherClient.normalize(deeplyNestedValue),
+                            e -> Assert.assertContains(
+                                    "max normalization depth 32",
+                                    e.getMessage()));
     }
 
     @Test

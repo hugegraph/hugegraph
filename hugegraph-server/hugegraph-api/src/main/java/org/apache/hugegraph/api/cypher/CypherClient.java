@@ -49,8 +49,6 @@ public final class CypherClient {
 
     private static final Logger LOG = Log.logger(CypherClient.class);
     private static final int NORMALIZE_MAX_DEPTH = 32;
-    private static final String CYCLIC_REFERENCE = "[cyclic-reference]";
-    private static final String MAX_DEPTH_EXCEEDED = "[max-depth-exceeded]";
     private final Supplier<Configuration> configurationSupplier;
     private String userName;
     private String password;
@@ -128,15 +126,23 @@ public final class CypherClient {
         if (value == null) {
             return null;
         }
-        if (depth >= NORMALIZE_MAX_DEPTH) {
-            return MAX_DEPTH_EXCEEDED;
-        }
         if (value instanceof Id) {
             return ((Id) value).asObject();
         }
+        boolean composite = value instanceof Map || value instanceof Path ||
+                            value instanceof Iterable ||
+                            value.getClass().isArray();
+        if (!composite) {
+            return value;
+        }
+        if (depth >= NORMALIZE_MAX_DEPTH) {
+            throw new IllegalArgumentException(
+                      "Exceeded max normalization depth 32");
+        }
         if (value instanceof Map) {
             if (seen.put(value, Boolean.TRUE) != null) {
-                return CYCLIC_REFERENCE;
+                throw new IllegalArgumentException(
+                          "Detected cyclic Cypher result");
             }
             Map<Object, Object> normalized = new LinkedHashMap<>();
             try {
@@ -151,7 +157,8 @@ public final class CypherClient {
         }
         if (value instanceof Path) {
             if (seen.put(value, Boolean.TRUE) != null) {
-                return CYCLIC_REFERENCE;
+                throw new IllegalArgumentException(
+                          "Detected cyclic Cypher result");
             }
             Map<String, Object> normalized = new LinkedHashMap<>();
             try {
@@ -167,7 +174,8 @@ public final class CypherClient {
         }
         if (value instanceof Iterable) {
             if (seen.put(value, Boolean.TRUE) != null) {
-                return CYCLIC_REFERENCE;
+                throw new IllegalArgumentException(
+                          "Detected cyclic Cypher result");
             }
             List<Object> normalized = new LinkedList<>();
             try {
@@ -181,7 +189,8 @@ public final class CypherClient {
         }
         if (value.getClass().isArray()) {
             if (seen.put(value, Boolean.TRUE) != null) {
-                return CYCLIC_REFERENCE;
+                throw new IllegalArgumentException(
+                          "Detected cyclic Cypher result");
             }
             List<Object> normalized = new LinkedList<>();
             try {
