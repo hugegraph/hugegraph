@@ -47,6 +47,7 @@ import org.apache.tinkerpop.gremlin.FeatureRequirement;
 import org.apache.tinkerpop.gremlin.FeatureRequirements;
 import org.apache.tinkerpop.gremlin.LoadGraphWith;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversalSource;
+import org.apache.tinkerpop.gremlin.process.traversal.step.map.MergeEdgeTest;
 import org.apache.tinkerpop.gremlin.process.traversal.strategy.optimization.LazyBarrierStrategy;
 import org.apache.tinkerpop.gremlin.structure.Element;
 import org.apache.tinkerpop.gremlin.structure.Graph;
@@ -193,6 +194,11 @@ public class TestGraphProvider extends AbstractGraphProvider {
         }
         String storePrefix = config.getString(CoreOptions.STORE.name());
         String store = storePrefix + "_" + this.suite + "_" + graphName;
+        if (isTransactionMultiThreadedPropertyTest(testClass, testMethod)) {
+            store += "_txprop";
+        } else if (isMergeEdgeSelfTest(testClass, testMethod)) {
+            store += "_meself";
+        }
         confMap.put(CoreOptions.STORE.name(), store);
         if (isRocksDBBackend(config)) {
             this.isolateRocksDBPaths(confMap, graphName, testClass,
@@ -313,6 +319,18 @@ public class TestGraphProvider extends AbstractGraphProvider {
         return false;
     }
 
+    private static boolean isTransactionMultiThreadedPropertyTest(
+            Class<?> testClass, String testMethod) {
+        return testClass == TransactionMultiThreadedTest.class &&
+               testMethod.equals("shouldChangeVertexProperty");
+    }
+
+    private static boolean isMergeEdgeSelfTest(Class<?> testClass,
+                                               String testMethod) {
+        return testClass == MergeEdgeTest.Traversals.class &&
+               testMethod.equals("g_V_mergeEXlabel_self_weight_05X");
+    }
+
     private static String getAKeyType(Class<?> clazz, String method) {
         if (clazz.getCanonicalName().startsWith(AKEY_CLASS_PREFIX)) {
             String feature = method;
@@ -409,13 +427,15 @@ public class TestGraphProvider extends AbstractGraphProvider {
             testGraph.initPropertyKey("long", "Long");
         }
 
-        if (testClass == TransactionMultiThreadedTest.class &&
-            testMethod.equals("shouldChangeVertexProperty")) {
+        if (isTransactionMultiThreadedPropertyTest(testClass, testMethod)) {
             testGraph.initPropertyKey("test", "Integer");
         }
 
         // Basic schema is initiated by default once a graph is open
-        testGraph.initBasicSchema(idStrategy(config), TestGraph.DEFAULT_VL);
+        String selfVL = isMergeEdgeSelfTest(testClass, testMethod) ?
+                        "person" : TestGraph.DEFAULT_VL;
+        testGraph.initBasicSchema(idStrategy(config), TestGraph.DEFAULT_VL,
+                                  selfVL);
         if (testClass.getName().equals(
                 "org.apache.tinkerpop.gremlin.process.traversal.step.map.ReadTest$Traversals")) {
             testGraph.initEdgeLabelPersonKnowsPerson();

@@ -430,6 +430,7 @@ public class TestGraph implements Graph {
         SchemaManager schema = this.graph.schema();
 
         schema.propertyKey("weight").asDouble().ifNotExist().create();
+        schema.propertyKey("a").asInt().ifNotExist().create();
         schema.propertyKey("name").ifNotExist().create();
         schema.propertyKey("lang").ifNotExist().create();
         schema.propertyKey("age").asInt().ifNotExist().create();
@@ -499,12 +500,12 @@ public class TestGraph implements Graph {
         }
 
         schema.edgeLabel("knows").link("person", "person")
-              .properties("weight", "year")
-              .nullableKeys("weight", "year")
+              .properties("weight", "year", "a")
+              .nullableKeys("weight", "year", "a")
               .ifNotExist().create();
         schema.edgeLabel("created").link("person", "software")
-              .properties("weight")
-              .nullableKeys("weight")
+              .properties("weight", "a")
+              .nullableKeys("weight", "a")
               .ifNotExist().create();
         schema.edgeLabel("codeveloper").link("person", "person")
               .properties("year")
@@ -591,9 +592,15 @@ public class TestGraph implements Graph {
 
     @Watched
     public void initBasicSchema(IdStrategy idStrategy, String defaultVL) {
+        this.initBasicSchema(idStrategy, defaultVL, defaultVL);
+    }
+
+    @Watched
+    public void initBasicSchema(IdStrategy idStrategy, String defaultVL,
+                                String selfVL) {
         this.initBasicPropertyKey();
         this.initBasicVertexLabelV(idStrategy, defaultVL);
-        this.initBasicVertexLabelAndEdgeLabelExceptV(defaultVL);
+        this.initBasicVertexLabelAndEdgeLabelExceptV(defaultVL, selfVL);
     }
 
     @Watched
@@ -750,7 +757,8 @@ public class TestGraph implements Graph {
     }
 
     @Watched
-    private void initBasicVertexLabelAndEdgeLabelExceptV(String defaultVL) {
+    private void initBasicVertexLabelAndEdgeLabelExceptV(String defaultVL,
+                                                         String selfVL) {
         SchemaManager schema = this.graph.schema();
 
         if (!"person".equals(defaultVL)) {
@@ -772,7 +780,7 @@ public class TestGraph implements Graph {
               .nullableKeys("test")
               .ifNotExist().create();
 
-        schema.edgeLabel("self").link(defaultVL, defaultVL)
+        schema.edgeLabel("self").link(selfVL, selfVL)
               .properties("__id", "test", "name", "some", "acl", "weight",
                           "here", "to-change", "dropped", "not-dropped", "new",
                           "to-drop", "short", "long")

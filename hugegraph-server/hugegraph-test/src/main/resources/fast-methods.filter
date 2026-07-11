@@ -96,6 +96,15 @@ org.apache.tinkerpop.gremlin.structure.TransactionMultiThreadedTest.shouldRollba
 org.apache.tinkerpop.gremlin.structure.TransactionMultiThreadedTest.shouldCommitEdge: Spawned read transactions are not auto-closed after thread exit
 org.apache.tinkerpop.gremlin.structure.TransactionMultiThreadedTest.shouldRollbackAddedEdge: Spawned read transactions are not auto-closed after thread exit
 
+## HG-LEGACY/TP37-SEMANTICS/FOLLOW-UP: MergeEdgeTest hard-codes numeric vertex ids although HugeGraph does not advertise numeric id support
+org.apache.tinkerpop.gremlin.process.traversal.step.map.MergeEdgeTest.Traversals.g_mergeEXlabel_knows_out_marko_in_vadasX: Test requires raw numeric vertex ids while HugeGraph exposes custom Id values
+org.apache.tinkerpop.gremlin.process.traversal.step.map.MergeEdgeTest.Traversals.g_mergeEXlabel_knows_out_marko_in_vadas_weight_05X_exists: Test requires raw numeric vertex ids while HugeGraph exposes custom Id values
+org.apache.tinkerpop.gremlin.process.traversal.step.map.MergeEdgeTest.Traversals.g_mergeEXlabel_knows_out_marko_in_vadasX_optionXonCreate_created_YX_optionXonMatch_created_NX_exists: Test requires raw numeric vertex ids while HugeGraph exposes custom Id values
+org.apache.tinkerpop.gremlin.process.traversal.step.map.MergeEdgeTest.Traversals.g_mergeEXlabel_knows_out_marko_in_vadasX_optionXonCreate_created_YX_optionXonMatch_created_NX_exists_updated: Test requires raw numeric vertex ids while HugeGraph exposes custom Id values
+org.apache.tinkerpop.gremlin.process.traversal.step.map.MergeEdgeTest.Traversals.g_V_hasXperson_name_marko_X_mergeEXlabel_knowsX_optionXonCreate_created_YX_optionXonMatch_created_NX_exists_updated: Test requires raw numeric vertex ids while HugeGraph exposes custom Id values
+org.apache.tinkerpop.gremlin.process.traversal.step.map.MergeEdgeTest.Traversals.g_injectXlabel_knows_out_marko_in_vadasX_mergeE: Test requires raw numeric vertex ids while HugeGraph exposes custom Id values
+org.apache.tinkerpop.gremlin.process.traversal.step.map.MergeEdgeTest.Traversals.g_mergeE_with_outV_inV_options: Test requires raw numeric vertex ids while HugeGraph exposes custom Id values
+
 ## HG-LEGACY/FOLLOW-UP: vertex properties don't have nested structures with HugeVertexSerializer
 org.apache.tinkerpop.gremlin.structure.SerializationTest.GraphSONTest.shouldSerializeVertex: Vertex properties doesn't have nested structures with HugeVertexSerializer
 org.apache.tinkerpop.gremlin.structure.SerializationTest.GraphSONTest.shouldSerializePath: Vertex properties doesn't have nested structures with HugeVertexSerializer
