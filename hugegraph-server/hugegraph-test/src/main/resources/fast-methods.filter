@@ -88,6 +88,14 @@ org.apache.tinkerpop.gremlin.structure.TransactionTest.shouldAllowReferenceOfEdg
 org.apache.tinkerpop.gremlin.structure.TransactionTest.shouldSupportTransactionIsolationCommitCheck: HugeGraph uses ThreadLocal transactions, spawned thread tx not auto-closed on graph close
 org.apache.tinkerpop.gremlin.structure.TransactionTest.shouldAllowReferenceOfVertexIdOutsideOfOriginalThreadManual: HugeGraph uses ThreadLocal transactions, spawned thread tx not auto-closed on graph close
 
+## HG-LEGACY/TP37-SEMANTICS/FOLLOW-UP: TransactionMultiThreadedTest assumes spawned transaction isolation and cleanup
+org.apache.tinkerpop.gremlin.structure.TransactionMultiThreadedTest.shouldCommit: Memory backend exposes uncommitted vertices across ThreadLocal transactions and spawned tx stays open
+org.apache.tinkerpop.gremlin.structure.TransactionMultiThreadedTest.shouldDeleteVertexOnCommit: Spawned read transaction is not auto-closed after thread exit
+org.apache.tinkerpop.gremlin.structure.TransactionMultiThreadedTest.shouldDeleteRelatedEdgesOnVertexDelete: Spawned verification transaction is not auto-closed after thread exit
+org.apache.tinkerpop.gremlin.structure.TransactionMultiThreadedTest.shouldRollbackAddedVertex: Memory backend exposes uncommitted vertices and spawned tx stays open
+org.apache.tinkerpop.gremlin.structure.TransactionMultiThreadedTest.shouldCommitEdge: Spawned read transactions are not auto-closed after thread exit
+org.apache.tinkerpop.gremlin.structure.TransactionMultiThreadedTest.shouldRollbackAddedEdge: Spawned read transactions are not auto-closed after thread exit
+
 ## HG-LEGACY/FOLLOW-UP: vertex properties don't have nested structures with HugeVertexSerializer
 org.apache.tinkerpop.gremlin.structure.SerializationTest.GraphSONTest.shouldSerializeVertex: Vertex properties doesn't have nested structures with HugeVertexSerializer
 org.apache.tinkerpop.gremlin.structure.SerializationTest.GraphSONTest.shouldSerializePath: Vertex properties doesn't have nested structures with HugeVertexSerializer

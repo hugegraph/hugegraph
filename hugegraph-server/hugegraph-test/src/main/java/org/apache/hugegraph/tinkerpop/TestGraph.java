@@ -603,7 +603,9 @@ public class TestGraph implements Graph {
         schema.propertyKey("__id").ifNotExist().create();
         schema.propertyKey("oid").asInt().ifNotExist().create();
         schema.propertyKey("communityIndex").asInt().ifNotExist().create();
-        schema.propertyKey("test").ifNotExist().create();
+        if (!this.graph.existsPropertyKey("test")) {
+            schema.propertyKey("test").ifNotExist().create();
+        }
         schema.propertyKey("testing").ifNotExist().create();
         schema.propertyKey("data").ifNotExist().create();
         schema.propertyKey("name").ifNotExist().create();

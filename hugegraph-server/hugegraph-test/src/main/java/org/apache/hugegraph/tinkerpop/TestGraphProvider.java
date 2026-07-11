@@ -52,6 +52,7 @@ import org.apache.tinkerpop.gremlin.structure.Element;
 import org.apache.tinkerpop.gremlin.structure.Graph;
 import org.apache.tinkerpop.gremlin.structure.Graph.Features.VertexPropertyFeatures;
 import org.apache.tinkerpop.gremlin.structure.Transaction;
+import org.apache.tinkerpop.gremlin.structure.TransactionMultiThreadedTest;
 import org.junit.Assert;
 import org.junit.Assume;
 import org.slf4j.Logger;
@@ -406,6 +407,11 @@ public class TestGraphProvider extends AbstractGraphProvider {
             testGraph.initPropertyKey("long", "String");
         } else {
             testGraph.initPropertyKey("long", "Long");
+        }
+
+        if (testClass == TransactionMultiThreadedTest.class &&
+            testMethod.equals("shouldChangeVertexProperty")) {
+            testGraph.initPropertyKey("test", "Integer");
         }
 
         // Basic schema is initiated by default once a graph is open
