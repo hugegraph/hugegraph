@@ -21,6 +21,14 @@ import org.apache.hugegraph.backend.query.Condition;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.PBiPredicate;
 
+/**
+ * A HugeGraph-local predicate used by server-side traversal processing.
+ *
+ * This type relies on HugeGraph {@link Condition.RelationType} predicates and
+ * has no registered GraphSON or GraphBinary wire serializer. Remote clients
+ * should use supported TinkerPop predicates or server-side query APIs instead
+ * of sending {@code ConditionP} instances directly.
+ */
 public class ConditionP extends P<Object> {
 
     private static final long serialVersionUID = 9094970577400072902L;

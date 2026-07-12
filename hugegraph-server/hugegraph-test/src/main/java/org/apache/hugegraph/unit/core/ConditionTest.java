@@ -180,15 +180,38 @@ public class ConditionTest extends BaseUnitTest {
 
     @Test
     public void testConditionPUsesRelationTypeBiPredicate() {
-        Assert.assertTrue(ConditionP.contains("marko")
-                                    .test(ImmutableList.of("marko", "josh")));
+        ConditionP contains = ConditionP.contains("marko");
+        Assert.assertEquals("contains",
+                            contains.getBiPredicate().getPredicateName());
+        Assert.assertTrue(contains.test(ImmutableList.of("marko", "josh")));
         Assert.assertFalse(ConditionP.contains("vadas")
                                      .test(ImmutableList.of("marko", "josh")));
-        Assert.assertTrue(ConditionP.containsK("name")
-                                    .test(ImmutableMap.of("name", "marko")));
-        Assert.assertTrue(ConditionP.textContains("ark").test("marko"));
-        Assert.assertTrue(ConditionP.eq(new String[]{"a", "b"})
-                                    .test(new String[]{"a", "b"}));
+
+        ConditionP containsKey = ConditionP.containsK("name");
+        Assert.assertEquals("containsk",
+                            containsKey.getBiPredicate().getPredicateName());
+        Assert.assertTrue(containsKey.test(ImmutableMap.of("name", "marko")));
+        Assert.assertFalse(ConditionP.containsK("age")
+                                     .test(ImmutableMap.of("name", "marko")));
+
+        ConditionP containsValue = ConditionP.containsV("marko");
+        Assert.assertEquals("containsv",
+                            containsValue.getBiPredicate().getPredicateName());
+        Assert.assertTrue(containsValue.test(
+                ImmutableMap.of("name", "marko")));
+        Assert.assertFalse(ConditionP.containsV("vadas")
+                                     .test(ImmutableMap.of("name", "marko")));
+
+        ConditionP textContains = ConditionP.textContains("ark");
+        Assert.assertEquals("textcontains",
+                            textContains.getBiPredicate().getPredicateName());
+        Assert.assertTrue(textContains.test("marko"));
+        Assert.assertFalse(ConditionP.textContains("vadas").test("marko"));
+
+        ConditionP eq = ConditionP.eq(new String[]{"a", "b"});
+        Assert.assertEquals("==", eq.getBiPredicate().getPredicateName());
+        Assert.assertTrue(eq.test(new String[]{"a", "b"}));
+        Assert.assertFalse(eq.test(new String[]{"a", "c"}));
     }
 
     @Test

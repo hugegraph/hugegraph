@@ -55,12 +55,12 @@ public final class HugeCountStep<S extends Element>
 
         HugeCountStep other = (HugeCountStep) obj;
         return Objects.equals(this.originGraphStep,
-                              other.originGraphStep) && this.done == other.done;
+                              other.originGraphStep);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode(), this.originGraphStep, this.done);
+        return Objects.hash(super.hashCode(), this.originGraphStep);
     }
 
     @Override

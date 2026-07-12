@@ -96,12 +96,28 @@ function wait_for_http_status() {
     local service_dir="$4"
     local timeout_seconds="${5:-90}"
     local accepted_statuses="${6:-200}"
+    local connect_timeout_seconds=2
+    local max_request_seconds=5
+    local started_at="${SECONDS}"
+    local deadline=$((started_at + timeout_seconds))
+    local next_log_at=10
 
     echo "[ci] waiting for ${service_name} HTTP readiness at ${url}"
     echo "[ci] accepted HTTP statuses: ${accepted_statuses}"
-    for second in $(seq 1 "${timeout_seconds}"); do
+    while (( SECONDS < deadline )); do
+        local remaining=$((deadline - SECONDS))
+        local request_timeout="${max_request_seconds}"
+        if (( remaining < request_timeout )); then
+            request_timeout="${remaining}"
+        fi
+        if (( request_timeout < 1 )); then
+            break
+        fi
+
         local status
         status="$(curl -s -o /dev/null -w "%{http_code}" \
+                  --connect-timeout "${connect_timeout_seconds}" \
+                  --max-time "${request_timeout}" \
                   "${url}" 2>/dev/null)" || status="000"
         if http_status_is_accepted "${status}" "${accepted_statuses}"; then
             echo "[ci] ${service_name} is HTTP ready at ${url}" \
@@ -120,9 +136,14 @@ function wait_for_http_status() {
             fi
         fi
 
-        if [ "$((second % 10))" -eq 0 ]; then
+        local elapsed=$((SECONDS - started_at))
+        if (( elapsed >= next_log_at )); then
             echo "[ci] still waiting for ${service_name} HTTP readiness" \
-                 "(${second}s, last status ${status})"
+                 "(${elapsed}s, last status ${status})"
+            next_log_at=$((next_log_at + 10))
+        fi
+        if (( SECONDS >= deadline )); then
+            break
         fi
         sleep 1
     done

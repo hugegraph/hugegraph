@@ -27,6 +27,9 @@ import java.util.UUID;
 
 import org.apache.hugegraph.backend.id.EdgeId;
 import org.apache.hugegraph.backend.id.IdGenerator;
+import org.apache.hugegraph.backend.id.IdGenerator.LongId;
+import org.apache.hugegraph.backend.id.IdGenerator.StringId;
+import org.apache.hugegraph.backend.id.IdGenerator.UuidId;
 import org.apache.hugegraph.io.HugeGraphIoRegistry;
 import org.apache.hugegraph.schema.PropertyKey;
 import org.apache.hugegraph.testutil.Assert;
@@ -60,12 +63,17 @@ public class HugeGraphSONModuleTest extends BaseUnitTest {
     }
 
     @Test
-    public void testSerializeIdWithGraphSONTypeInfo() throws IOException {
-        String stringId = writeTyped(IdGenerator.of("marko"));
-        String longId = writeTyped(IdGenerator.of(123L));
-        String uuidId = writeTyped(IdGenerator.of(
-                UUID.fromString("3cfcafc8-7906-4ab7-a207-4ded056f58de")));
-        String edgeId = writeTyped(EdgeId.parse("S1>2>3>4>L6"));
+    public void testRoundTripIdWithGraphSONTypeInfo() throws IOException {
+        StringId expectedStringId = (StringId) IdGenerator.of("marko");
+        LongId expectedLongId = (LongId) IdGenerator.of(123L);
+        UuidId expectedUuidId = (UuidId) IdGenerator.of(
+                UUID.fromString("3cfcafc8-7906-4ab7-a207-4ded056f58de"));
+        EdgeId expectedEdgeId = EdgeId.parse("S1>2>3>4>L6");
+
+        String stringId = writeTyped(expectedStringId);
+        String longId = writeTyped(expectedLongId);
+        String uuidId = writeTyped(expectedUuidId);
+        String edgeId = writeTyped(expectedEdgeId);
 
         Assert.assertContains("hugegraph:StringId", stringId);
         Assert.assertContains("marko", stringId);
@@ -76,6 +84,15 @@ public class HugeGraphSONModuleTest extends BaseUnitTest {
                               uuidId);
         Assert.assertContains("hugegraph:EdgeId", edgeId);
         Assert.assertContains("S1>2>3>4>L6", edgeId);
+
+        Assert.assertEquals(expectedStringId,
+                            readTyped(stringId, StringId.class));
+        Assert.assertEquals(expectedLongId,
+                            readTyped(longId, LongId.class));
+        Assert.assertEquals(expectedUuidId,
+                            readTyped(uuidId, UuidId.class));
+        Assert.assertEquals(expectedEdgeId,
+                            readTyped(edgeId, EdgeId.class));
     }
 
     @Test

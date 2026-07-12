@@ -38,7 +38,6 @@ import java.util.regex.Pattern;
 import org.apache.hugegraph.backend.id.EdgeId;
 import org.apache.hugegraph.backend.id.IdGenerator;
 import org.apache.hugegraph.testutil.Assert;
-import org.apache.hugegraph.traversal.optimize.ConditionP;
 import org.apache.hugegraph.unit.BaseUnitTest;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.step.util.MutablePath;
@@ -196,7 +195,22 @@ public class GremlinConfigCompatibilityTest extends BaseUnitTest {
     }
 
     @Test
-    public void testConfiguredGraphBinarySerializersCanSerializeConditionPPredicates()
+    public void testTypedFallbackSerializersCanRoundTripHugeGraphIds()
+            throws Exception {
+        Map<String, Object> config = graphSONV1Config(
+                readGremlinServerSettings());
+
+        for (String serializer : TYPED_FALLBACK_SERIALIZERS) {
+            MessageTextSerializer<?> textSerializer =
+                    newTextSerializer(serializer);
+
+            textSerializer.configure(config(config), Collections.emptyMap());
+            assertCanRoundTripHugeGraphIds(serializer, textSerializer);
+        }
+    }
+
+    @Test
+    public void testConfiguredGraphBinarySerializersCanRoundTripStandardPredicate()
             throws Exception {
         Settings settings = readGremlinServerSettings();
         boolean found = false;
@@ -212,25 +226,13 @@ public class GremlinConfigCompatibilityTest extends BaseUnitTest {
                     newMessageSerializer(serializerSettings.className);
             serializer.configure(config(serializerSettings.config),
                                  Collections.emptyMap());
-            assertCanSerializeBinaryConditionPredicates(serializer);
+            assertCanRoundTripStandardPredicate(serializerSettings.className,
+                                                serializer);
             found = true;
         }
 
         Assert.assertTrue("No GraphBinary serializer settings found in " +
                           GREMLIN_SERVER_CONFIG, found);
-    }
-
-    @Test
-    public void testTypedFallbackSerializersPreserveConditionPPredicateNames()
-            throws Exception {
-        Map<String, Object> config = graphSONV1Config(readGremlinServerSettings());
-
-        for (String serializer : TYPED_FALLBACK_SERIALIZERS) {
-            MessageTextSerializer<?> textSerializer = newTextSerializer(serializer);
-
-            textSerializer.configure(config(config), Collections.emptyMap());
-            assertSerializesConditionPredicateNames(textSerializer);
-        }
     }
 
     @Test
@@ -416,7 +418,19 @@ public class GremlinConfigCompatibilityTest extends BaseUnitTest {
                                                     ByteBufAllocator.DEFAULT);
     }
 
-    private static byte[] serializeBinaryResponse(
+    private static ResponseMessage roundTripResponse(
+            MessageTextSerializer<?> serializer, Object result)
+            throws Exception {
+        ResponseMessage response = ResponseMessage.build(UUID.randomUUID())
+                                                  .code(ResponseStatusCode.SUCCESS)
+                                                  .result(result)
+                                                  .create();
+        String json = serializer.serializeResponseAsString(
+                response, ByteBufAllocator.DEFAULT);
+        return serializer.deserializeResponse(json);
+    }
+
+    private static ResponseMessage roundTripBinaryResponse(
             MessageSerializer<?> serializer, Object result)
             throws Exception {
         ResponseMessage response = ResponseMessage.build(UUID.randomUUID())
@@ -426,9 +440,7 @@ public class GremlinConfigCompatibilityTest extends BaseUnitTest {
         ByteBuf buffer = serializer.serializeResponseAsBinary(
                 response, ByteBufAllocator.DEFAULT);
         try {
-            byte[] bytes = new byte[buffer.readableBytes()];
-            buffer.readBytes(bytes);
-            return bytes;
+            return serializer.deserializeResponse(buffer);
         } finally {
             buffer.release();
         }
@@ -515,51 +527,39 @@ public class GremlinConfigCompatibilityTest extends BaseUnitTest {
         return !serializer.endsWith("GraphSONMessageSerializerV1");
     }
 
-    private static void assertCanSerializeBinaryConditionPredicates(
-            MessageSerializer<?> serializer) throws Exception {
-        for (P<Object> predicate : conditionPredicates()) {
-            Assert.assertTrue(serializeBinaryResponse(serializer,
-                                                     predicate).length > 0);
+    private static void assertCanRoundTripHugeGraphIds(
+            String serializerName, MessageTextSerializer<?> serializer)
+            throws Exception {
+        List<Object> ids = Arrays.asList(
+                IdGenerator.of("marko"),
+                IdGenerator.of(123L),
+                IdGenerator.of(UUID.fromString(
+                        "3cfcafc8-7906-4ab7-a207-4ded056f58de")),
+                EdgeId.parse("S1>2>3>4>L6")
+        );
+
+        for (Object expected : ids) {
+            ResponseMessage response = roundTripResponse(serializer, expected);
+            Object actual = response.getResult().getData();
+            String message = serializerName + " should round-trip " +
+                             expected.getClass().getSimpleName();
+            Assert.assertEquals(message, expected.getClass(),
+                                actual.getClass());
+            Assert.assertEquals(message, expected, actual);
         }
     }
 
-    private static void assertSerializesConditionPredicateNames(
-            MessageTextSerializer<?> serializer) throws Exception {
-        String textContains = serializeResponse(serializer,
-                                                conditionP(
-                                                        ConditionP.textContains("ark")));
-        String contains = serializeResponse(serializer,
-                                            conditionP(
-                                                    ConditionP.contains("marko")));
-        String containsKey = serializeResponse(serializer,
-                                               conditionP(
-                                                       ConditionP.containsK("name")));
-        String containsValue = serializeResponse(serializer,
-                                                 conditionP(
-                                                         ConditionP.containsV("marko")));
-        String eq = serializeResponse(serializer,
-                                      conditionP(ConditionP.eq("marko")));
-
-        Assert.assertContains("textcontains", textContains);
-        Assert.assertContains("contains", contains);
-        Assert.assertContains("containsk", containsKey);
-        Assert.assertContains("containsv", containsValue);
-        Assert.assertContains("==", eq);
-    }
-
-    private static List<P<Object>> conditionPredicates() {
-        return Arrays.asList(
-                conditionP(ConditionP.textContains("ark")),
-                conditionP(ConditionP.contains("marko")),
-                conditionP(ConditionP.containsK("name")),
-                conditionP(ConditionP.containsV("marko")),
-                conditionP(ConditionP.eq("marko"))
-        );
-    }
-
-    @SuppressWarnings("unchecked")
-    private static P<Object> conditionP(ConditionP predicate) {
-        return P.test(predicate.getBiPredicate(), predicate.getValue());
+    private static void assertCanRoundTripStandardPredicate(
+            String serializerName, MessageSerializer<?> serializer)
+            throws Exception {
+        P<String> expected = P.eq("marko");
+        ResponseMessage response = roundTripBinaryResponse(serializer,
+                                                           expected);
+        Object actual = response.getResult().getData();
+        String message = serializerName +
+                         " should round-trip a standard predicate";
+        Assert.assertInstanceOf(P.class, actual);
+        Assert.assertEquals(message, expected, actual);
     }
 
     private static void assertContainsGraphSONType(String json,

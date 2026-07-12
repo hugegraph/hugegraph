@@ -57,6 +57,40 @@ public class TraversalUtilOptimizeTest {
                 null, new HasContainer("~id", P.eq("1"))));
         Assert.assertFalse(TraversalUtil.canExtractHasContainer(
                 null, new HasContainer("name", P.eq("marko"))));
+        Assert.assertFalse(TraversalUtil.canExtractHasContainer(
+                null, new HasContainer(null, P.eq("marko"))));
+        Assert.assertFalse(TraversalUtil.canExtractHasContainer(
+                null, new HasContainer(T.label.getAccessor(), P.eq(null))));
+        Assert.assertFalse(TraversalUtil.canExtractHasContainer(
+                null, new HasContainer(T.label.getAccessor(),
+                                       P.within(null, "person"))));
+    }
+
+    @Test
+    public void testExtractHasContainerKeepsNullKeyLocal() {
+        Traversal.Admin<?, ?> traversal = __.V()
+                                           .has((String) null,
+                                                "test-null-key")
+                                           .asAdmin();
+        HugeGraphStep<?, ?> newStep = replaceGraphStep(traversal);
+
+        TraversalUtil.extractHasContainer(newStep, traversal);
+
+        Assert.assertTrue(newStep.getHasContainers().isEmpty());
+        Assert.assertTrue(hasStepExists(traversal));
+    }
+
+    @Test
+    public void testExtractHasContainerKeepsMixedNullLabelLocal() {
+        Traversal.Admin<?, ?> traversal = __.V()
+                                           .hasLabel(null, "person")
+                                           .asAdmin();
+        HugeGraphStep<?, ?> newStep = replaceGraphStep(traversal);
+
+        TraversalUtil.extractHasContainer(newStep, traversal);
+
+        Assert.assertTrue(newStep.getHasContainers().isEmpty());
+        Assert.assertTrue(hasStepExists(traversal, T.label.getAccessor()));
     }
 
     @Test
@@ -314,6 +348,11 @@ public class TraversalUtilOptimizeTest {
         Assert.assertFalse(TraversalUtil.isPositiveLabelContainer(
                 new HasContainer(T.label.getAccessor(),
                                  P.within(Collections.emptyList()))));
+        Assert.assertFalse(TraversalUtil.isPositiveLabelContainer(
+                new HasContainer(T.label.getAccessor(), P.eq(null))));
+        Assert.assertFalse(TraversalUtil.isPositiveLabelContainer(
+                new HasContainer(T.label.getAccessor(),
+                                 P.within(null, "person"))));
     }
 
     @Test

@@ -385,7 +385,7 @@ public final class TraversalUtil {
     }
 
     static boolean isPositiveLabelContainer(HasContainer has) {
-        if (!isLabelContainer(has)) {
+        if (!isLabelContainer(has) || hasNullLabelValue(has)) {
             return false;
         }
 
@@ -541,6 +541,26 @@ public final class TraversalUtil {
         return false;
     }
 
+    private static boolean hasNullLabelValue(HasContainer has) {
+        if (!isLabelContainer(has)) {
+            return false;
+        }
+
+        List<P<Object>> predicates = new ArrayList<>();
+        collectPredicates(predicates, ImmutableList.of(has.getPredicate()));
+        for (P<Object> pred : predicates) {
+            Object value = pred.getValue();
+            if (value == null) {
+                return true;
+            }
+            if (value instanceof Collection &&
+                ((Collection<?>) value).contains(null)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private static boolean hasBooleanIndex(HugeGraph graph,
                                            SchemaLabel schemaLabel,
                                            PropertyKey pkey) {
@@ -655,6 +675,9 @@ public final class TraversalUtil {
 
     static boolean canExtractHasContainer(HugeGraph graph,
                                           HasContainer has) {
+        if (has.getKey() == null || hasNullLabelValue(has)) {
+            return false;
+        }
         if (isSysProp(has.getKey())) {
             return true;
         }
@@ -1097,6 +1120,9 @@ public final class TraversalUtil {
     }
 
     public static HugeKeys token2HugeKey(String key) {
+        if (key == null) {
+            return null;
+        }
         if (key.equals(T.label.getAccessor())) {
             return HugeKeys.LABEL;
         } else if (key.equals(T.id.getAccessor())) {
@@ -1187,7 +1213,7 @@ public final class TraversalUtil {
     private static void convPredicateValue(HugeGraph graph,
                                            HasContainer has) {
         // No need to convert if key is sys-prop
-        if (isSysProp(has.getKey())) {
+        if (has.getKey() == null || isSysProp(has.getKey())) {
             return;
         }
         PropertyKey pkey = graph.propertyKey(has.getKey());

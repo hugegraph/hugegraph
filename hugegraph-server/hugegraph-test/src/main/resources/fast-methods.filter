@@ -182,14 +182,10 @@ org.apache.tinkerpop.gremlin.process.traversal.step.ComplexTest.Traversals.class
 org.apache.tinkerpop.gremlin.process.traversal.step.ComplexTest.Traversals.playlistPaths: long time
 org.apache.tinkerpop.gremlin.process.traversal.step.sideEffect.TreeTest.Traversals.g_V_out_out_treeXaX_capXaX: long time
 
-## HG-LEGACY/TP37-SEMANTICS/FOLLOW-UP: unsupported predicate and null label/key semantics
+## HG-LEGACY/TP37-SEMANTICS/FOLLOW-UP: unsupported has predicates and empty-id semantics
 org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasTest.Traversals.g_V_hasIdXwithoutXemptyXX_count: Unsupported query 'NOT IN []'
 org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasTest.Traversals.g_V_hasIdXemptyX_count: Unsupported query 'hasId(EmptyList)'
 
-org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasTest.Traversals.g_V_hasXnull_testnullkeyX: Unsupported null key/value has predicate
-org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasTest.Traversals.g_V_hasLabelXnullX: Unsupported null label
-org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasTest.Traversals.g_V_hasLabelXnull_personX: Unsupported null label
-org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasTest.Traversals.g_E_hasLabelXnullX: Unsupported null label
 org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasTest.Traversals.g_V_hasXname_containingXarkXX: Unsupported predicate 'containing(ark)'
 org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasTest.Traversals.g_V_hasXname_endingWithXasXX: Unsupported predicate 'endingWith(as)'
 org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasTest.Traversals.g_V_hasXname_startingWithXmarXX: Unsupported predicate 'startingWith(mar)'
