@@ -25,6 +25,7 @@ import org.apache.hugegraph.traversal.optimize.TraversalUtilOptimizeTest;
 import org.apache.hugegraph.unit.api.filter.LoadDetectFilterTest;
 import org.apache.hugegraph.unit.api.filter.PathFilterTest;
 import org.apache.hugegraph.unit.api.gremlin.GremlinQueryAPITest;
+import org.apache.hugegraph.unit.api.space.GraphSpaceAPITest;
 import org.apache.hugegraph.unit.auth.HugeGraphAuthProxyTest;
 import org.apache.hugegraph.unit.cache.CacheManagerTest;
 import org.apache.hugegraph.unit.cache.CacheTest;
@@ -54,6 +55,7 @@ import org.apache.hugegraph.unit.core.SecurityManagerTest;
 import org.apache.hugegraph.unit.core.SerialEnumTest;
 import org.apache.hugegraph.unit.core.ServerInfoManagerTest;
 import org.apache.hugegraph.unit.core.SystemSchemaStoreTest;
+import org.apache.hugegraph.unit.core.TaskSchedulerServerInfoTest;
 import org.apache.hugegraph.unit.core.TraversalUtilTest;
 import org.apache.hugegraph.unit.id.EdgeIdTest;
 import org.apache.hugegraph.unit.id.IdTest;
@@ -100,6 +102,9 @@ import org.junit.runners.Suite;
         GremlinQueryAPITest.class,
         CypherClientTest.class,
 
+        /* api space */
+        GraphSpaceAPITest.class,
+
         /* cache */
         CacheTest.RamCacheTest.class,
         CacheTest.OffheapCacheTest.class,
@@ -142,6 +147,7 @@ import org.junit.runners.Suite;
         PageStateTest.class,
         SystemSchemaStoreTest.class,
         ServerInfoManagerTest.class,
+        TaskSchedulerServerInfoTest.class,
         RoleElectionStateMachineTest.class,
         HugeGraphAuthProxyTest.class,
         SchemaElementTest.class,

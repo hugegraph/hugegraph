@@ -21,6 +21,7 @@ import java.io.IOException;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -110,9 +111,9 @@ public class StandardAuthManagerV2 implements AuthManager {
      * Update creator from current context (from TaskManager ThreadLocal or direct call)
      */
     private AuthElement updateCreator(AuthElement elem) {
-        String username = currentUsername();
-        if (username != null && elem.creator() == null) {
-            elem.creator(username);
+        if (elem.creator() == null) {
+            String username = currentUsername();
+            elem.creator(username != null ? username : "system");
         }
         return elem;
     }
@@ -200,6 +201,7 @@ public class StandardAuthManagerV2 implements AuthManager {
 
         try {
             user.create(user.update());
+            updateCreator(user);
             this.metaManager.createUser(user);
 
             // Update cache after successful creation
@@ -374,6 +376,7 @@ public class StandardAuthManagerV2 implements AuthManager {
     public Id createGroup(HugeGroup group) {
         try {
             group.create(group.update());
+            updateCreator(group);
             this.metaManager.createGroup(group);
             Id result = IdGenerator.of(group.name());
             group.id(result);
@@ -461,6 +464,7 @@ public class StandardAuthManagerV2 implements AuthManager {
     public Id createTarget(HugeTarget target) {
         try {
             target.create(target.update());
+            updateCreator(target);
             Id result = this.metaManager.createTarget(graphSpace, target);
             this.invalidateUserCache();
             return result;
@@ -548,6 +552,7 @@ public class StandardAuthManagerV2 implements AuthManager {
     public Id createBelong(HugeBelong belong) {
         try {
             belong.create(belong.update());
+            updateCreator(belong);
             this.invalidateUserCache();
             return this.metaManager.createBelong(graphSpace, belong);
         } catch (IOException e) {
@@ -662,6 +667,7 @@ public class StandardAuthManagerV2 implements AuthManager {
     public Id createAccess(HugeAccess access) {
         try {
             access.create(access.update());
+            updateCreator(access);
             Id result = this.metaManager.createAccess(graphSpace, access);
             this.invalidateUserCache();
             return result;
@@ -1508,6 +1514,218 @@ public class StandardAuthManagerV2 implements AuthManager {
                                     "deserialize group", e);
         }
         return result;
+    }
+
+    @Override
+    public void setDefaultGraph(String graphSpace, String graph, String user) {
+        try {
+            String role = graph + DEFAULT_SETTER_ROLE_KEY;
+            String belongId = this.metaManager.belongId(user, role);
+            Id id = IdGenerator.of(belongId);
+            // Idempotent: if binding already exists, treat as success
+            if (this.metaManager.existBelong(graphSpace, id)) {
+                return;
+            }
+            HugeBelong belong = new HugeBelong(graphSpace,
+                                               IdGenerator.of(user),
+                                               IdGenerator.of(graph +
+                                                              DEFAULT_SETTER_ROLE_KEY));
+            this.tryInitDefaultGraph(graphSpace, graph);
+            this.updateCreator(belong);
+            belong.create(belong.update());
+            this.metaManager.createBelong(graphSpace, belong);
+            this.invalidateUserCache();
+        } catch (Exception e) {
+            throw new HugeException("Exception occurs when " +
+                                    "set default graph", e);
+        }
+    }
+
+    @Override
+    public void unsetDefaultGraph(String graphSpace, String graph, String user) {
+        String role = graph + DEFAULT_SETTER_ROLE_KEY;
+        String belongId = this.metaManager.belongId(user, role);
+        Id id = IdGenerator.of(belongId);
+        // Check if belong exists before attempting to delete to make this operation idempotent
+        if (!this.metaManager.existBelong(graphSpace, id)) {
+            // Already unset, treat as success (idempotent behavior)
+            return;
+        }
+        try {
+            this.metaManager.deleteBelong(graphSpace, id);
+            this.invalidateUserCache();
+        } catch (Exception e) {
+            throw new HugeException("Exception occurs when unset default " +
+                                    "graph", e);
+        }
+    }
+
+    @Override
+    public Map<String, Date> getDefaultGraph(String graphSpace, String user) {
+        List<HugeBelong> belongs = this.listBelongBySource(graphSpace,
+                                                           IdGenerator.of(user),
+                                                           HugeBelong.UR, -1);
+        Map<String, Date> map = new HashMap<>();
+        for (HugeBelong belong : belongs) {
+            String role = belong.target().asString();
+            if (role.endsWith(DEFAULT_SETTER_ROLE_KEY) &&
+                role.length() != DEFAULT_SETTER_ROLE_KEY.length()) {
+                map.put(role.substring(0, role.lastIndexOf(
+                        DEFAULT_SETTER_ROLE_KEY)), belong.update());
+            }
+        }
+        return map;
+    }
+
+    @Override
+    public Id createDefaultRole(String graphSpace, String owner,
+                                HugeDefaultRole role, String graph) {
+        String roleName = (role.isGraphRole()) ?
+                getGraphDefaultRole(graph, role.toString()) : role.toString();
+        try {
+            HugeBelong belong;
+            String link;
+            HugeUser user = this.findUser(owner);
+            HugeGroup group = this.findGroup(owner);
+            if (group != null) {
+                belong = new HugeBelong(graphSpace, null,
+                                        IdGenerator.of(owner),
+                                        IdGenerator.of(roleName),
+                                        HugeBelong.GR);
+                link = HugeBelong.GR;
+            } else if (user != null) {
+                belong = new HugeBelong(graphSpace, IdGenerator.of(owner),
+                                        null, IdGenerator.of(roleName),
+                                        HugeBelong.UR);
+                link = HugeBelong.UR;
+            } else {
+                throw new HugeException("The user or group is not exist");
+            }
+
+            // Idempotent: if binding already exists, treat as success
+            String belongId = this.metaManager.belongId(owner, roleName, link);
+            if (this.metaManager.existBelong(graphSpace, IdGenerator.of(belongId))) {
+                return IdGenerator.of(belongId);
+            }
+
+            this.tryInitDefaultRole(graphSpace, roleName, graph);
+            this.updateCreator(belong);
+            belong.create(belong.update());
+            Id result = this.metaManager.createBelong(graphSpace, belong);
+            this.invalidateUserCache();
+            return result;
+        } catch (Exception e) {
+            throw new HugeException("Exception occurs when " +
+                                    "create " + role + ".", e);
+        }
+    }
+
+    @Override
+    public Id createSpaceDefaultRole(String graphSpace, String owner,
+                                     HugeDefaultRole role) {
+        return createDefaultRole(graphSpace, owner, role, ALL_GRAPHS);
+    }
+
+    @Override
+    public boolean isDefaultRole(String graphSpace, String owner,
+                                 HugeDefaultRole role) {
+        return isDefaultRole(graphSpace, owner, role.toString());
+    }
+
+    @Override
+    public boolean isDefaultRole(String graphSpace, String graph,
+                                 String owner, HugeDefaultRole role) {
+        String roleName = getGraphDefaultRole(graph, role.toString());
+        return isDefaultRole(graphSpace, owner, roleName);
+    }
+
+    @Override
+    public void deleteDefaultRole(String graphSpace, String owner,
+                                  HugeDefaultRole role) {
+        deleteDefaultRoleByName(graphSpace, owner, role.toString());
+    }
+
+    @Override
+    public void deleteDefaultRole(String graphSpace, String owner,
+                                  HugeDefaultRole role, String graph) {
+        String roleName = getGraphDefaultRole(graph, role.toString());
+        deleteDefaultRoleByName(graphSpace, owner, roleName);
+    }
+
+    private boolean isDefaultRole(String graphSpace, String owner,
+                                  String role) {
+        try {
+            String belongId;
+            if (this.findGroup(owner) != null) {
+                belongId = this.metaManager.belongId(owner, role,
+                                                     HugeBelong.GR);
+                return this.metaManager.existBelong(graphSpace,
+                                                    IdGenerator.of(belongId));
+            }
+
+            List<HugeGroup> groups = this.listGroupsByUser(owner, -1);
+            for (HugeGroup group : groups) {
+                String belongIdG = this.metaManager.belongId(group.name(),
+                                                             role,
+                                                             HugeBelong.GR);
+                if (this.metaManager.existBelong(graphSpace,
+                                                 IdGenerator.of(belongIdG))) {
+                    return true;
+                }
+            }
+
+            belongId = this.metaManager.belongId(owner, role);
+            return this.metaManager.existBelong(graphSpace,
+                                                IdGenerator.of(belongId));
+        } catch (Exception e) {
+            throw new HugeException("Exception occurs when check if is " +
+                                    role + ".", e);
+        }
+    }
+
+    private void deleteDefaultRoleByName(String graphSpace, String owner,
+                                         String role) {
+        try {
+            String belongId;
+            if (this.findGroup(owner) != null) {
+                belongId = this.metaManager.belongId(owner, role,
+                                                     HugeBelong.GR);
+            } else {
+                belongId = this.metaManager.belongId(owner, role,
+                                                     HugeBelong.UR);
+            }
+            Id id = IdGenerator.of(belongId);
+            if (!this.metaManager.existBelong(graphSpace, id)) {
+                return;
+            }
+            this.metaManager.deleteBelong(graphSpace, id);
+            this.invalidateUserCache();
+        } catch (Exception e) {
+            throw new HugeException("Exception occurs when " +
+                                    "delete " + role + ".", e);
+        }
+    }
+
+    private void tryInitDefaultGraph(String graphSpace, String graph) {
+        try {
+            HugeRole role = this.metaManager.findRole(
+                    graphSpace,
+                    IdGenerator.of(graph + DEFAULT_SETTER_ROLE_KEY));
+            if (role != null) {
+                return;
+            }
+            role = new HugeRole(graph + DEFAULT_SETTER_ROLE_KEY, graphSpace);
+            this.updateCreator(role);
+            role.create(role.update());
+            this.metaManager.createRole(graphSpace, role);
+        } catch (Exception e) {
+            throw new HugeException("Exception occurs when " +
+                                    "init default graph role", e);
+        }
+    }
+
+    public String getGraphDefaultRole(String graph, String role) {
+        return graph + "_" + role;
     }
 
     private void tryInitDefaultRole(String graphSpace,
