@@ -3271,6 +3271,24 @@ public class VertexCoreTest extends BaseCoreTest {
     }
 
     @Test
+    public void testQueryByNullKeyAndLabel() {
+        HugeGraph graph = graph();
+        init10Vertices();
+
+        Assert.assertFalse(graph.traversal().V()
+                                .has((String) null, "test-null-key")
+                                .hasNext());
+        Assert.assertFalse(graph.traversal().V()
+                                .hasLabel((String) null)
+                                .hasNext());
+
+        List<Vertex> vertices = graph.traversal().V()
+                                     .hasLabel(null, "book")
+                                     .toList();
+        Assert.assertEquals(5, vertices.size());
+    }
+
+    @Test
     public void testQueryByLabelWithLimit() {
         HugeGraph graph = graph();
         this.init10VerticesAndCommit();

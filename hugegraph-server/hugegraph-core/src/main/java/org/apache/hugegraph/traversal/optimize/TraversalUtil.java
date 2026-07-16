@@ -24,7 +24,6 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.function.BiPredicate;
 import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -59,6 +58,7 @@ import org.apache.tinkerpop.gremlin.process.traversal.Compare;
 import org.apache.tinkerpop.gremlin.process.traversal.Contains;
 import org.apache.tinkerpop.gremlin.process.traversal.Order;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
+import org.apache.tinkerpop.gremlin.process.traversal.PBiPredicate;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal;
@@ -318,7 +318,7 @@ public final class TraversalUtil {
     private static void addPositiveLabelValues(HasContainer has,
                                                List<Object> labels) {
         P<?> predicate = has.getPredicate();
-        BiPredicate<?, ?> bp = predicate.getBiPredicate();
+        PBiPredicate<?, ?> bp = predicate.getBiPredicate();
         if (bp == Compare.eq) {
             labels.add(predicate.getValue());
         } else {
@@ -385,12 +385,12 @@ public final class TraversalUtil {
     }
 
     static boolean isPositiveLabelContainer(HasContainer has) {
-        if (!isLabelContainer(has)) {
+        if (!isLabelContainer(has) || hasNullLabelValue(has)) {
             return false;
         }
 
         P<?> predicate = has.getPredicate();
-        BiPredicate<?, ?> bp = predicate.getBiPredicate();
+        PBiPredicate<?, ?> bp = predicate.getBiPredicate();
         if (bp == Compare.eq) {
             return true;
         }
@@ -454,7 +454,7 @@ public final class TraversalUtil {
         List<P<Object>> predicates = new ArrayList<>();
         collectPredicates(predicates, ImmutableList.of(has.getPredicate()));
         for (P<Object> pred : predicates) {
-            BiPredicate<?, ?> bp = pred.getBiPredicate();
+            PBiPredicate<?, ?> bp = pred.getBiPredicate();
             if (bp == Compare.neq ||
                 bp == Compare.gt || bp == Compare.gte ||
                 bp == Compare.lt || bp == Compare.lte) {
@@ -541,6 +541,26 @@ public final class TraversalUtil {
         return false;
     }
 
+    private static boolean hasNullLabelValue(HasContainer has) {
+        if (!isLabelContainer(has)) {
+            return false;
+        }
+
+        List<P<Object>> predicates = new ArrayList<>();
+        collectPredicates(predicates, ImmutableList.of(has.getPredicate()));
+        for (P<Object> pred : predicates) {
+            Object value = pred.getValue();
+            if (value == null) {
+                return true;
+            }
+            if (value instanceof Collection &&
+                ((Collection<?>) value).contains(null)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private static boolean hasBooleanIndex(HugeGraph graph,
                                            SchemaLabel schemaLabel,
                                            PropertyKey pkey) {
@@ -591,7 +611,7 @@ public final class TraversalUtil {
         List<P<Object>> predicates = new ArrayList<>();
         collectPredicates(predicates, ImmutableList.of(has.getPredicate()));
         for (P<Object> pred : predicates) {
-            BiPredicate<?, ?> bp = pred.getBiPredicate();
+            PBiPredicate<?, ?> bp = pred.getBiPredicate();
             if (bp != Compare.gt && bp != Compare.gte &&
                 bp != Compare.lt && bp != Compare.lte) {
                 return false;
@@ -655,6 +675,9 @@ public final class TraversalUtil {
 
     static boolean canExtractHasContainer(HugeGraph graph,
                                           HasContainer has) {
+        if (has.getKey() == null || hasNullLabelValue(has)) {
+            return false;
+        }
         if (isSysProp(has.getKey())) {
             return true;
         }
@@ -678,7 +701,7 @@ public final class TraversalUtil {
         List<P<Object>> predicates = new ArrayList<>();
         collectPredicates(predicates, ImmutableList.of(has.getPredicate()));
         for (P<Object> pred : predicates) {
-            BiPredicate<?, ?> bp = pred.getBiPredicate();
+            PBiPredicate<?, ?> bp = pred.getBiPredicate();
             if (bp == Compare.gt || bp == Compare.gte ||
                 bp == Compare.lt || bp == Compare.lte) {
                 return false;
@@ -840,7 +863,7 @@ public final class TraversalUtil {
     public static Condition convHas2Condition(HasContainer has, HugeType type, HugeGraph graph) {
         P<?> p = has.getPredicate();
         E.checkArgument(p != null, "The predicate of has(%s) is null", has);
-        BiPredicate<?, ?> bp = p.getBiPredicate();
+        PBiPredicate<?, ?> bp = p.getBiPredicate();
         Condition condition;
         if (keyForContainsKeyOrValue(has.getKey())) {
             condition = convContains2Relation(graph, has);
@@ -913,7 +936,7 @@ public final class TraversalUtil {
                                                   HugeType type,
                                                   HasContainer has) {
         assert type.isGraph();
-        BiPredicate<?, ?> bp = has.getPredicate().getBiPredicate();
+        PBiPredicate<?, ?> bp = has.getPredicate().getBiPredicate();
         assert bp instanceof Compare;
 
         return isSysProp(has.getKey()) ?
@@ -924,7 +947,7 @@ public final class TraversalUtil {
     private static Condition.Relation convCompare2SyspropRelation(HugeGraph graph,
                                                                   HugeType type,
                                                                   HasContainer has) {
-        BiPredicate<?, ?> bp = has.getPredicate().getBiPredicate();
+        PBiPredicate<?, ?> bp = has.getPredicate().getBiPredicate();
         assert bp instanceof Compare;
 
         HugeKeys key = token2HugeKey(has.getKey());
@@ -952,7 +975,7 @@ public final class TraversalUtil {
     private static Condition convCompare2UserpropRelation(HugeGraph graph,
                                                           HugeType type,
                                                           HasContainer has) {
-        BiPredicate<?, ?> bp = has.getPredicate().getBiPredicate();
+        PBiPredicate<?, ?> bp = has.getPredicate().getBiPredicate();
         assert bp instanceof Compare;
 
         String key = has.getKey();
@@ -1012,7 +1035,7 @@ public final class TraversalUtil {
                                                        HugeType type,
                                                        HasContainer has) {
         assert type.isGraph();
-        BiPredicate<?, ?> bp = has.getPredicate().getBiPredicate();
+        PBiPredicate<?, ?> bp = has.getPredicate().getBiPredicate();
         assert bp instanceof Condition.RelationType;
 
         String key = has.getKey();
@@ -1025,7 +1048,7 @@ public final class TraversalUtil {
     public static Condition convIn2Relation(HugeGraph graph,
                                             HugeType type,
                                             HasContainer has) {
-        BiPredicate<?, ?> bp = has.getPredicate().getBiPredicate();
+        PBiPredicate<?, ?> bp = has.getPredicate().getBiPredicate();
         assert bp instanceof Contains;
         Collection<?> values = (Collection<?>) has.getValue();
 
@@ -1068,7 +1091,7 @@ public final class TraversalUtil {
     public static Condition convContains2Relation(HugeGraph graph,
                                                   HasContainer has) {
         // Convert contains-key or contains-value
-        BiPredicate<?, ?> bp = has.getPredicate().getBiPredicate();
+        PBiPredicate<?, ?> bp = has.getPredicate().getBiPredicate();
         E.checkArgument(bp == Compare.eq, "CONTAINS query with relation " +
                                           "'%s' is not supported", bp);
 
@@ -1097,6 +1120,9 @@ public final class TraversalUtil {
     }
 
     public static HugeKeys token2HugeKey(String key) {
+        if (key == null) {
+            return null;
+        }
         if (key.equals(T.label.getAccessor())) {
             return HugeKeys.LABEL;
         } else if (key.equals(T.id.getAccessor())) {
@@ -1187,7 +1213,7 @@ public final class TraversalUtil {
     private static void convPredicateValue(HugeGraph graph,
                                            HasContainer has) {
         // No need to convert if key is sys-prop
-        if (isSysProp(has.getKey())) {
+        if (has.getKey() == null || isSysProp(has.getKey())) {
             return;
         }
         PropertyKey pkey = graph.propertyKey(has.getKey());

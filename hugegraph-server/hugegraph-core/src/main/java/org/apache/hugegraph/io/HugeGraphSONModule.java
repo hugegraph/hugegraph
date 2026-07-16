@@ -103,12 +103,14 @@ public class HugeGraphSONModule extends TinkerPopJacksonModule {
         TYPE_DEFINITIONS = new ConcurrentHashMap<>();
 
         TYPE_DEFINITIONS.put(Optional.class, "Optional");
+        TYPE_DEFINITIONS.put(File.class, "File");
         TYPE_DEFINITIONS.put(Date.class, "Date");
         TYPE_DEFINITIONS.put(UUID.class, "UUID");
 
         // HugeGraph id serializer
         TYPE_DEFINITIONS.put(StringId.class, "StringId");
         TYPE_DEFINITIONS.put(LongId.class, "LongId");
+        TYPE_DEFINITIONS.put(UuidId.class, "UuidId");
         TYPE_DEFINITIONS.put(EdgeId.class, "EdgeId");
 
         // HugeGraph schema serializer
@@ -171,6 +173,7 @@ public class HugeGraphSONModule extends TinkerPopJacksonModule {
         module.addSerializer(Shard.class, new ShardSerializer());
 
         module.addSerializer(File.class, new FileSerializer());
+        module.addDeserializer(File.class, new FileDeserializer());
 
         boolean useTimestamp = false;
         module.addSerializer(Date.class,
@@ -641,8 +644,8 @@ public class HugeGraphSONModule extends TinkerPopJacksonModule {
                 String idValue = ctxt.readValue(jsonParser, String.class);
                 return (T) IdGenerator.of(idValue);
             } else if (clazz.equals(UuidId.class)) {
-                UUID idValue = ctxt.readValue(jsonParser, UUID.class);
-                return (T) IdGenerator.of(idValue);
+                String idValue = ctxt.readValue(jsonParser, String.class);
+                return (T) IdGenerator.of(UUID.fromString(idValue));
             } else {
                 assert clazz.equals(EdgeId.class);
                 String idValue = ctxt.readValue(jsonParser, String.class);
@@ -924,8 +927,64 @@ public class HugeGraphSONModule extends TinkerPopJacksonModule {
         public void serialize(File file, JsonGenerator jsonGenerator,
                               SerializerProvider provider) throws IOException {
             jsonGenerator.writeStartObject();
-            jsonGenerator.writeStringField("file", file.getName());
+            this.writeFields(file, jsonGenerator);
             jsonGenerator.writeEndObject();
+        }
+
+        @Override
+        public void serializeWithType(File file,
+                                      JsonGenerator jsonGenerator,
+                                      SerializerProvider provider,
+                                      TypeSerializer typeSer)
+                throws IOException {
+            WritableTypeId typeId = typeSer.typeId(
+                    file, JsonToken.VALUE_EMBEDDED_OBJECT);
+            typeSer.writeTypePrefix(jsonGenerator, typeId);
+            this.serialize(file, jsonGenerator, provider);
+            typeSer.writeTypeSuffix(jsonGenerator, typeId);
+        }
+
+        private void writeFields(File file, JsonGenerator jsonGenerator)
+                throws IOException {
+            jsonGenerator.writeStringField("file", file.getName());
+        }
+    }
+
+    private static class FileDeserializer extends StdDeserializer<File> {
+
+        public FileDeserializer() {
+            super(File.class);
+        }
+
+        @Override
+        public File deserialize(JsonParser jsonParser,
+                                DeserializationContext ctxt)
+                throws IOException {
+            JsonToken token = jsonParser.currentToken();
+            if (token == null) {
+                token = jsonParser.nextToken();
+            }
+            if (token == JsonToken.VALUE_STRING) {
+                return new File(jsonParser.getValueAsString());
+            }
+            if (token == JsonToken.START_OBJECT) {
+                String file = null;
+                while (jsonParser.nextToken() != JsonToken.END_OBJECT) {
+                    String field = jsonParser.currentName();
+                    jsonParser.nextToken();
+                    if ("file".equals(field)) {
+                        file = jsonParser.getValueAsString();
+                    } else {
+                        jsonParser.skipChildren();
+                    }
+                }
+                if (file == null) {
+                    return (File) ctxt.handleUnexpectedToken(File.class,
+                                                             jsonParser);
+                }
+                return new File(file);
+            }
+            return (File) ctxt.handleUnexpectedToken(File.class, jsonParser);
         }
     }
 

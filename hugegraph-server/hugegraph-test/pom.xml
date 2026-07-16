@@ -87,12 +87,6 @@
             <version>${tinkerpop.version}</version>
         </dependency>
         <dependency>
-            <groupId>org.apache.tinkerpop</groupId>
-            <artifactId>gremlin-groovy-test</artifactId>
-            <version>3.2.11</version>
-        </dependency>
-
-        <dependency>
             <groupId>org.glassfish.jersey.test-framework.providers</groupId>
             <artifactId>jersey-test-framework-provider-grizzly2</artifactId>
         </dependency>

@@ -17,9 +17,13 @@
 
 package org.apache.hugegraph.core;
 
+import java.util.HashSet;
+import java.util.Set;
+
 import org.apache.hugegraph.exception.NoIndexException;
 import org.apache.hugegraph.schema.SchemaManager;
 import org.apache.hugegraph.testutil.Assert;
+import org.apache.hugegraph.traversal.optimize.HugeCountStep;
 import org.apache.hugegraph.traversal.optimize.HugeGraphStep;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
@@ -207,6 +211,47 @@ public class CountStrategyCoreTest extends BaseCoreTest {
                             .count().next();
 
         Assert.assertEquals(4L, count);
+    }
+
+    @Test
+    public void testOptimizedGraphCountCanBeResetAndReused() {
+        this.initSchema();
+        this.initGraph();
+
+        GraphTraversal<Vertex, Long> traversal = graph().traversal().V().count();
+
+        Assert.assertEquals(3L, traversal.next());
+
+        traversal.asAdmin().reset();
+
+        Assert.assertEquals(3L, traversal.next());
+    }
+
+    @Test
+    public void testOptimizedGraphCountEqualityIgnoresExecutionState() {
+        this.initSchema();
+        this.initGraph();
+
+        GraphTraversal<Vertex, Long> first = graph().traversal().V().count();
+        GraphTraversal<Vertex, Long> second = graph().traversal().V().count();
+        first.asAdmin().applyStrategies();
+        second.asAdmin().applyStrategies();
+
+        Step<?, ?> firstStep = first.asAdmin().getEndStep();
+        Step<?, ?> secondStep = second.asAdmin().getEndStep();
+        Assert.assertInstanceOf(HugeCountStep.class, firstStep);
+        Assert.assertInstanceOf(HugeCountStep.class, secondStep);
+        Assert.assertEquals(firstStep, secondStep);
+
+        int hashCode = firstStep.hashCode();
+        Set<Step<?, ?>> steps = new HashSet<>();
+        steps.add(firstStep);
+
+        Assert.assertEquals(3L, first.next());
+
+        Assert.assertEquals(hashCode, firstStep.hashCode());
+        Assert.assertEquals(firstStep, secondStep);
+        Assert.assertTrue(steps.contains(firstStep));
     }
 
     @Test
