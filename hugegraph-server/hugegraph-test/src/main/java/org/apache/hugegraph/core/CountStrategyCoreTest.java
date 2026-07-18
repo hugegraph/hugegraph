@@ -255,6 +255,22 @@ public class CountStrategyCoreTest extends BaseCoreTest {
     }
 
     @Test
+    public void testOptimizedGraphCountIncludesUncommittedRecords() {
+        this.initSchema();
+        graph().schema().indexLabel("personByName")
+               .onV("person").by("name").create();
+
+        graph().addVertex(T.label, "person", "name", "marko");
+
+        long count = graph().traversal().V()
+                            .hasLabel("person")
+                            .has("name", "marko")
+                            .count().next();
+
+        Assert.assertEquals(1L, count);
+    }
+
+    @Test
     public void testRepeatAfterTextRangeFilterWithEmptyResult() {
         this.initTextRangeSchema(true);
 

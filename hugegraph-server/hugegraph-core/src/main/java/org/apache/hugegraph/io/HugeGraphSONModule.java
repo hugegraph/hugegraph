@@ -55,11 +55,7 @@ import org.apache.hugegraph.type.define.HugeKeys;
 import org.apache.hugegraph.util.Blob;
 import org.apache.hugegraph.util.Log;
 import org.apache.hugegraph.util.SafeDateUtil;
-import org.apache.tinkerpop.gremlin.process.traversal.Path;
-import org.apache.tinkerpop.gremlin.process.traversal.step.util.Tree;
-import org.apache.tinkerpop.gremlin.structure.Element;
 import org.apache.tinkerpop.gremlin.structure.io.graphson.GraphSONIo;
-import org.apache.tinkerpop.gremlin.structure.io.graphson.GraphSONTokens;
 import org.apache.tinkerpop.gremlin.structure.io.graphson.TinkerPopJacksonModule;
 import org.apache.tinkerpop.shaded.jackson.core.JsonGenerator;
 import org.apache.tinkerpop.shaded.jackson.core.JsonParser;
@@ -225,9 +221,6 @@ public class HugeGraphSONModule extends TinkerPopJacksonModule {
          */
         module.addSerializer(HugeVertex.class, new HugeVertexSerializer());
         module.addSerializer(HugeEdge.class, new HugeEdgeSerializer());
-
-        module.addSerializer(Path.class, new PathSerializer());
-        module.addSerializer(Tree.class, new TreeSerializer());
     }
 
     public static void registerGraphSpaceSerializers(SimpleModule module) {
@@ -854,49 +847,6 @@ public class HugeGraphSONModule extends TinkerPopJacksonModule {
             typeSer.writeTypePrefix(generator, typeId);
             this.serialize(value, generator, provider);
             typeSer.writeTypeSuffix(generator, typeId);
-        }
-    }
-
-    private static class PathSerializer extends StdSerializer<Path> {
-
-        public PathSerializer() {
-            super(Path.class);
-        }
-
-        @Override
-        public void serialize(Path path, JsonGenerator jsonGenerator,
-                              SerializerProvider provider) throws IOException {
-            jsonGenerator.writeStartObject();
-            jsonGenerator.writeObjectField(GraphSONTokens.LABELS,
-                                           path.labels());
-            jsonGenerator.writeObjectField(GraphSONTokens.OBJECTS,
-                                           path.objects());
-            jsonGenerator.writeEndObject();
-        }
-    }
-
-    @SuppressWarnings("rawtypes") // Tree<T>
-    private static class TreeSerializer extends StdSerializer<Tree> {
-
-        public TreeSerializer() {
-            super(Tree.class);
-        }
-
-        @Override
-        public void serialize(Tree tree, JsonGenerator jsonGenerator,
-                              SerializerProvider provider) throws IOException {
-            jsonGenerator.writeStartArray();
-            @SuppressWarnings("unchecked")
-            Set<Map.Entry<Element, Tree>> set = tree.entrySet();
-            for (Map.Entry<Element, Tree> entry : set) {
-                jsonGenerator.writeStartObject();
-                jsonGenerator.writeObjectField(GraphSONTokens.KEY,
-                                               entry.getKey());
-                jsonGenerator.writeObjectField(GraphSONTokens.VALUE,
-                                               entry.getValue());
-                jsonGenerator.writeEndObject();
-            }
-            jsonGenerator.writeEndArray();
         }
     }
 

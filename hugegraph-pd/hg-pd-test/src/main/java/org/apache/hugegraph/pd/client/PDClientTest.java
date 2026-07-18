@@ -21,7 +21,6 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 
-import org.apache.tinkerpop.shaded.minlog.Log;
 import org.junit.Test;
 import org.mockito.Mockito;
 
@@ -330,7 +329,7 @@ public class PDClientTest extends BaseClientTest {
             System.out.println(pdClient.getPDConfig());
             pdClient.splitData();
         } catch (PDException e) {
-            Log.error("testSplitData", e);
+            e.printStackTrace();
         }
     }
 

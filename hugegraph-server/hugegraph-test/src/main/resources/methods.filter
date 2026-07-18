@@ -94,14 +94,9 @@ org.apache.tinkerpop.gremlin.structure.TransactionMultiThreadedTest.shouldRollba
 org.apache.tinkerpop.gremlin.structure.TransactionMultiThreadedTest.shouldCommitEdge: Spawned read transactions are not auto-closed after thread exit
 org.apache.tinkerpop.gremlin.structure.TransactionMultiThreadedTest.shouldRollbackAddedEdge: Spawned read transactions are not auto-closed after thread exit
 
-## HG-LEGACY/TP37-SEMANTICS/FOLLOW-UP: MergeEdgeTest hard-codes numeric vertex ids although HugeGraph does not advertise numeric id support
-org.apache.tinkerpop.gremlin.process.traversal.step.map.MergeEdgeTest.Traversals.g_mergeEXlabel_knows_out_marko_in_vadasX: Test requires raw numeric vertex ids while HugeGraph exposes custom Id values
-org.apache.tinkerpop.gremlin.process.traversal.step.map.MergeEdgeTest.Traversals.g_mergeEXlabel_knows_out_marko_in_vadas_weight_05X_exists: Test requires raw numeric vertex ids while HugeGraph exposes custom Id values
-org.apache.tinkerpop.gremlin.process.traversal.step.map.MergeEdgeTest.Traversals.g_mergeEXlabel_knows_out_marko_in_vadasX_optionXonCreate_created_YX_optionXonMatch_created_NX_exists: Test requires raw numeric vertex ids while HugeGraph exposes custom Id values
-org.apache.tinkerpop.gremlin.process.traversal.step.map.MergeEdgeTest.Traversals.g_mergeEXlabel_knows_out_marko_in_vadasX_optionXonCreate_created_YX_optionXonMatch_created_NX_exists_updated: Test requires raw numeric vertex ids while HugeGraph exposes custom Id values
-org.apache.tinkerpop.gremlin.process.traversal.step.map.MergeEdgeTest.Traversals.g_V_hasXperson_name_marko_X_mergeEXlabel_knowsX_optionXonCreate_created_YX_optionXonMatch_created_NX_exists_updated: Test requires raw numeric vertex ids while HugeGraph exposes custom Id values
-org.apache.tinkerpop.gremlin.process.traversal.step.map.MergeEdgeTest.Traversals.g_injectXlabel_knows_out_marko_in_vadasX_mergeE: Test requires raw numeric vertex ids while HugeGraph exposes custom Id values
-org.apache.tinkerpop.gremlin.process.traversal.step.map.MergeEdgeTest.Traversals.g_mergeE_with_outV_inV_options: Test requires raw numeric vertex ids while HugeGraph exposes custom Id values
+## HG-MODEL/FOLLOW-UP: HugeGraph multi-edge labels require a non-null sort key on every parallel edge
+org.apache.tinkerpop.gremlin.process.traversal.step.map.MergeEdgeTest.Traversals.g_mergeEXlabel_knows_out_marko_in_vadas_weight_05X_exists: Scenario requires two same-label parallel edges while one edge has no sort-key value
+org.apache.tinkerpop.gremlin.process.traversal.step.map.MergeEdgeTest.Traversals.g_V_hasXperson_name_marko_X_mergeEXlabel_knowsX_optionXonCreate_created_YX_optionXonMatch_created_NX_exists_updated: Scenario requires two same-label parallel edges while one edge has no sort-key value
 
 ## HG-LEGACY/FOLLOW-UP: vertex properties don't have nested structures with HugeVertexSerializer
 org.apache.tinkerpop.gremlin.structure.SerializationTest.GraphSONTest.shouldSerializeVertex: Vertex properties doesn't have nested structures with HugeVertexSerializer
@@ -118,7 +113,6 @@ org.apache.tinkerpop.gremlin.structure.util.reference.ReferenceEdgeTest.shouldCo
 # unsupported automatic edge id, therefore number of edge is wrong
 org.apache.tinkerpop.gremlin.process.traversal.strategy.decoration.EventStrategyProcessTest.shouldTriggerAddEdge: Unsupported automatic edge id, therefore number of edge is wrong
 org.apache.tinkerpop.gremlin.process.traversal.strategy.decoration.EventStrategyProcessTest.shouldTriggerAddEdgeByPath: Unsupported automatic edge id, therefore number of edge is wrong
-org.apache.tinkerpop.gremlin.process.traversal.strategy.decoration.EventStrategyProcessTest.shouldTriggerAddEdgeViaMergeE: Unsupported automatic edge id/event tracking for mergeE
 org.apache.tinkerpop.gremlin.process.traversal.strategy.decoration.EventStrategyProcessTest.shouldTriggerAddVertexWithPropertyThenPropertyAdded: Unsupported vertex property changed event tracking for addV().property()
 # shouldWriteToMultiplePartitions
 org.apache.tinkerpop.gremlin.process.traversal.strategy.decoration.PartitionStrategyProcessTest.shouldWriteToMultiplePartitions: It's not allowed to query by index when there are uncommitted records
@@ -148,20 +142,8 @@ org.apache.tinkerpop.gremlin.process.traversal.step.map.AddVertexTest.Traversals
 org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasTest.Traversals.g_V_hasIdXwithoutXemptyXX_count: Unsupported query 'NOT IN []'
 org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasTest.Traversals.g_V_hasIdXemptyX_count: Unsupported query 'hasId(EmptyList)'
 
-org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasTest.Traversals.g_V_hasXname_containingXarkXX: Unsupported predicate 'containing(ark)'
-org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasTest.Traversals.g_V_hasXname_endingWithXasXX: Unsupported predicate 'endingWith(as)'
-org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasTest.Traversals.g_V_hasXname_startingWithXmarXX: Unsupported predicate 'startingWith(mar)'
 org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasTest.Traversals.g_V_hasXage_withoutX27X_count: Unsupported relation 'NEQ'
-org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasTest.Traversals.g_V_hasXperson_name_containingXoX_andXltXmXXX: Unsupported predicate 'containing(o)'
-org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasTest.Traversals.g_V_hasXname_regexXrMarXX: Unsupported predicate 'regex(^mar)'
-org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasTest.Traversals.g_V_hasXname_regexXTinkerXX: Unsupported predicate 'regex(Tinker)'
-org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasTest.Traversals.g_V_hasXname_regexXTinkerUnicodeXX: Unsupported predicate 'regex(Tinker.*)'
-org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasTest.Traversals.g_V_hasXname_not_startingWithXmarXX: Unsupported predicate 'notStartingWith(mar)'
-org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasTest.Traversals.g_V_hasXname_not_containingXarkXX: Unsupported predicate 'notContaining(ark)'
-org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasTest.Traversals.g_V_hasXname_not_endingWithXasXX: Unsupported predicate 'notEndingWith(as)'
-org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasTest.Traversals.g_V_hasXname_notRegexXrMarXX: Unsupported predicate 'notRegex(^mar)'
 org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasTest.Traversals.g_V_hasXage_withoutX27_29X_count: Unsupported relation 'NEQ'
-org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasTest.Traversals.g_V_hasXname_gtXmX_andXcontainingXoXXX: Unsupported predicate 'containing(o)'
 org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasTest.Traversals.g_V_hasXp_neqXvXX: Don't accept query based on properties [p] that are not indexed in any label, may not match not-equal condition
 
 org.apache.tinkerpop.gremlin.process.traversal.strategy.decoration.ElementIdStrategyProcessTest.shouldSetIdOnAddEWithNamePropertyKeySpecifiedAndNameSuppliedAsProperty: Unsupported ElementIdStrategy edge id/property index query

@@ -551,11 +551,15 @@ public class GraphTransaction extends IndexableTransaction {
         boolean hasUpdate = this.hasUpdate();
         Aggregate aggregate = query.aggregateNotNull();
 
-        // TODO: we can concat index-query results and tx uncommitted records.
         if (hasUpdate) {
-            E.checkArgument(!isConditionQuery,
-                            "It's not allowed to query by index when " +
-                            "there are uncommitted records.");
+            E.checkArgument(aggregate.func() == AggregateFunc.COUNT,
+                            "The %s operator with uncommitted records " +
+                            "is not supported",
+                            aggregate.func().string());
+            query.aggregate(null);
+            return IteratorUtils.count(query.resultType().isVertex() ?
+                                       this.queryVertices(query) :
+                                       this.queryEdges(query));
         }
 
         QueryList<Number> queries = this.optimizeQueries(query, q -> {

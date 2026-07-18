@@ -60,6 +60,7 @@ import org.apache.tinkerpop.gremlin.process.traversal.Order;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.PBiPredicate;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
+import org.apache.tinkerpop.gremlin.process.traversal.TextP;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal;
 import org.apache.tinkerpop.gremlin.process.traversal.step.HasContainerHolder;
@@ -675,7 +676,8 @@ public final class TraversalUtil {
 
     static boolean canExtractHasContainer(HugeGraph graph,
                                           HasContainer has) {
-        if (has.getKey() == null || hasNullLabelValue(has)) {
+        if (has.getKey() == null || hasNullLabelValue(has) ||
+            hasTextPredicate(has)) {
             return false;
         }
         if (isSysProp(has.getKey())) {
@@ -708,6 +710,17 @@ public final class TraversalUtil {
             }
         }
         return true;
+    }
+
+    private static boolean hasTextPredicate(HasContainer has) {
+        List<P<Object>> predicates = new ArrayList<>();
+        collectPredicates(predicates, ImmutableList.of(has.getPredicate()));
+        for (P<Object> predicate : predicates) {
+            if (TextP.class.isInstance(predicate)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public static void extractOrder(Step<?, ?> newStep,

@@ -788,6 +788,8 @@ public class TestGraph implements Graph {
                             "here", "to-change", "dropped", "not-dropped",
                             "new", "to-drop", "short", "long")
               .ifNotExist().create();
+        schema.edgeLabel("self-but-different").link(selfVL, selfVL)
+              .ifNotExist().create();
         schema.edgeLabel("aTOa").link(defaultVL, defaultVL)
               .properties("gremlin.partitionGraphStrategy.partition")
               .nullableKeys("gremlin.partitionGraphStrategy.partition")
