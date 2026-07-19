@@ -15,37 +15,23 @@
  * limitations under the License.
  */
 
-package org.apache.hugegraph.ct.env;
+package org.apache.hugegraph.ct.base;
 
-import java.util.List;
+import java.net.ServerSocket;
 
-import org.apache.hugegraph.ct.config.ClusterConfig;
+import org.junit.Assert;
+import org.junit.Test;
 
-public interface BaseEnv {
+public class EnvUtilTest {
 
-    /* init the cluster environment with simple mode */
-    void startCluster();
+    @Test
+    public void testPortOpen() throws Exception {
+        int port;
+        try (ServerSocket socket = new ServerSocket(0)) {
+            port = socket.getLocalPort();
+            Assert.assertTrue(EnvUtil.isPortOpen("127.0.0.1", port));
+        }
 
-    /* clear the cluster env and all config*/
-    void stopCluster();
-
-    void dumpClusterStatus();
-
-    ClusterConfig getConf();
-
-    void init();
-
-    List<String> getPDRestAddrs();
-
-    List<String> getPDGrpcAddrs();
-
-    List<String> getStoreRestAddrs();
-
-    List<String> getServerRestAddrs();
-
-    List<String> getPDNodeDir();
-
-    List<String> getStoreNodeDir();
-
-    List<String> getServerNodeDir();
+        Assert.assertFalse(EnvUtil.isPortOpen("127.0.0.1", port));
+    }
 }

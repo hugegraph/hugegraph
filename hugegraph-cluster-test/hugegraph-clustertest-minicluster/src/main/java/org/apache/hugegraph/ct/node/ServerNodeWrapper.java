@@ -26,6 +26,7 @@ import static org.apache.hugegraph.ct.base.ClusterConstant.GREMLIN_SERVER_FILE;
 import static org.apache.hugegraph.ct.base.ClusterConstant.JAVA_CMD;
 import static org.apache.hugegraph.ct.base.ClusterConstant.LIB_DIR;
 import static org.apache.hugegraph.ct.base.ClusterConstant.LOG4J_FILE;
+import static org.apache.hugegraph.ct.base.ClusterConstant.LOCALHOST;
 import static org.apache.hugegraph.ct.base.ClusterConstant.PLUGINS_DIR;
 import static org.apache.hugegraph.ct.base.ClusterConstant.REMOTE_OBJECTS_SETTING_FILE;
 import static org.apache.hugegraph.ct.base.ClusterConstant.REMOTE_SETTING_FILE;
@@ -33,6 +34,7 @@ import static org.apache.hugegraph.ct.base.ClusterConstant.SERVER_LIB_PATH;
 import static org.apache.hugegraph.ct.base.ClusterConstant.SERVER_PACKAGE_PATH;
 import static org.apache.hugegraph.ct.base.ClusterConstant.SERVER_TEMPLATE_PATH;
 import static org.apache.hugegraph.ct.base.ClusterConstant.isJava11OrHigher;
+import static org.apache.hugegraph.ct.base.EnvUtil.isPortOpen;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -49,8 +51,15 @@ import java.util.List;
 public class ServerNodeWrapper extends AbstractNodeWrapper {
 
     private static List<String> hgJars = loadHgJarsOnce();
+    private final int restPort;
+
     public ServerNodeWrapper(int clusterIndex, int index) {
+        this(clusterIndex, index, -1);
+    }
+
+    public ServerNodeWrapper(int clusterIndex, int index, int restPort) {
         super(clusterIndex, index);
+        this.restPort = restPort;
         this.fileNames = new ArrayList<>(
                 List.of(LOG4J_FILE, GREMLIN_SERVER_FILE, GREMLIN_DRIVER_SETTING_FILE,
                         REMOTE_SETTING_FILE, REMOTE_OBJECTS_SETTING_FILE));
@@ -136,6 +145,12 @@ public class ServerNodeWrapper extends AbstractNodeWrapper {
         } catch (IOException ex) {
             throw new AssertionError("Started server node failed. " + ex);
         }
+    }
+
+    @Override
+    public boolean isStarted() {
+        return super.isStarted() &&
+               (this.restPort < 0 || isPortOpen(LOCALHOST, this.restPort));
     }
 
     @Override
