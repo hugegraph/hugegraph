@@ -99,6 +99,22 @@ if [[ $PRELOAD == "true" ]]; then
     sed -i -e '/registerBackends/d; /serverStarted/d' "${SCRIPTS}/${EXAMPLE_SCRIPT}"
 fi
 
+function forward_signal_and_wait() {
+    local signal="$1"
+    local exit_code="$2"
+
+    trap - SIGHUP SIGINT SIGQUIT SIGTERM
+    if kill -0 "$PID" 2>/dev/null; then
+        kill "-$signal" "$PID" 2>/dev/null || true
+        # The foreground wait is interrupted before the trap runs, so retry
+        # until the child has exited and been reaped.
+        while kill -0 "$PID" 2>/dev/null; do
+            wait "$PID" 2>/dev/null || true
+        done
+    fi
+    exit "$exit_code"
+}
+
 if [[ $DAEMON == "true" ]]; then
     echo "Starting HugeGraphServer in daemon mode..."
     "${BIN}"/hugegraph-server.sh "${CONF}/${GREMLIN_SERVER_CONF}" "${CONF}"/rest-server.properties \
@@ -133,7 +149,10 @@ else
     PID="$!"
     # Write pid to file
     echo "$PID" > "$PID_FILE"
-    trap 'kill $PID; wait $PID; exit $?' SIGHUP SIGINT SIGQUIT SIGTERM
+    trap 'forward_signal_and_wait HUP 129' SIGHUP
+    trap 'forward_signal_and_wait INT 130' SIGINT
+    trap 'forward_signal_and_wait QUIT 131' SIGQUIT
+    trap 'forward_signal_and_wait TERM 143' SIGTERM
     wait $PID
     exit $?
 fi
