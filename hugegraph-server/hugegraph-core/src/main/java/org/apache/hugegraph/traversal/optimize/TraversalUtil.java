@@ -676,8 +676,8 @@ public final class TraversalUtil {
 
     static boolean canExtractHasContainer(HugeGraph graph,
                                           HasContainer has) {
-        if (has.getKey() == null || hasNullLabelValue(has) ||
-            hasTextPredicate(has)) {
+        if (has.getKey() == null || has.getPredicate() == null ||
+            hasNullLabelValue(has) || hasTextPredicate(has)) {
             return false;
         }
         if (isSysProp(has.getKey())) {

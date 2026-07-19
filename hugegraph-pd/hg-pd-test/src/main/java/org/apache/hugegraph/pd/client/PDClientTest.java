@@ -320,17 +320,13 @@ public class PDClientTest extends BaseClientTest {
     }
 
     @Test
-    public void testSplitData() {
-        try {
-            Metapb.PDConfig config = pdClient.getPDConfig();
-            pdClient.setPDConfig(config.toBuilder()
-                                       .setMaxShardsPerStore(12)
-                                       .build());
-            System.out.println(pdClient.getPDConfig());
-            pdClient.splitData();
-        } catch (PDException e) {
-            e.printStackTrace();
-        }
+    public void testSplitData() throws PDException {
+        Metapb.PDConfig config = pdClient.getPDConfig();
+        pdClient.setPDConfig(config.toBuilder()
+                                   .setMaxShardsPerStore(12)
+                                   .build());
+        System.out.println(pdClient.getPDConfig());
+        pdClient.splitData();
     }
 
     @Test

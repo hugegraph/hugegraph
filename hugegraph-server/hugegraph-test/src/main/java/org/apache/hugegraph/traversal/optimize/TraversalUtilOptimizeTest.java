@@ -67,6 +67,12 @@ public class TraversalUtilOptimizeTest {
     }
 
     @Test
+    public void testCanExtractHasContainerWithNullPredicate() {
+        Assert.assertFalse(TraversalUtil.canExtractHasContainer(
+                null, new HasContainer("name", null)));
+    }
+
+    @Test
     public void testExtractHasContainerKeepsNullKeyLocal() {
         Traversal.Admin<?, ?> traversal = __.V()
                                            .has((String) null,
