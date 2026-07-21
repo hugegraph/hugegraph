@@ -29,6 +29,10 @@ import org.apache.hugegraph.backend.id.Id;
 
 public interface AuthManager {
 
+    default boolean supportsGraphSpaceAuth() {
+        return false;
+    }
+
     void init();
 
     boolean close();
@@ -53,6 +57,11 @@ public interface AuthManager {
 
     HugeGroup deleteGroup(Id id);
 
+    default HugeGroup deleteGroup(String graphSpace, Id id) {
+        throw new UnsupportedOperationException(
+                "Scoped group deletion is not supported");
+    }
+
     HugeGroup getGroup(Id id);
 
     List<HugeGroup> listGroups(List<Id> ids);
@@ -61,47 +70,127 @@ public interface AuthManager {
 
     Id createTarget(HugeTarget target);
 
+    default Id createTarget(String graphSpace, HugeTarget target) {
+        return this.createTarget(target);
+    }
+
     Id updateTarget(HugeTarget target);
+
+    default Id updateTarget(String graphSpace, HugeTarget target) {
+        return this.updateTarget(target);
+    }
 
     HugeTarget deleteTarget(Id id);
 
+    default HugeTarget deleteTarget(String graphSpace, Id id) {
+        return this.deleteTarget(id);
+    }
+
     HugeTarget getTarget(Id id);
+
+    default HugeTarget getTarget(String graphSpace, Id id) {
+        return this.getTarget(id);
+    }
 
     List<HugeTarget> listTargets(List<Id> ids);
 
     List<HugeTarget> listAllTargets(long limit);
 
+    default List<HugeTarget> listAllTargets(String graphSpace, long limit) {
+        return this.listAllTargets(limit);
+    }
+
     Id createBelong(HugeBelong belong);
+
+    default Id createBelong(String graphSpace, HugeBelong belong) {
+        return this.createBelong(belong);
+    }
 
     Id updateBelong(HugeBelong belong);
 
+    default Id updateBelong(String graphSpace, HugeBelong belong) {
+        return this.updateBelong(belong);
+    }
+
     HugeBelong deleteBelong(Id id);
 
+    default HugeBelong deleteBelong(String graphSpace, Id id) {
+        return this.deleteBelong(id);
+    }
+
     HugeBelong getBelong(Id id);
+
+    default HugeBelong getBelong(String graphSpace, Id id) {
+        return this.getBelong(id);
+    }
 
     List<HugeBelong> listBelong(List<Id> ids);
 
     List<HugeBelong> listAllBelong(long limit);
 
+    default List<HugeBelong> listAllBelong(String graphSpace, long limit) {
+        return this.listAllBelong(limit);
+    }
+
     List<HugeBelong> listBelongByUser(Id user, long limit);
+
+    default List<HugeBelong> listBelongByUser(String graphSpace, Id user,
+                                              long limit) {
+        return this.listBelongByUser(user, limit);
+    }
 
     List<HugeBelong> listBelongByGroup(Id group, long limit);
 
+    default List<HugeBelong> listBelongByGroup(String graphSpace, Id group,
+                                               long limit) {
+        return this.listBelongByGroup(group, limit);
+    }
+
     Id createAccess(HugeAccess access);
+
+    default Id createAccess(String graphSpace, HugeAccess access) {
+        return this.createAccess(access);
+    }
 
     Id updateAccess(HugeAccess access);
 
+    default Id updateAccess(String graphSpace, HugeAccess access) {
+        return this.updateAccess(access);
+    }
+
     HugeAccess deleteAccess(Id id);
 
+    default HugeAccess deleteAccess(String graphSpace, Id id) {
+        return this.deleteAccess(id);
+    }
+
     HugeAccess getAccess(Id id);
+
+    default HugeAccess getAccess(String graphSpace, Id id) {
+        return this.getAccess(id);
+    }
 
     List<HugeAccess> listAccess(List<Id> ids);
 
     List<HugeAccess> listAllAccess(long limit);
 
+    default List<HugeAccess> listAllAccess(String graphSpace, long limit) {
+        return this.listAllAccess(limit);
+    }
+
     List<HugeAccess> listAccessByGroup(Id group, long limit);
 
+    default List<HugeAccess> listAccessByGroup(String graphSpace, Id group,
+                                               long limit) {
+        return this.listAccessByGroup(group, limit);
+    }
+
     List<HugeAccess> listAccessByTarget(Id target, long limit);
+
+    default List<HugeAccess> listAccessByTarget(String graphSpace, Id target,
+                                                long limit) {
+        return this.listAccessByTarget(target, limit);
+    }
 
     Id createProject(HugeProject project);
 

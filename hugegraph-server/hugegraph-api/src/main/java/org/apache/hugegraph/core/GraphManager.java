@@ -1864,6 +1864,17 @@ public final class GraphManager {
         if (StringUtils.isNotEmpty((String) configs.get(CoreOptions.ALIAS_NAME.name()))) {
             return attachedConfigs;
         }
+        if (this.config.containsKey(CoreOptions.SCHEMA_CACHE_CAPACITY.name())) {
+            attachedConfigs.putIfAbsent(
+                    CoreOptions.SCHEMA_CACHE_CAPACITY.name(),
+                    this.config.get(CoreOptions.SCHEMA_CACHE_CAPACITY));
+        }
+        if (this.config.containsKey(
+                CoreOptions.SERIALIZER_BUFFER_MAX_CAPACITY.name())) {
+            attachedConfigs.putIfAbsent(
+                    CoreOptions.SERIALIZER_BUFFER_MAX_CAPACITY.name(),
+                    this.config.get(CoreOptions.SERIALIZER_BUFFER_MAX_CAPACITY));
+        }
         Object value = this.config.get(CoreOptions.VERTEX_CACHE_EXPIRE);
         if (Objects.nonNull(value)) {
             attachedConfigs.putIfAbsent(CoreOptions.VERTEX_CACHE_EXPIRE.name(),
