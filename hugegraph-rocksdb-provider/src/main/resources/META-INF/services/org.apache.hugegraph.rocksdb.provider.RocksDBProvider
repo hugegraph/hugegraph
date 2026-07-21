@@ -1,2 +1,0 @@
-org.apache.hugegraph.rocksdb.provider.StandardRocksDBProvider
-org.apache.hugegraph.rocksdb.provider.ToplingRocksDBProvider

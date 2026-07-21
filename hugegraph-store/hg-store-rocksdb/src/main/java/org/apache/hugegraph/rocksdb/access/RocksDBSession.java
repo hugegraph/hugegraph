@@ -38,7 +38,6 @@ import java.util.stream.Collectors;
 import org.apache.commons.io.FileUtils;
 import org.apache.hugegraph.config.HugeConfig;
 import org.apache.hugegraph.rocksdb.access.util.Asserts;
-import org.apache.hugegraph.rocksdb.provider.RocksDBProviderLoader;
 import org.apache.hugegraph.store.term.HgPair;
 import org.apache.hugegraph.util.Bytes;
 import org.apache.hugegraph.util.E;
@@ -413,9 +412,6 @@ public class RocksDBSession implements AutoCloseable, Cloneable {
     }
 
     private void openRocksDB(String dbDataPath, long version) {
-        // Select provider based on explicit configuration
-        RocksDBProviderLoader.getInstance()
-                .selectProviderIfNeeded(hugeConfig.get(RocksDBOptions.PROVIDER));
 
         if (dbDataPath.endsWith(File.separator)) {
             this.dbPath = dbDataPath + this.graphName;
@@ -455,8 +451,8 @@ public class RocksDBSession implements AutoCloseable, Cloneable {
             }
             List<ColumnFamilyHandle> columnFamilyHandleList = new ArrayList<>();
             this.rocksDB =
-                    RocksDBProviderLoader.openRocksDB(dbOptions, dbPath, columnFamilyDescriptorList,
-                                                      columnFamilyHandleList);
+                    RocksDB.open(dbOptions, dbPath, columnFamilyDescriptorList,
+                                 columnFamilyHandleList);
             Asserts.isTrue(columnFamilyHandleList.size() > 0, "must have column family");
 
             for (ColumnFamilyHandle handle : columnFamilyHandleList) {
@@ -641,7 +637,7 @@ public class RocksDBSession implements AutoCloseable, Cloneable {
                 } catch (RocksDBException e) {
                     log.warn("exception ", e);
                 }
-                RocksDBProviderLoader.closeRocksDB(this.rocksDB);
+                this.rocksDB.close();
             }
             rocksDB = null;
             if (dbOptions != null) {

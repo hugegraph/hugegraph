@@ -97,10 +97,6 @@
         <shell-executable>bash</shell-executable>
         <toolchain.vision>1.5.0</toolchain.vision>
         <rocksdb.version>8.10.2</rocksdb.version>
-        <toplingdb.version>1.0.0</toplingdb.version>
-        <rocksdb.engine.groupId>org.rocksdb</rocksdb.engine.groupId>
-        <rocksdb.engine.artifactId>rocksdbjni</rocksdb.engine.artifactId>
-        <rocksdb.engine.version>${rocksdb.version}</rocksdb.engine.version>
     </properties>
 
     <modules>
@@ -108,7 +104,6 @@
         <module>hugegraph-pd</module>
         <module>hugegraph-store</module>
         <module>hugegraph-commons</module>
-        <module>hugegraph-rocksdb-provider</module>
         <module>install-dist</module>
         <module>hugegraph-cluster-test</module>
         <module>hugegraph-struct</module>
@@ -413,15 +408,6 @@
             </activation>
             <properties>
                 <os.detected.classifier>osx-x86_64</os.detected.classifier>
-            </properties>
-        </profile>
-        <!-- ToplingDB profile: use ToplingDB JNI instead of standard RocksDB -->
-        <profile>
-            <id>toplingdb</id>
-            <properties>
-                <rocksdb.engine.groupId>org.apache.hugegraph</rocksdb.engine.groupId>
-                <rocksdb.engine.artifactId>toplingdb-jni</rocksdb.engine.artifactId>
-                <rocksdb.engine.version>${toplingdb.version}</rocksdb.engine.version>
             </properties>
         </profile>
     </profiles>

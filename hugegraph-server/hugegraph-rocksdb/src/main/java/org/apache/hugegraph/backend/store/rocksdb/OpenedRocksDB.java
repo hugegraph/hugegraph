@@ -31,7 +31,6 @@ import org.apache.hugegraph.backend.BackendException;
 import org.apache.hugegraph.backend.store.rocksdb.RocksDBIteratorPool.ReusedRocksIterator;
 import org.apache.hugegraph.util.E;
 import org.apache.hugegraph.util.Log;
-import org.apache.hugegraph.rocksdb.provider.RocksDBProviderLoader;
 import org.rocksdb.Checkpoint;
 import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.RocksDB;
@@ -91,8 +90,7 @@ public class OpenedRocksDB implements AutoCloseable {
         }
         this.cfHandles.clear();
 
-        // Use RocksDBProviderLoader to close RocksDB
-        RocksDBProviderLoader.closeRocksDB(this.rocksdb);
+        this.rocksdb.close();
     }
 
     public long totalSize() {

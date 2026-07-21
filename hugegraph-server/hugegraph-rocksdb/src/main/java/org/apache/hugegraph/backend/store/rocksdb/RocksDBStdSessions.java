@@ -45,7 +45,6 @@ import org.apache.hugegraph.util.Bytes;
 import org.apache.hugegraph.util.E;
 import org.apache.hugegraph.util.Log;
 import org.apache.hugegraph.util.StringEncoding;
-import org.apache.hugegraph.rocksdb.provider.RocksDBProviderLoader;
 import org.rocksdb.BlockBasedTableConfig;
 import org.rocksdb.BloomFilter;
 import org.rocksdb.ColumnFamilyDescriptor;
@@ -92,8 +91,6 @@ public class RocksDBStdSessions extends RocksDBSessions {
         this.dataPath = dataPath;
         this.walPath = walPath;
 
-        RocksDBProviderLoader.getInstance()
-                .selectProviderIfNeeded(config.get(RocksDBOptions.PROVIDER));
         this.rocksdb = RocksDBStdSessions.openRocksDB(config, dataPath, walPath);
         this.refCount = new AtomicInteger(1);
     }
@@ -107,8 +104,6 @@ public class RocksDBStdSessions extends RocksDBSessions {
         this.dataPath = dataPath;
         this.walPath = walPath;
 
-        RocksDBProviderLoader.getInstance()
-                .selectProviderIfNeeded(config.get(RocksDBOptions.PROVIDER));
         this.rocksdb =
                 RocksDBStdSessions.openRocksDB(config, cfNames, dataPath, walPath);
         this.refCount = new AtomicInteger(1);
@@ -386,8 +381,7 @@ public class RocksDBStdSessions extends RocksDBSessions {
         SstFileManager sstFileManager = new SstFileManager(Env.getDefault());
         options.setSstFileManager(sstFileManager);
 
-        // Use RocksDBProviderLoader to open RocksDB
-        RocksDB rocksdb = RocksDBProviderLoader.openRocksDB(options, dataPath);
+        RocksDB rocksdb = RocksDB.open(options, dataPath);
 
         Map<String, OpenedRocksDB.CFHandle> cfs = new ConcurrentHashMap<>();
         return new OpenedRocksDB(rocksdb, cfs, sstFileManager);
@@ -422,8 +416,7 @@ public class RocksDBStdSessions extends RocksDBSessions {
         // Open RocksDB with CFs
         List<ColumnFamilyHandle> cfhs = new ArrayList<>();
 
-        // Use RocksDBProviderLoader to open RocksDB
-        RocksDB rocksdb = RocksDBProviderLoader.openRocksDB(options, dataPath, cfds, cfhs);
+        RocksDB rocksdb = RocksDB.open(options, dataPath, cfds, cfhs);
 
         E.checkState(cfhs.size() == cfs.size(),
                      "Expect same size of cf-handles and cf-names");

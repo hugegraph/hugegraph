@@ -47,16 +47,9 @@
             </exclusions>
         </dependency>
         <dependency>
-            <groupId>org.apache.hugegraph</groupId>
-            <artifactId>hugegraph-rocksdb-provider</artifactId>
-            <version>${revision}</version>
-            <exclusions>
-                <!-- Avoid bringing SnakeYAML 2.x transitively which conflicts with Spring Boot 2.5 -->
-                <exclusion>
-                    <groupId>org.yaml</groupId>
-                    <artifactId>snakeyaml</artifactId>
-                </exclusion>
-            </exclusions>
+            <groupId>org.rocksdb</groupId>
+            <artifactId>rocksdbjni</artifactId>
+            <version>${rocksdb.version}</version>
         </dependency>
         <dependency>
             <groupId>org.apache.hugegraph</groupId>
