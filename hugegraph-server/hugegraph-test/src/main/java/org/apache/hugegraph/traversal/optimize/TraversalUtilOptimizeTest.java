@@ -29,10 +29,12 @@ import org.apache.hugegraph.testutil.Assert;
 import org.apache.hugegraph.type.define.DataType;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
+import org.apache.tinkerpop.gremlin.process.traversal.TextP;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.TraversalStrategy;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__;
+import org.apache.tinkerpop.gremlin.process.traversal.step.HasContainerHolder;
 import org.apache.tinkerpop.gremlin.process.traversal.step.TraversalParent;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.AndStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasStep;
@@ -160,6 +162,29 @@ public class TraversalUtilOptimizeTest {
 
         Assert.assertTrue(newStep.getHasContainers().isEmpty());
         Assert.assertTrue(hasStepExists(traversal));
+    }
+
+    @Test
+    public void testExtractHasContainerPartiallyExtractsGraphHasStep() {
+        HugeGraph graph = Mockito.mock(HugeGraph.class);
+        PropertyKey age = propertyKey(1L, "age", DataType.INT);
+        Mockito.when(graph.propertyKey("age")).thenReturn(age);
+
+        Traversal.Admin<?, ?> traversal = traversal(
+                __.V().has("person", "name", TextP.containing("ar")),
+                graph);
+        HasStep<?> hasStep = (HasStep<?>) traversal.getEndStep();
+        hasStep.addHasContainer(new HasContainer("age", P.eq(29)));
+        HugeGraphStep<?, ?> newStep = replaceGraphStep(traversal);
+
+        TraversalUtil.extractHasContainer(newStep, traversal);
+
+        Assert.assertTrue(hasContainer(newStep, T.label.getAccessor()));
+        Assert.assertTrue(hasContainer(newStep, "age"));
+        Assert.assertFalse(hasContainer(newStep, "name"));
+        Assert.assertFalse(hasStepExists(traversal, T.label.getAccessor()));
+        Assert.assertFalse(hasStepExists(traversal, "age"));
+        Assert.assertTrue(hasStepExists(traversal, "name"));
     }
 
     @Test
@@ -321,6 +346,29 @@ public class TraversalUtilOptimizeTest {
     }
 
     @Test
+    public void testExtractHasContainerPartiallyExtractsVertexHasStep() {
+        HugeGraph graph = Mockito.mock(HugeGraph.class);
+        PropertyKey age = propertyKey(1L, "age", DataType.INT);
+        Mockito.when(graph.propertyKey("age")).thenReturn(age);
+
+        Traversal.Admin<?, ?> traversal = traversal(
+                __.V().out().has("person", "name", TextP.containing("ar")),
+                graph);
+        HasStep<?> hasStep = (HasStep<?>) traversal.getEndStep();
+        hasStep.addHasContainer(new HasContainer("age", P.eq(29)));
+        HugeVertexStep<?> newStep = replaceVertexStep(traversal);
+
+        TraversalUtil.extractHasContainer(newStep, traversal);
+
+        Assert.assertTrue(hasContainer(newStep, T.label.getAccessor()));
+        Assert.assertTrue(hasContainer(newStep, "age"));
+        Assert.assertFalse(hasContainer(newStep, "name"));
+        Assert.assertFalse(hasStepExists(traversal, T.label.getAccessor()));
+        Assert.assertFalse(hasStepExists(traversal, "age"));
+        Assert.assertTrue(hasStepExists(traversal, "name"));
+    }
+
+    @Test
     public void testExtractHasContainerRemovesSafeVertexHasStep() {
         HugeGraph graph = Mockito.mock(HugeGraph.class);
         PropertyKey age = propertyKey(1L, "age", DataType.INT);
@@ -464,7 +512,7 @@ public class TraversalUtilOptimizeTest {
         TraversalHelper.replaceStep((Step) origin, (Step) newStep, traversal);
     }
 
-    private static boolean hasContainer(HugeGraphStep<?, ?> step, String key) {
+    private static boolean hasContainer(HasContainerHolder step, String key) {
         for (HasContainer has : step.getHasContainers()) {
             if (key.equals(has.getKey())) {
                 return true;

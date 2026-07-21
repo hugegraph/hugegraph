@@ -119,10 +119,16 @@ public class BaseMultiClusterTest {
             Response r = client.post(path, body);
             assertResponseStatus(status, r);
             return r;
-        } catch (RuntimeException e) {
+        } catch (RuntimeException | AssertionError e) {
             System.out.printf("[cluster-test] POST %s%s failed: %s%n",
                               client.target().getUri(), path, e.getMessage());
-            env.dumpClusterStatus();
+            try {
+                env.dumpClusterStatus();
+            } catch (Throwable diagnosticError) {
+                if (diagnosticError != e) {
+                    e.addSuppressed(diagnosticError);
+                }
+            }
             throw e;
         }
     }

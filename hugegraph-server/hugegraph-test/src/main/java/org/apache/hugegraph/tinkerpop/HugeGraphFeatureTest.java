@@ -40,7 +40,12 @@ import io.cucumber.junit.CucumberOptions;
         features = {
                 "classpath:/org/apache/tinkerpop/gremlin/test/features"
         },
-        plugin = {"progress", "junit:target/cucumber-tp37.xml"})
+        plugin = {
+                "progress",
+                "junit:target/cucumber-tp37.xml",
+                "org.apache.hugegraph.tinkerpop." +
+                "HugeGraphScenarioCountPlugin"
+        })
 public class HugeGraphFeatureTest {
 
     public static final String NAMES =

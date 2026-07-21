@@ -208,6 +208,7 @@
                             </testClassesDirectory>
                             <includes>
                                 <include>**/ProcessStandardTest.java</include>
+                                <include>**/HugeGraphFeatureTest.java</include>
                             </includes>
                         </configuration>
                     </execution>
