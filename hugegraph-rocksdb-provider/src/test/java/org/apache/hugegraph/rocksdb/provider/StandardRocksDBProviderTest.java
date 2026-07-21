@@ -130,36 +130,6 @@ public class StandardRocksDBProviderTest {
     }
 
     /**
-     * Test: Passing optionPath to the standard provider does not cause an error.
-     * The standard provider ignores optionPath (it's a ToplingDB-only parameter)
-     * and should open the database normally with a warning log.
-     */
-    @Test
-    public void testOpenIgnoresOptionPath() throws RocksDBException {
-        Options options = new Options().setCreateIfMissing(true);
-        String dbPath = tempDir.resolve("test-option-path").toString();
-
-        RocksDB db = provider.openRocksDB(options, dbPath, "/some/path.yaml", null);
-        assertNotNull(db);
-        provider.closeRocksDB(db);
-    }
-
-    /**
-     * Test: Passing openHttp=true to the standard provider does not cause an error.
-     * The HTTP monitoring server is a ToplingDB-only feature, the standard provider
-     * should ignore it and open normally with a warning log.
-     */
-    @Test
-    public void testOpenIgnoresOpenHttp() throws RocksDBException {
-        Options options = new Options().setCreateIfMissing(true);
-        String dbPath = tempDir.resolve("test-open-http").toString();
-
-        RocksDB db = provider.openRocksDB(options, dbPath, null, true);
-        assertNotNull(db);
-        provider.closeRocksDB(db);
-    }
-
-    /**
      * Test: closeRocksDB(null) is safe and does not throw any exception.
      * Callers should not need to null-check before calling close.
      */
@@ -182,7 +152,7 @@ public class StandardRocksDBProviderTest {
         Options options = new Options().setCreateIfMissing(true);
         String dbPath = tempDir.resolve("test-loader").toString();
 
-        RocksDB db = RocksDBProviderLoader.openRocksDB(options, dbPath, null, null);
+        RocksDB db = RocksDBProviderLoader.openRocksDB(options, dbPath);
         assertNotNull(db);
         RocksDBProviderLoader.closeRocksDB(db);
     }

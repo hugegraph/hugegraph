@@ -61,19 +61,6 @@ public interface RocksDBProvider {
     RocksDB openRocksDB(Options options, String dataPath) throws RocksDBException;
 
     /**
-     * Open RocksDB with additional parameters for special providers (like ToplingDB)
-     *
-     * @param options    RocksDB options
-     * @param dataPath   database path
-     * @param optionPath optional configuration file path (can be null)
-     * @param openHttp   whether to start HTTP server (can be null, defaults to false)
-     * @return opened RocksDB instance
-     * @throws RocksDBException if opening fails
-     */
-    RocksDB openRocksDB(Options options, String dataPath, String optionPath, Boolean openHttp)
-            throws RocksDBException;
-
-    /**
      * Open RocksDB with column families - direct replacement for
      * RocksDB.open(dbOptions, dataPath, cfDescriptors, cfHandles)
      *
@@ -87,25 +74,6 @@ public interface RocksDBProvider {
     RocksDB openRocksDB(DBOptions dbOptions, String dataPath,
                         List<ColumnFamilyDescriptor> cfDescriptors,
                         List<ColumnFamilyHandle> cfHandles) throws RocksDBException;
-
-    /**
-     * Open RocksDB with additional parameters for special providers (like ToplingDB)
-     * This method supports optionPath and openHttp parameters while maintaining
-     * the same signature as the standard openRocksDB method.
-     *
-     * @param dbOptions     database options
-     * @param dataPath      database path
-     * @param cfDescriptors column family descriptors
-     * @param cfHandles     list to store column family handles
-     * @param optionPath    optional configuration file path (can be null)
-     * @param openHttp      whether to start HTTP server (can be null, defaults to false)
-     * @return opened RocksDB instance
-     * @throws RocksDBException if opening fails
-     */
-    RocksDB openRocksDB(DBOptions dbOptions, String dataPath,
-                        List<ColumnFamilyDescriptor> cfDescriptors,
-                        List<ColumnFamilyHandle> cfHandles,
-                        String optionPath, Boolean openHttp) throws RocksDBException;
 
     // ========== Core RocksDB Close Operations ==========
 

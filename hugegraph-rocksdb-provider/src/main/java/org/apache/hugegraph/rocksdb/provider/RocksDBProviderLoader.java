@@ -181,27 +181,14 @@ public class RocksDBProviderLoader {
     // ========== Static convenience methods ==========
 
     public static RocksDB openRocksDB(Options options, String dataPath) throws RocksDBException {
-        return openRocksDB(options, dataPath, null, null);
-    }
-
-    public static RocksDB openRocksDB(Options options, String dataPath, String optionPath,
-                                      Boolean openHttp) throws RocksDBException {
-        return getInstance().getActiveProvider()
-                .openRocksDB(options, dataPath, optionPath, openHttp);
+        return getInstance().getActiveProvider().openRocksDB(options, dataPath);
     }
 
     public static RocksDB openRocksDB(DBOptions dbOptions, String dataPath,
                                       List<ColumnFamilyDescriptor> cfDescriptors,
                                       List<ColumnFamilyHandle> cfHandles) throws RocksDBException {
-        return openRocksDB(dbOptions, dataPath, cfDescriptors, cfHandles, null, null);
-    }
-
-    public static RocksDB openRocksDB(DBOptions dbOptions, String dataPath,
-                                      List<ColumnFamilyDescriptor> cfDescriptors,
-                                      List<ColumnFamilyHandle> cfHandles,
-                                      String optionPath, Boolean openHttp) throws RocksDBException {
         return getInstance().getActiveProvider()
-                .openRocksDB(dbOptions, dataPath, cfDescriptors, cfHandles, optionPath, openHttp);
+                .openRocksDB(dbOptions, dataPath, cfDescriptors, cfHandles);
     }
 
     public static void closeRocksDB(RocksDB rocksDB) {

@@ -456,9 +456,7 @@ public class RocksDBSession implements AutoCloseable, Cloneable {
             List<ColumnFamilyHandle> columnFamilyHandleList = new ArrayList<>();
             this.rocksDB =
                     RocksDBProviderLoader.openRocksDB(dbOptions, dbPath, columnFamilyDescriptorList,
-                                                      columnFamilyHandleList,
-                                                      hugeConfig.get(RocksDBOptions.OPTION_PATH),
-                                                      hugeConfig.get(RocksDBOptions.OPEN_HTTP));
+                                                      columnFamilyHandleList);
             Asserts.isTrue(columnFamilyHandleList.size() > 0, "must have column family");
 
             for (ColumnFamilyHandle handle : columnFamilyHandleList) {

@@ -44,32 +44,11 @@
             <version>${rocksdb.engine.version}</version>
         </dependency>
 
-        <!-- HugeGraph Commons for configuration and utilities -->
-        <dependency>
-            <groupId>org.apache.hugegraph</groupId>
-            <artifactId>hugegraph-common</artifactId>
-            <version>${hugegraph-commons.version}</version>
-        </dependency>
-
         <!-- Logging -->
         <dependency>
             <groupId>org.slf4j</groupId>
             <artifactId>slf4j-api</artifactId>
             <version>2.0.9</version>
-        </dependency>
-
-        <!-- YAML parsing for configuration validation -->
-        <dependency>
-            <groupId>org.yaml</groupId>
-            <artifactId>snakeyaml</artifactId>
-            <version>2.2</version>
-        </dependency>
-
-        <!-- JSON support for ToplingDB configuration -->
-        <dependency>
-            <groupId>net.minidev</groupId>
-            <artifactId>json-smart</artifactId>
-            <version>2.3</version>
         </dependency>
 
         <!-- Test dependencies -->

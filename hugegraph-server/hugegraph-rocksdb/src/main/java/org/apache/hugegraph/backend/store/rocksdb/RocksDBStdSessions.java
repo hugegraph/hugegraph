@@ -387,12 +387,7 @@ public class RocksDBStdSessions extends RocksDBSessions {
         options.setSstFileManager(sstFileManager);
 
         // Use RocksDBProviderLoader to open RocksDB
-        // Only enable HTTP server for GRAPH_STORE when openHttp is true
-        boolean openHttp = Boolean.TRUE.equals(config.get(RocksDBOptions.OPEN_HTTP)) &&
-                           BackendStoreProvider.GRAPH_STORE.equals(getDbName(dataPath));
-        RocksDB rocksdb = RocksDBProviderLoader.openRocksDB(options, dataPath,
-                                                            config.get(RocksDBOptions.OPTION_PATH),
-                                                            openHttp);
+        RocksDB rocksdb = RocksDBProviderLoader.openRocksDB(options, dataPath);
 
         Map<String, OpenedRocksDB.CFHandle> cfs = new ConcurrentHashMap<>();
         return new OpenedRocksDB(rocksdb, cfs, sstFileManager);
@@ -428,12 +423,7 @@ public class RocksDBStdSessions extends RocksDBSessions {
         List<ColumnFamilyHandle> cfhs = new ArrayList<>();
 
         // Use RocksDBProviderLoader to open RocksDB
-        // Only enable HTTP server for GRAPH_STORE when openHttp is true
-        boolean openHttp = Boolean.TRUE.equals(config.get(RocksDBOptions.OPEN_HTTP)) &&
-                           BackendStoreProvider.GRAPH_STORE.equals(getDbName(dataPath));
-        RocksDB rocksdb = RocksDBProviderLoader.openRocksDB(options, dataPath, cfds, cfhs,
-                                                            config.get(RocksDBOptions.OPTION_PATH),
-                                                            openHttp);
+        RocksDB rocksdb = RocksDBProviderLoader.openRocksDB(options, dataPath, cfds, cfhs);
 
         E.checkState(cfhs.size() == cfs.size(),
                      "Expect same size of cf-handles and cf-names");

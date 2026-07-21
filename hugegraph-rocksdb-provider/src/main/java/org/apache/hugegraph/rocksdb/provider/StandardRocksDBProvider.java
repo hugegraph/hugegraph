@@ -60,31 +60,6 @@ public class StandardRocksDBProvider extends AbstractRocksDBProvider {
     }
 
     @Override
-    public RocksDB openRocksDB(Options options, String dataPath, String optionPath,
-                               Boolean openHttp) throws RocksDBException {
-        return doOpenRocksDB(options, dataPath, optionPath, openHttp);
-    }
-
-    @Override
-    protected RocksDB doOpenRocksDB(Options options, String dataPath, String optionPath,
-                                    Boolean openHttp) throws RocksDBException {
-        LOG.debug("Opening standard RocksDB with Options and extended parameters at path: {}",
-                  dataPath);
-
-        // Log warnings for unsupported parameters
-        if (optionPath != null) {
-            LOG.warn("Standard RocksDB does not support optionPath parameter, ignoring: {}",
-                     optionPath);
-        }
-        if (openHttp != null && openHttp) {
-            LOG.warn("Standard RocksDB does not support HTTP server, ignoring openHttp parameter");
-        }
-
-        // Use standard opening
-        return RocksDB.open(options, dataPath);
-    }
-
-    @Override
     protected RocksDB doOpenRocksDB(DBOptions dbOptions, String dataPath,
                                     List<ColumnFamilyDescriptor> cfDescriptors,
                                     List<ColumnFamilyHandle> cfHandles) throws RocksDBException {
@@ -93,25 +68,6 @@ public class StandardRocksDBProvider extends AbstractRocksDBProvider {
         } catch (RocksDBException e) {
             throw e;
         }
-    }
-
-    @Override
-    protected RocksDB doOpenRocksDB(DBOptions dbOptions, String dataPath,
-                                    List<ColumnFamilyDescriptor> cfDescriptors,
-                                    List<ColumnFamilyHandle> cfHandles,
-                                    String optionPath, Boolean openHttp) throws RocksDBException {
-        // Standard RocksDB doesn't support optionPath and openHttp parameters
-        // Log a warning if these parameters are provided
-        if (optionPath != null && !optionPath.isEmpty()) {
-            LOG.warn("Standard RocksDB provider does not support optionPath parameter: {}",
-                     optionPath);
-        }
-        if (openHttp != null && openHttp) {
-            LOG.warn("Standard RocksDB provider does not support openHttp parameter");
-        }
-
-        // Fallback to standard column family opening
-        return doOpenRocksDB(dbOptions, dataPath, cfDescriptors, cfHandles);
     }
 
     @Override

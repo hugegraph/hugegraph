@@ -71,28 +71,6 @@ public abstract class AbstractRocksDBProvider implements RocksDBProvider {
     }
 
     @Override
-    public final RocksDB openRocksDB(DBOptions dbOptions, String dataPath,
-                                     List<ColumnFamilyDescriptor> cfDescriptors,
-                                     List<ColumnFamilyHandle> cfHandles,
-                                     String optionPath, Boolean openHttp) throws RocksDBException {
-
-        LOG.debug("Opening RocksDB with extended parameters using provider: {} at path: {}",
-                  getProviderName(), dataPath);
-        // Initialize provider if needed
-        initialize();
-
-        try {
-            // Delegate to provider-specific implementation
-            RocksDB rocksDB =
-                    doOpenRocksDB(dbOptions, dataPath, cfDescriptors, cfHandles, optionPath,
-                                  openHttp);
-            return rocksDB;
-        } catch (Exception e) {
-            throw e;
-        }
-    }
-
-    @Override
     public void closeRocksDB(RocksDB rocksDB) {
         if (rocksDB != null) {
             // Perform provider-specific close operations
@@ -115,19 +93,6 @@ public abstract class AbstractRocksDBProvider implements RocksDBProvider {
             throws RocksDBException;
 
     /**
-     * Provider-specific implementation for opening RocksDB with Options and extended parameters
-     *
-     * @param options    RocksDB options
-     * @param dataPath   database path
-     * @param optionPath optional configuration file path (can be null)
-     * @param openHttp   whether to start HTTP server (can be null, defaults to false)
-     * @return opened RocksDB instance
-     * @throws RocksDBException if opening fails
-     */
-    protected abstract RocksDB doOpenRocksDB(Options options, String dataPath, String optionPath,
-                                             Boolean openHttp) throws RocksDBException;
-
-    /**
      * Provider-specific implementation for opening RocksDB with column families
      *
      * @param dbOptions     database options
@@ -140,24 +105,6 @@ public abstract class AbstractRocksDBProvider implements RocksDBProvider {
     protected abstract RocksDB doOpenRocksDB(DBOptions dbOptions, String dataPath,
                                              List<ColumnFamilyDescriptor> cfDescriptors,
                                              List<ColumnFamilyHandle> cfHandles)
-            throws RocksDBException;
-
-    /**
-     * Provider-specific implementation for opening RocksDB with extended parameters
-     *
-     * @param dbOptions     database options
-     * @param dataPath      database path
-     * @param cfDescriptors column family descriptors
-     * @param cfHandles     list to store column family handles
-     * @param optionPath    optional configuration file path (can be null)
-     * @param openHttp      whether to start HTTP server (can be null, defaults to false)
-     * @return opened RocksDB instance
-     * @throws RocksDBException if opening fails
-     */
-    protected abstract RocksDB doOpenRocksDB(DBOptions dbOptions, String dataPath,
-                                             List<ColumnFamilyDescriptor> cfDescriptors,
-                                             List<ColumnFamilyHandle> cfHandles,
-                                             String optionPath, Boolean openHttp)
             throws RocksDBException;
 
     /**

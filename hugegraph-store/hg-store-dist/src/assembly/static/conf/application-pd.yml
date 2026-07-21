@@ -32,7 +32,6 @@ rocksdb:
   write_buffer_size: 32000000
   # For each rocksdb, the number of memtables reaches this value for writing to disk.
   min_write_buffer_number_to_merge: 16
-  # Configuration file path for rocksdb/toplingdb
-  # option_path: ./conf/rocksdb_store.yaml
-  # Whether to start Topling's HTTP service
-  # open_http: false
+  # To enable ToplingDB: set provider to 'topling' (requires ToplingDB JAR in lib/topling/)
+  # ToplingDB config is in conf/toplingdb.yaml (auto-loaded via TOPLINGDB_EASY_MIGRATE_CONF env var)
+  # provider: topling
