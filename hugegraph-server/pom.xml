@@ -61,17 +61,9 @@
     <modules>
         <module>hugegraph-core</module>
         <module>hugegraph-api</module>
-        <module>hugegraph-example</module>
         <module>hugegraph-dist</module>
         <module>hugegraph-test</module>
-        <module>hugegraph-cassandra</module>
-        <module>hugegraph-scylladb</module>
         <module>hugegraph-rocksdb</module>
-        <module>hugegraph-mysql</module>
-        <module>hugegraph-palo</module>
-        <module>hugegraph-hbase</module>
-        <module>hugegraph-postgresql</module>
-        <module>hugegraph-hstore</module>
     </modules>
 
     <dependencyManagement>
@@ -355,6 +347,24 @@
     </build>
 
     <profiles>
+        <profile>
+            <id>all-backends</id>
+            <activation>
+                <property>
+                    <name>!rocksdb-only</name>
+                </property>
+            </activation>
+            <modules>
+                <module>hugegraph-example</module>
+                <module>hugegraph-cassandra</module>
+                <module>hugegraph-scylladb</module>
+                <module>hugegraph-mysql</module>
+                <module>hugegraph-palo</module>
+                <module>hugegraph-hbase</module>
+                <module>hugegraph-postgresql</module>
+                <module>hugegraph-hstore</module>
+            </modules>
+        </profile>
         <profile>
             <id>core-test</id>
             <activation>

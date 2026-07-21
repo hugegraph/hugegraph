@@ -53,6 +53,8 @@ import com.google.common.collect.ImmutableMap;
 
 public class TaskCoreTest extends BaseCoreTest {
 
+    private static final long GREMLIN_JOB_TIMEOUT = 30L;
+
     @Before
     @Override
     public void setup() {
@@ -110,6 +112,29 @@ public class TaskCoreTest extends BaseCoreTest {
             sleepAWhile(10L);
         }
         Assert.fail("Timed out waiting for task to start running");
+    }
+
+    private static void waitUntilTaskProgress(TaskScheduler scheduler, Id id,
+                                              int expectedProgress,
+                                              long timeoutSeconds) {
+        long deadline = System.nanoTime() +
+                        TimeUnit.SECONDS.toNanos(timeoutSeconds);
+        do {
+            HugeTask<Object> task = scheduler.task(id);
+            if (task.progress() >= expectedProgress) {
+                return;
+            }
+            if (task.completed()) {
+                Assert.fail(String.format(
+                            "Task '%s' completed at progress %s before " +
+                            "reaching progress %s",
+                            id, task.progress(), expectedProgress));
+            }
+            sleepAWhile(100L);
+        } while (System.nanoTime() < deadline);
+        Assert.fail(String.format(
+                    "Timed out waiting for task '%s' to reach progress %s",
+                    id, expectedProgress));
     }
 
     private static void deleteTaskAndWaitGone(TaskScheduler scheduler, Id id) {
@@ -669,7 +694,8 @@ public class TaskCoreTest extends BaseCoreTest {
                         "}";
 
         HugeTask<Object> task = runGremlinJob(script);
-        task = scheduler.waitUntilTaskCompleted(task.id(), 10);
+        task = scheduler.waitUntilTaskCompleted(task.id(),
+                                                GREMLIN_JOB_TIMEOUT);
         Assert.assertEquals("test-gremlin-job", task.name());
         Assert.assertEquals("gremlin", task.type());
         Assert.assertEquals(TaskStatus.SUCCESS, task.status());
@@ -974,7 +1000,8 @@ public class TaskCoreTest extends BaseCoreTest {
 
         // Cancel success task
         HugeTask<Object> task2 = runGremlinJob("1+2");
-        task2 = scheduler.waitUntilTaskCompleted(task2.id(), 10);
+        task2 = scheduler.waitUntilTaskCompleted(task2.id(),
+                                                 GREMLIN_JOB_TIMEOUT);
         Assert.assertEquals(TaskStatus.SUCCESS, task2.status());
         scheduler.cancel(task2);
         task2 = scheduler.task(task2.id());
@@ -1007,7 +1034,8 @@ public class TaskCoreTest extends BaseCoreTest {
                             "};" +
                             "rs;";
         HugeTask<Object> task4 = runGremlinJob(bigResults);
-        task4 = scheduler.waitUntilTaskCompleted(task4.id(), 10);
+        task4 = scheduler.waitUntilTaskCompleted(task4.id(),
+                                                 GREMLIN_JOB_TIMEOUT);
         Assert.assertEquals(TaskStatus.FAILED, task4.status());
         scheduler.cancel(task4);
         task4 = scheduler.task(task4.id());
@@ -1031,7 +1059,8 @@ public class TaskCoreTest extends BaseCoreTest {
                          "}; 100;";
         HugeTask<Object> task = runGremlinJob(gremlin);
 
-        sleepAWhile(200 * 6);
+        waitUntilTaskProgress(scheduler, task.id(), 1,
+                              GREMLIN_JOB_TIMEOUT);
         task = scheduler.task(task.id());
         scheduler.cancel(task);
 

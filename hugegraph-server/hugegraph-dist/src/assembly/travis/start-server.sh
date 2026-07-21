@@ -24,6 +24,14 @@ JACOCO_PORT=$3
 
 JACOCO_DIR=${TRAVIS_DIR}
 JACOCO_JAR=${JACOCO_DIR}/jacocoagent.jar
+SERVER_STARTUP_TIMEOUT=${SERVER_STARTUP_TIMEOUT:-}
+
+if [[ -z "$SERVER_STARTUP_TIMEOUT" ]]; then
+    case "$(uname -m)" in
+        riscv64) SERVER_STARTUP_TIMEOUT=300 ;;
+        *) SERVER_STARTUP_TIMEOUT=60 ;;
+    esac
+fi
 
 BIN=$BASE_DIR/bin
 CONF=$BASE_DIR/conf/graphs/hugegraph.properties
@@ -95,4 +103,4 @@ if [ -n "$SERVER_JAVA_OPTIONS" ]; then
 fi
 
 echo -e "pa" | $BIN/init-store.sh
-$BIN/start-hugegraph.sh -j "$JACOCO_OPTION" -t 60
+$BIN/start-hugegraph.sh -j "$JACOCO_OPTION" -t "$SERVER_STARTUP_TIMEOUT"

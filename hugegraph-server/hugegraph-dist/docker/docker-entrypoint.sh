@@ -81,7 +81,8 @@ else
     log "HugeGraph initialization already done. Skipping re-init..."
 fi
 
-./bin/start-hugegraph.sh -j "${JAVA_OPTS:-}" -t 120
+./bin/start-hugegraph.sh -j "${JAVA_OPTS:-}" \
+                         -t "${HG_SERVER_STARTUP_TIMEOUT:-120}"
 
 # Post-startup cluster stabilization check (hstore only — rocksdb has no partitions)
 ACTUAL_BACKEND=$(grep -E '^[[:space:]]*backend[[:space:]]*=' "${GRAPH_CONF}" | head -n 1 | sed 's/.*=//' | tr -d '[:space:]' || true)

@@ -26,6 +26,18 @@ on:
     paths:
       - '**/Dockerfile*'
       - '.dockerignore'
+      - '.github/workflows/docker-build-ci.yml'
+      - 'pom.xml'
+      - 'hugegraph-pd/hg-pd-grpc/pom.xml'
+      - 'hugegraph-server/pom.xml'
+      - 'hugegraph-server/hugegraph-core/pom.xml'
+      - 'hugegraph-server/hugegraph-rocksdb/pom.xml'
+      - 'hugegraph-server/hugegraph-dist/pom.xml'
+      - 'hugegraph-server/hugegraph-dist/docker/**'
+      - 'hugegraph-server/hugegraph-dist/src/main/resources/backend.properties'
+      - 'hugegraph-server/hugegraph-dist/src/assembly/static/**'
+      - 'hugegraph-server/hugegraph-dist/src/assembly/travis/check-rocksdb-only-dist.sh'
+      - 'hugegraph-server/hugegraph-dist/src/assembly/travis/*smoke*'
 
 jobs:
   docker-build:
@@ -36,7 +48,6 @@ jobs:
         dockerfile:
           - hugegraph-pd/Dockerfile
           - hugegraph-store/Dockerfile
-          - hugegraph-server/Dockerfile
           - hugegraph-server/Dockerfile-hstore
 
     steps:
@@ -50,3 +61,43 @@ jobs:
           HC=$(docker inspect --format='{{json .Config.Healthcheck}}' "$IMAGE_ID")
           echo "Healthcheck: $HC"
           [[ "$HC" != "null" ]] || { echo "ERROR: HEALTHCHECK missing in ${{ matrix.dockerfile }}"; exit 1; }
+
+  server-runtime-smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64, riscv64]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        if: matrix.arch != 'amd64'
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: ${{ matrix.arch }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build HugeGraph Server for linux/${{ matrix.arch }}
+        run: |
+          docker buildx build \
+            --platform linux/${{ matrix.arch }} \
+            --load \
+            --tag hugegraph-server-smoke:${{ matrix.arch }} \
+            --file hugegraph-server/Dockerfile .
+
+      - name: Check healthcheck and run runtime smoke
+        env:
+          IMAGE: hugegraph-server-smoke:${{ matrix.arch }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          HC=$(docker inspect --format='{{json .Config.Healthcheck}}' "$IMAGE")
+          echo "Healthcheck: $HC"
+          [[ "$HC" != "null" ]] || { echo "ERROR: HEALTHCHECK missing"; exit 1; }
+          hugegraph-server/hugegraph-dist/src/assembly/travis/run-docker-runtime-smoke-test.sh \
+            "$IMAGE" "$ARCH"
