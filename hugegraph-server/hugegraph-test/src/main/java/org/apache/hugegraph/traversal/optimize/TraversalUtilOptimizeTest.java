@@ -165,10 +165,12 @@ public class TraversalUtilOptimizeTest {
     }
 
     @Test
-    public void testExtractHasContainerPartiallyExtractsGraphHasStep() {
+    public void testExtractHasContainerKeepsUnindexedGraphPropertyLocal() {
         HugeGraph graph = Mockito.mock(HugeGraph.class);
         PropertyKey age = propertyKey(1L, "age", DataType.INT);
+        PropertyKey name = propertyKey(2L, "name", DataType.TEXT);
         Mockito.when(graph.propertyKey("age")).thenReturn(age);
+        Mockito.when(graph.propertyKey("name")).thenReturn(name);
 
         Traversal.Admin<?, ?> traversal = traversal(
                 __.V().has("person", "name", TextP.containing("ar")),
@@ -180,10 +182,10 @@ public class TraversalUtilOptimizeTest {
         TraversalUtil.extractHasContainer(newStep, traversal);
 
         Assert.assertTrue(hasContainer(newStep, T.label.getAccessor()));
-        Assert.assertTrue(hasContainer(newStep, "age"));
+        Assert.assertFalse(hasContainer(newStep, "age"));
         Assert.assertFalse(hasContainer(newStep, "name"));
         Assert.assertFalse(hasStepExists(traversal, T.label.getAccessor()));
-        Assert.assertFalse(hasStepExists(traversal, "age"));
+        Assert.assertTrue(hasStepExists(traversal, "age"));
         Assert.assertTrue(hasStepExists(traversal, "name"));
     }
 
@@ -349,7 +351,9 @@ public class TraversalUtilOptimizeTest {
     public void testExtractHasContainerPartiallyExtractsVertexHasStep() {
         HugeGraph graph = Mockito.mock(HugeGraph.class);
         PropertyKey age = propertyKey(1L, "age", DataType.INT);
+        PropertyKey name = propertyKey(2L, "name", DataType.TEXT);
         Mockito.when(graph.propertyKey("age")).thenReturn(age);
+        Mockito.when(graph.propertyKey("name")).thenReturn(name);
 
         Traversal.Admin<?, ?> traversal = traversal(
                 __.V().out().has("person", "name", TextP.containing("ar")),

@@ -315,6 +315,33 @@ public class CountStrategyCoreTest extends BaseCoreTest {
     }
 
     @Test
+    public void testTextRangeFilterExtractsIndexedGraphHasContainers() {
+        this.initTextRangeSchema(false);
+        graph().schema().indexLabel("vl1ByAge").onV("vl1")
+               .by("age").secondary().create();
+
+        graph().addVertex(T.label, "vl1", "vp4", "a", "age", 1);
+        graph().addVertex(T.label, "vl1", "vp4", "b", "age", 2);
+        commitTx();
+
+        GraphTraversal<Vertex, Long> traversal = graph().traversal().V()
+                                                        .hasLabel("vl1")
+                                                        .has("vp4", P.lt(""))
+                                                        .has("age", 1)
+                                                        .count();
+        HugeGraphStep<?, ?> graphStep = applyAndGetGraphStep(traversal);
+
+        Assert.assertEquals(2, graphStep.getHasContainers().size());
+        Assert.assertTrue(graphStep.getHasContainers().stream().anyMatch(
+                has -> T.label.getAccessor().equals(has.getKey())));
+        Assert.assertTrue(graphStep.getHasContainers().stream().anyMatch(
+                has -> "age".equals(has.getKey())));
+        Assert.assertTrue(hasRemainingHasStep(traversal, "vp4"));
+        Assert.assertFalse(hasRemainingHasStep(traversal, "age"));
+        Assert.assertEquals(0L, traversal.next().longValue());
+    }
+
+    @Test
     public void testTextRangeFilterKeepsMixedVertexHasStep() {
         this.initTextRangeSchema(true);
 

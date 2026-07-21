@@ -641,9 +641,26 @@ public final class TraversalUtil {
     private static boolean extractHasContainers(HugeGraphStep<?, ?> newStep,
                                                 HasContainerHolder holder) {
         HugeGraph graph = TraversalUtil.tryGetGraph(newStep);
+        if (canExtractHasContainers(graph, holder)) {
+            for (HasContainer has : holder.getHasContainers()) {
+                if (!GraphStep.processHasContainerIds(newStep, has)) {
+                    newStep.addHasContainer(has);
+                }
+            }
+            return true;
+        }
+        if (!canPartiallyExtractWithLocalTextPredicates(graph, holder) ||
+            hasUnsupportedLabelContainer(holder)) {
+            return false;
+        }
+
         List<HasContainer> extracted = new ArrayList<>();
         for (HasContainer has : holder.getHasContainers()) {
             if (!canExtractHasContainer(graph, has)) {
+                continue;
+            }
+            if (!isSysProp(has.getKey()) &&
+                !hasUsablePartialIndex(graph, newStep, holder, has)) {
                 continue;
             }
             if (!GraphStep.processHasContainerIds(newStep, has)) {
@@ -658,6 +675,17 @@ public final class TraversalUtil {
     private static boolean extractHasContainers(HugeVertexStep<?> newStep,
                                                 HasContainerHolder holder) {
         HugeGraph graph = TraversalUtil.tryGetGraph(newStep);
+        if (canExtractHasContainers(graph, holder)) {
+            for (HasContainer has : holder.getHasContainers()) {
+                newStep.addHasContainer(has);
+            }
+            return true;
+        }
+        if (!canPartiallyExtractWithLocalTextPredicates(graph, holder) ||
+            hasUnsupportedLabelContainer(holder)) {
+            return false;
+        }
+
         List<HasContainer> extracted = new ArrayList<>();
         for (HasContainer has : holder.getHasContainers()) {
             if (!canExtractHasContainer(graph, has)) {
@@ -668,6 +696,172 @@ public final class TraversalUtil {
         }
         removeExtractedHasContainers(holder, extracted);
         return holder.getHasContainers().isEmpty();
+    }
+
+    private static boolean canExtractHasContainers(HugeGraph graph,
+                                                   HasContainerHolder holder) {
+        for (HasContainer has : holder.getHasContainers()) {
+            if (!canExtractHasContainer(graph, has)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static boolean canPartiallyExtractWithLocalTextPredicates(
+            HugeGraph graph, HasContainerHolder holder) {
+        boolean seenTextPredicate = false;
+        for (HasContainer has : holder.getHasContainers()) {
+            if (canExtractHasContainer(graph, has)) {
+                continue;
+            }
+            if (!isLocalTextPredicate(graph, has)) {
+                return false;
+            }
+            seenTextPredicate = true;
+        }
+        return seenTextPredicate;
+    }
+
+    private static boolean isLocalTextPredicate(HugeGraph graph,
+                                                HasContainer has) {
+        if (graph == null || has.getKey() == null ||
+            has.getPredicate() == null || isSysProp(has.getKey()) ||
+            hasNullPredicate(has)) {
+            return false;
+        }
+
+        try {
+            PropertyKey pkey = graph.propertyKey(has.getKey());
+            return pkey != null && pkey.dataType().isText();
+        } catch (NotFoundException e) {
+            return false;
+        }
+    }
+
+    private static boolean hasUsablePartialIndex(HugeGraph graph,
+                                                 HugeGraphStep<?, ?> step,
+                                                 HasContainerHolder holder,
+                                                 HasContainer has) {
+        if (graph == null || hasNonIndexablePredicate(has)) {
+            return false;
+        }
+
+        PropertyKey pkey;
+        try {
+            pkey = graph.propertyKey(has.getKey());
+        } catch (NotFoundException e) {
+            return false;
+        }
+
+        Collection<SchemaLabel> schemaLabels =
+                partialQuerySchemaLabels(graph, step, holder);
+        boolean seen = false;
+        for (SchemaLabel schemaLabel : schemaLabels) {
+            if (!schemaLabel.properties().contains(pkey.id())) {
+                continue;
+            }
+            seen = true;
+            if (!hasSingleFieldQueryIndex(graph, schemaLabel, pkey, has)) {
+                return false;
+            }
+        }
+        return seen;
+    }
+
+    private static boolean hasNonIndexablePredicate(HasContainer has) {
+        List<P<Object>> predicates = new ArrayList<>();
+        collectPredicates(predicates, ImmutableList.of(has.getPredicate()));
+        for (P<Object> predicate : predicates) {
+            PBiPredicate<?, ?> bp = predicate.getBiPredicate();
+            if (bp == Compare.neq || bp == Contains.without) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static Collection<SchemaLabel> partialQuerySchemaLabels(
+            HugeGraph graph, HugeGraphStep<?, ?> step,
+            HasContainerHolder holder) {
+        List<Object> labels = new ArrayList<>();
+        collectPositiveLabelValues(step, labels);
+        collectPositiveLabelValues(holder, labels);
+        if (labels.isEmpty()) {
+            List<SchemaLabel> schemaLabels = new ArrayList<>();
+            if (step.returnsVertex()) {
+                schemaLabels.addAll(graph.vertexLabels());
+            } else {
+                schemaLabels.addAll(graph.edgeLabels());
+            }
+            return schemaLabels;
+        }
+
+        List<SchemaLabel> schemaLabels = new ArrayList<>();
+        try {
+            for (Object label : labels) {
+                SchemaLabel schemaLabel;
+                if (label instanceof Id) {
+                    schemaLabel = step.returnsVertex() ?
+                                  graph.vertexLabel((Id) label) :
+                                  graph.edgeLabel((Id) label);
+                } else if (label instanceof String) {
+                    schemaLabel = step.returnsVertex() ?
+                                  graph.vertexLabel((String) label) :
+                                  graph.edgeLabel((String) label);
+                } else {
+                    return ImmutableList.of();
+                }
+                if (schemaLabel == null) {
+                    return ImmutableList.of();
+                }
+                schemaLabels.add(schemaLabel);
+            }
+        } catch (IllegalArgumentException e) {
+            return ImmutableList.of();
+        }
+        return schemaLabels;
+    }
+
+    private static void collectPositiveLabelValues(
+            HasContainerHolder holder, List<Object> labels) {
+        for (HasContainer has : holder.getHasContainers()) {
+            if (isPositiveLabelContainer(has)) {
+                addPositiveLabelValues(has, labels);
+            }
+        }
+    }
+
+    private static boolean hasSingleFieldQueryIndex(HugeGraph graph,
+                                                    SchemaLabel schemaLabel,
+                                                    PropertyKey pkey,
+                                                    HasContainer has) {
+        boolean requireRange = hasRangePredicate(has);
+        for (Id id : schemaLabel.indexLabels()) {
+            IndexLabel indexLabel = indexLabelOrNull(graph, id);
+            if (indexLabel == null ||
+                !matchSingleFieldIndex(indexLabel, pkey)) {
+                continue;
+            }
+            if (requireRange ? indexLabel.indexType().isNumeric() :
+                !indexLabel.indexType().isSearch()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean hasRangePredicate(HasContainer has) {
+        List<P<Object>> predicates = new ArrayList<>();
+        collectPredicates(predicates, ImmutableList.of(has.getPredicate()));
+        for (P<Object> predicate : predicates) {
+            PBiPredicate<?, ?> bp = predicate.getBiPredicate();
+            if (bp == Compare.gt || bp == Compare.gte ||
+                bp == Compare.lt || bp == Compare.lte) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static void removeExtractedHasContainers(HasContainerHolder holder,
