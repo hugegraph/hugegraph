@@ -1,0 +1,69 @@
+.dockerignore
+  s_1394716814c330::t_1c4f4430a9ebc1 24
+.github/workflows/docker-build-ci.yml
+  s_1394716814c330::t_f71fb197737ff7 29-40,64-102
+hugegraph-pd/hg-pd-grpc/pom.xml
+  s_1394716814c330::t_61a88d05a695cd 35,130-164
+hugegraph-server/Dockerfile
+  s_1394716814c330::t_988b498f45660b 20-36,47-49,51,53-56,59,65-66,74-86
+hugegraph-server/hugegraph-core/pom.xml
+  s_1394716814c330::t_71d0fc68751b45 338,411-432
+hugegraph-server/hugegraph-dist/docker/docker-entrypoint.sh
+  s_1394716814c330::t_628f70679a0a9c 84-85
+hugegraph-server/hugegraph-dist/pom.xml
+  s_1394716814c330::t_2793c7ab730961 37-38,96-102,114-123,270-331
+hugegraph-server/hugegraph-dist/src/assembly/static/bin/hugegraph-server.sh
+  s_1394716814c330::t_108d19b792267e 48-49
+hugegraph-server/hugegraph-dist/src/assembly/static/bin/init-store.sh
+  s_1394716814c330::t_b6e219494157e0 36
+hugegraph-server/hugegraph-dist/src/assembly/static/bin/util.sh
+  s_1394716814c330::t_6ad3d0ef0735a2 28-66
+hugegraph-server/hugegraph-dist/src/assembly/travis/build-report.sh
+  s_1394716814c330::t_3af37182a2d88e 23-27,66-67
+hugegraph-server/hugegraph-dist/src/assembly/travis/check-rocksdb-only-dist.sh
+  s_1394716814c330::t_0c2d08a611fff7 1-97
+hugegraph-server/hugegraph-dist/src/assembly/travis/rocksdb-jni-smoke.groovy
+  s_1394716814c330::t_584946adb87c12 1-55
+hugegraph-server/hugegraph-dist/src/assembly/travis/run-api-test.sh
+  s_1394716814c330::t_7105caeb05a8b1 18,61-68,74-87,89-100,103-106,131,135-136
+hugegraph-server/hugegraph-dist/src/assembly/travis/run-core-test.sh
+  s_1394716814c330::t_7323765af17e0c 18,21-23,25-33
+hugegraph-server/hugegraph-dist/src/assembly/travis/run-docker-runtime-smoke-test.sh
+  s_1394716814c330::t_6b6ee0d1e2f17d 1-176
+hugegraph-server/hugegraph-dist/src/assembly/travis/run-native-runtime-smoke-test.sh
+  s_1394716814c330::t_33ab4d5e9e0a50 1-72
+hugegraph-server/hugegraph-dist/src/assembly/travis/run-rocksdb-jni-smoke-test.sh
+  s_1394716814c330::t_2a3e346cb6a34b 1-119
+hugegraph-server/hugegraph-dist/src/assembly/travis/run-server-e2e-smoke-test.sh
+  s_1394716814c330::t_3211db87d0092d 1-183
+hugegraph-server/hugegraph-dist/src/assembly/travis/start-server.sh
+  s_1394716814c330::t_77745a0e85a955 27-34,106
+hugegraph-server/hugegraph-dist/src/main/resources/backend.properties
+  s_1394716814c330::t_cd3a5d482250b0 18
+hugegraph-server/hugegraph-test/pom.xml
+  s_1394716814c330::t_2e96f1cf418a04 286-343
+hugegraph-server/hugegraph-test/src/main/java/org/apache/hugegraph/core/TaskCoreTest.java
+  s_1394716814c330::t_9be2380674c394 56-57,117-139,697-698,1003-1004,1037-1038,1062-1063
+hugegraph-server/pom.xml
+  s_1394716814c330::t_a298f8118ae6b6 350-367
+pom.xml
+  s_1394716814c330::t_3cec1cb8111635 321-349
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "b5da4f42e49c91be2ce70d2891b5215eca5bfd6d",
+  "prompts": {},
+  "sessions": {
+    "s_1394716814c330": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f7e8f-ea34-7371-848c-d6ae1f960acd",
+        "model": "unknown"
+      },
+      "human_author": "guanxiao.233 <guanxiao.233@bytedance.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
