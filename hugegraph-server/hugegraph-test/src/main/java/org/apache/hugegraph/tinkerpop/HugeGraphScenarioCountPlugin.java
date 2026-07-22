@@ -27,6 +27,8 @@ import io.cucumber.plugin.event.TestRunFinished;
 public final class HugeGraphScenarioCountPlugin
         implements ConcurrentEventListener {
 
+    private static final int MIN_EXPECTED_SCENARIOS = 300;
+
     private final AtomicInteger scenarioCount = new AtomicInteger();
 
     @Override
@@ -38,8 +40,17 @@ public final class HugeGraphScenarioCountPlugin
     }
 
     private void assertScenariosExecuted() {
-        if (this.scenarioCount.get() == 0) {
-            throw new AssertionError("No TinkerPop Gherkin scenarios were executed");
+        /*
+         * The current TAGS expression matches ~345 scenarios. Assert a lower
+         * bound rather than >0 so that a single broken tag (which silently
+         * drops an entire feature's scenarios) fails the run.
+         */
+        if (this.scenarioCount.get() < MIN_EXPECTED_SCENARIOS) {
+            throw new AssertionError(
+                    "Only " + this.scenarioCount.get() + " TinkerPop Gherkin " +
+                    "scenarios were executed, expected at least " +
+                    MIN_EXPECTED_SCENARIOS +
+                    " (check the TAGS/NAMES filters for typos or renames)");
         }
     }
 }

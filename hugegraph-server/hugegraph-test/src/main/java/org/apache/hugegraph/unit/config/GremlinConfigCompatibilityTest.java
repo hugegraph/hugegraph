@@ -82,7 +82,14 @@ public class GremlinConfigCompatibilityTest extends BaseUnitTest {
             Pattern.compile("<version>(.*?)</version>", Pattern.DOTALL);
     private static final Pattern TINKERPOP_VERSION_PROPERTY = Pattern.compile(
             "<tinkerpop\\.version>(.*?)</tinkerpop\\.version>");
+    private static final Pattern GUICE_DEPENDENCY = Pattern.compile(
+            "<dependency>\\s*<groupId>com\\.google\\.inject</groupId>" +
+            "(.*?)</dependency>", Pattern.DOTALL);
     private static final String SUPPORTED_TINKERPOP_VERSION = "3.7.6";
+    /* Must match the guice.version property of the TinkerPop parent pom
+     * (gremlin-test declares guice as a provided dependency, so HugeGraph
+     * must supply the version TinkerPop itself was built against). */
+    private static final String SUPPORTED_GUICE_VERSION = "4.2.3";
     private static final String SERIALIZER_PACKAGE =
             "org.apache.tinkerpop.gremlin.util.ser.";
     private static final String GRAPHSON_UNTYPED_V1 =
@@ -145,7 +152,8 @@ public class GremlinConfigCompatibilityTest extends BaseUnitTest {
         }
 
         Assert.assertTrue("TinkerPop dependencies must use " +
-                          SUPPORTED_TINKERPOP_VERSION + ": " + mismatches,
+                          SUPPORTED_TINKERPOP_VERSION + " and guice must " +
+                          "use " + SUPPORTED_GUICE_VERSION + ": " + mismatches,
                           mismatches.isEmpty());
     }
 
@@ -567,9 +575,28 @@ public class GremlinConfigCompatibilityTest extends BaseUnitTest {
                     collectVersionMismatch(pom, version.group(1), mismatches);
                 }
             }
+
+            Matcher guice = GUICE_DEPENDENCY.matcher(content);
+            while (guice.find()) {
+                Matcher version = DEPENDENCY_VERSION.matcher(
+                        guice.group(1));
+                if (version.find()) {
+                    collectGuiceVersionMismatch(pom, version.group(1),
+                                                mismatches);
+                }
+            }
         } catch (IOException e) {
             throw new IllegalStateException("Failed to read " + pom, e);
         }
+    }
+
+    private static void collectGuiceVersionMismatch(Path pom, String version,
+                                                    List<String> mismatches) {
+        String actual = version.trim();
+        if (SUPPORTED_GUICE_VERSION.equals(actual)) {
+            return;
+        }
+        mismatches.add(repositoryRoot().relativize(pom) + "=guice:" + actual);
     }
 
     private static void collectVersionMismatch(Path pom, String version,
