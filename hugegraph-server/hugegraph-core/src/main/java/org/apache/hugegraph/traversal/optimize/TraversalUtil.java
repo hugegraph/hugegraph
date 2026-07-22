@@ -840,6 +840,7 @@ public final class TraversalUtil {
         for (Id id : schemaLabel.indexLabels()) {
             IndexLabel indexLabel = indexLabelOrNull(graph, id);
             if (indexLabel == null ||
+                !indexLabel.status().ok() ||
                 !matchSingleFieldIndex(indexLabel, pkey)) {
                 continue;
             }
