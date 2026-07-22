@@ -1,0 +1,21 @@
+hugegraph-server/hugegraph-dist/src/assembly/static/bin/stop-hugegraph.sh
+  s_1394716814c330::t_b4a1d3136d4881 66-67,69-70
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "3e6f4d8d7b8a4734e32325128ed1adf4763e1b2b",
+  "prompts": {},
+  "sessions": {
+    "s_1394716814c330": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f7e8f-ea34-7371-848c-d6ae1f960acd",
+        "model": "unknown"
+      },
+      "human_author": "guanxiao.233 <guanxiao.233@bytedance.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
