@@ -118,6 +118,13 @@ public class WsAndHttpBasicAuthHandler extends SaslAuthenticationHandler {
                         sendError(ctx, msg);
                         return;
                     }
+                } else if ("Bearer".equalsIgnoreCase(scheme)) {
+                    String token = payload.trim();
+                    if (token.isEmpty()) {
+                        sendError(ctx, msg);
+                        return;
+                    }
+                    credentials.put(HugeAuthenticator.KEY_TOKEN, token);
                 } else {
                     sendError(ctx, msg);
                     return;

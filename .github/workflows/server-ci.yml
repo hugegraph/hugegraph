@@ -70,6 +70,13 @@ jobs:
         run: |
           mvn clean compile -U -Dmaven.javadoc.skip=true -ntp
 
+      - name: Validate Docker integration
+        if: ${{ env.BACKEND == 'rocksdb' }}
+        run: |
+          bash hugegraph-server/hugegraph-dist/docker/docker-entrypoint-test.sh
+          docker compose -f docker/docker-compose.yml config -q
+          docker compose -f docker/docker-compose.dev.yml config -q
+
       - name: Check startup test prerequisites
         id: server-preflight
         if: ${{ env.BACKEND == 'rocksdb' }}

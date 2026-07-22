@@ -4,8 +4,8 @@ This directory contains Docker Compose files for running HugeGraph:
 
 | File | Description |
 |------|-------------|
-| `docker-compose.yml` | Single-node cluster using pre-built images from Docker Hub |
-| `docker-compose.dev.yml` | Single-node cluster built from source (for developers) |
+| `docker-compose.yml` | PD, Store, Server, and Hubble using pre-built images |
+| `docker-compose.dev.yml` | PD, Store, and Server built from source, plus Hubble |
 | `docker-compose-3pd-3store-3server.yml` | 3-node distributed cluster (PD + Store + Server) |
 
 ## Prerequisites
@@ -20,7 +20,7 @@ This directory contains Docker Compose files for running HugeGraph:
 
 ## Single-Node Setup
 
-Two compose files are available for running a single-node cluster (1 PD + 1 Store + 1 Server):
+Two compose files run one PD, one Store, one Server, and one Hubble instance:
 
 ### Option A: Quick Start (pre-built images)
 
@@ -31,12 +31,14 @@ cd docker
 HUGEGRAPH_VERSION=1.7.0 docker compose up -d
 ```
 
-- Images: `hugegraph/pd:1.7.0`, `hugegraph/store:1.7.0`, `hugegraph/server:1.7.0`
+- Images: `hugegraph/pd:1.7.0`, `hugegraph/store:1.7.0`,
+  `hugegraph/server:1.7.0`, and `hugegraph/hubble:1.7.0`
 - `pull_policy: always` — always pulls the specified image tag
 
 > **Note**: Use release tags (e.g., `1.7.0`) for stable deployments. The `latest` tag is intended for testing or development only.
 - PD healthcheck endpoint: `/v1/health`
-- Single PD, single Store (`HG_PD_INITIAL_STORE_LIST: store:8500`), single Server
+- Hubble is available at `http://localhost:8088`; the default login is `admin / pa`
+- Hubble uses PD discovery and the Docker-network Server address
 - Server healthcheck endpoint: `/versions`
 
 ### Option B: Development Build (build from source)
@@ -48,9 +50,10 @@ cd docker
 docker compose -f docker-compose.dev.yml up -d
 ```
 
-- Images: built from source via `build: context: ..` with Dockerfiles
-- No `pull_policy` — builds locally, doesn't pull
-- Entrypoint scripts are baked into the built image (no volume mounts)
+- PD, Store, and Server images are built from this repository
+- Hubble uses `HUBBLE_IMAGE` because its source is in `hugegraph-toolchain`
+- Server entrypoint scripts are baked into the built image; Hubble mounts the
+  Docker-local PD configuration
 - PD healthcheck endpoint: `/v1/health`
 - Otherwise identical env vars and structure to the quickstart file
 
@@ -60,11 +63,23 @@ docker compose -f docker-compose.dev.yml up -d
 |---|---|---|
 | **Images** | Pull from Docker Hub | Build from source |
 | **Who it's for** | End users | Developers |
-| **pull_policy** | `always` | not set (build) |
+| **Server pull_policy** | `always` | `build` |
+| **Hubble pull_policy** | `always` | `missing` |
 
 **Verify** (both options):
 ```bash
 curl http://localhost:8080/versions
+curl http://localhost:8088/actuator/health
+```
+
+To validate local images without Compose replacing them with remote `latest`:
+
+```bash
+HUGEGRAPH_SERVER_IMAGE=local/hugegraph-server:test \
+HUGEGRAPH_SERVER_PULL_POLICY=never \
+HUBBLE_IMAGE=local/hugegraph-hubble:test \
+HUBBLE_PULL_POLICY=never \
+docker compose up -d --wait
 ```
 
 ---
@@ -159,8 +174,28 @@ Configuration is injected via environment variables. The old `docker/configs/app
 |----------|----------|---------|-----------------------------|-------------|
 | `HG_SERVER_BACKEND` | Yes | — | `backend` in `hugegraph.properties` | Storage backend (e.g. `hstore`) |
 | `HG_SERVER_PD_PEERS` | Yes | — | `pd.peers` | PD cluster addresses (e.g. `pd0:8686,pd1:8686,pd2:8686`) |
+| `HG_SERVER_USE_PD` | No | — | `usePD` in `rest-server.properties` | Enables Server PD registration and discovery |
+| `HG_SERVER_REST_URL` | No | — | `restserver.url` | Address registered with PD and used by clients |
+| `HG_SERVER_MIN_FREE_MEMORY` | No | — | `restserver.min_free_memory` | Minimum free-memory guard in MB; local Compose uses `0` |
+| `HG_SERVER_AUTH_TOKEN_SECRET` | No | generated in auth mode | `auth.token_secret` | Shared JWT secret for REST and embedded Gremlin authentication |
 | `STORE_REST` | No | — | Used by `wait-partition.sh` | Store REST endpoint for partition verification (e.g. `store0:8520`) |
 | `PASSWORD` | No | — | Enables auth mode | Optional authentication password |
+
+The single-node Compose files also accept these deployment-level overrides:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `HUGEGRAPH_SERVER_IMAGE` | `hugegraph/server:<version>` | Complete Server image reference |
+| `HUGEGRAPH_SERVER_PULL_POLICY` | `always` (`build` for dev) | Server pull policy |
+| `HUBBLE_IMAGE` | `hugegraph/hubble:<version>` | Complete Hubble image reference |
+| `HUBBLE_PULL_POLICY` | `always` (`missing` for dev) | Hubble pull policy |
+| `HUGEGRAPH_ADMIN_PASSWORD` | `pa` | Initial local admin password |
+| `HUGEGRAPH_AUTH_TOKEN_SECRET` | generated | JWT signing secret; set explicitly to preserve tokens across container recreation |
+
+When authentication is enabled and no token secret is supplied, the Server
+entrypoint generates a random secret and writes it to both authentication
+configurations. The value is reused on container restart while the container
+filesystem is preserved.
 
 **Deprecated aliases** (still work but log a warning):
 
@@ -174,7 +209,7 @@ Configuration is injected via environment variables. The old `docker/configs/app
 ## Port Reference
 
 The table below reflects the published host ports in `docker-compose-3pd-3store-3server.yml`.
-The single-node compose file (`docker-compose.yml`) only publishes the REST/API ports (`8620`, `8520`, `8080`) by default.
+The single-node Compose file publishes `8620`, `8520`, `8080`, and Hubble `8088`.
 
 | Service | Container Port | Host Port | Protocol | Purpose |
 |---------|---------------|-----------|----------|---------|
@@ -207,6 +242,7 @@ The single-node compose file (`docker-compose.yml`) only publishes the REST/API 
 | PD | `GET /v1/health` | `200 OK` |
 | Store | `GET /v1/health` | `200 OK` |
 | Server | `GET /versions` | `200 OK` with version JSON |
+| Hubble | `GET /actuator/health` | healthy HTTP service |
 
 ---
 

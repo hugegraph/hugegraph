@@ -20,6 +20,7 @@ set -euo pipefail
 DOCKER_FOLDER="./docker"
 INIT_FLAG_FILE="init_complete"
 GRAPH_CONF="./conf/graphs/hugegraph.properties"
+REST_CONF="./conf/rest-server.properties"
 
 mkdir -p "${DOCKER_FOLDER}"
 
@@ -51,9 +52,32 @@ migrate_env() {
 migrate_env "BACKEND"  "HG_SERVER_BACKEND"
 migrate_env "PD_PEERS" "HG_SERVER_PD_PEERS"
 
+if [[ -n "${PASSWORD:-}" && -z "${HG_SERVER_AUTH_TOKEN_SECRET:-}" ]]; then
+    rest_secret=$(sed -n 's/^[[:space:]]*auth\.token_secret[[:space:]]*=//p' \
+        "${REST_CONF}" | head -n 1)
+    graph_secret=$(sed -n 's/^[[:space:]]*auth\.token_secret[[:space:]]*=//p' \
+        "${GRAPH_CONF}" | head -n 1)
+    if [[ -n "${rest_secret}" && "${rest_secret}" == "${graph_secret}" ]]; then
+        HG_SERVER_AUTH_TOKEN_SECRET="${rest_secret}"
+    else
+        HG_SERVER_AUTH_TOKEN_SECRET=$(head -c 32 /dev/urandom | base64 | tr -d '\n')
+        log "generated a shared authentication token secret"
+    fi
+fi
+
 # ── Map env → properties file ─────────────────────────────────────────
 [[ -n "${HG_SERVER_BACKEND:-}"  ]] && set_prop "backend"  "${HG_SERVER_BACKEND}"  "${GRAPH_CONF}"
 [[ -n "${HG_SERVER_PD_PEERS:-}" ]] && set_prop "pd.peers" "${HG_SERVER_PD_PEERS}" "${GRAPH_CONF}"
+[[ -n "${HG_SERVER_USE_PD:-}" ]] && set_prop "usePD" "${HG_SERVER_USE_PD}" "${REST_CONF}"
+[[ -n "${HG_SERVER_PD_PEERS:-}" ]] && set_prop "pd.peers" "${HG_SERVER_PD_PEERS}" "${REST_CONF}"
+[[ -n "${HG_SERVER_REST_URL:-}" ]] && set_prop "restserver.url" \
+    "${HG_SERVER_REST_URL}" "${REST_CONF}"
+[[ -n "${HG_SERVER_MIN_FREE_MEMORY:-}" ]] && set_prop "restserver.min_free_memory" \
+    "${HG_SERVER_MIN_FREE_MEMORY}" "${REST_CONF}"
+if [[ -n "${HG_SERVER_AUTH_TOKEN_SECRET:-}" ]]; then
+    set_prop "auth.token_secret" "${HG_SERVER_AUTH_TOKEN_SECRET}" "${REST_CONF}"
+    set_prop "auth.token_secret" "${HG_SERVER_AUTH_TOKEN_SECRET}" "${GRAPH_CONF}"
+fi
 
 # ── Build wait-storage env ─────────────────────────────────────────────
 WAIT_ENV=()
