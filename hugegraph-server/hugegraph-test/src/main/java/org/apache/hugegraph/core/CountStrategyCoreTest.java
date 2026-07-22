@@ -271,6 +271,24 @@ public class CountStrategyCoreTest extends BaseCoreTest {
     }
 
     @Test
+    public void testOptimizedEdgeCountIncludesUncommittedRecords() {
+        this.initSchema();
+        graph().schema().indexLabel("personByName")
+               .onV("person").by("name").create();
+        this.initGraph();
+
+        Vertex josh = graph().traversal().V()
+                             .hasLabel("person").has("name", "josh").next();
+        Vertex marko = graph().traversal().V()
+                              .hasLabel("person").has("name", "marko").next();
+        josh.addEdge("knows", marko);
+
+        long count = graph().traversal().E().hasLabel("knows").count().next();
+
+        Assert.assertEquals(2L, count);
+    }
+
+    @Test
     public void testRepeatAfterTextRangeFilterWithEmptyResult() {
         this.initTextRangeSchema(true);
 
