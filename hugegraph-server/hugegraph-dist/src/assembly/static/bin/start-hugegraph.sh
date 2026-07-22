@@ -151,7 +151,9 @@ else
     echo "$PID" > "$PID_FILE"
     trap 'forward_signal_and_wait HUP 129' SIGHUP
     trap 'forward_signal_and_wait INT 130' SIGINT
-    trap 'forward_signal_and_wait QUIT 131' SIGQUIT
+    # Forward TERM instead of QUIT: the JVM only dumps threads on SIGQUIT
+    # and keeps running, which would leave the wait loop below stuck.
+    trap 'forward_signal_and_wait TERM 131' SIGQUIT
     trap 'forward_signal_and_wait TERM 143' SIGTERM
     wait $PID
     exit $?
