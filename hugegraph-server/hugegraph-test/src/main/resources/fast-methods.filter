@@ -96,6 +96,13 @@ org.apache.tinkerpop.gremlin.structure.TransactionMultiThreadedTest.shouldRollba
 org.apache.tinkerpop.gremlin.structure.TransactionMultiThreadedTest.shouldCommitEdge: Spawned read transactions are not auto-closed after thread exit
 org.apache.tinkerpop.gremlin.structure.TransactionMultiThreadedTest.shouldRollbackAddedEdge: Spawned read transactions are not auto-closed after thread exit
 
+## HG-MODEL/FOLLOW-UP: scenarios supply custom vertex ids while the standard test graph uses AUTOMATIC id strategy
+org.apache.tinkerpop.gremlin.process.traversal.step.map.MergeEdgeTest.Traversals.g_mergeEXlabel_knows_out_marko_in_vadasX: Can't customize vertex id when id strategy is 'AUTOMATIC' for vertex label 'person'
+org.apache.tinkerpop.gremlin.process.traversal.step.map.MergeEdgeTest.Traversals.g_mergeEXlabel_knows_out_marko_in_vadasX_optionXonCreate_created_YX_optionXonMatch_created_NX_exists: Can't customize vertex id when id strategy is 'AUTOMATIC' for vertex label 'person'
+org.apache.tinkerpop.gremlin.process.traversal.step.map.MergeEdgeTest.Traversals.g_mergeEXlabel_knows_out_marko_in_vadasX_optionXonCreate_created_YX_optionXonMatch_created_NX_exists_updated: Can't customize vertex id when id strategy is 'AUTOMATIC' for vertex label 'person'
+org.apache.tinkerpop.gremlin.process.traversal.step.map.MergeEdgeTest.Traversals.g_injectXlabel_knows_out_marko_in_vadasX_mergeE: Can't customize vertex id when id strategy is 'AUTOMATIC' for vertex label 'person'
+org.apache.tinkerpop.gremlin.process.traversal.step.map.MergeEdgeTest.Traversals.g_mergeE_with_outV_inV_options: Can't customize vertex id when id strategy is 'AUTOMATIC' for vertex label 'person'
+
 ## HG-MODEL/FOLLOW-UP: HugeGraph multi-edge labels require a non-null sort key on every parallel edge
 org.apache.tinkerpop.gremlin.process.traversal.step.map.MergeEdgeTest.Traversals.g_mergeEXlabel_knows_out_marko_in_vadas_weight_05X_exists: Scenario requires two same-label parallel edges while one edge has no sort-key value
 org.apache.tinkerpop.gremlin.process.traversal.step.map.MergeEdgeTest.Traversals.g_V_hasXperson_name_marko_X_mergeEXlabel_knowsX_optionXonCreate_created_YX_optionXonMatch_created_NX_exists_updated: Scenario requires two same-label parallel edges while one edge has no sort-key value
