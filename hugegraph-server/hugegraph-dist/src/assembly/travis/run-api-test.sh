@@ -15,7 +15,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-set -euo pipefail
+set -ev
 
 BACKEND=$1
 REPORT_DIR=$2
@@ -58,7 +58,6 @@ function download_to_dir() {
 
 cd "$REPO_ROOT"
 
-MAVEN_SCOPE_ARGS=()
 ROCKSDB_ONLY=false
 
 if [[ "$BACKEND" == "rocksdb" &&
@@ -66,12 +65,15 @@ if [[ "$BACKEND" == "rocksdb" &&
       "$(uname -m)" == "riscv64" ]]; then
     . "$TRAVIS_DIR/../static/bin/util.sh"
     configure_riscv64_libatomic
-    MAVEN_SCOPE_ARGS+=("-Drocksdb-only")
     ROCKSDB_ONLY=true
 fi
 
-VERSION=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout \
-              "${MAVEN_SCOPE_ARGS[@]}")
+if [[ "$ROCKSDB_ONLY" == "true" ]]; then
+    VERSION=$(mvn help:evaluate -Dexpression=project.version -q \
+                  -DforceStdout -Drocksdb-only)
+else
+    VERSION=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)
+fi
 SERVER_DIR=hugegraph-server/apache-hugegraph-server-$VERSION/
 CONF=$SERVER_DIR/conf/graphs/hugegraph.properties
 REST_SERVER_CONF=$SERVER_DIR/conf/rest-server.properties
@@ -96,7 +98,7 @@ trap cleanup EXIT
 
 if [[ "$ROCKSDB_ONLY" == "true" ]]; then
     mvn clean package -Dmaven.test.skip=true -Dmaven.javadoc.skip=true -ntp \
-        -pl hugegraph-server/hugegraph-dist -am "${MAVEN_SCOPE_ARGS[@]}"
+        -pl hugegraph-server/hugegraph-dist -am -Drocksdb-only
 else
     mvn package -Dmaven.test.skip=true -ntp
 fi
@@ -138,8 +140,14 @@ SERVER_START_ATTEMPTED=true
 $TRAVIS_DIR/start-server.sh $SERVER_DIR $BACKEND $JACOCO_PORT || (cat $SERVER_DIR/logs/hugegraph-server.log && exit 1)
 
 # run api-test
-mvn test -pl hugegraph-server/hugegraph-test -am -P api-test,$BACKEND \
-    "${MAVEN_SCOPE_ARGS[@]}" || (cat $SERVER_DIR/logs/hugegraph-server.log && exit 1)
+if [[ "$ROCKSDB_ONLY" == "true" ]]; then
+    mvn test -pl hugegraph-server/hugegraph-test -am -P api-test,$BACKEND \
+        -Drocksdb-only || \
+        (cat $SERVER_DIR/logs/hugegraph-server.log && exit 1)
+else
+    mvn test -pl hugegraph-server/hugegraph-test -am -P api-test,$BACKEND || \
+        (cat $SERVER_DIR/logs/hugegraph-server.log && exit 1)
+fi
 
 if [ "$RUN_GREMLIN_CONSOLE_SMOKE_TEST" == "true" ]; then
     bash "$TRAVIS_DIR/run-gremlin-console-smoke-test.sh" "$SERVER_DIR" || \

@@ -105,9 +105,9 @@ update_server_url() {
 }
 
 wait_for_container_server() {
-    local attempt
+    local deadline=$((SECONDS + CONTAINER_READY_TIMEOUT))
     local running
-    for attempt in $(seq 1 "$CONTAINER_READY_TIMEOUT"); do
+    while ((SECONDS < deadline)); do
         running=$(docker inspect --format '{{.State.Running}}' "$CONTAINER_NAME")
         if [[ "$running" != "true" ]]; then
             echo "HugeGraph container exited before becoming ready" >&2
@@ -115,6 +115,7 @@ wait_for_container_server() {
             return 1
         fi
         if curl --silent --show-error --fail \
+                --connect-timeout 3 --max-time 5 \
                 "$SERVER_URL/versions" >/dev/null 2>&1; then
             return 0
         fi
@@ -126,9 +127,8 @@ wait_for_container_server() {
 }
 
 wait_for_container_health() {
-    local attempt
     local health
-    for attempt in $(seq 1 60); do
+    for _ in $(seq 1 60); do
         health=$(docker inspect --format \
             '{{if .State.Health}}{{.State.Health.Status}}{{else}}missing{{end}}' \
             "$CONTAINER_NAME")

@@ -15,21 +15,22 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-set -euo pipefail
+set -ev
 
 BACKEND=$1
 TRAVIS_DIR=$(cd "$(dirname "$0")" && pwd)
 REPO_ROOT=$(cd "$TRAVIS_DIR/../../../../.." && pwd)
-MAVEN_SCOPE_ARGS=()
 
 if [[ "$BACKEND" == "rocksdb" &&
       "$(uname -s)" == "Linux" &&
       "$(uname -m)" == "riscv64" ]]; then
     . "$TRAVIS_DIR/../static/bin/util.sh"
     configure_riscv64_libatomic
-    MAVEN_SCOPE_ARGS+=("-Drocksdb-only")
+    cd "$REPO_ROOT"
+    mvn test -pl hugegraph-server/hugegraph-test -am \
+        -P core-test,"$BACKEND" -Drocksdb-only
+else
+    cd "$REPO_ROOT"
+    mvn test -pl hugegraph-server/hugegraph-test -am \
+        -P core-test,"$BACKEND"
 fi
-
-cd "$REPO_ROOT"
-mvn test -pl hugegraph-server/hugegraph-test -am -P core-test,"$BACKEND" \
-    "${MAVEN_SCOPE_ARGS[@]}"

@@ -39,6 +39,10 @@ VERTEX_LABEL="riscv_smoke_node_$RUN_ID"
 EDGE_LABEL="riscv_smoke_link_$RUN_ID"
 VERTEX_ONE="riscv-smoke-v1-$RUN_ID"
 VERTEX_TWO="riscv-smoke-v2-$RUN_ID"
+CURL_CONNECT_TIMEOUT=3
+CURL_PROBE_TIMEOUT=5
+CURL_REQUEST_TIMEOUT=60
+SERVER_READY_TIMEOUT=240
 
 cleanup() {
     rm -rf "$WORK_DIR"
@@ -68,9 +72,11 @@ curl_request() {
 }
 
 wait_for_server() {
-    local attempt
-    for attempt in $(seq 1 240); do
+    local deadline=$((SECONDS + SERVER_READY_TIMEOUT))
+    while ((SECONDS < deadline)); do
         if curl_request --silent --show-error --fail \
+                        --connect-timeout "$CURL_CONNECT_TIMEOUT" \
+                        --max-time "$CURL_PROBE_TIMEOUT" \
                         "$SERVER_URL/versions" >/dev/null 2>&1; then
             return 0
         fi
@@ -88,6 +94,8 @@ request() {
     local status
     local curl_args=(--silent --show-error --output "$RESPONSE_FILE" \
                      --write-out '%{http_code}' --request "$method" \
+                     --connect-timeout "$CURL_CONNECT_TIMEOUT" \
+                     --max-time "$CURL_REQUEST_TIMEOUT" \
                      --header 'Content-Type: application/json')
 
     if [[ -n "$body" ]]; then

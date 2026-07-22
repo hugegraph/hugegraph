@@ -114,27 +114,28 @@ public class TaskCoreTest extends BaseCoreTest {
         Assert.fail("Timed out waiting for task to start running");
     }
 
-    private static void waitUntilTaskProgress(TaskScheduler scheduler, Id id,
-                                              int expectedProgress,
-                                              long timeoutSeconds) {
+    private static HugeTask<Object> waitUntilTaskProgress(
+            TaskScheduler scheduler, Id id, int expectedProgress,
+            long timeoutSeconds) {
         long deadline = System.nanoTime() +
                         TimeUnit.SECONDS.toNanos(timeoutSeconds);
         do {
             HugeTask<Object> task = scheduler.task(id);
-            if (task.progress() >= expectedProgress) {
-                return;
-            }
             if (task.completed()) {
                 Assert.fail(String.format(
                             "Task '%s' completed at progress %s before " +
                             "reaching progress %s",
                             id, task.progress(), expectedProgress));
             }
+            if (task.progress() >= expectedProgress) {
+                return task;
+            }
             sleepAWhile(100L);
         } while (System.nanoTime() < deadline);
         Assert.fail(String.format(
                     "Timed out waiting for task '%s' to reach progress %s",
                     id, expectedProgress));
+        return null;
     }
 
     private static void deleteTaskAndWaitGone(TaskScheduler scheduler, Id id) {
@@ -1051,17 +1052,17 @@ public class TaskCoreTest extends BaseCoreTest {
         HugeGraph graph = graph();
         TaskScheduler scheduler = graph.taskScheduler();
 
-        String gremlin = "println('task start');" +
+        String gremlin = "gremlinJob.setMinSaveInterval(1);" +
+                         "println('task start');" +
                          "for(int i=gremlinJob.progress(); i<=10; i++) {" +
                          "  gremlinJob.updateProgress(i);" +
-                         "  Thread.sleep(200); " +
+                         "  Thread.sleep(1000); " +
                          "  println('sleep=>'+i);" +
                          "}; 100;";
         HugeTask<Object> task = runGremlinJob(gremlin);
 
-        waitUntilTaskProgress(scheduler, task.id(), 1,
-                              GREMLIN_JOB_TIMEOUT);
-        task = scheduler.task(task.id());
+        task = waitUntilTaskProgress(scheduler, task.id(), 1,
+                                     GREMLIN_JOB_TIMEOUT);
         scheduler.cancel(task);
 
         task = scheduler.task(task.id());
@@ -1104,7 +1105,8 @@ public class TaskCoreTest extends BaseCoreTest {
             }, e -> {
                 Assert.assertContains("is already in the queue", e.getMessage());
             });
-            scheduler.waitUntilTaskCompleted(task2.id(), 10);
+            scheduler.waitUntilTaskCompleted(task2.id(),
+                                             GREMLIN_JOB_TIMEOUT);
             sleepAWhile(500);
             Assert.assertEquals(10, task2.progress());
             Assert.assertEquals(1, task2.retries());

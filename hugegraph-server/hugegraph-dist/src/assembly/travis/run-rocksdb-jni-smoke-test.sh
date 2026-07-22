@@ -28,12 +28,23 @@ EXPECTED_ARCH=${EXPECTED_ARCH:-}
 EXPECTED_JAVA_MAJOR=${EXPECTED_JAVA_MAJOR:-11}
 ACTUAL_ARCH=$(uname -m)
 
+if [[ -n "${JAVA_HOME:-}" ]]; then
+    JAVA_CMD="$JAVA_HOME/bin/java"
+else
+    JAVA_CMD=$(command -v java || true)
+fi
+if [[ -z "$JAVA_CMD" || ! -x "$JAVA_CMD" ]]; then
+    echo "Java executable is unavailable: ${JAVA_CMD:-not found}" >&2
+    exit 1
+fi
+
 if [[ -n "$EXPECTED_ARCH" && "$ACTUAL_ARCH" != "$EXPECTED_ARCH" ]]; then
     echo "Expected architecture $EXPECTED_ARCH, got $ACTUAL_ARCH" >&2
     exit 1
 fi
 
-JAVA_VERSION=$(java -version 2>&1 | awk -F '"' '/version/ {print $2; exit}')
+JAVA_VERSION=$("$JAVA_CMD" -version 2>&1 | \
+               awk -F '"' '/version/ {print $2; exit}')
 JAVA_MAJOR=${JAVA_VERSION%%.*}
 if [[ "$JAVA_MAJOR" == "1" ]]; then
     JAVA_MAJOR=$(echo "$JAVA_VERSION" | cut -d. -f2)
@@ -43,7 +54,7 @@ if [[ "$JAVA_MAJOR" != "$EXPECTED_JAVA_MAJOR" ]]; then
     exit 1
 fi
 
-JAVA_PROPERTIES=$(java -XshowSettings:properties -version 2>&1)
+JAVA_PROPERTIES=$("$JAVA_CMD" -XshowSettings:properties -version 2>&1)
 java_property() {
     local key=$1
     awk -F ' = ' -v key="$key" '{
@@ -110,8 +121,8 @@ cleanup() {
 }
 trap cleanup EXIT
 
-java -cp "$SERVER_DIR/lib/*" groovy.ui.GroovyMain \
-     "$TRAVIS_DIR/rocksdb-jni-smoke.groovy" | tee "$SMOKE_LOG"
+"$JAVA_CMD" -cp "$SERVER_DIR/lib/*" groovy.ui.GroovyMain \
+            "$TRAVIS_DIR/rocksdb-jni-smoke.groovy" | tee "$SMOKE_LOG"
 
 if ! grep -q '^rocksdb-jni-smoke-ok$' "$SMOKE_LOG"; then
     echo "RocksDB JNI smoke marker not found" >&2
