@@ -1,0 +1,21 @@
+.github/workflows/riscv64-ci.yml
+  s_1394716814c330::t_7efdfe35de9cc9 54
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "bd69efb8a9b87142998d43682fbd67bcc948de30",
+  "prompts": {},
+  "sessions": {
+    "s_1394716814c330": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f7e8f-ea34-7371-848c-d6ae1f960acd",
+        "model": "unknown"
+      },
+      "human_author": "guanxiao.233 <guanxiao.233@bytedance.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
