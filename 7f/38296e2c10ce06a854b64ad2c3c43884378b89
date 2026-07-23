@@ -1,0 +1,43 @@
+.dockerignore
+  s_1394716814c330::t_29b17181f784be 24
+.github/workflows/docker-build-ci.yml
+  s_1394716814c330::t_4bdf972513e9ab 39
+hugegraph-server/Dockerfile
+  s_1394716814c330::t_0ba3785086204d 20,30-31,33,35,50-55
+hugegraph-server/README.md
+  s_1394716814c330::t_64fa7e7ea1d2a8 36-38,40-44,46-47,49-51,65
+hugegraph-server/hugegraph-dist/docker/docker-entrypoint.sh
+  s_1394716814c330::t_bdd14c2f592bcf 84
+hugegraph-server/hugegraph-dist/src/assembly/travis/build-report.sh
+  s_1394716814c330::t_0557975eebd011 61
+hugegraph-server/hugegraph-dist/src/assembly/travis/run-api-test.sh
+  s_1394716814c330::t_a8654319a76dfc 61,68,71-72,97,100,107-110
+hugegraph-server/hugegraph-dist/src/assembly/travis/run-core-test.sh
+  s_1394716814c330::t_d012107385a359 22
+hugegraph-server/hugegraph-dist/src/assembly/travis/start-server.sh
+  s_1394716814c330::t_f9baf7217973b5 98
+hugegraph-server/hugegraph-dist/src/assembly/travis/stop-server.sh
+  s_1394716814c330::t_d94918b2122de0 22
+hugegraph-server/hugegraph-test/pom.xml
+  s_1394716814c330::t_aba41cbca9b189 48-57,63-77,314
+hugegraph-server/hugegraph-test/src/main/java/org/apache/hugegraph/core/TaskCoreTest.java
+  s_1394716814c330::t_7c5966cac79c8c 672,977,1010,1026,1029,1034-1035,1078
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "7f38296e2c10ce06a854b64ad2c3c43884378b89",
+  "prompts": {},
+  "sessions": {
+    "s_1394716814c330": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f7e8f-ea34-7371-848c-d6ae1f960acd",
+        "model": "unknown"
+      },
+      "human_author": "guanxiao.233 <guanxiao.233@bytedance.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
