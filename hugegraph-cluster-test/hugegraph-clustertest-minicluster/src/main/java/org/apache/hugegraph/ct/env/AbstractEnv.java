@@ -77,7 +77,9 @@ public abstract class AbstractEnv implements BaseEnv {
         for (int i = 0; i < serverCnt; i++) {
             ServerConfig serverConfig = clusterConfig.getServerConfig(i);
             ServerNodeWrapper serverNodeWrapper =
-                    new ServerNodeWrapper(cluster_id, i, serverConfig.getRestPort());
+                    new ServerNodeWrapper(cluster_id, i,
+                                          serverConfig.getRestPort(),
+                                          serverConfig.getGremlinPort());
             serverNodeWrappers.add(serverNodeWrapper);
             serverConfig.setServerID(serverNodeWrapper.getID());
             GraphConfig graphConfig = clusterConfig.getGraphConfig(i);

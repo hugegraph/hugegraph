@@ -138,7 +138,8 @@ jobs:
 
       - name: Run TinkerPop process test
         if: ${{ env.RUN_TINKERPOP_TESTS == 'true' && env.BACKEND != 'hbase' }}
-        timeout-minutes: 60
+        # TODO: split ProcessStandardTest and Gherkin into separate CI jobs.
+        timeout-minutes: 120
         run: |
           echo "[WARNING] Enter Tinkerpop Process Test, current 'github.ref_name' is ${{ github.ref_name }}"
           $TRAVIS_DIR/run-tinkerpop-test.sh $BACKEND process

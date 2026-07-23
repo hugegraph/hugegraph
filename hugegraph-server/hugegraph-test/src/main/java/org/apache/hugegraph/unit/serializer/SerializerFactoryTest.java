@@ -58,9 +58,14 @@ public class SerializerFactoryTest extends BaseUnitTest {
         Assert.assertEquals(FakeSerializer.class,
                             SerializerFactory.serializer(config, "fake").getClass());
 
+        // Identical registration is idempotent
+        SerializerFactory.register("fake", FakeSerializer.class.getName());
+        Assert.assertEquals(FakeSerializer.class,
+                            SerializerFactory.serializer(config, "fake").getClass());
+
         Assert.assertThrows(BackendException.class, () -> {
-            // exist
-            SerializerFactory.register("fake", FakeSerializer.class.getName());
+            // conflict
+            SerializerFactory.register("fake", TextSerializer.class.getName());
         }, e -> {
             Assert.assertContains("Exists serializer:", e.getMessage());
         });

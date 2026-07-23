@@ -36,6 +36,7 @@ import org.apache.hugegraph.unit.cassandra.CassandraTest;
 import org.apache.hugegraph.unit.config.GremlinConfigCompatibilityTest;
 import org.apache.hugegraph.unit.core.AnalyzerTest;
 import org.apache.hugegraph.unit.core.BackendMutationTest;
+import org.apache.hugegraph.unit.core.BackendProviderFactoryTest;
 import org.apache.hugegraph.unit.core.BackendStoreInfoTest;
 import org.apache.hugegraph.unit.core.ConditionQueryFlattenTest;
 import org.apache.hugegraph.unit.core.ConditionTest;
@@ -132,6 +133,7 @@ import org.junit.runners.Suite;
         RowLockTest.class,
         AnalyzerTest.class,
         BackendMutationTest.class,
+        BackendProviderFactoryTest.class,
         ConditionTest.class,
         GroovyScriptEngineCompatibilityTest.class,
         HugeFeaturesTest.class,

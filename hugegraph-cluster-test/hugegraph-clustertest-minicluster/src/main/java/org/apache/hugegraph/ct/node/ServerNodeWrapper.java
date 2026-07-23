@@ -48,23 +48,37 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
+import org.apache.hugegraph.ct.config.GremlinServerConfig;
+
 public class ServerNodeWrapper extends AbstractNodeWrapper {
 
     private static List<String> hgJars = loadHgJarsOnce();
     private final int restPort;
+    private final int gremlinPort;
 
     public ServerNodeWrapper(int clusterIndex, int index) {
-        this(clusterIndex, index, -1);
+        this(clusterIndex, index, -1, -1);
     }
 
     public ServerNodeWrapper(int clusterIndex, int index, int restPort) {
+        this(clusterIndex, index, restPort, -1);
+    }
+
+    public ServerNodeWrapper(int clusterIndex, int index, int restPort,
+                             int gremlinPort) {
         super(clusterIndex, index);
         this.restPort = restPort;
+        this.gremlinPort = gremlinPort;
         this.fileNames = new ArrayList<>(
                 List.of(LOG4J_FILE, GREMLIN_SERVER_FILE, GREMLIN_DRIVER_SETTING_FILE,
                         REMOTE_SETTING_FILE, REMOTE_OBJECTS_SETTING_FILE));
         this.workPath = SERVER_LIB_PATH;
         createNodeDir(Paths.get(SERVER_TEMPLATE_PATH), getNodePath() + CONF_DIR + File.separator);
+        if (this.gremlinPort >= 0) {
+            GremlinServerConfig.update(
+                    Paths.get(getNodePath(), CONF_DIR, GREMLIN_SERVER_FILE),
+                    LOCALHOST, this.gremlinPort);
+        }
         this.fileNames = new ArrayList<>(List.of(EMPTY_SAMPLE_GROOVY_FILE, EXAMPLE_GROOVY_FILE));
         this.startLine = "INFO: [HttpServer] Started.";
         createNodeDir(Paths.get(SERVER_PACKAGE_PATH), getNodePath());
@@ -150,7 +164,9 @@ public class ServerNodeWrapper extends AbstractNodeWrapper {
     @Override
     public boolean isStarted() {
         return super.isStarted() &&
-               (this.restPort < 0 || isPortOpen(LOCALHOST, this.restPort));
+               (this.restPort < 0 || isPortOpen(LOCALHOST, this.restPort)) &&
+               (this.gremlinPort < 0 ||
+                isPortOpen(LOCALHOST, this.gremlinPort));
     }
 
     @Override
