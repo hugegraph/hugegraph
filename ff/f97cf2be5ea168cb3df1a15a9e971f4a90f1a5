@@ -1,0 +1,23 @@
+hugegraph-server/README.md
+  s_1394716814c330::t_b67fbff9eeb42e 55-56
+pom.xml
+  s_1394716814c330::t_69c85bd6b2e3aa 102-103,105-106
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "fff97cf2be5ea168cb3df1a15a9e971f4a90f1a5",
+  "prompts": {},
+  "sessions": {
+    "s_1394716814c330": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f7e8f-ea34-7371-848c-d6ae1f960acd",
+        "model": "unknown"
+      },
+      "human_author": "guanxiao.233 <guanxiao.233@bytedance.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
