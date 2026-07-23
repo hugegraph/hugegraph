@@ -1,0 +1,33 @@
+.github/workflows/docker-build-ci.yml
+  s_1394716814c330::t_31fa1fe836a5e0 35,38-39,81-82
+.github/workflows/server-ci.yml
+  s_1394716814c330::t_1d9d98bdada6bf 69-73
+hugegraph-server/README.md
+  s_1394716814c330::t_ee51f5087cbf20 53-54,66-67,92
+hugegraph-server/hugegraph-dist/src/assembly/travis/check-default-maven-profiles.sh
+  s_1394716814c330::t_02a0cc618937df 1-124
+hugegraph-server/hugegraph-dist/src/assembly/travis/run-api-test.sh
+  s_1394716814c330::t_2f7c8d6a21b2a5 140-141,145,147,149-150,158
+hugegraph-server/hugegraph-test/pom.xml
+  s_1394716814c330::t_fb07edd1f12ede 328-331,351-353
+hugegraph-server/pom.xml
+  s_1394716814c330::t_783653ec94374c 64,67-68,70-74
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "e2189b328bdaeae06e3b725dd35fdcdf7aadf49e",
+  "prompts": {},
+  "sessions": {
+    "s_1394716814c330": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f7e8f-ea34-7371-848c-d6ae1f960acd",
+        "model": "unknown"
+      },
+      "human_author": "guanxiao.233 <guanxiao.233@bytedance.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
