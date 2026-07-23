@@ -72,17 +72,11 @@ public class SerializerFactory {
                                        "AbstractSerializer: '%s'", classPath);
         }
 
-        // Check exists: identical re-registration is a no-op, conflict is an error
-        Class<?> registered = serializers.get(name);
-        if (registered != null) {
-            if (!registered.equals(clazz)) {
-                throw new BackendException("Exists serializer: %s(Class '%s')",
-                                           name, registered.getName());
-            }
-            return;
+        // Register atomically: identical re-registration is a no-op
+        Class<?> registered = serializers.putIfAbsent(name, (Class) clazz);
+        if (registered != null && !registered.equals(clazz)) {
+            throw new BackendException("Exists serializer: %s(Class '%s')",
+                                       name, registered.getName());
         }
-
-        // Register class
-        serializers.put(name, (Class) clazz);
     }
 }

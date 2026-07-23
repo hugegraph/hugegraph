@@ -113,16 +113,10 @@ public class BackendProviderFactory {
         BackendException.check(subclass, "Class '%s' is not a subclass of " +
                                          "class BackendStoreProvider", classPath);
 
-        // Check exists: identical re-registration is a no-op, conflict is an error
-        Class<?> registered = providers.get(name);
-        if (registered != null) {
-            BackendException.check(registered.equals(clazz),
-                                   "Exists BackendStoreProvider: %s (%s)",
-                                   name, registered);
-            return;
-        }
-
-        // Register class
-        providers.put(name, (Class) clazz);
+        // Register atomically: identical re-registration is a no-op
+        Class<?> registered = providers.putIfAbsent(name, (Class) clazz);
+        BackendException.check(registered == null || registered.equals(clazz),
+                               "Exists BackendStoreProvider: %s (%s)",
+                               name, registered);
     }
 }

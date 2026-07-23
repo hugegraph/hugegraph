@@ -17,7 +17,6 @@
 
 package org.apache.hugegraph.tinkerpop;
 
-import java.io.IOException;
 import java.lang.annotation.Annotation;
 import java.util.Locale;
 import java.util.Map;
@@ -37,17 +36,20 @@ import io.cucumber.java.Scenario;
 
 public class HugeGraphWorld implements World {
 
+    private static final HugeGraphProviderContext PROVIDER_CONTEXT =
+            new HugeGraphProviderContext();
+
     private final ProcessTestGraphProvider provider;
     private Scenario scenario;
     private Graph graph;
     private Configuration configuration;
 
     public HugeGraphWorld() {
-        try {
-            this.provider = new ProcessTestGraphProvider();
-        } catch (IOException e) {
-            throw new IllegalStateException("Failed to create graph provider", e);
-        }
+        this.provider = PROVIDER_CONTEXT.provider();
+    }
+
+    static void clearProvider() {
+        PROVIDER_CONTEXT.clear();
     }
 
     @Override

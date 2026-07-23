@@ -27,7 +27,11 @@ import io.cucumber.plugin.event.TestRunFinished;
 public final class HugeGraphScenarioCountPlugin
         implements ConcurrentEventListener {
 
-    private static final int MIN_EXPECTED_SCENARIOS = 300;
+    /*
+     * This is the exact number selected by TAGS and NAMES for TinkerPop 3.7.6.
+     * Update it together with an intentional filter or TinkerPop change.
+     */
+    private static final int EXPECTED_SCENARIOS = 345;
 
     private final AtomicInteger scenarioCount = new AtomicInteger();
 
@@ -36,21 +40,24 @@ public final class HugeGraphScenarioCountPlugin
         publisher.registerHandlerFor(TestCaseStarted.class,
                                      event -> this.scenarioCount.incrementAndGet());
         publisher.registerHandlerFor(TestRunFinished.class,
-                                     event -> this.assertScenariosExecuted());
+                                     event -> this.finishRun());
     }
 
-    private void assertScenariosExecuted() {
-        /*
-         * The current TAGS expression matches ~345 scenarios. Assert a lower
-         * bound rather than >0 so that a single broken tag (which silently
-         * drops an entire feature's scenarios) fails the run.
-         */
-        if (this.scenarioCount.get() < MIN_EXPECTED_SCENARIOS) {
+    private void finishRun() {
+        try {
+            assertScenariosExecuted(this.scenarioCount.get());
+        } finally {
+            HugeGraphWorld.clearProvider();
+        }
+    }
+
+    static void assertScenariosExecuted(int scenarioCount) {
+        if (scenarioCount != EXPECTED_SCENARIOS) {
             throw new AssertionError(
-                    "Only " + this.scenarioCount.get() + " TinkerPop Gherkin " +
-                    "scenarios were executed, expected at least " +
-                    MIN_EXPECTED_SCENARIOS +
-                    " (check the TAGS/NAMES filters for typos or renames)");
+                    scenarioCount + " TinkerPop Gherkin scenarios were " +
+                    "executed, expected exactly " + EXPECTED_SCENARIOS +
+                    " (check the TAGS/NAMES filters and update the expected " +
+                    "count for intentional changes)");
         }
     }
 }
