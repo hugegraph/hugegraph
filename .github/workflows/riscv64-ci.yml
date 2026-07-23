@@ -51,7 +51,7 @@ jobs:
       - name: Start isolated RISC-V environment
         run: |
           docker run --privileged --rm "$BINFMT_IMAGE" --install riscv64
-          docker run --detach --platform linux/riscv64 \
+          docker run --detach --init --platform linux/riscv64 \
             --name "$RISCV64_CONTAINER" "$RISCV64_BASE_IMAGE" sleep infinity
           test "$(docker exec "$RISCV64_CONTAINER" uname -m)" = riscv64
 
