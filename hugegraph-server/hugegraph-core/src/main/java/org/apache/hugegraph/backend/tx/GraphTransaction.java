@@ -556,10 +556,12 @@ public class GraphTransaction extends IndexableTransaction {
                             "The %s operator with uncommitted records " +
                             "is not supported",
                             aggregate.func().string());
-            query.aggregate(null);
-            return IteratorUtils.count(query.resultType().isVertex() ?
-                                       this.queryVertices(query) :
-                                       this.queryEdges(query));
+            Query queryWithoutAggregate = query.copy();
+            queryWithoutAggregate.aggregate(null);
+            return IteratorUtils.count(
+                    queryWithoutAggregate.resultType().isVertex() ?
+                    this.queryVertices(queryWithoutAggregate) :
+                    this.queryEdges(queryWithoutAggregate));
         }
 
         QueryList<Number> queries = this.optimizeQueries(query, q -> {

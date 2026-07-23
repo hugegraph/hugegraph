@@ -649,7 +649,8 @@ public final class TraversalUtil {
             }
             return true;
         }
-        if (!canPartiallyExtractWithLocalTextPredicates(graph, holder) ||
+        if (!canPartiallyExtractWithLocalTextPropertyPredicates(graph,
+                                                                holder) ||
             hasUnsupportedLabelContainer(holder)) {
             return false;
         }
@@ -681,7 +682,8 @@ public final class TraversalUtil {
             }
             return true;
         }
-        if (!canPartiallyExtractWithLocalTextPredicates(graph, holder) ||
+        if (!canPartiallyExtractWithLocalTextPropertyPredicates(graph,
+                                                                holder) ||
             hasUnsupportedLabelContainer(holder)) {
             return false;
         }
@@ -708,23 +710,23 @@ public final class TraversalUtil {
         return true;
     }
 
-    private static boolean canPartiallyExtractWithLocalTextPredicates(
+    private static boolean canPartiallyExtractWithLocalTextPropertyPredicates(
             HugeGraph graph, HasContainerHolder holder) {
-        boolean seenTextPredicate = false;
+        boolean seenLocalTextPropertyPredicate = false;
         for (HasContainer has : holder.getHasContainers()) {
             if (canExtractHasContainer(graph, has)) {
                 continue;
             }
-            if (!isLocalTextPredicate(graph, has)) {
+            if (!isLocalTextPropertyPredicate(graph, has)) {
                 return false;
             }
-            seenTextPredicate = true;
+            seenLocalTextPropertyPredicate = true;
         }
-        return seenTextPredicate;
+        return seenLocalTextPropertyPredicate;
     }
 
-    private static boolean isLocalTextPredicate(HugeGraph graph,
-                                                HasContainer has) {
+    private static boolean isLocalTextPropertyPredicate(HugeGraph graph,
+                                                        HasContainer has) {
         if (graph == null || has.getKey() == null ||
             has.getPredicate() == null || isSysProp(has.getKey()) ||
             hasNullPredicate(has)) {

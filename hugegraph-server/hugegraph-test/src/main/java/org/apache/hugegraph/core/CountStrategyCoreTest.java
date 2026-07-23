@@ -20,11 +20,15 @@ package org.apache.hugegraph.core;
 import java.util.HashSet;
 import java.util.Set;
 
+import org.apache.hugegraph.backend.query.Aggregate;
+import org.apache.hugegraph.backend.query.Aggregate.AggregateFunc;
+import org.apache.hugegraph.backend.query.Query;
 import org.apache.hugegraph.exception.NoIndexException;
 import org.apache.hugegraph.schema.SchemaManager;
 import org.apache.hugegraph.testutil.Assert;
 import org.apache.hugegraph.traversal.optimize.HugeCountStep;
 import org.apache.hugegraph.traversal.optimize.HugeGraphStep;
+import org.apache.hugegraph.type.HugeType;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal;
@@ -268,6 +272,19 @@ public class CountStrategyCoreTest extends BaseCoreTest {
                             .count().next();
 
         Assert.assertEquals(1L, count);
+    }
+
+    @Test
+    public void testQueryNumberKeepsOriginalAggregate() {
+        this.initSchema();
+        graph().addVertex(T.label, "person", "name", "marko");
+
+        Query query = new Query(HugeType.VERTEX);
+        Aggregate aggregate = new Aggregate(AggregateFunc.COUNT, null);
+        query.aggregate(aggregate);
+
+        Assert.assertEquals(1L, graph().queryNumber(query).longValue());
+        Assert.assertSame(aggregate, query.aggregate());
     }
 
     @Test
