@@ -20,13 +20,6 @@ set -ev
 BACKEND=$1
 JACOCO_PORT=$2
 JACOCO_REPORT_FILE=$3
-ROCKSDB_ONLY=false
-
-if [[ "$BACKEND" == "rocksdb" &&
-      "$(uname -s)" == "Linux" &&
-      "$(uname -m)" == "riscv64" ]]; then
-    ROCKSDB_ONLY=true
-fi
 
 TRAVIS_DIR=$(cd "$(dirname "$0")" && pwd)
 REPO_ROOT=$(cd "$TRAVIS_DIR/../../../../.." && pwd)
@@ -65,13 +58,7 @@ esac
 mkdir -p "$(dirname "$REPORT_FILE")"
 
 cd "$REPO_ROOT/hugegraph-server/hugegraph-test"
-if [[ "$ROCKSDB_ONLY" == "true" ]]; then
-    mvn jacoco:dump@pull-test-data -Dapp.host=localhost \
-        -Dapp.port=$JACOCO_PORT -Dskip.dump=false -Drocksdb-only
-else
-    mvn jacoco:dump@pull-test-data -Dapp.host=localhost \
-        -Dapp.port=$JACOCO_PORT -Dskip.dump=false
-fi
+mvn jacoco:dump@pull-test-data -Dapp.host=localhost -Dapp.port=$JACOCO_PORT -Dskip.dump=false
 cd "$REPO_ROOT/hugegraph-server"
 
 if [[ ! -e "${TRAVIS_DIR}/jacococli.jar" ]]; then

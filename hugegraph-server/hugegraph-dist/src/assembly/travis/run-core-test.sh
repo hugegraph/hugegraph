@@ -18,19 +18,5 @@
 set -ev
 
 BACKEND=$1
-TRAVIS_DIR=$(cd "$(dirname "$0")" && pwd)
-REPO_ROOT=$(cd "$TRAVIS_DIR/../../../../.." && pwd)
 
-if [[ "$BACKEND" == "rocksdb" &&
-      "$(uname -s)" == "Linux" &&
-      "$(uname -m)" == "riscv64" ]]; then
-    . "$TRAVIS_DIR/../static/bin/util.sh"
-    configure_riscv64_libatomic
-    cd "$REPO_ROOT"
-    mvn test -pl hugegraph-server/hugegraph-test -am \
-        -P core-test,"$BACKEND" -Drocksdb-only
-else
-    cd "$REPO_ROOT"
-    mvn test -pl hugegraph-server/hugegraph-test -am \
-        -P core-test,"$BACKEND"
-fi
+mvn test -pl hugegraph-server/hugegraph-test -am -P core-test,$BACKEND
