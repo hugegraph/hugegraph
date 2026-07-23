@@ -18,45 +18,7 @@
 name: "RISC-V Server CI"
 
 on:
-  push:
-    branches:
-      - master
-      - 'release-*'
-    paths:
-      - '.github/workflows/riscv64-ci.yml'
-      - 'pom.xml'
-      - 'hugegraph-pd/pom.xml'
-      - 'hugegraph-pd/hg-pd-grpc/**'
-      - 'hugegraph-pd/hg-pd-common/**'
-      - 'hugegraph-pd/hg-pd-client/**'
-      - 'hugegraph-store/pom.xml'
-      - 'hugegraph-store/hg-store-common/**'
-      - 'hugegraph-commons/**'
-      - 'hugegraph-struct/**'
-      - 'hugegraph-server/pom.xml'
-      - 'hugegraph-server/hugegraph-core/**'
-      - 'hugegraph-server/hugegraph-rpc/**'
-      - 'hugegraph-server/hugegraph-api/**'
-      - 'hugegraph-server/hugegraph-rocksdb/**'
-      - 'hugegraph-server/hugegraph-dist/**'
-  pull_request:
-    paths:
-      - '.github/workflows/riscv64-ci.yml'
-      - 'pom.xml'
-      - 'hugegraph-pd/pom.xml'
-      - 'hugegraph-pd/hg-pd-grpc/**'
-      - 'hugegraph-pd/hg-pd-common/**'
-      - 'hugegraph-pd/hg-pd-client/**'
-      - 'hugegraph-store/pom.xml'
-      - 'hugegraph-store/hg-store-common/**'
-      - 'hugegraph-commons/**'
-      - 'hugegraph-struct/**'
-      - 'hugegraph-server/pom.xml'
-      - 'hugegraph-server/hugegraph-core/**'
-      - 'hugegraph-server/hugegraph-rpc/**'
-      - 'hugegraph-server/hugegraph-api/**'
-      - 'hugegraph-server/hugegraph-rocksdb/**'
-      - 'hugegraph-server/hugegraph-dist/**'
+  workflow_call:
 
 permissions:
   contents: read
