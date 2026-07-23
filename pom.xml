@@ -99,7 +99,11 @@
 
     <modules>
         <module>hugegraph-server</module>
+        <module>hugegraph-pd</module>
+        <module>hugegraph-store</module>
         <module>hugegraph-commons</module>
+        <module>install-dist</module>
+        <module>hugegraph-cluster-test</module>
         <module>hugegraph-struct</module>
     </modules>
 
@@ -318,35 +322,6 @@
     </build>
 
     <profiles>
-        <profile>
-            <id>all-modules</id>
-            <activation>
-                <property>
-                    <name>!rocksdb-only</name>
-                </property>
-            </activation>
-            <modules>
-                <module>hugegraph-pd</module>
-                <module>hugegraph-store</module>
-                <module>install-dist</module>
-                <module>hugegraph-cluster-test</module>
-            </modules>
-        </profile>
-        <profile>
-            <id>rocksdb-only</id>
-            <activation>
-                <property>
-                    <name>rocksdb-only</name>
-                </property>
-            </activation>
-            <modules>
-                <!-- Existing compile-time dependencies of Core and Struct -->
-                <module>hugegraph-pd/hg-pd-grpc</module>
-                <module>hugegraph-pd/hg-pd-common</module>
-                <module>hugegraph-pd/hg-pd-client</module>
-                <module>hugegraph-store/hg-store-common</module>
-            </modules>
-        </profile>
         <profile>
             <id>apache-release</id>
             <build>

@@ -52,8 +52,8 @@ install the build and runtime dependencies:
 
 ```bash
 sudo apt-get update
-sudo apt-get install -y maven protobuf-compiler \
-  protobuf-compiler-grpc-java-plugin libatomic1 libstdc++6 libgcc-s1 curl jq
+sudo apt-get install -y ca-certificates curl jq libatomic1 libgcc-s1 libstdc++6 \
+  lsof maven procps protobuf-compiler protobuf-compiler-grpc-java-plugin
 ```
 
 After selecting Dragonwell as `JAVA_HOME`, build and verify the RocksDB-only distribution:
