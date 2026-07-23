@@ -58,60 +58,18 @@ function download_to_dir() {
 
 cd "$REPO_ROOT"
 
-ROCKSDB_ONLY=false
-
-if [[ "$BACKEND" == "rocksdb" &&
-      "$(uname -s)" == "Linux" &&
-      "$(uname -m)" == "riscv64" ]]; then
-    . "$TRAVIS_DIR/../static/bin/util.sh"
-    configure_riscv64_libatomic
-    ROCKSDB_ONLY=true
-fi
-
-if [[ "$ROCKSDB_ONLY" == "true" ]]; then
-    VERSION=$(mvn help:evaluate -Dexpression=project.version -q \
-                  -DforceStdout -Drocksdb-only)
-else
-    VERSION=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)
-fi
+VERSION=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)
 SERVER_DIR=hugegraph-server/apache-hugegraph-server-$VERSION/
 CONF=$SERVER_DIR/conf/graphs/hugegraph.properties
 REST_SERVER_CONF=$SERVER_DIR/conf/rest-server.properties
 GREMLIN_SERVER_CONF=$SERVER_DIR/conf/gremlin-server.yaml
 JACOCO_PORT=36320
-SERVER_START_ATTEMPTED=false
 
-function cleanup() {
-    local status=$?
-    trap - EXIT
-
-    if [[ "$SERVER_START_ATTEMPTED" == "true" ]]; then
-        if ! "$TRAVIS_DIR"/stop-server.sh "$SERVER_DIR"; then
-            echo "Failed to stop the HugeGraph Server started by this test" >&2
-            status=1
-        fi
-    fi
-    exit "$status"
-}
-
-trap cleanup EXIT
-
-if [[ "$ROCKSDB_ONLY" == "true" ]]; then
-    mvn clean package -Dmaven.test.skip=true -Dmaven.javadoc.skip=true -ntp \
-        -pl hugegraph-server/hugegraph-dist -am -Drocksdb-only
-else
-    mvn package -Dmaven.test.skip=true -ntp
-fi
-
-if [[ "$ROCKSDB_ONLY" == "true" ]]; then
-    "$TRAVIS_DIR"/check-rocksdb-only-dist.sh "$SERVER_DIR"
-fi
+mvn package -Dmaven.test.skip=true -ntp
 
 # add mysql dependency
-if [[ "$ROCKSDB_ONLY" != "true" ]]; then
-    download_to_dir "$SERVER_DIR/lib/" \
-                    "https://repo1.maven.org/maven2/mysql/mysql-connector-java/8.0.28/mysql-connector-java-8.0.28.jar"
-fi
+download_to_dir "$SERVER_DIR/lib/" \
+                "https://repo1.maven.org/maven2/mysql/mysql-connector-java/8.0.28/mysql-connector-java-8.0.28.jar"
 
 if [[ ! -e "$SERVER_DIR/lib/ikanalyzer-2012_u6.jar" ]]; then
   download_to_dir "$SERVER_DIR/lib/" \
@@ -136,23 +94,17 @@ authentication: {
 }" >> $GREMLIN_SERVER_CONF
 
 # start server
-SERVER_START_ATTEMPTED=true
-"$TRAVIS_DIR/start-server.sh" "$SERVER_DIR" "$BACKEND" "$JACOCO_PORT" || \
-    (cat "$SERVER_DIR/logs/hugegraph-server.log" && exit 1)
+$TRAVIS_DIR/start-server.sh $SERVER_DIR $BACKEND $JACOCO_PORT || (cat $SERVER_DIR/logs/hugegraph-server.log && exit 1)
 
 # run api-test
-if [[ "$ROCKSDB_ONLY" == "true" ]]; then
-    mvn test -pl hugegraph-server/hugegraph-test -am -P "api-test,$BACKEND" \
-        -Drocksdb-only || \
-        (cat "$SERVER_DIR/logs/hugegraph-server.log" && exit 1)
-else
-    mvn test -pl hugegraph-server/hugegraph-test -am -P "api-test,$BACKEND" || \
-        (cat "$SERVER_DIR/logs/hugegraph-server.log" && exit 1)
-fi
+mvn test -pl hugegraph-server/hugegraph-test -am -P api-test,$BACKEND || (cat $SERVER_DIR/logs/hugegraph-server.log && exit 1)
 
 if [ "$RUN_GREMLIN_CONSOLE_SMOKE_TEST" == "true" ]; then
     bash "$TRAVIS_DIR/run-gremlin-console-smoke-test.sh" "$SERVER_DIR" || \
         (cat "$SERVER_DIR/logs/hugegraph-server.log" && exit 1)
 fi
 
-"$TRAVIS_DIR/build-report.sh" "$BACKEND" "$JACOCO_PORT" "$REPORT_FILE"
+$TRAVIS_DIR/build-report.sh $BACKEND $JACOCO_PORT $REPORT_FILE
+
+# stop server
+$TRAVIS_DIR/stop-server.sh $SERVER_DIR

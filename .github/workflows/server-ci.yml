@@ -66,11 +66,6 @@ jobs:
           cp $HOME/.m2/settings.xml /tmp/settings.xml
           cp -vf .github/configs/settings.xml $HOME/.m2/settings.xml && cat $HOME/.m2/settings.xml
 
-      - name: Check default Maven profiles
-        if: ${{ env.BACKEND == 'memory' }}
-        run: |
-          "$TRAVIS_DIR/check-default-maven-profiles.sh"
-
       - name: Compile
         run: |
           mvn clean compile -U -Dmaven.javadoc.skip=true -ntp

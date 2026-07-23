@@ -29,6 +29,7 @@ EXPECTED_ARCH=${EXPECTED_ARCH:-riscv64}
 EXPECTED_JAVA_MAJOR=${EXPECTED_JAVA_MAJOR:-11}
 SERVER_START_ATTEMPTED=false
 SERVER_STARTUP_TIMEOUT=${SERVER_STARTUP_TIMEOUT:-300}
+SERVER_START_COMMAND_TIMEOUT=$((SERVER_STARTUP_TIMEOUT + 30))
 WORK_DIR=$(mktemp -d "${TMPDIR:-/tmp}/hugegraph-native-runtime-smoke.XXXXXX")
 RUN_ID="$(date +%s)_$$"
 
@@ -45,17 +46,27 @@ cleanup() {
 }
 trap cleanup EXIT
 
+start_server() {
+    if ! command -v timeout >/dev/null 2>&1; then
+        echo "Required command is unavailable: timeout" >&2
+        return 1
+    fi
+    timeout --foreground --kill-after=15s \
+            "${SERVER_START_COMMAND_TIMEOUT}s" \
+            "$SERVER_DIR/bin/start-hugegraph.sh" -t "$SERVER_STARTUP_TIMEOUT"
+}
+
 "$TRAVIS_DIR/run-rocksdb-jni-smoke-test.sh" "$SERVER_DIR"
 
 "$SERVER_DIR/bin/init-store.sh"
 SERVER_START_ATTEMPTED=true
-"$SERVER_DIR/bin/start-hugegraph.sh" -t "$SERVER_STARTUP_TIMEOUT"
+start_server
 "$TRAVIS_DIR/run-server-e2e-smoke-test.sh" "$SERVER_URL" create "$RUN_ID" | \
     tee "$WORK_DIR/create.log"
 grep -q '^server-e2e-smoke-create-ok$' "$WORK_DIR/create.log"
 
 "$SERVER_DIR/bin/stop-hugegraph.sh" -m false
-"$SERVER_DIR/bin/start-hugegraph.sh" -t "$SERVER_STARTUP_TIMEOUT"
+start_server
 "$TRAVIS_DIR/run-server-e2e-smoke-test.sh" "$SERVER_URL" verify "$RUN_ID" | \
     tee "$WORK_DIR/verify.log"
 grep -q '^server-e2e-smoke-verify-ok$' "$WORK_DIR/verify.log"

@@ -33,51 +33,22 @@ See [docker/README.md](../docker/README.md) for the full setup guide.
 
 ## RISC-V Development and Testing
 
-The supported RISC-V target is 64-bit `linux/riscv64` LP64D with glibc 2.30 or newer.
-This target covers HugeGraph Server with the embedded RocksDB backend only. It does not
-cover musl/Alpine, 32-bit RISC-V, PD, Store, HStore, or other storage backends.
+The RISC-V validation target is 64-bit `linux/riscv64` LP64D with glibc 2.30 or newer,
+HugeGraph Server, and the embedded RocksDB backend. PD, Store, HStore, other backends,
+musl/Alpine, and 32-bit RISC-V are out of scope.
 
-The RISC-V image uses the checksum-pinned Alibaba Dragonwell 11 Extended Server VM from
-the [Dockerfile](Dockerfile). The runtime also provides `libstdc++6`, `libgcc-s1`, and
-`libatomic.so.1`, which are required by the packaged RocksDB JNI library.
+The dedicated [RISC-V Server CI](../.github/workflows/riscv64-ci.yml) runs a RocksDB-only
+native build and runtime smoke test in an isolated QEMU environment. It uses the
+checksum-pinned Alibaba Dragonwell 11 Extended Server VM and installs `libatomic1` for the
+packaged RocksDB JNI library. QEMU is for correctness testing and is not a performance
+benchmark.
 
-### Docker and QEMU
+The repository Dockerfile and published HugeGraph image do not include RISC-V support.
+Image publication requires separate multi-architecture design and validation.
 
-Docker Desktop includes emulation support. On Linux, install the RISC-V emulator only if
-it is not already registered:
-
-```bash
-docker run --privileged --rm tonistiigi/binfmt --install riscv64
-```
-
-The smoke helper requires Docker Buildx, `curl`, and `jq` on the host. From the repository
-root, build and run the complete runtime smoke test:
-
-```bash
-IMAGE=hugegraph-server:riscv64-test
-docker buildx build --platform linux/riscv64 --load --tag "$IMAGE" \
-  --file hugegraph-server/Dockerfile .
-hugegraph-server/hugegraph-dist/src/assembly/travis/run-docker-runtime-smoke-test.sh \
-  "$IMAGE" riscv64
-docker image rm "$IMAGE"
-```
-
-The smoke helper removes its test containers, anonymous volumes, and temporary files. It
-keeps the input image, uses the current Buildx builder, and does not remove the host
-emulator. If you registered the emulator specifically for this test, remove it separately:
-
-```bash
-docker run --privileged --rm tonistiigi/binfmt --uninstall qemu-riscv64
-```
-
-Do not uninstall Docker Desktop's built-in emulator. QEMU is substantially slower than
-native RISC-V and is intended for correctness testing, not performance measurements.
-
-### Native RISC-V
-
-Use Dragonwell 11 Extended `11.0.31.28.11` and verify its archive with the URL and SHA-256
-declared in the Dockerfile. On a Debian-derived glibc system, install the native tools and
-runtime libraries:
+For the same validation on a native Debian-derived RISC-V system, use Dragonwell 11
+Extended `11.0.31.28.11` with the archive checksum declared in the CI workflow, then
+install the build and runtime dependencies:
 
 ```bash
 sudo apt-get update
@@ -91,17 +62,10 @@ After selecting Dragonwell as `JAVA_HOME`, build and verify the RocksDB-only dis
 test "$(uname -m)" = riscv64
 "$JAVA_HOME/bin/java" -XshowSettings:vm -version
 mvn clean package -Drocksdb-only -pl hugegraph-server/hugegraph-dist -am \
+  -P riscv64-protobuf-tools \
   -Dmaven.test.skip=true -Dmaven.javadoc.skip=true
 hugegraph-server/hugegraph-dist/src/assembly/travis/check-rocksdb-only-dist.sh \
   hugegraph-server/apache-hugegraph-server-*/
 hugegraph-server/hugegraph-dist/src/assembly/travis/run-native-runtime-smoke-test.sh \
   hugegraph-server/apache-hugegraph-server-*/
-```
-
-Run the existing Core and API gates with the same RocksDB-only dependency boundary:
-
-```bash
-hugegraph-server/hugegraph-dist/src/assembly/travis/run-core-test.sh rocksdb
-hugegraph-server/hugegraph-dist/src/assembly/travis/run-api-test.sh \
-  rocksdb target/riscv64-api-report
 ```
