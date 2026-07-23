@@ -137,16 +137,17 @@ authentication: {
 
 # start server
 SERVER_START_ATTEMPTED=true
-$TRAVIS_DIR/start-server.sh $SERVER_DIR $BACKEND $JACOCO_PORT || (cat $SERVER_DIR/logs/hugegraph-server.log && exit 1)
+"$TRAVIS_DIR/start-server.sh" "$SERVER_DIR" "$BACKEND" "$JACOCO_PORT" || \
+    (cat "$SERVER_DIR/logs/hugegraph-server.log" && exit 1)
 
 # run api-test
 if [[ "$ROCKSDB_ONLY" == "true" ]]; then
-    mvn test -pl hugegraph-server/hugegraph-test -am -P api-test,$BACKEND \
+    mvn test -pl hugegraph-server/hugegraph-test -am -P "api-test,$BACKEND" \
         -Drocksdb-only || \
-        (cat $SERVER_DIR/logs/hugegraph-server.log && exit 1)
+        (cat "$SERVER_DIR/logs/hugegraph-server.log" && exit 1)
 else
-    mvn test -pl hugegraph-server/hugegraph-test -am -P api-test,$BACKEND || \
-        (cat $SERVER_DIR/logs/hugegraph-server.log && exit 1)
+    mvn test -pl hugegraph-server/hugegraph-test -am -P "api-test,$BACKEND" || \
+        (cat "$SERVER_DIR/logs/hugegraph-server.log" && exit 1)
 fi
 
 if [ "$RUN_GREMLIN_CONSOLE_SMOKE_TEST" == "true" ]; then
@@ -154,4 +155,4 @@ if [ "$RUN_GREMLIN_CONSOLE_SMOKE_TEST" == "true" ]; then
         (cat "$SERVER_DIR/logs/hugegraph-server.log" && exit 1)
 fi
 
-$TRAVIS_DIR/build-report.sh $BACKEND $JACOCO_PORT $REPORT_FILE
+"$TRAVIS_DIR/build-report.sh" "$BACKEND" "$JACOCO_PORT" "$REPORT_FILE"

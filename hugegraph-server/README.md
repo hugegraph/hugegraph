@@ -50,7 +50,8 @@ it is not already registered:
 docker run --privileged --rm tonistiigi/binfmt --install riscv64
 ```
 
-From the repository root, build and run the complete runtime smoke test:
+The smoke helper requires Docker Buildx, `curl`, and `jq` on the host. From the repository
+root, build and run the complete runtime smoke test:
 
 ```bash
 IMAGE=hugegraph-server:riscv64-test
@@ -62,11 +63,10 @@ docker image rm "$IMAGE"
 ```
 
 The smoke helper removes its test containers, anonymous volumes, and temporary files. It
-keeps the input image and does not create or remove a Buildx builder or host emulator. If
-you created those resources specifically for this test, remove them separately:
+keeps the input image, uses the current Buildx builder, and does not remove the host
+emulator. If you registered the emulator specifically for this test, remove it separately:
 
 ```bash
-docker buildx rm hugegraph-riscv64
 docker run --privileged --rm tonistiigi/binfmt --uninstall qemu-riscv64
 ```
 
@@ -89,7 +89,7 @@ After selecting Dragonwell as `JAVA_HOME`, build and verify the RocksDB-only dis
 
 ```bash
 test "$(uname -m)" = riscv64
-java -XshowSettings:vm -version
+"$JAVA_HOME/bin/java" -XshowSettings:vm -version
 mvn clean package -Drocksdb-only -pl hugegraph-server/hugegraph-dist -am \
   -Dmaven.test.skip=true -Dmaven.javadoc.skip=true
 hugegraph-server/hugegraph-dist/src/assembly/travis/check-rocksdb-only-dist.sh \

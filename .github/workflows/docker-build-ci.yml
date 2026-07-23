@@ -32,10 +32,11 @@ on:
       - '.dockerignore'
       - '.github/workflows/docker-build-ci.yml'
       - 'pom.xml'
-      - 'hugegraph-pd/hg-pd-grpc/pom.xml'
+      - 'hugegraph-pd/hg-pd-grpc/**'
       - 'hugegraph-server/pom.xml'
       - 'hugegraph-server/hugegraph-core/pom.xml'
-      - 'hugegraph-server/hugegraph-rocksdb/pom.xml'
+      - 'hugegraph-server/hugegraph-core/src/main/resources/proto/**'
+      - 'hugegraph-server/hugegraph-rocksdb/**'
       - 'hugegraph-server/hugegraph-dist/pom.xml'
       - 'hugegraph-server/hugegraph-dist/docker/**'
       - 'hugegraph-server/hugegraph-dist/src/main/resources/backend.properties'
@@ -77,6 +78,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Set up emulation
         if: matrix.arch != 'amd64'

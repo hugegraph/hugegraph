@@ -325,6 +325,10 @@
                     <name>rocksdb-only</name>
                 </property>
             </activation>
+            <properties>
+                <backend>rocksdb</backend>
+                <serializer>binary</serializer>
+            </properties>
             <build>
                 <plugins>
                     <plugin>
@@ -344,7 +348,9 @@
         <profile>
             <id>memory</id>
             <activation>
-                <activeByDefault>true</activeByDefault>
+                <property>
+                    <name>!rocksdb-only</name>
+                </property>
             </activation>
             <properties>
                 <backend>memory</backend>
