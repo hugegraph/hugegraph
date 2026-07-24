@@ -140,7 +140,7 @@ CFOptions:
       - kSnappyCompression
       - kSnappyCompression
 DBOptions:
-  dbo:
+  default:
     create_if_missing: true
     create_missing_column_families: false # this is important, must be false to hugegraph
     max_background_compactions: -1
