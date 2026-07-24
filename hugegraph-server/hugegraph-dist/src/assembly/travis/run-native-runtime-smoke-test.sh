@@ -30,6 +30,7 @@ EXPECTED_JAVA_MAJOR=${EXPECTED_JAVA_MAJOR:-11}
 SERVER_START_ATTEMPTED=false
 SERVER_STARTUP_TIMEOUT=${SERVER_STARTUP_TIMEOUT:-300}
 SERVER_START_COMMAND_TIMEOUT=$((SERVER_STARTUP_TIMEOUT + 30))
+STORE_DUMP_TIMEOUT=${STORE_DUMP_TIMEOUT:-120}
 WORK_DIR=$(mktemp -d "${TMPDIR:-/tmp}/hugegraph-native-runtime-smoke.XXXXXX")
 RUN_ID="$(date +%s)_$$"
 
@@ -66,6 +67,13 @@ start_server
 grep -q '^server-e2e-smoke-create-ok$' "$WORK_DIR/create.log"
 
 "$SERVER_DIR/bin/stop-hugegraph.sh" -m false
+timeout --foreground --kill-after=15s "${STORE_DUMP_TIMEOUT}s" \
+        "$SERVER_DIR/bin/dump-store.sh" | tee "$WORK_DIR/store-dump.log"
+grep -q 'Dump table VERTEX (offset 0 limit 20):' "$WORK_DIR/store-dump.log"
+grep -Fq "riscv-smoke-v1-$RUN_ID" "$WORK_DIR/store-dump.log"
+grep -Fq "riscv-smoke-v2-$RUN_ID" "$WORK_DIR/store-dump.log"
+echo "store-dump-smoke-ok"
+
 start_server
 "$TRAVIS_DIR/run-server-e2e-smoke-test.sh" "$SERVER_URL" verify "$RUN_ID" | \
     tee "$WORK_DIR/verify.log"
