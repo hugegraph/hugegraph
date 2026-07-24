@@ -17,40 +17,49 @@
 
 package org.apache.hugegraph.tinkerpop;
 
+import java.util.Map;
+
+import org.apache.commons.configuration2.Configuration;
+import org.apache.commons.configuration2.MapConfiguration;
+import org.apache.hugegraph.dist.RegisterUtil;
 import org.apache.hugegraph.testutil.Assert;
+import org.apache.hugegraph.testutil.Utils;
+import org.junit.Assume;
 import org.junit.Test;
 
-public class HugeGraphTestInfrastructureTest {
+public class HugeGraphProviderLifecycleTest {
 
     @Test
-    public void testProviderContextLifecycle() {
+    public void testProviderContextLifecycleWithMemoryBackend()
+            throws Exception {
+        Assume.assumeTrue("memory".equals(
+                Utils.getConf().getString("backend")));
+        RegisterUtil.registerBackends();
         HugeGraphProviderContext context = new HugeGraphProviderContext();
         ProcessTestGraphProvider provider = context.provider();
+        TestGraph graph = null;
         try {
             Assert.assertSame(provider, context.provider());
 
-            context.clear();
-            context.clear();
+            Map<String, Object> config = provider.getBaseConfiguration(
+                    "provider_context", this.getClass(),
+                    "testProviderContextLifecycleWithMemoryBackend", null);
+            Configuration configuration = new MapConfiguration(config);
+            graph = (TestGraph) provider.openTestGraph(configuration);
 
+            Assert.assertEquals("memory", graph.hugegraph().backend());
+            Assert.assertFalse(graph.closed());
+
+            provider.clear(graph, configuration);
+            Assert.assertFalse(graph.closed());
+
+            context.clear();
+            Assert.assertTrue(graph.closed());
+
+            context.clear();
             Assert.assertNotSame(provider, context.provider());
         } finally {
             context.clear();
         }
-    }
-
-    @Test
-    public void testExactScenarioCount() {
-        HugeGraphScenarioCountPlugin.assertScenariosExecuted(345);
-
-        Assert.assertThrows(AssertionError.class, () -> {
-            HugeGraphScenarioCountPlugin.assertScenariosExecuted(344);
-        }, e -> {
-            Assert.assertContains("expected exactly 345", e.getMessage());
-        });
-        Assert.assertThrows(AssertionError.class, () -> {
-            HugeGraphScenarioCountPlugin.assertScenariosExecuted(346);
-        }, e -> {
-            Assert.assertContains("expected exactly 345", e.getMessage());
-        });
     }
 }

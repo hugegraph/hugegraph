@@ -209,6 +209,7 @@
                             <includes>
                                 <include>**/ProcessStandardTest.java</include>
                                 <include>**/HugeGraphFeatureTest.java</include>
+                                <include>**/HugeGraphProviderLifecycleTest.java</include>
                             </includes>
                         </configuration>
                     </execution>
