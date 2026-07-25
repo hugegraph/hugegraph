@@ -30,3 +30,46 @@ HUGEGRAPH_VERSION=1.7.0 docker compose -f docker-compose-3pd-3store-3server.yml 
 ```
 
 See [docker/README.md](../docker/README.md) for the full setup guide.
+
+## RISC-V Development and Testing
+
+The end-to-end RISC-V CI validation currently runs on 64-bit `linux/riscv64` LP64D with
+Ubuntu 24.04 and glibc 2.39. It covers HugeGraph Server and the embedded RocksDB backend.
+PD, Store, HStore, other backends, musl/Alpine, and 32-bit RISC-V are out of scope.
+
+The dedicated [RISC-V Server CI](../.github/workflows/riscv64-ci.yml) runs a RocksDB-only
+native build and runtime smoke test in an isolated QEMU environment. It uses the
+checksum-pinned Alibaba Dragonwell 11 Extended Server VM and installs `libatomic1` for the
+packaged RocksDB JNI library. QEMU is for correctness testing and is not a performance
+benchmark.
+
+The packaged `rocksdbjni:8.10.2` RISC-V ELF references glibc symbols through
+`GLIBC_2.30`. This is an inferred minimum for that JNI artifact only, not a validated
+compatibility floor for the complete HugeGraph, Dragonwell, and system-library runtime.
+
+The repository Dockerfile and published HugeGraph image do not include RISC-V support.
+Image publication requires separate multi-architecture design and validation.
+
+For the same validation on a native Debian-derived RISC-V system, use Dragonwell 11
+Extended `11.0.31.28.11` with the archive checksum declared in the CI workflow, then
+install the build and runtime dependencies:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y ca-certificates curl jq libatomic1 libgcc-s1 libstdc++6 \
+  lsof maven procps protobuf-compiler protobuf-compiler-grpc-java-plugin
+```
+
+After selecting Dragonwell as `JAVA_HOME`, build and verify the RocksDB-only distribution:
+
+```bash
+test "$(uname -m)" = riscv64
+"$JAVA_HOME/bin/java" -XshowSettings:vm -version
+mvn clean package -Drocksdb-only -pl hugegraph-server/hugegraph-dist -am \
+  -P riscv64-protobuf-tools \
+  -Dmaven.test.skip=true -Dmaven.javadoc.skip=true
+hugegraph-server/hugegraph-dist/src/assembly/travis/check-rocksdb-only-dist.sh \
+  hugegraph-server/apache-hugegraph-server-*/
+hugegraph-server/hugegraph-dist/src/assembly/travis/run-native-runtime-smoke-test.sh \
+  hugegraph-server/apache-hugegraph-server-*/
+```
