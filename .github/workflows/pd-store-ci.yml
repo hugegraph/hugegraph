@@ -295,7 +295,17 @@ jobs:
       TRAVIS_DIR: hugegraph-server/hugegraph-dist/src/assembly/travis
       REPORT_DIR: target/site/jacoco
       BACKEND: hstore
-      RELEASE_BRANCH: ${{ startsWith(github.ref_name, 'release-') || startsWith(github.ref_name, 'test-') || startsWith(github.base_ref, 'release-') }}
+      RUN_TINKERPOP_TESTS: >-
+        ${{
+          startsWith(github.ref_name, 'release-') ||
+          startsWith(github.ref_name, 'test-') ||
+          startsWith(github.head_ref, 'release-') ||
+          startsWith(github.head_ref, 'test-') ||
+          startsWith(github.base_ref, 'release-') ||
+          startsWith(github.base_ref, 'test-') ||
+          github.base_ref == 'task/tinkerpop-3.7-upgrade' ||
+          github.head_ref == 'task/tinkerpop-3.7-upgrade'
+        }}
 
     steps:
       - name: Install JDK 11
@@ -348,17 +358,20 @@ jobs:
         run: |
           $TRAVIS_DIR/run-api-test-for-raft.sh $BACKEND $REPORT_DIR
 
-      # HStore remains covered by unit/core/API here; TinkerPop compliance is
-      # exercised in Server CI on memory and rocksdb.
+      # Include HStore in the upgrade compatibility gate. The dedicated HStore
+      # service setup above makes its structure/process suites exercise the
+      # distributed backend rather than only the memory and RocksDB paths.
       - name: Run TinkerPop structure test
-        if: ${{ env.RELEASE_BRANCH == 'true' && env.BACKEND != 'hstore' }}
+        if: ${{ env.RUN_TINKERPOP_TESTS == 'true' }}
         timeout-minutes: 60
         run: |
           $TRAVIS_DIR/run-tinkerpop-test.sh $BACKEND structure
 
       - name: Run TinkerPop process test
-        if: ${{ env.RELEASE_BRANCH == 'true' && env.BACKEND != 'hstore' }}
-        timeout-minutes: 60
+        if: ${{ env.RUN_TINKERPOP_TESTS == 'true' }}
+        # ProcessStandardTest and Gherkin share this step, so it needs the
+        # same budget as the Server CI process suite.
+        timeout-minutes: 120
         run: |
           $TRAVIS_DIR/run-tinkerpop-test.sh $BACKEND process
 

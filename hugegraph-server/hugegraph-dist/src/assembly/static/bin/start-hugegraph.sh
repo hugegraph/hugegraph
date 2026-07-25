@@ -150,7 +150,9 @@ else
     # Write pid to file
     echo "$PID" > "$PID_FILE"
     trap 'forward_signal_and_wait HUP 129' SIGHUP
-    trap 'forward_signal_and_wait INT 130' SIGINT
+    # The background JVM can inherit an ignored SIGINT disposition, so use
+    # SIGTERM to guarantee that Ctrl-C shuts it down while retaining exit 130.
+    trap 'forward_signal_and_wait TERM 130' SIGINT
     # Forward TERM instead of QUIT: the JVM only dumps threads on SIGQUIT
     # and keeps running, which would leave the wait loop below stuck.
     trap 'forward_signal_and_wait TERM 131' SIGQUIT
