@@ -74,6 +74,20 @@ public class InitStore {
         RegisterUtil.registerServer();
 
         HugeConfig restServerConfig = new HugeConfig(restConf);
+
+        // Skip local init only when the flag is *explicitly* false (Helm /
+        // HStore). Unset keeps master behavior: full standalone init-store.
+        // ServerOptions default is false for GraphManager; we do not treat
+        // "missing key" as skip so existing tarball users are not broken.
+        if (shouldSkipLocalInit(restServerConfig)) {
+            LOG.warn("Skipping init-store: '{}' is false in {}. "
+                     + "Unset the property (or set true) to run local "
+                     + "backend/admin init; distributed/Helm sets false.",
+                     ServerOptions.GRAPH_LOAD_FROM_LOCAL_CONFIG.name(),
+                     restConf);
+            return;
+        }
+
         PDAuthConfig.setAuthority(
                 ServiceConstant.SERVICE_NAME,
                 ServiceConstant.AUTHORITY);
@@ -99,6 +113,22 @@ public class InitStore {
             }
             HugeFactory.shutdown(30L, true);
         }
+    }
+
+    /**
+     * Whether init-store should no-op.
+     * <ul>
+     *   <li>Property unset → run init (standalone / master-compatible)</li>
+     *   <li>Explicit {@code false} → skip (Helm / distributed HStore)</li>
+     *   <li>Explicit {@code true} → run init</li>
+     * </ul>
+     */
+    public static boolean shouldSkipLocalInit(HugeConfig conf) {
+        String key = ServerOptions.GRAPH_LOAD_FROM_LOCAL_CONFIG.name();
+        if (!conf.containsKey(key)) {
+            return false;
+        }
+        return !conf.get(ServerOptions.GRAPH_LOAD_FROM_LOCAL_CONFIG);
     }
 
     private static HugeGraph initGraph(String configPath) throws Exception {

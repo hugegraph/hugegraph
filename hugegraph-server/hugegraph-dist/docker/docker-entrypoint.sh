@@ -20,6 +20,7 @@ set -euo pipefail
 DOCKER_FOLDER="./docker"
 INIT_FLAG_FILE="init_complete"
 GRAPH_CONF="./conf/graphs/hugegraph.properties"
+REST_SERVER_CONF="./conf/rest-server.properties"
 
 mkdir -p "${DOCKER_FOLDER}"
 
@@ -54,6 +55,7 @@ migrate_env "PD_PEERS" "HG_SERVER_PD_PEERS"
 # ── Map env → properties file ─────────────────────────────────────────
 [[ -n "${HG_SERVER_BACKEND:-}"  ]] && set_prop "backend"  "${HG_SERVER_BACKEND}"  "${GRAPH_CONF}"
 [[ -n "${HG_SERVER_PD_PEERS:-}" ]] && set_prop "pd.peers" "${HG_SERVER_PD_PEERS}" "${GRAPH_CONF}"
+[[ -n "${HG_SERVER_LOAD_FROM_LOCAL_CONFIG:-}" ]] && set_prop "graph.load_from_local_config" "${HG_SERVER_LOAD_FROM_LOCAL_CONFIG}" "${REST_SERVER_CONF}"
 
 # ── Build wait-storage env ─────────────────────────────────────────────
 WAIT_ENV=()
