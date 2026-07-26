@@ -66,6 +66,8 @@ function configure_riscv64_libatomic() {
 # read a property from .properties file
 function read_property() {
     # file path
+    local file_name
+    local property_name
     file_name=$1
     # replace "." to "\."
     property_name=$(echo "$2" | sed 's/\./\\\./g')
@@ -760,19 +762,17 @@ function ensure_package_exist() {
     local tar=$3
     local link=$4
 
-    if [ ! -d "${path}"/"${dir}" ]; then
-        if [ ! -f "${path}"/"${tar}" ]; then
+    if [ ! -d "${path}/${dir}" ]; then
+        if [ ! -f "${path}/${tar}" ]; then
             echo "Downloading the compressed package '${tar}'"
-            download "${path}" "${link}"
-            if [ $? -ne 0 ]; then
+            if ! download "${path}" "${link}"; then
                 echo "Failed to download, please ensure the network is available and link is valid"
                 exit 1
             fi
             echo "[OK] Finished download"
         fi
         echo "Unzip the compressed package '$tar'"
-        tar zxvf "${path}"/"${tar}" -C "${path}" >/dev/null 2>&1
-        if [ $? -ne 0 ]; then
+        if ! tar -zxvf "${path}/${tar}" -C "${path}" >/dev/null 2>&1; then
             echo "Failed to unzip, please check the compressed package"
             exit 1
         fi
