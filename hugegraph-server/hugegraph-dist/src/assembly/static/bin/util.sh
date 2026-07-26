@@ -18,11 +18,10 @@
 
 function command_available() {
     local cmd=$1
-    if [[ -x "$(command -v "$cmd")" ]]; then
+    if command -v "$cmd" >/dev/null 2>&1; then
         return 0
-    else
-        return 1
     fi
+    return 1
 }
 
 # read a property from .properties file
@@ -70,27 +69,417 @@ function parse_yaml() {
 }
 
 function process_num() {
+    local num
     num=$(ps -ef | grep "$1" | grep -v grep | wc -l)
-    return "$num"
+    # Return 0 when no process, 1 when one or more.  Using $num directly as an
+    # exit code would truncate values > 255, so treat this as a boolean result.
+    if (( num > 0 )); then
+        return 1
+    fi
+    return 0
 }
 
 function process_id() {
+    local pid
     pid=$(ps -ef | grep "$1" | grep -v grep | awk '{print $2}')
-    return "$pid"
+    echo "$pid"
+    return 0
 }
 
-# check the port of rest server is occupied
+# Run a command with a hard deadline via background watchdog.
+# Returns the command's exit code if it finishes in time.
+# If the deadline expires, the command is killed (exit code reflects signal).
+# Works without the timeout command — uses sleep + kill -9 pattern.
+function run_with_deadline() {
+    local cmd="$1"
+    local deadline="$2"
+    shift 2
+
+    bash -c "$cmd" bash "$@" &
+    local child_pid=$!
+    (
+        local sleep_pid=""
+        cleanup_watchdog() {
+            [[ -n "$sleep_pid" ]] && kill -9 "$sleep_pid" 2>/dev/null
+        }
+        # Kill any direct children of the target PID (e.g. a spawned sleep)
+        # in case killing the wrapper left them orphaned.
+        kill_children() {
+            local child
+            for child in $(pgrep -P "$1" 2>/dev/null); do
+                kill -9 "$child" 2>/dev/null || true
+            done
+        }
+        trap 'cleanup_watchdog' EXIT TERM
+        sleep "$deadline" & sleep_pid=$!
+        wait "$sleep_pid" 2>/dev/null
+        if kill -0 "$child_pid" 2>/dev/null; then
+            kill -9 "$child_pid" 2>/dev/null
+            kill_children "$child_pid"
+        fi
+    ) 2>/dev/null &
+    local watchdog_pid=$!
+
+    wait "$child_pid" 2>/dev/null
+    local rc=$?
+    # Kill the watchdog with SIGTERM so its EXIT trap reaps the sleep child.
+    kill -TERM "$watchdog_pid" 2>/dev/null || true
+    wait "$watchdog_pid" 2>/dev/null || true
+    return $rc
+}
+
+
+# Normalize an IP address to a canonical string for comparison.
+# - IPv4 addresses are returned unchanged.
+# - IPv6 addresses are stripped of brackets/zone scope, lowercased and
+#   compressed to the canonical textual form (via getent ahosts).
+# - IPv4-mapped IPv6 (::ffff:1.2.3.4) is collapsed to the IPv4 form.
+# - Hostnames are returned unchanged; callers should resolve them first.
+function normalize_addr() {
+    local addr="$1"
+
+    # Strip brackets
+    if [[ "$addr" =~ ^\[.*\]$ ]]; then
+        addr="${addr#\[}"
+        addr="${addr%\]}"
+    fi
+
+    # Drop IPv6 zone scope (e.g. 127.0.0.53%lo, fe80::1%eth0)
+    addr="${addr%%\%*}"
+
+    # IPv4-mapped IPv6 -> IPv4 so a bound IPv4-mapped socket is compared
+    # against an IPv4-configured address.
+    if [[ "$addr" =~ ^::ffff:([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+        echo "${BASH_REMATCH[1]}"
+        return
+    fi
+
+    # Plain IPv4
+    if [[ "$addr" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        echo "$addr"
+        return
+    fi
+
+    # IPv6: ask glibc for the canonical compressed form
+    if [[ "$addr" =~ ^[0-9a-fA-F:]*:[0-9a-fA-F:]*$ ]]; then
+        local norm
+        if command_available "timeout"; then
+            norm=$(timeout 2 getent ahosts "$addr" 2>/dev/null | awk '{print $1; exit}')
+        else
+            norm=$(getent ahosts "$addr" 2>/dev/null | awk '{print $1; exit}')
+        fi
+        if [[ -n "$norm" ]]; then
+            echo "$norm"
+            return
+        fi
+        # macOS/BSD fallback: python3's socket module can canonicalise
+        # numeric IPv6 even when getent is unavailable.
+        if command_available "python3"; then
+            norm=$(python3 -c 'import socket, sys; print(socket.inet_ntop(socket.AF_INET6, socket.inet_pton(socket.AF_INET6, sys.argv[1])))' "$addr" 2>/dev/null)
+            if [[ -n "$norm" ]]; then
+                echo "$norm"
+                return
+            fi
+        fi
+        # No canonicaliser available: at least normalise hex case so ss/netstat
+        # lowercase output still matches an uppercase configured address.
+        echo "$addr" | tr '[:upper:]' '[:lower:]'
+        return
+    fi
+
+    # Fall back to the cleaned original
+    echo "$addr"
+}
+
+# check whether the REST server port is occupied
 function check_port() {
-    local port=$(echo "$1" | sed 's|.*:||' | sed 's|/.*||')
-    if ! command_available "lsof"; then
-        echo "Required lsof but it is unavailable"
-        exit 1
+    local url="$1"
+    local host
+    local port
+
+    # Strip leading/trailing whitespace from URL (handles whitespace from ServerOptions)
+    url="${url#"${url%%[![:space:]]*}"}"
+    url="${url%"${url##*[![:space:]]}"}"
+
+    # Extract authority: strip scheme and stop at the first /, ? or #.
+    local authority
+    authority="${url#*://}"
+    authority="${authority%%[/?#]*}"
+
+    # Extract host and port from authority.
+    if [[ "$authority" =~ ^\[([^\]]*)\]:([0-9]+)$ ]]; then
+        # IPv6 with port: [::1]:8080
+        host="${BASH_REMATCH[1]}"
+        port="${BASH_REMATCH[2]}"
+    elif [[ "$authority" =~ ^\[([^\]]*)\]$ ]]; then
+        # IPv6 without port: [::1]
+        host="${BASH_REMATCH[1]}"
+        port=""
+    elif [[ "$authority" =~ :([0-9]+)$ ]]; then
+        # IPv4 or hostname with port: 127.0.0.1:8080, localhost:8080
+        port="${BASH_REMATCH[1]}"
+        host="${authority%:*}"
+    else
+        # No explicit port in authority
+        host="$authority"
+        port=""
     fi
-    lsof -i :"$port" >/dev/null
-    if [ $? -eq 0 ]; then
+
+    # Handle default ports from scheme when no explicit port is given
+    if [[ -z "$port" ]]; then
+        if [[ "$url" == https://* ]]; then
+            port="443"
+        elif [[ "$url" == http://* ]]; then
+            port="80"
+        else
+            return 0
+        fi
+    fi
+
+    # Validate port as a decimal number
+    if ! [[ "$port" =~ ^[0-9]+$ ]]; then
+        return 0
+    fi
+    port=$((10#$port))
+    if (( port < 1 || port > 65535 )); then
+        return 0
+    fi
+
+    # Strip any leading/trailing whitespace from host
+    host="${host#"${host%%[![:space:]]*}"}"
+    host="${host%"${host##*[![:space:]]}"}"
+
+    local norm_host
+    norm_host=$(normalize_addr "$host")
+
+    # Determine the address family of the configured host so we only treat
+    # same-family wildcard listeners as conflicts (IPv4 vs IPv6 sockets are
+    # separate unless explicitly dual-stacked).
+    local host_family=""
+    if [[ "$norm_host" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        host_family="ipv4"
+    elif [[ "$norm_host" =~ ^[0-9a-fA-F:]*:[0-9a-fA-F:]*$ ]]; then
+        host_family="ipv6"
+    else
+        host_family="hostname"
+    fi
+
+    local in_use=0
+    local port_checked=0
+
+    # Wildcard binds are detected by looking for any listener on the port.
+    # Specific hosts are matched against the local address; if the listener
+    # is a same-family wildcard (0.0.0.0 / :: / *), that is a conflict too.
+    local is_wildcard=0
+    if [[ -z "$host" || "$host" == "0.0.0.0" || "$host" == "::" || "$host" == "*" ]]; then
+        is_wildcard=1
+    fi
+
+    # Build the list of acceptable normalized addresses for a specific host.
+    # Hostnames must be resolved to numeric IPs first because ss/netstat
+    # output is always numeric.
+    local candidate_addrs=""
+    if [[ $is_wildcard -eq 0 ]]; then
+        if [[ "$host_family" == "ipv4" || "$host_family" == "ipv6" ]]; then
+            # Already numeric
+            candidate_addrs="$norm_host"
+        else
+            # Hostname: resolve with deadline
+            if command_available "getent" && command_available "timeout"; then
+                candidate_addrs=$(timeout 2 getent ahosts "$host" 2>/dev/null | awk '{print $1}')
+            elif command_available "dscacheutil" && command_available "timeout"; then
+                candidate_addrs=$(timeout 2 dscacheutil -q host -a name "$host" 2>/dev/null \
+                                  | awk '/ip_address:/{print $2}')
+            fi
+        fi
+    fi
+
+    # Helper: scan a line of listener-table output and return 0 if it matches
+    # the configured host/port.  Sets 'matched_token' to 1 when it evaluates a
+    # token that we can trust, so callers know whether "no match" is reliable.
+    local out line listener_addr norm_listener token matched_token
+
+    # Returns true if the listener address is a wildcard on the same family
+    # as the configured host (or any family, if the host is a wildcard).
+    _check_port_wildcard_conflicts() {
+        local wl_addr="$1"
+        if [[ $is_wildcard -eq 1 ]]; then
+            return 0
+        fi
+        # BSD netstat prints *.<port> for an any-family wildcard.
+        if [[ "$wl_addr" == "*" ]]; then
+            return 0
+        fi
+        if [[ "$wl_addr" == "0.0.0.0" ]]; then
+            [[ "$host_family" == "ipv4" ]] && return 0
+            # A hostname that resolved to IPv4 can also bind an IPv4 wildcard
+            if [[ "$host_family" == "hostname" ]]; then
+                local addr
+                while IFS= read -r addr; do
+                    [[ -z "$addr" ]] && continue
+                    if [[ "$addr" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+                        return 0
+                    fi
+                done <<< "$candidate_addrs"
+            fi
+        fi
+        if [[ "$wl_addr" == "::" ]]; then
+            [[ "$host_family" == "ipv6" ]] && return 0
+            if [[ "$host_family" == "hostname" ]]; then
+                local addr
+                while IFS= read -r addr; do
+                    [[ -z "$addr" ]] && continue
+                    if [[ "$addr" =~ ^[0-9a-fA-F:]*:[0-9a-fA-F:]*$ ]]; then
+                        return 0
+                    fi
+                done <<< "$candidate_addrs"
+            fi
+        fi
+        return 1
+    }
+
+    _check_port_match_listener_line() {
+        local out_line="$1"
+        # Skip empty or whitespace-only lines before read -a to avoid an empty
+        # array expansion under set -u on Bash 3.2.
+        if [[ -z "${out_line//[[:space:]]/}" ]]; then
+            return 1
+        fi
+        local -a tokens
+        read -r -a tokens <<< "$out_line"
+        for token in ${tokens[@]+"${tokens[@]}"}; do
+            # We only care about the "local address:port" token.  For the
+            # common tools this is the first token that ends with the
+            # target port after ':' or '.' (peer addresses use :* on Linux
+            # and *.* on BSD, so they never match a numeric port).
+            if [[ "$token" =~ ^(.*):(${port})$ ]]; then
+                listener_addr="${BASH_REMATCH[1]}"
+            elif [[ "$token" =~ ^(.*)\.(${port})$ ]]; then
+                listener_addr="${BASH_REMATCH[1]}"
+            else
+                continue
+            fi
+
+            # Wildcard host: any listener on this port is a conflict.
+            if [[ $is_wildcard -eq 1 ]]; then
+                matched_token=1
+                return 0
+            fi
+
+            # No resolved candidates (hostname resolution failed/unsupported):
+            # we cannot reliably compare against the numeric listener table.
+            if [[ -z "$candidate_addrs" ]]; then
+                continue
+            fi
+
+            matched_token=1
+            norm_listener=$(normalize_addr "$listener_addr")
+
+            # A same-family wildcard listener on this port conflicts with any
+            # specific host of that family.
+            if _check_port_wildcard_conflicts "$norm_listener"; then
+                return 0
+            fi
+
+            local addr
+            while IFS= read -r addr; do
+                [[ -z "$addr" ]] && continue
+                if [[ "$norm_listener" == "$(normalize_addr "$addr")" ]]; then
+                    return 0
+                fi
+            done <<< "$candidate_addrs"
+        done
+        return 1
+    }
+
+    if command_available "ss"; then
+        matched_token=0
+        if out=$(ss -ltn 2>/dev/null); then
+            while IFS= read -r line; do
+                if _check_port_match_listener_line "$line"; then
+                    in_use=1
+                    break
+                fi
+            done <<< "$out"
+            # ss -ltn succeeded.  We can trust a non-match when we have a
+            # numeric host or resolved addresses (or a wildcard); otherwise
+            # fall through to /dev/tcp for unresolved hostnames.
+            if [[ $in_use -eq 0 && ( $is_wildcard -eq 1 || -n "$candidate_addrs" || $matched_token -eq 1 ) ]]; then
+                port_checked=1
+            fi
+        fi
+    fi
+
+    if [[ $in_use -eq 0 && $port_checked -eq 0 ]] && command_available "netstat"; then
+        matched_token=0
+        if out=$(netstat -ltn 2>/dev/null) && echo "$out" | grep -qi "listen"; then
+            while IFS= read -r line; do
+                if _check_port_match_listener_line "$line"; then
+                    in_use=1
+                    break
+                fi
+            done <<< "$out"
+            # netstat -ltn output is the complete Linux listener table.
+            if [[ $in_use -eq 0 && ( $is_wildcard -eq 1 || -n "$candidate_addrs" || $matched_token -eq 1 ) ]]; then
+                port_checked=1
+            fi
+        elif out=$(netstat -an 2>/dev/null) && [[ -n "$out" ]]; then
+            local old_nocasematch
+            old_nocasematch=$(shopt -p nocasematch 2>/dev/null || true)
+            shopt -s nocasematch 2>/dev/null || true
+            while IFS= read -r line; do
+                if [[ "$line" == *listen* ]] && _check_port_match_listener_line "$line"; then
+                    in_use=1
+                    break
+                fi
+            done <<< "$out"
+            eval "$old_nocasematch" 2>/dev/null || true
+            # netstat -an output is the complete BSD listener table.
+            if [[ $in_use -eq 0 && ( $is_wildcard -eq 1 || -n "$candidate_addrs" || $matched_token -eq 1 ) ]]; then
+                port_checked=1
+            fi
+        fi
+    fi
+
+    if [[ $in_use -eq 0 && $port_checked -eq 0 ]]; then
+        # Probe the actual configured endpoint(s) with a short deadline.
+        local probe_addrs="$candidate_addrs"
+        if [[ -z "$probe_addrs" ]]; then
+            # Could not resolve (or wildcard with only loopback probe needed)
+            if [[ $is_wildcard -eq 1 ]]; then
+                probe_addrs="127.0.0.1 ::1"
+            else
+                probe_addrs="$host"
+            fi
+        fi
+
+        local addr
+        for addr in $probe_addrs; do
+            # /dev/tcp needs unbracketed, normalized addresses
+            addr=$(normalize_addr "$addr")
+            [[ -z "$addr" ]] && continue
+            if command_available "timeout"; then
+                if timeout 1 bash -c ': >/dev/tcp/"$1"/"$2"' _ "$addr" "$port" 2>/dev/null; then
+                    in_use=1
+                    break
+                fi
+            else
+                if run_with_deadline ': >/dev/tcp/"$1"/"$2" 2>/dev/null' 2 "$addr" "$port"; then
+                    in_use=1
+                    break
+                fi
+            fi
+        done
+    fi
+
+    local _rc=0
+    if [[ "$in_use" -eq 1 ]]; then
         echo "The port $port has already been used"
-        exit 1
+        _rc=1
     fi
+    unset -f _check_port_wildcard_conflicts _check_port_match_listener_line || true
+    [[ $_rc -eq 1 ]] && exit 1
+    return 0
 }
 
 function crontab_append() {
@@ -128,14 +517,15 @@ function wait_for_startup() {
     local server_url="$3"
     local timeout_s="$4"
 
-    local now_s=$(date '+%s')
+    local now_s
+    now_s=$(date '+%s')
     local stop_s=$((now_s + timeout_s))
 
     local status
     local error_file_name="startup_error.txt"
 
     echo -n "Connecting to $server_name ($server_url)"
-    while [ "$now_s" -le $stop_s ]; do
+    while [ "$now_s" -le "$stop_s" ]; do
         echo -n .
         process_status "$server_name" "$pid" >/dev/null
         if [ $? -eq 1 ]; then
@@ -147,7 +537,7 @@ function wait_for_startup() {
         fi
 
         status=$(curl -I -sS -k -w "%{http_code}" -o /dev/null "$server_url" 2> "$error_file_name")
-        if [[ $status -eq 200 || $status -eq 401 ]]; then
+        if [[ "$status" -eq 200 || "$status" -eq 401 ]]; then
             echo "OK"
             echo "Started [pid $pid]"
             if [ -e "$error_file_name" ]; then
@@ -180,9 +570,15 @@ function free_memory() {
         free=$(expr "$mem_free" + "$mem_buffer" + "$mem_cached")
         free=$(expr "$free" / 1024)
     elif [ "$os" == "Darwin" ]; then
-        local pages_free=$(vm_stat | awk '/Pages free/{print $0}' | awk -F'[:.]+' '{print $2}' | tr -d " ")
-        local pages_inactive=$(vm_stat | awk '/Pages inactive/{print $0}' | awk -F'[:.]+' '{print $2}' | tr -d " ")
-        local pages_available=$(expr "$pages_free" + "$pages_inactive")
+        local pages_free pages_inactive
+        pages_free=$(vm_stat | awk '/Pages free/{print $0}' | awk -F'[:.]+' '{print $2}' | tr -d " ")
+        pages_inactive=$(vm_stat | awk '/Pages inactive/{print $0}' | awk -F'[:.]+' '{print $2}' | tr -d " ")
+        if [[ -z "$pages_free" || -z "$pages_inactive" ]]; then
+            echo "Failed to get free memory"
+            exit 1
+        fi
+        local pages_available
+        pages_available=$(expr "$pages_free" + "$pages_inactive")
         free=$(expr "$pages_available" \* 4096 / 1024 / 1024)
     else
         echo "Unsupported operating system $os"
@@ -273,23 +669,46 @@ function get_ip() {
             ;;
         *) ip=$loopback;;
     esac
-    echo $ip
+    [[ -z "$ip" ]] && ip=$loopback
+    echo "$ip"
 }
 
 function download() {
     local path=$1
     local download_url=$2
+
+    if [ ! -d "$path" ]; then
+        mkdir -p "$path" || {
+            echo "Failed to create directory: $path"
+            exit 1
+        }
+    fi
+
+    # Strip query/fragment so the on-disk name matches the server-side artifact.
+    local filename
+    filename=$(basename "${download_url%%[?#]*}")
+    local tmp="${path}/.${filename}.tmp.$$"
+    local dest="${path}/${filename}"
+
     if command_available "curl"; then
-        if [ ! -d "$path" ]; then
-            mkdir -p "$path" || {
-                echo "Failed to create directory: $path"
-                exit 1
-            }
+        # -o must appear before -- so it is parsed as an option, not an extra URL.
+        if curl -fL -o "$tmp" -- "${download_url}"; then
+            mv -f -- "$tmp" "$dest"
+        else
+            rm -f -- "$tmp"
+            return 1
         fi
-        curl -L "${download_url}" -o "${path}/$(basename "${download_url}")"
     elif command_available "wget"; then
-        wget --help | grep -q '\--show-progress' && progress_opt="-q --show-progress" || progress_opt=""
-        wget "${download_url}" -P "${path}" $progress_opt
+        local -a progress_opt=()
+        if wget --help 2>&1 | grep -q -- '--show-progress'; then
+            progress_opt=(-q --show-progress)
+        fi
+        if wget ${progress_opt[@]+"${progress_opt[@]}"} -O "$tmp" -- "${download_url}"; then
+            mv -f -- "$tmp" "$dest"
+        else
+            rm -f -- "$tmp"
+            return 1
+        fi
     else
         echo "Required curl or wget but they are unavailable"
         exit 1
