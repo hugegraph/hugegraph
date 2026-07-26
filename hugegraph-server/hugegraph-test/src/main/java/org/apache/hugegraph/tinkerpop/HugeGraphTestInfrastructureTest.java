@@ -17,11 +17,15 @@
 
 package org.apache.hugegraph.tinkerpop;
 
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.List;
 
 import org.apache.hugegraph.HugeGraph;
 import org.apache.hugegraph.schema.PropertyKey;
 import org.apache.hugegraph.schema.SchemaManager;
+import org.apache.hugegraph.schema.VertexLabel;
 import org.apache.hugegraph.testutil.Assert;
 import org.junit.Test;
 import org.mockito.Mockito;
@@ -61,7 +65,7 @@ public class HugeGraphTestInfrastructureTest {
     }
 
     @Test
-    public void testHStoreCleanupTruncatesBackend() {
+    public void testHStoreCleanupTruncatesDataBeforeClearingSchema() {
         HugeGraph graph = Mockito.mock(HugeGraph.class);
         SchemaManager schema = Mockito.mock(SchemaManager.class);
         PropertyKey propertyKey = Mockito.mock(PropertyKey.class);
@@ -74,26 +78,51 @@ public class HugeGraphTestInfrastructureTest {
         testGraph.clearAll("");
 
         Assert.assertTrue(testGraph.backendTruncated);
-        Assert.assertFalse(testGraph.schemaCleared);
+        Assert.assertTrue(testGraph.schemaCleared);
+        Assert.assertEquals(Arrays.asList("truncate", "schema"),
+                            testGraph.cleanupSteps);
+    }
+
+    @Test
+    public void testHStoreCleanupDoesNotSkipSchemaWithoutPropertyKeys() {
+        HugeGraph graph = Mockito.mock(HugeGraph.class);
+        SchemaManager schema = Mockito.mock(SchemaManager.class);
+        VertexLabel vertexLabel = Mockito.mock(VertexLabel.class);
+        Mockito.when(graph.schema()).thenReturn(schema);
+        Mockito.when(schema.getPropertyKeys())
+               .thenReturn(Collections.emptyList());
+        Mockito.when(schema.getVertexLabels())
+               .thenReturn(Collections.singletonList(vertexLabel));
+        Mockito.when(graph.backend()).thenReturn("hstore");
+
+        CleanupTestGraph testGraph = new CleanupTestGraph(graph);
+        testGraph.clearAll("");
+
+        Assert.assertTrue(testGraph.backendTruncated);
+        Assert.assertTrue(testGraph.schemaCleared);
     }
 
     private static class CleanupTestGraph extends TestGraph {
 
         private boolean backendTruncated;
         private boolean schemaCleared;
+        private final List<String> cleanupSteps;
 
         private CleanupTestGraph(HugeGraph graph) {
             super(graph);
+            this.cleanupSteps = new ArrayList<>();
         }
 
         @Override
         protected void truncateBackend() {
             this.backendTruncated = true;
+            this.cleanupSteps.add("truncate");
         }
 
         @Override
         protected void clearSchema() {
             this.schemaCleared = true;
+            this.cleanupSteps.add("schema");
         }
     }
 }
