@@ -84,7 +84,7 @@ public class InitStore {
          *
          * The loop below already skips hstore backends, so what this gate
          * additionally avoids is scanning the graphs directory (which must
-         * otherwise exist), and — when auth is configured — opening the auth
+         * otherwise exist), and, when auth is configured, opening the auth
          * graph store in initAdminUserIfNeeded(). On Kubernetes that ran on
          * every Server pod restart, since the entrypoint's init flag file does
          * not survive one.
