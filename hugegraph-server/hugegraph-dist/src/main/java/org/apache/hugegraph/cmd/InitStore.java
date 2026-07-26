@@ -75,16 +75,27 @@ public class InitStore {
 
         HugeConfig restServerConfig = new HugeConfig(restConf);
 
-        // Skip local init only when the flag is *explicitly* false (Helm /
-        // HStore). Unset keeps master behavior: full standalone init-store.
-        // ServerOptions default is false for GraphManager; we do not treat
-        // "missing key" as skip so existing tarball users are not broken.
-        if (shouldSkipLocalInit(restServerConfig)) {
-            LOG.warn("Skipping init-store: '{}' is false in {}. "
-                     + "Unset the property (or set true) to run local "
-                     + "backend/admin init; distributed/Helm sets false.",
-                     ServerOptions.GRAPH_LOAD_FROM_LOCAL_CONFIG.name(),
-                     restConf);
+        /*
+         * Distributed deployments (PD/HStore) let the storage side own the
+         * metadata, and create the admin account on server startup from
+         * 'auth.admin_pa', so there is nothing for init-store to do. The
+         * option defaults to true, keeping standalone/tarball installs on the
+         * full init path.
+         *
+         * The loop below already skips hstore backends, so what this gate
+         * additionally avoids is scanning the graphs directory (which must
+         * otherwise exist), and — when auth is configured — opening the auth
+         * graph store in initAdminUserIfNeeded(). On Kubernetes that ran on
+         * every Server pod restart, since the entrypoint's init flag file does
+         * not survive one.
+         */
+        if (!restServerConfig.get(ServerOptions.INIT_STORE_ENABLED)) {
+            LOG.warn("Skipping init-store: '{}' is false in '{}'. Local " +
+                     "backend and admin initialization are not performed; " +
+                     "the admin account is created on server startup from " +
+                     "'{}'.",
+                     ServerOptions.INIT_STORE_ENABLED.name(), restConf,
+                     ServerOptions.ADMIN_PA.name());
             return;
         }
 
@@ -113,22 +124,6 @@ public class InitStore {
             }
             HugeFactory.shutdown(30L, true);
         }
-    }
-
-    /**
-     * Whether init-store should no-op.
-     * <ul>
-     *   <li>Property unset → run init (standalone / master-compatible)</li>
-     *   <li>Explicit {@code false} → skip (Helm / distributed HStore)</li>
-     *   <li>Explicit {@code true} → run init</li>
-     * </ul>
-     */
-    public static boolean shouldSkipLocalInit(HugeConfig conf) {
-        String key = ServerOptions.GRAPH_LOAD_FROM_LOCAL_CONFIG.name();
-        if (!conf.containsKey(key)) {
-            return false;
-        }
-        return !conf.get(ServerOptions.GRAPH_LOAD_FROM_LOCAL_CONFIG);
     }
 
     private static HugeGraph initGraph(String configPath) throws Exception {

@@ -26,8 +26,19 @@ on:
     paths:
       - '**/Dockerfile*'
       - '.dockerignore'
+      - 'hugegraph-server/hugegraph-dist/docker/**'
+      - '**/docker/docker-entrypoint.sh'
 
 jobs:
+  entrypoint-test:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Server entrypoint smoke tests
+        run: hugegraph-server/hugegraph-dist/docker/test/test-docker-entrypoint.sh
+
   docker-build:
     runs-on: ubuntu-24.04
     strategy:

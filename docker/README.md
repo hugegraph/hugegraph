@@ -161,6 +161,19 @@ Configuration is injected via environment variables. The old `docker/configs/app
 | `HG_SERVER_PD_PEERS` | Yes | — | `pd.peers` | PD cluster addresses (e.g. `pd0:8686,pd1:8686,pd2:8686`) |
 | `STORE_REST` | No | — | Used by `wait-partition.sh` | Store REST endpoint for partition verification (e.g. `store0:8520`) |
 | `PASSWORD` | No | — | Enables auth mode | Optional authentication password |
+| `HG_SERVER_INIT_STORE_ENABLED` | No | `true` | `init_store.enabled` in `rest-server.properties` | Set `false` in PD/HStore deployments so init-store skips local backend and admin initialization |
+
+> When `HG_SERVER_INIT_STORE_ENABLED=false`, a `PASSWORD` is written to
+> `auth.admin_pa` instead of being passed to `init-store.sh`, because the admin
+> account is created on server startup rather than by init-store. Two
+> consequences worth knowing:
+>
+> - The password is stored in `conf/rest-server.properties`, so anyone who can
+>   read that config volume can read it. With init-store enabled the password
+>   only travels over stdin and is never written to disk.
+> - `auth.admin_pa` takes effect only when the admin account is first created.
+>   Changing `PASSWORD` on a later restart does not rotate an existing admin
+>   password, and does not report an error.
 
 **Deprecated aliases** (still work but log a warning):
 
