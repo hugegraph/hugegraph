@@ -17,8 +17,14 @@
 
 package org.apache.hugegraph.tinkerpop;
 
+import java.util.Collections;
+
+import org.apache.hugegraph.HugeGraph;
+import org.apache.hugegraph.schema.PropertyKey;
+import org.apache.hugegraph.schema.SchemaManager;
 import org.apache.hugegraph.testutil.Assert;
 import org.junit.Test;
+import org.mockito.Mockito;
 
 public class HugeGraphTestInfrastructureTest {
 
@@ -52,5 +58,42 @@ public class HugeGraphTestInfrastructureTest {
         }, e -> {
             Assert.assertContains("expected exactly 345", e.getMessage());
         });
+    }
+
+    @Test
+    public void testHStoreCleanupTruncatesBackend() {
+        HugeGraph graph = Mockito.mock(HugeGraph.class);
+        SchemaManager schema = Mockito.mock(SchemaManager.class);
+        PropertyKey propertyKey = Mockito.mock(PropertyKey.class);
+        Mockito.when(graph.schema()).thenReturn(schema);
+        Mockito.when(schema.getPropertyKeys())
+               .thenReturn(Collections.singletonList(propertyKey));
+        Mockito.when(graph.backend()).thenReturn("hstore");
+
+        CleanupTestGraph testGraph = new CleanupTestGraph(graph);
+        testGraph.clearAll("");
+
+        Assert.assertTrue(testGraph.backendTruncated);
+        Assert.assertFalse(testGraph.schemaCleared);
+    }
+
+    private static class CleanupTestGraph extends TestGraph {
+
+        private boolean backendTruncated;
+        private boolean schemaCleared;
+
+        private CleanupTestGraph(HugeGraph graph) {
+            super(graph);
+        }
+
+        @Override
+        protected void truncateBackend() {
+            this.backendTruncated = true;
+        }
+
+        @Override
+        protected void clearSchema() {
+            this.schemaCleared = true;
+        }
     }
 }
