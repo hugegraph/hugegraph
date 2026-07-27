@@ -92,6 +92,15 @@ assert_prop() {
     fi
 }
 
+# A scalar option must end up defined exactly once, on any separator, or the
+# properties parser exposes it as a list and a scalar read of it fails
+assert_prop_defined_once() {
+    local n
+    n=$(grep -cE "^[[:space:]]*$1([[:space:]]*[=:]|[[:space:]])" \
+        "${INSTALL}/conf/rest-server.properties" 2>/dev/null || true)
+    if [[ "${n}" == "1" ]]; then ok; else fail "expected '$1' defined once, found ${n}"; fi
+}
+
 assert_no_prop_key() {
     if grep -qE "^[[:space:]]*$1[[:space:]]*=" \
             "${INSTALL}/conf/rest-server.properties" 2>/dev/null; then
@@ -331,6 +340,45 @@ run_entrypoint -u PASSWORD HG_SERVER_INIT_STORE_ENABLED=false
 assert_ran "start-hugegraph.sh"
 assert_not_ran "init-store.sh"
 assert_no_file "docker/init_complete"
+cleanup
+
+echo "==> env override of a colon-form property leaves one canonical key"
+new_install
+echo "init_store.enabled:false" >> "${INSTALL}/conf/rest-server.properties"
+run_entrypoint -u PASSWORD HG_SERVER_INIT_STORE_ENABLED=true
+assert_prop_defined_once "init_store.enabled"
+assert_prop "init_store.enabled" "true"
+assert_ran "init-store.sh"
+cleanup
+
+echo "==> env override of a whitespace-form property leaves one canonical key"
+new_install
+echo "init_store.enabled false" >> "${INSTALL}/conf/rest-server.properties"
+run_entrypoint -u PASSWORD HG_SERVER_INIT_STORE_ENABLED=true
+assert_prop_defined_once "init_store.enabled"
+assert_prop "init_store.enabled" "true"
+assert_ran "init-store.sh"
+cleanup
+
+echo "==> PASSWORD override of a colon-form auth.admin_pa leaves one key"
+new_install
+enable_pd
+echo "auth.admin_pa:old" >> "${INSTALL}/conf/rest-server.properties"
+run_entrypoint HG_SERVER_INIT_STORE_ENABLED=false PASSWORD=s3cret
+assert_prop_defined_once "auth.admin_pa"
+assert_prop "auth.admin_pa" "s3cret"
+cleanup
+
+echo "==> commented-out defaults are not treated as definitions"
+new_install
+run_entrypoint -u HG_SERVER_INIT_STORE_ENABLED PASSWORD=s3cret
+# The shipped file ships '#auth.admin_pa=pa' commented; it must stay commented
+# and must not count as an existing definition
+if grep -qxF "#auth.admin_pa=pa" "${INSTALL}/conf/rest-server.properties"; then
+    ok
+else
+    fail "expected the commented '#auth.admin_pa=pa' line to be preserved"
+fi
 cleanup
 
 echo

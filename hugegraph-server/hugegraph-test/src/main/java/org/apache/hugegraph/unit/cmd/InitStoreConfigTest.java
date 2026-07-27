@@ -95,6 +95,26 @@ public class InitStoreConfigTest {
     }
 
     /**
+     * A key defined twice collects both values into a list, which fails the
+     * scalar type check while the config is still being loaded. Both
+     * init-store and server startup would therefore fail outright. That is why
+     * docker-entrypoint.sh collapses any existing definition into one
+     * canonical line instead of appending a second one when it maps an
+     * environment variable onto the property.
+     */
+    @Test
+    public void testDuplicateDefinitionFailsToLoad() throws IOException {
+        Path conf = this.workDir.resolve("duplicate.properties");
+        String key = ServerOptions.INIT_STORE_ENABLED.name();
+        Files.write(conf, Arrays.asList(key + "=false", key + "=true"),
+                    StandardCharsets.UTF_8);
+
+        Assert.assertThrows(IllegalArgumentException.class, () -> {
+            new HugeConfig(conf.toString());
+        }, e -> Assert.assertContains("[false, true]", e.getMessage()));
+    }
+
+    /**
      * The graphs directory referenced by the temporary config does not exist,
      * so every code path that reaches graph scanning fails. That is what makes
      * {@link #testDisabledInitStoreExitsBeforeGraphInit()} a real assertion

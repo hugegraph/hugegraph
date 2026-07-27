@@ -26,18 +26,32 @@ mkdir -p "${DOCKER_FOLDER}"
 
 log() { echo "[hugegraph-server-entrypoint] $*"; }
 
+# Sets a property to exactly one canonical `key=value` line. Existing
+# definitions are matched on any separator a properties file allows (`=`, `:`
+# or whitespace) and collapsed into that single line, because leaving a second
+# definition behind would make the parser expose the key as a list and a scalar
+# read of it would then fail. Comment lines are left alone. Matching is literal,
+# so no regex escaping of the key or value is needed.
 set_prop() {
     local key="$1" val="$2" file="$3"
-    local esc_key esc_val
 
-    esc_key=$(printf '%s' "$key" | sed -e 's/[][(){}.^$*+?|\\/]/\\&/g')
-    esc_val=$(printf '%s' "$val" | sed -e 's/[&|\\]/\\&/g')
-
-    if grep -qE "^[[:space:]]*${esc_key}[[:space:]]*=" "${file}"; then
-        sed -ri "s|^([[:space:]]*${esc_key}[[:space:]]*=).*|\\1${esc_val}|" "${file}"
-    else
-        printf '%s=%s\n' "$key" "$val" >> "${file}"
-    fi
+    SET_PROP_KEY="$key" SET_PROP_VAL="$val" awk '
+        BEGIN { key = ENVIRON["SET_PROP_KEY"]; val = ENVIRON["SET_PROP_VAL"] }
+        {
+            line = $0
+            probe = line
+            sub(/^[[:space:]]+/, "", probe)
+            if (index(probe, key) == 1) {
+                rest = substr(probe, length(key) + 1)
+                if (rest ~ /^[[:space:]]*[=:]/ || rest ~ /^[[:space:]]+/) {
+                    if (!done) { print key "=" val; done = 1 }
+                    next
+                }
+            }
+            print line
+        }
+        END { if (!done) print key "=" val }
+    ' "${file}" > "${file}.tmp" && mv "${file}.tmp" "${file}"
 }
 
 # Escapes a value for Java-properties serialization. Backslashes must be
