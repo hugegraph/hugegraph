@@ -8,7 +8,26 @@ HugeGraph Server consists of two layers of functionality: the graph engine layer
   - Backend Interface: Implements the storage of graph data to the backend.
 
 - Storage Layer:
-  - Storage Backend: Supports multiple built-in storage backends (RocksDB/Memory/HStore/HBase/...) and allows users to extend custom backends without modifying the existing source code.
+  - Storage Backend: Includes RocksDB (default, embedded), HStore (distributed), HBase (deprecated and planned for removal in 2.0), and the test-only Memory backend. Users can extend custom backends without modifying the existing source code.
+
+## Backend Evolution and Compatibility
+
+The current mainline does not include implementations for the historical backends. The following timeline distinguishes current support from legacy compatibility guidance:
+
+```text
+┌─────────────────────────┐     ┌─────────────────────────┐     ┌─────────────────────────┐
+│           1.0           │     │           1.5           │     │           2.x           │
+│     Historical era      │     │ Compatibility boundary  │     │     Future roadmap      │
+│                         │     │            ↓            │     │                         │
+│    MySQL · PostgreSQL   │────▶│    1.7–2.0 mainline     │────▶│    RocksDB · HStore     │
+│   Cassandra · ScyllaDB  │     │    RocksDB · HStore     │     │                         │
+│       Palo · HBase      │     │    HBase: deprecated    │     │    (HBase: removed)     │
+└─────────────────────────┘     └─────────────────────────┘     └─────────────────────────┘
+```
+
+Memory remains a test-only backend throughout. Historical backend users must operate and
+maintain a compatible release; these implementations are not restored to the current source
+tree or distribution packages.
 
 ## Docker
 
@@ -33,43 +52,5 @@ See [docker/README.md](../docker/README.md) for the full setup guide.
 
 ## RISC-V Development and Testing
 
-The end-to-end RISC-V CI validation currently runs on 64-bit `linux/riscv64` LP64D with
-Ubuntu 24.04 and glibc 2.39. It covers HugeGraph Server and the embedded RocksDB backend.
-PD, Store, HStore, other backends, musl/Alpine, and 32-bit RISC-V are out of scope.
-
-The dedicated [RISC-V Server CI](../.github/workflows/riscv64-ci.yml) runs a RocksDB-only
-native build and runtime smoke test in an isolated QEMU environment. It uses the
-checksum-pinned Alibaba Dragonwell 11 Extended Server VM and installs `libatomic1` for the
-packaged RocksDB JNI library. QEMU is for correctness testing and is not a performance
-benchmark.
-
-The packaged `rocksdbjni:8.10.2` RISC-V ELF references glibc symbols through
-`GLIBC_2.30`. This is an inferred minimum for that JNI artifact only, not a validated
-compatibility floor for the complete HugeGraph, Dragonwell, and system-library runtime.
-
-The repository Dockerfile and published HugeGraph image do not include RISC-V support.
-Image publication requires separate multi-architecture design and validation.
-
-For the same validation on a native Debian-derived RISC-V system, use Dragonwell 11
-Extended `11.0.31.28.11` with the archive checksum declared in the CI workflow, then
-install the build and runtime dependencies:
-
-```bash
-sudo apt-get update
-sudo apt-get install -y ca-certificates curl jq libatomic1 libgcc-s1 libstdc++6 \
-  lsof maven procps protobuf-compiler protobuf-compiler-grpc-java-plugin
-```
-
-After selecting Dragonwell as `JAVA_HOME`, build and verify the RocksDB-only distribution:
-
-```bash
-test "$(uname -m)" = riscv64
-"$JAVA_HOME/bin/java" -XshowSettings:vm -version
-mvn clean package -Drocksdb-only -pl hugegraph-server/hugegraph-dist -am \
-  -P riscv64-protobuf-tools \
-  -Dmaven.test.skip=true -Dmaven.javadoc.skip=true
-hugegraph-server/hugegraph-dist/src/assembly/travis/check-rocksdb-only-dist.sh \
-  hugegraph-server/apache-hugegraph-server-*/
-hugegraph-server/hugegraph-dist/src/assembly/travis/run-native-runtime-smoke-test.sh \
-  hugegraph-server/apache-hugegraph-server-*/
-```
+The [RISC-V Server CI](../.github/workflows/riscv64-ci.yml) validates a RocksDB-only Server build and runtime smoke test on 64-bit Linux RISC-V through QEMU. It is a correctness check,
+not a performance benchmark. (other backends & non-64-bit Linux RISC-V environments are out of scope)

@@ -119,6 +119,11 @@
             <artifactId>gremlin-driver</artifactId>
         </dependency>
         <dependency>
+            <groupId>junit</groupId>
+            <artifactId>junit</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
             <groupId>org.apache.fury</groupId>
             <artifactId>fury-core</artifactId>
             <version>0.9.0</version>

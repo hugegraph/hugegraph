@@ -84,6 +84,11 @@
             <artifactId>grpc-stub</artifactId>
             <version>${grpc.version}</version>
         </dependency>
+        <dependency>
+            <groupId>junit</groupId>
+            <artifactId>junit</artifactId>
+            <scope>test</scope>
+        </dependency>
 
         <!-- Added updated jar to avoid java.lang.NoClassDefFoundError: org/fusesource/jansi/AnsiConsole when launching
              gremlin console on arm64 -->
@@ -267,6 +272,26 @@
 
     <profiles>
         <profile>
+            <id>supported-backends</id>
+            <activation>
+                <property>
+                    <name>!rocksdb-only</name>
+                </property>
+            </activation>
+            <dependencies>
+                <dependency>
+                    <groupId>org.apache.hugegraph</groupId>
+                    <artifactId>hugegraph-hbase</artifactId>
+                    <version>${revision}</version>
+                </dependency>
+                <dependency>
+                    <groupId>org.apache.hugegraph</groupId>
+                    <artifactId>hugegraph-hstore</artifactId>
+                    <version>${revision}</version>
+                </dependency>
+            </dependencies>
+        </profile>
+        <profile>
             <id>rocksdb-only</id>
             <activation>
                 <property>
@@ -276,57 +301,6 @@
             <properties>
                 <hugegraph.backends>rocksdb</hugegraph.backends>
             </properties>
-        </profile>
-        <profile>
-            <id>all-backends</id>
-            <activation>
-                <property>
-                    <name>!rocksdb-only</name>
-                </property>
-            </activation>
-            <dependencies>
-                <dependency>
-                    <groupId>org.apache.hugegraph</groupId>
-                    <artifactId>hugegraph-cassandra</artifactId>
-                    <version>${revision}</version>
-                    <exclusions>
-                        <exclusion>
-                            <artifactId>metrics-core</artifactId>
-                            <groupId>io.dropwizard.metrics</groupId>
-                        </exclusion>
-                    </exclusions>
-                </dependency>
-                <dependency>
-                    <groupId>org.apache.hugegraph</groupId>
-                    <artifactId>hugegraph-scylladb</artifactId>
-                    <version>${revision}</version>
-                </dependency>
-                <dependency>
-                    <groupId>org.apache.hugegraph</groupId>
-                    <artifactId>hugegraph-mysql</artifactId>
-                    <version>${revision}</version>
-                </dependency>
-                <dependency>
-                    <groupId>org.apache.hugegraph</groupId>
-                    <artifactId>hugegraph-palo</artifactId>
-                    <version>${revision}</version>
-                </dependency>
-                <dependency>
-                    <groupId>org.apache.hugegraph</groupId>
-                    <artifactId>hugegraph-hbase</artifactId>
-                    <version>${revision}</version>
-                </dependency>
-                <dependency>
-                    <groupId>org.apache.hugegraph</groupId>
-                    <artifactId>hugegraph-postgresql</artifactId>
-                    <version>${revision}</version>
-                </dependency>
-                <dependency>
-                    <groupId>org.apache.hugegraph</groupId>
-                    <artifactId>hugegraph-hstore</artifactId>
-                    <version>${revision}</version>
-                </dependency>
-            </dependencies>
         </profile>
         <profile>
             <id>assembly-hugegraph</id>
