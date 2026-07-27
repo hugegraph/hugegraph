@@ -363,7 +363,9 @@ jobs:
       # distributed backend rather than only the memory and RocksDB paths.
       - name: Run TinkerPop structure test
         if: ${{ env.RUN_TINKERPOP_TESTS == 'true' }}
-        timeout-minutes: 60
+        # The HStore suite needs close to one hour before global cleanup, so
+        # keep enough headroom to finish cleanup and emit Surefire results.
+        timeout-minutes: 120
         run: |
           $TRAVIS_DIR/run-tinkerpop-test.sh $BACKEND structure
 
@@ -375,24 +377,94 @@ jobs:
         run: |
           $TRAVIS_DIR/run-tinkerpop-test.sh $BACKEND process
 
-      - name: Show HStore diagnostics on failure
+      - name: Collect HStore diagnostics on failure
         if: failure()
         run: |
+          set +e
+          DIAGNOSTICS_DIR=hstore-diagnostics
+          mkdir -p "$DIAGNOSTICS_DIR/threads" \
+                   "$DIAGNOSTICS_DIR/surefire" \
+                   "$DIAGNOSTICS_DIR/services"
+          exec > >(tee -a "$DIAGNOSTICS_DIR/summary.log") 2>&1
+
           VERSION=$(grep -E '^VersionInBash=' \
             hugegraph-commons/hugegraph-common/src/main/resources/version.properties | cut -d'=' -f2-)
           [[ "$VERSION" =~ ^[0-9A-Za-z._-]+$ ]] || {
             echo "Invalid VersionInBash: $VERSION"
-            exit 1
+            exit 0
           }
           PD_DIR=hugegraph-pd/apache-hugegraph-pd-$VERSION
           STORE_DIR=hugegraph-store/apache-hugegraph-store-$VERSION
+          SERVER_DIR=hugegraph-server/apache-hugegraph-server-$VERSION
+
+          echo "::group::Runner process snapshot"
+          ps -eo pid,ppid,stat,etime,%cpu,%mem,args --sort=pid |
+            tee "$DIAGNOSTICS_DIR/processes.txt" || true
+          (ss -ltnp || netstat -ltnp || true) 2>&1 |
+            tee "$DIAGNOSTICS_DIR/listening-ports.txt" || true
+          echo "::endgroup::"
+
+          echo "::group::Java thread dumps"
+          if command -v jcmd >/dev/null 2>&1; then
+            jcmd -l | tee "$DIAGNOSTICS_DIR/jcmd-list.txt" || true
+            while read -r pid _; do
+              [[ "$pid" =~ ^[0-9]+$ ]] || continue
+              kill -0 "$pid" >/dev/null 2>&1 || continue
+              thread_dump="$DIAGNOSTICS_DIR/threads/java-$pid.txt"
+              timeout 30s jcmd "$pid" Thread.print -l >"$thread_dump" 2>&1
+              if [[ $? -ne 0 ]] && command -v jstack >/dev/null 2>&1; then
+                timeout 30s jstack -l "$pid" >"$thread_dump" 2>&1 || true
+              fi
+              echo "[ci] captured Java thread dump: $thread_dump"
+            done < "$DIAGNOSTICS_DIR/jcmd-list.txt"
+          else
+            echo "[ci] jcmd is unavailable"
+          fi
+          echo "::endgroup::"
+
           bash $TRAVIS_DIR/ci-service-utils.sh dump "$PD_DIR" HugeGraphPD || true
           bash $TRAVIS_DIR/ci-service-utils.sh dump "$STORE_DIR" HugeGraphStore || true
-          find . -path '*/surefire-reports/*' -type f \
-            \( -name '*.txt' -o -name '*.xml' \) | sort | while read -r report; do
-            echo "--- tail -n 120 $report ---"
-            tail -n 120 "$report" || true
+          bash $TRAVIS_DIR/ci-service-utils.sh dump \
+            "$SERVER_DIR" HugeGraphServer || true
+
+          for service in \
+            "pd:$PD_DIR/logs" \
+            "store:$STORE_DIR/logs" \
+            "server:$SERVER_DIR/logs"; do
+            service_name="${service%%:*}"
+            log_dir="${service#*:}"
+            if [[ -d "$log_dir" ]]; then
+              mkdir -p "$DIAGNOSTICS_DIR/services/$service_name"
+              cp -a "$log_dir/." \
+                "$DIAGNOSTICS_DIR/services/$service_name/" || true
+            fi
           done
+
+          echo "::group::Surefire reports"
+          while read -r report; do
+            destination="$DIAGNOSTICS_DIR/surefire/${report#./}"
+            mkdir -p "$(dirname "$destination")"
+            cp "$report" "$destination" || true
+            echo "--- tail -n 200 $report ---"
+            tail -n 200 "$report" || true
+          done < <(
+            find . -path "./$DIAGNOSTICS_DIR" -prune -o \
+              -path '*/surefire-reports/*' -type f \
+              \( -name '*.txt' -o -name '*.xml' -o \
+                 -name '*.dump' -o -name '*.dumpstream' \) \
+              -print | sort
+          )
+          echo "::endgroup::"
+          exit 0
+
+      - name: Upload HStore diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hstore-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: hstore-diagnostics
+          if-no-files-found: warn
+          retention-days: 14
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v3.0.0
