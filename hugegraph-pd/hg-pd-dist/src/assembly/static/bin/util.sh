@@ -280,15 +280,19 @@ function download() {
         }
     fi
 
-    local filename
+    local filename tmp
     filename=$(basename "${link_url%%[?#]*}")
-    local tmp="${path}/.${filename}.tmp.$$"
     local dest="${path}/${filename}"
+    # mktemp, not $$: a PID is shared by concurrent background subshells.
+    tmp=$(mktemp -- "${path}/.${filename}.XXXXXX") || {
+        echo "Failed to create a temporary file in $path"
+        return 1
+    }
 
     if command_available "curl"; then
         # -o must appear before -- so it is parsed as an option, not an extra URL.
         if curl -fL -o "$tmp" -- "${link_url}"; then
-            mv -f -- "$tmp" "$dest"
+            mv -f -- "$tmp" "$dest" || { rm -f -- "$tmp"; return 1; }
         else
             rm -f -- "$tmp"
             return 1
@@ -299,7 +303,7 @@ function download() {
             progress_opt=(-q --show-progress)
         fi
         if wget ${progress_opt[@]+"${progress_opt[@]}"} -O "$tmp" -- "${link_url}"; then
-            mv -f -- "$tmp" "$dest"
+            mv -f -- "$tmp" "$dest" || { rm -f -- "$tmp"; return 1; }
         else
             rm -f -- "$tmp"
             return 1

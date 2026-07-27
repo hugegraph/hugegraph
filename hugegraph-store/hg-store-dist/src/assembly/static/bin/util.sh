@@ -279,15 +279,19 @@ function download() {
         }
     fi
 
-    local filename
+    local filename tmp
     filename=$(basename "${link_url%%[?#]*}")
-    local tmp="${path}/.${filename}.tmp.$$"
     local dest="${path}/${filename}"
+    # mktemp, not $$: a PID is shared by concurrent background subshells.
+    tmp=$(mktemp -- "${path}/.${filename}.XXXXXX") || {
+        echo "Failed to create a temporary file in $path"
+        return 1
+    }
 
     if command_available "curl"; then
         # -o must appear before -- so it is parsed as an option, not an extra URL.
         if curl -fL -o "$tmp" -- "${link_url}"; then
-            mv -f -- "$tmp" "$dest"
+            mv -f -- "$tmp" "$dest" || { rm -f -- "$tmp"; return 1; }
         else
             rm -f -- "$tmp"
             return 1
@@ -298,7 +302,7 @@ function download() {
             progress_opt=(-q --show-progress)
         fi
         if wget ${progress_opt[@]+"${progress_opt[@]}"} -O "$tmp" -- "${link_url}"; then
-            mv -f -- "$tmp" "$dest"
+            mv -f -- "$tmp" "$dest" || { rm -f -- "$tmp"; return 1; }
         else
             rm -f -- "$tmp"
             return 1
@@ -329,7 +333,9 @@ download_and_verify() {
     fi
 
     echo "Downloading $filepath..."
-    local tmp="${filepath}.tmp.$$"
+    local tmp
+    # mktemp, not $$: a PID is shared by concurrent background subshells.
+    tmp=$(mktemp -- "${filepath}.XXXXXX") || return 1
     if curl -fL -o "$tmp" -- "$url"; then
         actual_md5=$(md5sum -- "$tmp" | awk '{ print $1 }')
         if [[ "$actual_md5" != "$expected_md5" ]]; then
@@ -337,7 +343,9 @@ download_and_verify() {
             rm -f -- "$tmp"
             return 1
         fi
-        mv -f -- "$tmp" "$filepath"
+        # A failed rename must not report success: callers export LD_PRELOAD
+        # from $filepath and would otherwise use a library that never installed.
+        mv -f -- "$tmp" "$filepath" || { rm -f -- "$tmp"; return 1; }
     else
         rm -f -- "$tmp"
         return 1
