@@ -117,6 +117,18 @@ public class TestGraph implements Graph {
         }
     }
 
+    @Watched
+    protected void clearForLoad() {
+        if (HSTORE_BACKEND.equals(this.graph.backend())) {
+            // An auxiliary graph can be loaded while its source remains open.
+            // Truncating it makes the source invisible to HStore scans.
+            // Only the bootstrap schema needs to be removed at this point.
+            this.clearSchema();
+        } else {
+            this.clearAll("");
+        }
+    }
+
     private boolean hasSchema() {
         SchemaManager schema = this.graph.schema();
         return !schema.getPropertyKeys().isEmpty() ||

@@ -543,7 +543,7 @@ public class TestGraphProvider extends AbstractGraphProvider {
         TestGraph testGraph = (TestGraph) graph;
 
         // Clear basic schema initiated in openTestGraph
-        testGraph.clearAll("");
+        testGraph.clearForLoad();
 
         if (testGraph.loadedGraph() == null) {
             testGraph.loadedGraph(REGULAR_LOAD);

@@ -84,6 +84,20 @@ public class HugeGraphTestInfrastructureTest {
     }
 
     @Test
+    public void testHStoreLoadCleanupDoesNotTruncateBackend() {
+        HugeGraph graph = Mockito.mock(HugeGraph.class);
+        Mockito.when(graph.backend()).thenReturn("hstore");
+
+        CleanupTestGraph testGraph = new CleanupTestGraph(graph);
+        testGraph.clearForLoad();
+
+        Assert.assertFalse(testGraph.backendTruncated);
+        Assert.assertTrue(testGraph.schemaCleared);
+        Assert.assertEquals(Collections.singletonList("schema"),
+                            testGraph.cleanupSteps);
+    }
+
+    @Test
     public void testHStoreCleanupDoesNotSkipSchemaWithoutPropertyKeys() {
         HugeGraph graph = Mockito.mock(HugeGraph.class);
         SchemaManager schema = Mockito.mock(SchemaManager.class);
