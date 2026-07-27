@@ -148,6 +148,12 @@ EOF
     : > "${INSTALL}/calls.log"
 }
 
+# Auth plus skipped init-store is only supported alongside the PD metadata
+# path, which is what actually creates the admin account in that mode
+enable_pd() {
+    echo "usePD=true" >> "${INSTALL}/conf/rest-server.properties"
+}
+
 # Run the entrypoint inside the throwaway tree. No ./bin/pid is ever written by
 # the stubs, so the entrypoint's tail-on-pid block is skipped and it returns.
 run_entrypoint() {
@@ -191,6 +197,7 @@ cleanup
 
 echo "==> skip + PASSWORD: password reaches auth.admin_pa, not init-store stdin"
 new_install
+enable_pd
 run_entrypoint HG_SERVER_INIT_STORE_ENABLED=false PASSWORD=s3cret
 assert_ran "enable-auth.sh"
 assert_not_ran "init-store.sh"
@@ -201,6 +208,7 @@ cleanup
 
 echo "==> skip via mounted property only: env var absent behaves the same"
 new_install
+enable_pd
 echo "init_store.enabled=false" >> "${INSTALL}/conf/rest-server.properties"
 run_entrypoint -u HG_SERVER_INIT_STORE_ENABLED PASSWORD=s3cret
 assert_not_ran "init-store.sh"
@@ -240,6 +248,89 @@ assert_ran "init-store.sh"
 run_entrypoint -u HG_SERVER_INIT_STORE_ENABLED -u PASSWORD
 assert_not_ran "init-store.sh"
 assert_file "docker/init_complete"
+cleanup
+
+echo "==> uppercase FALSE is honoured, matching the server's boolean parsing"
+new_install
+enable_pd
+run_entrypoint HG_SERVER_INIT_STORE_ENABLED=FALSE PASSWORD=s3cret
+assert_not_ran "init-store.sh"
+assert_not_ran "init-store.sh:stdin=s3cret"
+assert_prop "init_store.enabled" "false"
+assert_prop "auth.admin_pa" "s3cret"
+assert_no_file "docker/init_complete"
+cleanup
+
+echo "==> 'off' and 'no' are honoured too"
+for value in off no; do
+    new_install
+    run_entrypoint -u PASSWORD "HG_SERVER_INIT_STORE_ENABLED=${value}"
+    assert_not_ran "init-store.sh"
+    assert_no_file "docker/init_complete"
+    cleanup
+done
+
+echo "==> a non-boolean value fails fast instead of diverging"
+new_install
+if ( cd "${INSTALL}" && env -u PASSWORD HG_SERVER_INIT_STORE_ENABLED=maybe \
+        bash "${ENTRYPOINT}" ) >/dev/null 2>&1; then
+    fail "expected a non-boolean HG_SERVER_INIT_STORE_ENABLED to fail"
+else
+    ok
+fi
+assert_not_ran "start-hugegraph.sh"
+cleanup
+
+echo "==> mounted property with a ':' separator is honoured"
+new_install
+echo "init_store.enabled:false" >> "${INSTALL}/conf/rest-server.properties"
+run_entrypoint -u HG_SERVER_INIT_STORE_ENABLED -u PASSWORD
+assert_not_ran "init-store.sh"
+assert_no_file "docker/init_complete"
+cleanup
+
+echo "==> password with backslashes survives the properties round trip"
+new_install
+enable_pd
+run_entrypoint 'PASSWORD=abc\def' HG_SERVER_INIT_STORE_ENABLED=false
+assert_not_ran "init-store.sh"
+# Written escaped, so the properties parser reads back the original `abc\def`
+assert_prop "auth.admin_pa" 'abc\\def'
+cleanup
+
+echo "==> skip + PASSWORD without usePD is refused, not silently started"
+new_install
+if ( cd "${INSTALL}" && env -u HG_SERVER_INIT_STORE_ENABLED PASSWORD=s3cret \
+        HG_SERVER_INIT_STORE_ENABLED=false bash "${ENTRYPOINT}" ) >/dev/null 2>&1; then
+    fail "expected auth + skip without usePD to be refused"
+else
+    ok
+fi
+# Refused before starting the server, and without leaving auth half-enabled
+assert_not_ran "start-hugegraph.sh"
+assert_not_ran "init-store.sh"
+assert_no_file "docker/init_complete"
+cleanup
+
+echo "==> skip with auth already in a mounted config, no usePD, is refused too"
+new_install
+echo "auth.authenticator=org.apache.hugegraph.auth.StandardAuthenticator" \
+    >> "${INSTALL}/conf/rest-server.properties"
+if ( cd "${INSTALL}" && env -u PASSWORD HG_SERVER_INIT_STORE_ENABLED=false \
+        bash "${ENTRYPOINT}" ) >/dev/null 2>&1; then
+    fail "expected mounted auth + skip without usePD to be refused"
+else
+    ok
+fi
+assert_not_ran "start-hugegraph.sh"
+cleanup
+
+echo "==> skip without auth is unaffected by the usePD requirement"
+new_install
+run_entrypoint -u PASSWORD HG_SERVER_INIT_STORE_ENABLED=false
+assert_ran "start-hugegraph.sh"
+assert_not_ran "init-store.sh"
+assert_no_file "docker/init_complete"
 cleanup
 
 echo

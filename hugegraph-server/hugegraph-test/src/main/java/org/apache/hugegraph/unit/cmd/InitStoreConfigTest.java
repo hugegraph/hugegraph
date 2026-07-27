@@ -28,6 +28,7 @@ import java.util.stream.Stream;
 import org.apache.commons.configuration2.PropertiesConfiguration;
 import org.apache.hugegraph.cmd.InitStore;
 import org.apache.hugegraph.config.HugeConfig;
+import org.apache.hugegraph.config.OptionSpace;
 import org.apache.hugegraph.config.ServerOptions;
 import org.apache.hugegraph.dist.RegisterUtil;
 import org.apache.hugegraph.testutil.Assert;
@@ -46,6 +47,8 @@ import org.junit.Test;
 public class InitStoreConfigTest {
 
     private static final String MISSING_GRAPHS_DIR = "no-such-graphs-dir";
+    // Registered by RegisterUtil.registerBackends(), not by registerServer()
+    private static final String ROCKSDB_OPTION = "rocksdb.data_path";
 
     private Path workDir;
 
@@ -105,17 +108,32 @@ public class InitStoreConfigTest {
         });
     }
 
-    /*
-     * NOTE: only one test may call InitStore.main(), because it calls
-     * RegisterUtil.registerBackends() and a backend provider can be
-     * registered only once per JVM.
-     */
     @Test
     public void testDisabledInitStoreExitsBeforeGraphInit() throws Exception {
         String restConf = this.writeDisabledRestServerConf();
         // Completes instead of failing on the missing graphs directory, which
         // proves the gate is applied before any graph or admin initialization
         InitStore.main(new String[]{restConf});
+    }
+
+    /**
+     * Disabled mode must not reach RegisterUtil.registerBackends() or
+     * registerPlugins(): plugin registration runs every discovered plugin's
+     * register() and propagates its failures, which a documented no-op path
+     * must not do. Backend options land in OptionSpace only via
+     * registerBackends(), so their absence shows it was never called.
+     */
+    @Test
+    public void testDisabledInitStoreSkipsBackendAndPluginRegistration()
+                                                            throws Exception {
+        Assert.assertFalse(OptionSpace.containKey(ROCKSDB_OPTION));
+
+        InitStore.main(new String[]{this.writeDisabledRestServerConf()});
+
+        Assert.assertFalse(OptionSpace.containKey(ROCKSDB_OPTION));
+        // Server options are still registered, since the gate is read from them
+        Assert.assertTrue(OptionSpace.containKey(
+                          ServerOptions.INIT_STORE_ENABLED.name()));
     }
 
     private String writeDisabledRestServerConf() throws IOException {

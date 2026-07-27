@@ -69,18 +69,22 @@ public class InitStore {
 
         String restConf = args[0];
 
-        RegisterUtil.registerBackends();
-        RegisterUtil.registerPlugins();
+        /*
+         * Only the server options are needed to read the gate below. Backend
+         * and plugin registration is deferred to the enabled path:
+         * registerPlugins() invokes every discovered plugin's register() and
+         * propagates their failures, which must not happen on a path that is
+         * documented to be a no-op.
+         */
         RegisterUtil.registerServer();
 
         HugeConfig restServerConfig = new HugeConfig(restConf);
 
         /*
          * Distributed deployments (PD/HStore) let the storage side own the
-         * metadata, and create the admin account on server startup from
-         * 'auth.admin_pa', so there is nothing for init-store to do. The
-         * option defaults to true, keeping standalone/tarball installs on the
-         * full init path.
+         * metadata, so there is nothing for init-store to do. The option
+         * defaults to true, keeping standalone/tarball installs on the full
+         * init path.
          *
          * The loop below already skips hstore backends, so what this gate
          * additionally avoids is scanning the graphs directory (which must
@@ -88,16 +92,33 @@ public class InitStore {
          * graph store in initAdminUserIfNeeded(). On Kubernetes that ran on
          * every Server pod restart, since the entrypoint's init flag file does
          * not survive one.
+         *
+         * NOTE: skipping also means the built-in admin account is not created
+         * here. The only other code path that creates it is
+         * GraphManager.initAdminUserIfNeeded(), reached from loadMetaFromPD(),
+         * which runs only when 'usePD' is true. Enabling auth with this option
+         * false and 'usePD' false therefore yields a server that enforces
+         * authentication with no account to authenticate against.
          */
         if (!restServerConfig.get(ServerOptions.INIT_STORE_ENABLED)) {
             LOG.warn("Skipping init-store: '{}' is false in '{}'. Local " +
-                     "backend and admin initialization are not performed; " +
-                     "the admin account is created on server startup from " +
-                     "'{}'.",
-                     ServerOptions.INIT_STORE_ENABLED.name(), restConf,
-                     ServerOptions.ADMIN_PA.name());
+                     "backend and admin initialization are not performed.",
+                     ServerOptions.INIT_STORE_ENABLED.name(), restConf);
+            if (!restServerConfig.get(ServerOptions.AUTHENTICATOR).isEmpty() &&
+                !restServerConfig.get(ServerOptions.USE_PD)) {
+                LOG.warn("'{}' is set but '{}' is false: no component will " +
+                         "create the built-in admin account. Set '{}' to true, " +
+                         "or leave '{}' enabled so it can create the account.",
+                         ServerOptions.AUTHENTICATOR.name(),
+                         ServerOptions.USE_PD.name(),
+                         ServerOptions.USE_PD.name(),
+                         ServerOptions.INIT_STORE_ENABLED.name());
+            }
             return;
         }
+
+        RegisterUtil.registerBackends();
+        RegisterUtil.registerPlugins();
 
         PDAuthConfig.setAuthority(
                 ServiceConstant.SERVICE_NAME,

@@ -40,17 +40,40 @@ set_prop() {
     fi
 }
 
+# Escapes a value for Java-properties serialization. Backslashes must be
+# doubled or the parser consumes them, so a password like `abc\def` would
+# otherwise be read back as `abcdef`; a leading space would be stripped.
+props_escape() {
+    printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/^ /\\ /'
+}
+
 # Echoes the value of a property, or nothing when the key or the file is
-# absent, so callers apply their own default. On duplicate keys the last one
-# wins, matching how java.util.Properties reads the same file.
+# absent, so callers apply their own default. Accepts the `=`, `:` and
+# whitespace separators that properties files allow. On duplicate keys the last
+# one wins, matching how the properties parser reads the same file.
 get_prop() {
     local key="$1" file="$2"
     local esc_key
 
     [[ -f "${file}" ]] || return 0
     esc_key=$(printf '%s' "$key" | sed -e 's/[][(){}.^$*+?|\\/]/\\&/g')
-    sed -rn "s|^[[:space:]]*${esc_key}[[:space:]]*=[[:space:]]*(.*)$|\\1|p" \
+    # '#' delimits the s command because the pattern itself contains '|'
+    sed -rn "s#^[[:space:]]*${esc_key}([[:space:]]*[=:]|[[:space:]]+)[[:space:]]*(.*)\$#\\2#p" \
         "${file}" | tail -n 1 | tr -d '[:space:]'
+}
+
+# Canonicalizes a boolean the way the server does. HugeConfig parses these
+# options through commons-configuration2 PropertyConverter.toBoolean, i.e.
+# BooleanUtils, which is case-insensitive and accepts y/t/on/yes/true and
+# n/f/no/off/false. The shell must agree with it, or the two layers can
+# disagree about whether to skip: `FALSE` once meant "skip" to Java and "run"
+# to this script. Unrecognized values fail here, as they do in the server.
+to_bool() {
+    case "$(printf '%s' "${1:-}" | tr '[:upper:]' '[:lower:]')" in
+        y|t|on|yes|true)   echo "true" ;;
+        n|f|no|off|false)  echo "false" ;;
+        *)                 return 1 ;;
+    esac
 }
 
 migrate_env() {
@@ -68,7 +91,15 @@ migrate_env "PD_PEERS" "HG_SERVER_PD_PEERS"
 # ── Map env → properties file ─────────────────────────────────────────
 [[ -n "${HG_SERVER_BACKEND:-}"  ]] && set_prop "backend"  "${HG_SERVER_BACKEND}"  "${GRAPH_CONF}"
 [[ -n "${HG_SERVER_PD_PEERS:-}" ]] && set_prop "pd.peers" "${HG_SERVER_PD_PEERS}" "${GRAPH_CONF}"
-[[ -n "${HG_SERVER_INIT_STORE_ENABLED:-}" ]] && set_prop "init_store.enabled" "${HG_SERVER_INIT_STORE_ENABLED}" "${REST_SERVER_CONF}"
+if [[ -n "${HG_SERVER_INIT_STORE_ENABLED:-}" ]]; then
+    # Canonicalize before writing, so the property file only ever holds `true`
+    # or `false` and cannot be read differently by the shell and the server
+    if ! HG_SERVER_INIT_STORE_ENABLED=$(to_bool "${HG_SERVER_INIT_STORE_ENABLED}"); then
+        log "ERROR: HG_SERVER_INIT_STORE_ENABLED must be a boolean, got '${HG_SERVER_INIT_STORE_ENABLED}'"
+        exit 1
+    fi
+    set_prop "init_store.enabled" "${HG_SERVER_INIT_STORE_ENABLED}" "${REST_SERVER_CONF}"
+fi
 
 # ── Build wait-storage env ─────────────────────────────────────────────
 WAIT_ENV=()
@@ -95,8 +126,37 @@ wait_storage() {
 # the same as `HG_SERVER_INIT_STORE_ENABLED` (the env mapping above has already
 # been applied, so env still wins).
 INIT_STORE_ENABLED=$(get_prop "init_store.enabled" "${REST_SERVER_CONF}")
+if [[ -n "${INIT_STORE_ENABLED}" ]]; then
+    if ! INIT_STORE_ENABLED=$(to_bool "${INIT_STORE_ENABLED}"); then
+        log "ERROR: init_store.enabled in ${REST_SERVER_CONF} must be a boolean," \
+            "got '${INIT_STORE_ENABLED}'"
+        exit 1
+    fi
+fi
 if [[ "${INIT_STORE_ENABLED:-true}" == "false" ]]; then
     log "init-store disabled, skipping local backend/admin init"
+
+    # With init-store skipped, nothing creates the built-in admin account
+    # unless the server takes the PD metadata path, which it only does when
+    # `usePD=true`. Enabling auth without that combination starts a server
+    # that enforces authentication while no account exists, so refuse it here
+    # rather than fail every request later.
+    AUTH_REQUESTED=""
+    [[ -n "${PASSWORD:-}" ]] && AUTH_REQUESTED=1
+    [[ -n "$(get_prop "auth.authenticator" "${REST_SERVER_CONF}")" ]] && AUTH_REQUESTED=1
+    if [[ -n "${AUTH_REQUESTED}" ]]; then
+        USE_PD=$(to_bool "$(get_prop "usePD" "${REST_SERVER_CONF}")" 2>/dev/null || echo "false")
+        if [[ "${USE_PD}" != "true" ]]; then
+            log "ERROR: auth is enabled and init_store.enabled=false, but usePD is not true."
+            log "ERROR: With init-store skipped the admin account is only created on the PD"
+            log "ERROR: metadata path, so this combination would start a server that nobody"
+            log "ERROR: can authenticate against."
+            log "ERROR: Set usePD=true in ${REST_SERVER_CONF}, or leave init-store enabled"
+            log "ERROR: so that it can create the admin account locally."
+            exit 1
+        fi
+    fi
+
     # Still wait: the server needs the storage side reachable at startup even
     # though nothing is initialized here
     wait_storage
@@ -108,7 +168,7 @@ if [[ "${INIT_STORE_ENABLED:-true}" == "false" ]]; then
         # created, so changing PASSWORD on a later restart silently keeps the
         # old one. It also leaves the password at rest in rest-server.properties,
         # unlike the enabled path where it only travels over stdin.
-        set_prop "auth.admin_pa" "${PASSWORD}" "${REST_SERVER_CONF}"
+        set_prop "auth.admin_pa" "$(props_escape "${PASSWORD}")" "${REST_SERVER_CONF}"
     fi
     # No init flag is written here: nothing was initialized, so a later run
     # with init-store enabled must still perform the real initialization.
