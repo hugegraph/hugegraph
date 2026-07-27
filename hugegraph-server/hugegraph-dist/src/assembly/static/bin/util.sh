@@ -141,6 +141,11 @@ function parse_port_from_url() {
     local authority="${rest%%[/?#]*}"
     [[ -z "$authority" ]] && return 1
 
+    # Drop any userinfo prefix; its colon would otherwise look like an
+    # unbracketed IPv6 separator.
+    authority="${authority##*@}"
+    [[ -z "$authority" ]] && return 1
+
     local port=""
     if [[ "$authority" =~ ^\[[^]]*\](:([0-9]+))?$ ]]; then
         # Bracketed IPv6, with or without a port: [::1] or [::1]:8080
@@ -148,6 +153,9 @@ function parse_port_from_url() {
     elif [[ "$authority" == *:*:* ]]; then
         # Unbracketed IPv6 is ambiguous: in "::1:8080" the trailing group may
         # be a port or another hextet.  Refuse to guess.
+        # TODO(check_port): no preflight runs at all for this form.  If
+        # ServerOptions ever guarantees a normalized bracketed value here, this
+        # branch can resolve the port instead of skipping the check.
         echo "WARN: ambiguous IPv6 authority '$authority' in server URL;" \
              "use bracket notation such as [::1]:8080." >&2
         return 1
@@ -156,6 +164,9 @@ function parse_port_from_url() {
     fi
 
     # Fall back to the scheme's default port.
+    # TODO(check_port): a scheme-less value with no explicit port (e.g. plain
+    # "127.0.0.1") has no derivable port, so it is skipped rather than guessed.
+    # Reading the configured default from ServerOptions would close this gap.
     if [[ -z "$port" ]]; then
         case "$scheme" in
             http)  port="80" ;;
@@ -184,6 +195,18 @@ function parse_port_from_url() {
 # unrelated outbound connection to the same port number is never mistaken for
 # a local listener.  A tool that is missing, fails, or yields no recognisable
 # listener row reports "unknown" rather than "free".
+#
+# TODO(check_port): port-only matching ignores the listener's address, so a
+# listener bound to one local address (127.0.0.1:8080) reports the port busy
+# even when the server would bind a different one (192.168.1.5:8080).  This is
+# deliberate - it is what `lsof -i :PORT` did, and it fails safe - but it can
+# refuse a bind that would have succeeded.  If that is reported in practice,
+# revisit by comparing the local-address column instead of only its port.
+#
+# TODO(check_port): a host with genuinely zero LISTEN sockets is indistinguish-
+# able from a restricted or unparseable table, so both report "unknown" and
+# warn on every start.  Distinguishing them needs a positive signal that the
+# table was readable (e.g. an exit status ss/netstat do not currently give).
 function port_listen_state() {
     local port="$1"
     local out
@@ -229,6 +252,11 @@ function port_listen_state() {
         fi
     fi
 
+    # TODO(check_port): with neither ss nor netstat present (some minimal
+    # container images ship neither) there is no probe left, so the preflight
+    # is permanently "unknown" and never detects a busy port.  A dependency-
+    # free fallback would need a bounded connect, which was deliberately
+    # removed here; adding one back means re-solving the hang this PR fixes.
     echo "unknown"
 }
 
@@ -313,6 +341,9 @@ function wait_for_startup() {
 
         # Bound each probe by the time left in the overall deadline: without
         # --max-time a single blackholed request blocks past ${timeout_s}s.
+        # TODO(wait_for_startup): overshoot is now bounded but not zero - the
+        # loop still sleeps 2s after a probe and only then re-reads the clock,
+        # so the total can exceed ${timeout_s}s by roughly one sleep interval.
         local remain_s=$((stop_s - now_s))
         [ "$remain_s" -lt 1 ] && remain_s=1
         local connect_s=$((remain_s < 5 ? remain_s : 5))

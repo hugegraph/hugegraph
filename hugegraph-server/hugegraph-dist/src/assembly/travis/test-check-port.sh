@@ -21,6 +21,12 @@
 # The preflight is best effort: the server's own bind is authoritative.  These
 # tests pin the three-state contract (busy / free / unknown) rather than the
 # internals of any one probe.
+#
+# TODO(test-check-port): the Linux and BSD detection branches are both driven
+# by mocked tool output, so on any one runner only the host's own branch is
+# ever exercised against a real kernel.  The single real-listener case covers
+# whichever OS the job runs on.  Closing this needs the suite to run on both
+# a Linux and a macOS runner, which CI already does for the server job.
 
 set -u
 
@@ -75,7 +81,10 @@ url_cases=(
     'http://127.0.0.1:8080/path:9090|8080'
     'http://127.0.0.1:8080?probe=x|8080'
     'http://127.0.0.1:8080#frag|8080'
+    'http://user:pass@127.0.0.1:8080|8080'
+    'http://user@127.0.0.1:8080|8080'
     'http://[::1]:8080|8080'
+    'http://user:pass@[::1]:8080|8080'
     '[::1]:8080|8080'
     'https://[::1]|443'
     'http://127.0.0.1:08080|8080'
