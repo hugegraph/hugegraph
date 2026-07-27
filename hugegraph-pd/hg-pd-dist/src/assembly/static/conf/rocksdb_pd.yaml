@@ -18,7 +18,8 @@
 http:
   # normally parent path of db path
   document_root: /dev/shm/rocksdb_resource
-  listening_ports: '127.0.0.1:2011'
+  listening_ports: '127.0.0.1:2012'
+  auto_start_http: true
 setenv:
   StrSimpleEnvNameNotOverwrite: StringValue
   IntSimpleEnvNameNotOverwrite: 16384
@@ -139,7 +140,10 @@ CFOptions:
       - kSnappyCompression
       - kSnappyCompression
 DBOptions:
-  dbo:
+  log:
+    create_if_missing: true
+    create_missing_column_families: true
+  default:
     create_if_missing: true
     create_missing_column_families: false # this is important, must be false to hugegraph
     max_background_compactions: -1

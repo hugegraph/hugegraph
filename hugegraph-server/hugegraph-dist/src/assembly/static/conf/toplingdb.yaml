@@ -140,6 +140,9 @@ CFOptions:
       - kSnappyCompression
       - kSnappyCompression
 DBOptions:
+  log:
+    create_if_missing: true
+    create_missing_column_families: true
   default:
     create_if_missing: true
     create_missing_column_families: false # this is important, must be false to hugegraph
