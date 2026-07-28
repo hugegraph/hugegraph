@@ -35,6 +35,7 @@ import org.apache.hugegraph.schema.SchemaManager;
 import org.apache.hugegraph.task.TaskScheduler;
 import org.apache.hugegraph.testutil.Whitebox;
 import org.apache.hugegraph.type.define.IdStrategy;
+import org.apache.hugegraph.util.E;
 import org.apache.tinkerpop.gremlin.process.computer.GraphComputer;
 import org.apache.tinkerpop.gremlin.structure.Edge;
 import org.apache.tinkerpop.gremlin.structure.Graph;
@@ -98,18 +99,24 @@ public class TestGraph implements Graph {
 
     @Watched
     protected void clearAll(String testClass) {
-        if (!this.hasSchema() &&
-            !testClass.endsWith("VariableAsMapTest")) {
+        String backend = this.graph.backend();
+        boolean hasSchema = this.hasSchema();
+        boolean clearVariables = testClass.endsWith("VariableAsMapTest");
+        if (HSTORE_BACKEND.equals(backend)) {
+            // HStore keeps schema in PD, outside the truncated data store
+            this.truncateBackend();
+            if (hasSchema || clearVariables) {
+                this.clearSchemaAndVariables(testClass);
+            }
+            return;
+        }
+
+        if (!hasSchema && !clearVariables) {
             // No need to clear if there is no schema, data, or variables
             return;
         }
 
-        String backend = this.graph.backend();
-        if (HSTORE_BACKEND.equals(backend)) {
-            // HStore keeps schema in PD, outside the truncated data store
-            this.truncateBackend();
-            this.clearSchemaAndVariables(testClass);
-        } else if (TRUNCATE_BACKENDS.contains(backend)) {
+        if (TRUNCATE_BACKENDS.contains(backend)) {
             // Delete all data by truncating tables
             this.truncateBackend();
         } else {
@@ -117,16 +124,10 @@ public class TestGraph implements Graph {
         }
     }
 
-    @Watched
-    protected void clearForLoad() {
-        if (HSTORE_BACKEND.equals(this.graph.backend())) {
-            // An auxiliary graph can be loaded while its source remains open.
-            // Truncating it makes the source invisible to HStore scans.
-            // Only the bootstrap schema needs to be removed at this point.
-            this.clearSchema();
-        } else {
-            this.clearAll("");
-        }
+    protected void checkSchemaEmptyForLoad() {
+        E.checkState(!this.hasSchema(),
+                     "Graph '%s' must be cleared before loading graph data",
+                     this.graph.name());
     }
 
     private boolean hasSchema() {

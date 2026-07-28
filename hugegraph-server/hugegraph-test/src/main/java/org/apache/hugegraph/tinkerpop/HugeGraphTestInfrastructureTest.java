@@ -84,16 +84,49 @@ public class HugeGraphTestInfrastructureTest {
     }
 
     @Test
-    public void testHStoreLoadCleanupDoesNotTruncateBackend() {
+    public void testLoadRequiresEmptySchemaWithoutCleanup() {
         HugeGraph graph = Mockito.mock(HugeGraph.class);
+        SchemaManager schema = Mockito.mock(SchemaManager.class);
+        PropertyKey propertyKey = Mockito.mock(PropertyKey.class);
+        Mockito.when(graph.name()).thenReturn("load-target");
+        Mockito.when(graph.schema()).thenReturn(schema);
+        Mockito.when(schema.getPropertyKeys())
+               .thenReturn(Collections.singletonList(propertyKey));
+
+        CleanupTestGraph testGraph = new CleanupTestGraph(graph);
+        Assert.assertThrows(IllegalStateException.class, () -> {
+            testGraph.checkSchemaEmptyForLoad();
+        }, e -> {
+            Assert.assertContains("Graph 'load-target' must be cleared",
+                                  e.getMessage());
+        });
+
+        Assert.assertFalse(testGraph.backendTruncated);
+        Assert.assertFalse(testGraph.schemaCleared);
+        Assert.assertTrue(testGraph.cleanupSteps.isEmpty());
+    }
+
+    @Test
+    public void testHStoreCleanupTruncatesWithoutSchema() {
+        HugeGraph graph = Mockito.mock(HugeGraph.class);
+        SchemaManager schema = Mockito.mock(SchemaManager.class);
+        Mockito.when(graph.schema()).thenReturn(schema);
+        Mockito.when(schema.getPropertyKeys())
+               .thenReturn(Collections.emptyList());
+        Mockito.when(schema.getVertexLabels())
+               .thenReturn(Collections.emptyList());
+        Mockito.when(schema.getEdgeLabels())
+               .thenReturn(Collections.emptyList());
+        Mockito.when(schema.getIndexLabels())
+               .thenReturn(Collections.emptyList());
         Mockito.when(graph.backend()).thenReturn("hstore");
 
         CleanupTestGraph testGraph = new CleanupTestGraph(graph);
-        testGraph.clearForLoad();
+        testGraph.clearAll("");
 
-        Assert.assertFalse(testGraph.backendTruncated);
-        Assert.assertTrue(testGraph.schemaCleared);
-        Assert.assertEquals(Collections.singletonList("schema"),
+        Assert.assertTrue(testGraph.backendTruncated);
+        Assert.assertFalse(testGraph.schemaCleared);
+        Assert.assertEquals(Collections.singletonList("truncate"),
                             testGraph.cleanupSteps);
     }
 
