@@ -74,7 +74,8 @@ cleanup() {
     fi
     rm -f "$PID_FILE"
     rm -rf "$PD_ROOT/logs/"
-    # kill anything still holding the PD port (fuser avoids lsof dependency)
+    # kill anything still holding the PD port: fuser on Linux, lsof on macOS,
+    # which ships no fuser.  Only the Linux path had to lose its lsof dependency.
     if [[ "$(uname)" == "Darwin" ]]; then
         local port pids pid
         for port in 8620 8686; do

@@ -190,6 +190,10 @@ function parse_port_from_url() {
 
 # Echo "busy", "free" or "unknown" for the given TCP port.
 #
+# The port is compared as text against the listener table, so the argument must
+# already be normalised - parse_port_from_url() strips leading zeroes for this
+# reason, and "08080" passed directly here would not match a listener on 8080.
+#
 # Detection is deliberately port-only, matching the conservative behaviour of
 # the `lsof -i :PORT` call this replaces.  Reproducing kernel socket semantics
 # in Bash - dual-stack IPV6_V6ONLY, wildcard versus specific binds, address

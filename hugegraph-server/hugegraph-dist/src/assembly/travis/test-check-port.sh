@@ -44,6 +44,10 @@ source "$UTIL_SH"
 # Sections run in subshells so their command overrides stay isolated, which
 # means results have to be tallied through a file rather than a variable.
 RESULTS=$(mktemp)
+# Clean the tally on any exit, not only the normal one.  Section 5 runs outside
+# a subshell and has to extend this trap, so it restores this handler rather
+# than clearing it.
+trap 'rm -f "$RESULTS"' EXIT
 
 pass() {
     echo "  PASS  $1"
@@ -229,6 +233,10 @@ echo ""
 echo "5. Real listener on an ephemeral port"
 if command -v python3 >/dev/null 2>&1; then
     PORT_FILE=$(mktemp)
+    # Cover the temp file from the moment it exists, then widen the trap to the
+    # child as soon as there is a pid; registering only after the fork leaves a
+    # window where an interrupt orphans the listener for its full 30s sleep.
+    trap 'rm -f "$PORT_FILE" "$RESULTS"' EXIT
     python3 -c '
 import socket, sys, time
 s = socket.socket()
@@ -239,13 +247,16 @@ sys.stdout.flush()
 time.sleep(30)
 ' > "$PORT_FILE" &
     PY_PID=$!
-    trap 'kill "$PY_PID" 2>/dev/null; rm -f "$PORT_FILE"' EXIT
+    trap 'kill "$PY_PID" 2>/dev/null; rm -f "$PORT_FILE" "$RESULTS"' EXIT
 
     BOUND=""
     for _ in 1 2 3 4 5 6 7 8 9 10; do
         BOUND=$(head -1 "$PORT_FILE" 2>/dev/null)
         [[ -n "$BOUND" ]] && break
-        sleep 0.5
+        # Whole seconds only: fractional sleep is not POSIX, and this suite runs
+        # with `set -u` but no `-e`, so a busybox sleep would fail silently and
+        # spin all ten iterations instantly.
+        sleep 1
     done
 
     if [[ -z "$BOUND" ]] || ! kill -0 "$PY_PID" 2>/dev/null; then
@@ -269,7 +280,9 @@ print(p)')
     kill "$PY_PID" 2>/dev/null
     wait "$PY_PID" 2>/dev/null
     rm -f "$PORT_FILE"
-    trap - EXIT
+    # Restore the script-level handler rather than clearing it, so the tally
+    # file stays covered for the remaining sections.
+    trap 'rm -f "$RESULTS"' EXIT
 else
     echo "  SKIP  real listener test: python3 not available"
 fi

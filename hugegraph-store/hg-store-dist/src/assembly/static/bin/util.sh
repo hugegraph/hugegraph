@@ -72,19 +72,13 @@ function parse_yaml() {
 }
 
 function process_num() {
-    local num
     num=$(ps -ef | grep "$1" | grep -v grep | wc -l)
-    if (( num > 0 )); then
-        return 1
-    fi
-    return 0
+    return "$num"
 }
 
 function process_id() {
-    local pid
     pid=$(ps -ef | grep "$1" | grep -v grep | awk '{print $2}')
-    echo "$pid"
-    return 0
+    return "$pid"
 }
 
 function crontab_append() {
