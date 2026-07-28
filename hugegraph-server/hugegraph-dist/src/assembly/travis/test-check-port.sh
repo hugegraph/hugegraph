@@ -93,6 +93,12 @@ url_cases=(
     'http://127.0.0.1:0|SKIP'
     'http://127.0.0.1:70000|SKIP'
     '127.0.0.1|SKIP'
+    # Oversized values must be rejected on their digits, not after a 64-bit
+    # arithmetic conversion that would wrap them back into range.
+    'http://127.0.0.1:18446744073709551617|SKIP'
+    'http://127.0.0.1:18446744073709559616|SKIP'
+    'http://127.0.0.1:0000000000000008080|8080'
+    'http://127.0.0.1:00000|SKIP'
 )
 for case in "${url_cases[@]}"; do
     url="${case%|*}"

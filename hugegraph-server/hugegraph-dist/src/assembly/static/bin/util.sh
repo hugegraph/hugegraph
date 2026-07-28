@@ -176,8 +176,13 @@ function parse_port_from_url() {
     fi
 
     [[ "$port" =~ ^[0-9]+$ ]] || return 1
-    # Normalise leading-zero forms; Java reads 08080 as decimal 8080.
-    port=$((10#$port))
+    # Normalise leading-zero forms textually; Java reads 08080 as decimal 8080.
+    # Arithmetic conversion must not happen before the value is bounded: Bash
+    # evaluates in 64-bit and wraps silently, so 18446744073709559616 would
+    # otherwise pass the range check as port 8000.
+    port="${port#"${port%%[!0]*}"}"
+    [[ -z "$port" ]] && return 1
+    (( ${#port} <= 5 )) || return 1
     (( port >= 1 && port <= 65535 )) || return 1
 
     echo "$port"
