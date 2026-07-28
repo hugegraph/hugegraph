@@ -82,13 +82,36 @@ assert_prop_defined_once() {
     if [[ "${n}" == "1" ]]; then ok; else fail "expected '$1' defined once, found ${n}"; fi
 }
 
+# Matches the separator set assert_prop_defined_once uses, so a `key:value` or
+# `key value` definition cannot pass as absent
 assert_no_prop_key() {
-    if grep -qE "^[[:space:]]*$1[[:space:]]*=" \
+    if grep -qE "^[[:space:]]*$1([[:space:]]*[=:]|[[:space:]])" \
             "${INSTALL}/conf/rest-server.properties" 2>/dev/null; then
         fail "expected no '$1' property"
     else
         ok
     fi
+}
+
+# Auth is only fully enabled when all three configs agree: the REST properties,
+# the gremlin-server.yaml authentication block and the graph's auth proxy
+assert_auth_fully_enabled() {
+    local n
+    n=$(grep -cE '^[[:space:]]*authentication:' \
+        "${INSTALL}/conf/gremlin-server.yaml" 2>/dev/null || true)
+    if [[ "${n}" == "1" ]]; then
+        ok
+    else
+        fail "expected one gremlin-server.yaml authentication block, found ${n}"
+    fi
+    if grep -qxF "gremlin.graph=org.apache.hugegraph.auth.HugeFactoryAuthProxy" \
+            "${INSTALL}/conf/graphs/hugegraph.properties" 2>/dev/null; then
+        ok
+    else
+        fail "expected hugegraph.properties to use HugeFactoryAuthProxy"
+    fi
+    assert_prop_defined_once "auth.authenticator"
+    assert_prop_defined_once "auth.graph_store"
 }
 
 # Build a throwaway install tree with stubbed bin scripts
@@ -103,7 +126,12 @@ graphs=./conf/graphs
 #auth.authenticator=org.apache.hugegraph.auth.StandardAuthenticator
 #auth.admin_pa=pa
 EOF
-    echo "backend=rocksdb" > "${INSTALL}/conf/graphs/hugegraph.properties"
+    cat > "${INSTALL}/conf/graphs/hugegraph.properties" <<'EOF'
+backend=rocksdb
+gremlin.graph=org.apache.hugegraph.HugeFactory
+EOF
+    # Shipped without an authentication block, which is what enable-auth.sh adds
+    echo "host: 0.0.0.0" > "${INSTALL}/conf/gremlin-server.yaml"
 
     local script
     for script in wait-storage start-hugegraph wait-partition; do
@@ -127,11 +155,25 @@ exit 0
 EOF
     chmod +x "${INSTALL}/bin/init-store.sh"
 
+    # Mirrors bin/enable-auth.sh: appends the REST keys and the YAML
+    # authentication block, and switches the graph to the auth proxy
     cat > "${INSTALL}/bin/enable-auth.sh" <<EOF
 #!/bin/bash
 echo "enable-auth.sh" >> "${INSTALL}/calls.log"
-echo "auth.authenticator=org.apache.hugegraph.auth.StandardAuthenticator" \
-    >> "${INSTALL}/conf/rest-server.properties"
+{
+    echo "auth.authenticator=org.apache.hugegraph.auth.StandardAuthenticator"
+    echo "auth.graph_store=hugegraph"
+} >> "${INSTALL}/conf/rest-server.properties"
+cat >> "${INSTALL}/conf/gremlin-server.yaml" <<'YAML'
+authentication: {
+  authenticator: org.apache.hugegraph.auth.StandardAuthenticator,
+  authenticationHandler: org.apache.hugegraph.auth.WsAndHttpBasicAuthHandler,
+  config: {tokens: conf/rest-server.properties}
+}
+YAML
+sed -i.bak 's/gremlin.graph=org.apache.hugegraph.HugeFactory/gremlin.graph=org.apache.hugegraph.auth.HugeFactoryAuthProxy/g' \
+    "${INSTALL}/conf/graphs/hugegraph.properties"
+rm -f "${INSTALL}/conf/graphs/hugegraph.properties.bak"
 EOF
     chmod +x "${INSTALL}/bin/enable-auth.sh"
 
@@ -174,6 +216,7 @@ assert_ran "enable-auth.sh"
 assert_ran "init-store.sh"
 assert_ran "init-store.sh:stdin=s3cret"
 assert_file "docker/init_complete"
+assert_auth_fully_enabled
 cleanup
 
 echo "==> skip via env: init-store never runs and no init flag is written"
@@ -366,10 +409,65 @@ echo "auth.authenticator=org.apache.hugegraph.auth.StandardAuthenticator" \
 echo "auth.graph_store=hugegraph" >> "${INSTALL}/conf/rest-server.properties"
 run_entrypoint HG_SERVER_INIT_STORE_ENABLED=false PASSWORD=s3cret
 assert_not_ran "enable-auth.sh"
-assert_prop_defined_once "auth.authenticator"
-assert_prop_defined_once "auth.graph_store"
 assert_prop_defined_once "auth.admin_pa"
 assert_prop "auth.admin_pa" "s3cret"
+# The mounted config carried only the REST keys, so the YAML block and the auth
+# proxy still have to be applied, or Gremlin would stay unauthenticated
+assert_auth_fully_enabled
+cleanup
+
+echo "==> mounted config with only auth.authenticator still authenticates Gremlin"
+new_install
+enable_pd
+echo "auth.authenticator=org.apache.hugegraph.auth.StandardAuthenticator" \
+    >> "${INSTALL}/conf/rest-server.properties"
+run_entrypoint HG_SERVER_INIT_STORE_ENABLED=false PASSWORD=s3cret
+assert_not_ran "enable-auth.sh"
+assert_auth_fully_enabled
+assert_prop "auth.graph_store" "hugegraph"
+cleanup
+
+echo "==> a pre-authenticated mount is completed, not duplicated"
+new_install
+enable_pd
+# Everything already in place, as after a restart with the conf dir mounted
+"${INSTALL}/bin/enable-auth.sh"
+: > "${INSTALL}/calls.log"
+run_entrypoint HG_SERVER_INIT_STORE_ENABLED=false PASSWORD=s3cret
+assert_not_ran "enable-auth.sh"
+assert_auth_fully_enabled
+cleanup
+
+echo "==> a custom authenticator is not held to the usePD requirement"
+new_install
+echo "auth.authenticator=org.example.auth.LdapAuthenticator" \
+    >> "${INSTALL}/conf/rest-server.properties"
+run_entrypoint -u PASSWORD HG_SERVER_INIT_STORE_ENABLED=false
+assert_ran "start-hugegraph.sh"
+assert_not_ran "init-store.sh"
+cleanup
+
+echo "==> surrounding whitespace is trimmed, inner whitespace is kept"
+new_install
+printf 'auth.authenticator = %s   \n' \
+    "org.apache.hugegraph.auth.StandardAuthenticator" \
+    >> "${INSTALL}/conf/rest-server.properties"
+# Trailing spaces must not stop the value matching the built-in class, or the
+# admin-account requirement below would be skipped for a config that needs it
+if ( cd "${INSTALL}" && env -u PASSWORD HG_SERVER_INIT_STORE_ENABLED=false \
+        bash "${ENTRYPOINT}" ) >/dev/null 2>&1; then
+    fail "expected a padded auth.authenticator to still be recognized"
+else
+    ok
+fi
+cleanup
+
+echo "==> a value containing spaces survives the round trip"
+new_install
+enable_pd
+run_entrypoint HG_SERVER_INIT_STORE_ENABLED=false 'PASSWORD=two words'
+assert_prop "auth.admin_pa" "two words"
+assert_prop_defined_once "auth.admin_pa"
 cleanup
 
 echo "==> remote auth is exempt from the usePD requirement"

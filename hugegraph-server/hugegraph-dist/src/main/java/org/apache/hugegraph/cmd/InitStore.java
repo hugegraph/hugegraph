@@ -148,11 +148,13 @@ public class InitStore {
      * to authenticate against.
      * <p>
      * Remote auth is exempt: the auth manager is then an RPC client, and
-     * StandardAuthenticator only bootstraps an admin for a local one.
+     * StandardAuthenticator only bootstraps an admin for a local one. So is
+     * any authenticator other than the built-in one, which keeps its
+     * identities outside HugeGraph and needs no such account.
      */
     private static void checkAdminBootstrapReachable(HugeConfig conf,
                                                      String restConf) {
-        if (conf.get(ServerOptions.AUTHENTICATOR).isEmpty() ||
+        if (!requiresBuiltinAdmin(conf.get(ServerOptions.AUTHENTICATOR)) ||
             conf.get(ServerOptions.USE_PD) ||
             !conf.get(ServerOptions.AUTH_REMOTE_URL).isEmpty()) {
             return;
@@ -166,6 +168,29 @@ public class InitStore {
                 ServerOptions.USE_PD.name(), ServerOptions.USE_PD.name(),
                 ServerOptions.AUTH_REMOTE_URL.name(),
                 ServerOptions.INIT_STORE_ENABLED.name()));
+    }
+
+    /**
+     * HugeAuthenticator.loadAuthenticator() accepts any implementation class,
+     * and only StandardAuthenticator bootstraps HugeGraph's built-in admin
+     * account. A custom one (LDAP, OIDC, a plugin) manages its identities
+     * elsewhere, so it must not be held to the requirement above. The class is
+     * resolved without initializing it, and one that is not on the init-store
+     * classpath is by definition not the built-in authenticator.
+     */
+    private static boolean requiresBuiltinAdmin(String authClass) {
+        if (authClass.isEmpty()) {
+            return false;
+        }
+        try {
+            Class<?> clazz = Class.forName(authClass, false,
+                                           InitStore.class.getClassLoader());
+            return StandardAuthenticator.class.isAssignableFrom(clazz);
+        } catch (ClassNotFoundException | LinkageError e) {
+            LOG.info("Authenticator '{}' is not resolvable here, assuming it " +
+                     "does not need the built-in admin account", authClass);
+            return false;
+        }
     }
 
     private static HugeGraph initGraph(String configPath) throws Exception {

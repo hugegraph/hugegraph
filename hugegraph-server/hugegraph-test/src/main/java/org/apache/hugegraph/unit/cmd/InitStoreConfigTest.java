@@ -28,6 +28,7 @@ import java.util.List;
 import java.util.stream.Stream;
 
 import org.apache.commons.configuration2.PropertiesConfiguration;
+import org.apache.hugegraph.auth.StandardAuthenticator;
 import org.apache.hugegraph.cmd.InitStore;
 import org.apache.hugegraph.config.HugeConfig;
 import org.apache.hugegraph.config.OptionSpace;
@@ -53,6 +54,7 @@ public class InitStoreConfigTest {
     private static final String ROCKSDB_OPTION = "rocksdb.data_path";
 
     private Path workDir;
+    private int confSeq;
 
     @BeforeClass
     public static void registerOptions() {
@@ -143,16 +145,19 @@ public class InitStoreConfigTest {
      * registerPlugins(): plugin registration runs every discovered plugin's
      * register() and propagates its failures, which a documented no-op path
      * must not do. Backend options land in OptionSpace only via
-     * registerBackends(), so their absence shows it was never called.
+     * registerBackends(), so their registration state shows whether it ran.
+     * OptionSpace is process-wide, so the assertion is that main() leaves that
+     * state unchanged rather than that it starts out empty.
      */
     @Test
     public void testDisabledInitStoreSkipsBackendAndPluginRegistration()
                                                             throws Exception {
-        Assert.assertFalse(OptionSpace.containKey(ROCKSDB_OPTION));
+        boolean backendsRegistered = OptionSpace.containKey(ROCKSDB_OPTION);
 
         InitStore.main(new String[]{this.writeDisabledRestServerConf()});
 
-        Assert.assertFalse(OptionSpace.containKey(ROCKSDB_OPTION));
+        Assert.assertEquals(backendsRegistered,
+                            OptionSpace.containKey(ROCKSDB_OPTION));
         // Server options are still registered, since the gate is read from them
         Assert.assertTrue(OptionSpace.containKey(
                           ServerOptions.INIT_STORE_ENABLED.name()));
@@ -190,12 +195,37 @@ public class InitStoreConfigTest {
         InitStore.main(new String[]{restConf});
     }
 
+    /**
+     * auth.authenticator takes any implementation class, and only the built-in
+     * one bootstraps HugeGraph's admin account. A custom authenticator keeps
+     * its identities elsewhere, so the check must not reject it; a subclass of
+     * the built-in one still relies on the same bootstrap.
+     */
+    @Test
+    public void testDisabledInitStoreAllowsCustomAuthenticator()
+                                                        throws Exception {
+        String restConf = this.writeDisabledRestServerConf(
+                ServerOptions.AUTHENTICATOR.name() +
+                "=org.example.auth.LdapAuthenticator");
+
+        InitStore.main(new String[]{restConf});
+
+        String subclassConf = this.writeDisabledRestServerConf(
+                ServerOptions.AUTHENTICATOR.name() + "=" +
+                DerivedAuthenticator.class.getName());
+
+        Assert.assertThrows(IllegalStateException.class, () -> {
+            InitStore.main(new String[]{subclassConf});
+        }, e -> Assert.assertContains("Refusing to skip init-store",
+                                      e.getMessage()));
+    }
+
     private String writeDisabledRestServerConf(String... extraLines)
                                                throws IOException {
-        // A distinct file per call, so the tests that write extra lines do not
-        // collide with each other inside one temporary directory
+        // A distinct file per call, so two configs written by one test do not
+        // collide inside its temporary directory
         Path restConf = this.workDir.resolve(
-                "rest-server-" + extraLines.length + ".properties");
+                "rest-server-" + this.confSeq++ + ".properties");
         String graphsDir = this.workDir.resolve(MISSING_GRAPHS_DIR).toString();
         List<String> lines = new ArrayList<>();
         lines.add(ServerOptions.GRAPHS.name() + "=" + graphsDir);
@@ -203,5 +233,12 @@ public class InitStoreConfigTest {
         lines.addAll(Arrays.asList(extraLines));
         Files.write(restConf, lines, StandardCharsets.UTF_8);
         return restConf.toString();
+    }
+
+    /**
+     * Stands in for a deployment that subclasses the built-in authenticator,
+     * which still depends on the admin account it creates.
+     */
+    public static class DerivedAuthenticator extends StandardAuthenticator {
     }
 }

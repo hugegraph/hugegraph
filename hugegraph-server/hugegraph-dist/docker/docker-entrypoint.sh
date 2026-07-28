@@ -21,6 +21,13 @@ DOCKER_FOLDER="./docker"
 INIT_FLAG_FILE="init_complete"
 GRAPH_CONF="./conf/graphs/hugegraph.properties"
 REST_SERVER_CONF="./conf/rest-server.properties"
+GREMLIN_SERVER_CONF="./conf/gremlin-server.yaml"
+
+# The only in-tree HugeAuthenticator that bootstraps HugeGraph's built-in admin
+# account. auth.authenticator accepts any implementation class, and a custom one
+# (LDAP, OIDC, a plugin) manages its identities elsewhere, so the admin-account
+# requirement below must not be applied to it.
+BUILTIN_AUTHENTICATOR="org.apache.hugegraph.auth.StandardAuthenticator"
 
 mkdir -p "${DOCKER_FOLDER}"
 
@@ -84,7 +91,9 @@ props_escape() {
 # Echoes the value of a property, or nothing when the key or the file is
 # absent, so callers apply their own default. Accepts the `=`, `:` and
 # whitespace separators that properties files allow. On duplicate keys the last
-# one wins, matching how the properties parser reads the same file.
+# one wins, matching how the properties parser reads the same file. Only
+# surrounding whitespace is trimmed, as the parser does; whitespace inside a
+# value is part of the value and deleting it would corrupt one.
 get_prop() {
     local key="$1" file="$2"
     local esc_key
@@ -93,7 +102,7 @@ get_prop() {
     esc_key=$(printf '%s' "$key" | sed -e 's/[][(){}.^$*+?|\\/]/\\&/g')
     # '#' delimits the s command because the pattern itself contains '|'
     sed -rn "s#^[[:space:]]*${esc_key}([[:space:]]*[=:]|[[:space:]]+)[[:space:]]*(.*)\$#\\2#p" \
-        "${file}" | tail -n 1 | tr -d '[:space:]'
+        "${file}" | tail -n 1 | sed -e 's/[[:space:]]*$//'
 }
 
 # Canonicalizes a boolean the way the server does. HugeConfig parses these
@@ -108,6 +117,64 @@ to_bool() {
         n|f|no|off|false)  echo "false" ;;
         *)                 return 1 ;;
     esac
+}
+
+gremlin_auth_configured() {
+    grep -qE '^[[:space:]]*authentication:' "${GREMLIN_SERVER_CONF}" 2>/dev/null
+}
+
+graph_auth_proxy_configured() {
+    [[ "$(get_prop "gremlin.graph" "${GRAPH_CONF}")" == \
+       "org.apache.hugegraph.auth.HugeFactoryAuthProxy" ]]
+}
+
+# Enables auth across all three configs. bin/enable-auth.sh does the same, but
+# it appends unconditionally and guards itself only with conf-bak, which a
+# mounted conf directory does not carry. Running it over a config that already
+# enables auth would define the REST keys twice, which the parser rejects, and
+# append a second `authentication:` block to the YAML. Skipping it instead would
+# leave Gremlin unauthenticated and the graph outside the auth proxy whenever a
+# mounted config sets only auth.authenticator. So run it for the untouched
+# shipped config, and otherwise apply exactly the parts that are missing.
+ensure_auth_enabled() {
+    local authenticator
+    authenticator=$(get_prop "auth.authenticator" "${REST_SERVER_CONF}")
+
+    if [[ -z "${authenticator}" ]] && ! gremlin_auth_configured && \
+       ! graph_auth_proxy_configured; then
+        ./bin/enable-auth.sh
+    else
+        log "auth is already partly configured; applying only what is missing"
+        if [[ -z "${authenticator}" ]]; then
+            set_prop "auth.authenticator" "${BUILTIN_AUTHENTICATOR}" \
+                     "${REST_SERVER_CONF}"
+        fi
+        if [[ -z "$(get_prop "auth.graph_store" "${REST_SERVER_CONF}")" ]]; then
+            set_prop "auth.graph_store" "hugegraph" "${REST_SERVER_CONF}"
+        fi
+        if ! gremlin_auth_configured; then
+            # Kept in step with bin/enable-auth.sh, which owns this block,
+            # except that Gremlin is pointed at whichever authenticator the
+            # REST config names rather than always at the built-in one
+            cat >> "${GREMLIN_SERVER_CONF}" <<EOF
+authentication: {
+  authenticator: ${authenticator:-${BUILTIN_AUTHENTICATOR}},
+  authenticationHandler: org.apache.hugegraph.auth.WsAndHttpBasicAuthHandler,
+  config: {tokens: conf/rest-server.properties}
+}
+EOF
+        fi
+        if ! graph_auth_proxy_configured; then
+            set_prop "gremlin.graph" \
+                     "org.apache.hugegraph.auth.HugeFactoryAuthProxy" \
+                     "${GRAPH_CONF}"
+        fi
+    fi
+
+    # enable-auth.sh appends rather than replaces, so collapse whatever it left
+    # behind into one definition per key
+    canonicalize_prop "auth.authenticator" "${REST_SERVER_CONF}"
+    canonicalize_prop "auth.graph_store" "${REST_SERVER_CONF}"
 }
 
 migrate_env() {
@@ -175,9 +242,13 @@ if [[ "${INIT_STORE_ENABLED:-true}" == "false" ]]; then
     # `usePD=true`. Enabling auth without that combination starts a server
     # that enforces authentication while no account exists, so refuse it here
     # rather than fail every request later.
+    # Only the built-in authenticator relies on that account: any other
+    # implementation class keeps its identities outside HugeGraph, so requiring
+    # usePD for it would reject a deployment that works
     AUTH_REQUESTED=""
     [[ -n "${PASSWORD:-}" ]] && AUTH_REQUESTED=1
-    [[ -n "$(get_prop "auth.authenticator" "${REST_SERVER_CONF}")" ]] && AUTH_REQUESTED=1
+    [[ "$(get_prop "auth.authenticator" "${REST_SERVER_CONF}")" == \
+       "${BUILTIN_AUTHENTICATOR}" ]] && AUTH_REQUESTED=1
     # Remote auth delegates to another service and has no local admin to
     # create, so it is exempt from the requirement below
     [[ -n "$(get_prop "auth.remote_url" "${REST_SERVER_CONF}")" ]] && AUTH_REQUESTED=""
@@ -200,16 +271,7 @@ if [[ "${INIT_STORE_ENABLED:-true}" == "false" ]]; then
 
     if [[ -n "${PASSWORD:-}" ]]; then
         log "enabling auth mode, admin password applied via auth.admin_pa"
-        # enable-auth.sh appends its keys unconditionally on its first run, so
-        # running it against a mounted config that already enables auth would
-        # leave those scalar keys defined twice, which the config parser
-        # rejects. Only run it when auth is not configured yet, then collapse
-        # whatever it appended into single definitions.
-        if [[ -z "$(get_prop "auth.authenticator" "${REST_SERVER_CONF}")" ]]; then
-            ./bin/enable-auth.sh
-        fi
-        canonicalize_prop "auth.authenticator" "${REST_SERVER_CONF}"
-        canonicalize_prop "auth.graph_store" "${REST_SERVER_CONF}"
+        ensure_auth_enabled
         # TODO: auth.admin_pa only applies when the admin account is first
         # created, so changing PASSWORD on a later restart silently keeps the
         # old one. It also leaves the password at rest in rest-server.properties,
@@ -226,7 +288,7 @@ elif [[ ! -f "${DOCKER_FOLDER}/${INIT_FLAG_FILE}" ]]; then
         ./bin/init-store.sh
     else
         log "init hugegraph with auth mode"
-        ./bin/enable-auth.sh
+        ensure_auth_enabled
         echo "${PASSWORD}" | ./bin/init-store.sh
     fi
     # TODO: this flag only tracks "init has run", not what it ran with. On a
