@@ -427,6 +427,22 @@ assert_auth_fully_enabled
 assert_prop "auth.graph_store" "hugegraph"
 cleanup
 
+echo "==> a gremlin-server.yaml without a trailing newline is still valid"
+new_install
+enable_pd
+echo "auth.authenticator=org.apache.hugegraph.auth.StandardAuthenticator" \
+    >> "${INSTALL}/conf/rest-server.properties"
+printf 'host: 0.0.0.0' > "${INSTALL}/conf/gremlin-server.yaml"
+run_entrypoint HG_SERVER_INIT_STORE_ENABLED=false PASSWORD=s3cret
+assert_auth_fully_enabled
+# The appended block must start on its own line, not glued onto 'host: 0.0.0.0'
+if grep -qxF "host: 0.0.0.0" "${INSTALL}/conf/gremlin-server.yaml"; then
+    ok
+else
+    fail "the last pre-existing line was absorbed by the appended block"
+fi
+cleanup
+
 echo "==> a pre-authenticated mount is completed, not duplicated"
 new_install
 enable_pd
@@ -504,6 +520,25 @@ else
     ok
 fi
 cleanup
+
+echo "==> the entrypoint's auth block has not drifted from enable-auth.sh"
+# The entrypoint reapplies what bin/enable-auth.sh would have done when it
+# cannot run the script itself, so the two must name the same classes and keys
+ENABLE_AUTH="${SELF_DIR}/../../src/assembly/static/bin/enable-auth.sh"
+if [[ -f "${ENABLE_AUTH}" ]]; then
+    for token in "authentication: {" "WsAndHttpBasicAuthHandler" \
+                 "tokens: conf/rest-server.properties" "auth.graph_store" \
+                 "HugeFactoryAuthProxy"; do
+        if grep -qF "${token}" "${ENABLE_AUTH}" && \
+           ! grep -qF "${token}" "${ENTRYPOINT}"; then
+            fail "enable-auth.sh has '${token}' but the entrypoint does not"
+        else
+            ok
+        fi
+    done
+else
+    fail "enable-auth.sh not found at ${ENABLE_AUTH}"
+fi
 
 echo
 echo "passed: ${PASS}, failed: ${FAIL}"

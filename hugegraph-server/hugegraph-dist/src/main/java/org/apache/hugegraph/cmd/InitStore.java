@@ -96,9 +96,10 @@ public class InitStore {
          * NOTE: skipping also means the built-in admin account is not created
          * here. The only other code path that creates it is
          * GraphManager.initAdminUserIfNeeded(), reached from loadMetaFromPD(),
-         * which runs only when 'usePD' is true. Enabling auth with this option
-         * false and 'usePD' false therefore yields a server that enforces
-         * authentication with no account to authenticate against.
+         * which runs only when 'usePD' is true. Configuring the built-in
+         * authenticator with this option false and 'usePD' false therefore
+         * yields a server that enforces authentication with no account to
+         * authenticate against, which checkAdminBootstrapReachable() refuses.
          */
         if (!restServerConfig.get(ServerOptions.INIT_STORE_ENABLED)) {
             LOG.warn("Skipping init-store: '{}' is false in '{}'. Local " +

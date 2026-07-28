@@ -377,8 +377,8 @@ public class ServerOptions extends OptionHolder {
                     "owns the metadata. Note that setting it false also means " +
                     "the admin account is not created here, and the only " +
                     "other component that creates it requires 'usePD' to be " +
-                    "true, so enabling auth without that would leave no " +
-                    "account to authenticate against.",
+                    "true, so configuring the built-in authenticator without " +
+                    "that would leave no account to authenticate against.",
                     disallowEmpty(),
                     true
             );

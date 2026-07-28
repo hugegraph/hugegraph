@@ -100,8 +100,9 @@ get_prop() {
 
     [[ -f "${file}" ]] || return 0
     esc_key=$(printf '%s' "$key" | sed -e 's/[][(){}.^$*+?|\\/]/\\&/g')
-    # '#' delimits the s command because the pattern itself contains '|'
-    sed -rn "s#^[[:space:]]*${esc_key}([[:space:]]*[=:]|[[:space:]]+)[[:space:]]*(.*)\$#\\2#p" \
+    # '#' delimits the s command because the pattern itself contains '|'.
+    # '-E' rather than '-r': both GNU and BSD sed accept it
+    sed -En "s#^[[:space:]]*${esc_key}([[:space:]]*[=:]|[[:space:]]+)[[:space:]]*(.*)\$#\\2#p" \
         "${file}" | tail -n 1 | sed -e 's/[[:space:]]*$//'
 }
 
@@ -144,7 +145,7 @@ ensure_auth_enabled() {
        ! graph_auth_proxy_configured; then
         ./bin/enable-auth.sh
     else
-        log "auth is already partly configured; applying only what is missing"
+        log "auth is already configured in part; applying anything still missing"
         if [[ -z "${authenticator}" ]]; then
             set_prop "auth.authenticator" "${BUILTIN_AUTHENTICATOR}" \
                      "${REST_SERVER_CONF}"
@@ -153,6 +154,12 @@ ensure_auth_enabled() {
             set_prop "auth.graph_store" "hugegraph" "${REST_SERVER_CONF}"
         fi
         if ! gremlin_auth_configured; then
+            # A file whose last line has no newline would otherwise absorb the
+            # first line of the block
+            if [[ -s "${GREMLIN_SERVER_CONF}" && \
+                  -n "$(tail -c 1 "${GREMLIN_SERVER_CONF}")" ]]; then
+                echo >> "${GREMLIN_SERVER_CONF}"
+            fi
             # Kept in step with bin/enable-auth.sh, which owns this block,
             # except that Gremlin is pointed at whichever authenticator the
             # REST config names rather than always at the built-in one
