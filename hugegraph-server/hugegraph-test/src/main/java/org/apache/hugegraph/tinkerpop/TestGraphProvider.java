@@ -403,7 +403,6 @@ public class TestGraphProvider extends AbstractGraphProvider {
         String graphName = config.getString(CoreOptions.STORE.name());
         Class<?> testClass = (Class<?>) config.getProperty(TEST_CLASS);
         String testMethod = config.getString(TEST_METHOD);
-        Object loadGraph = config.getProperty(LOAD_GRAPH);
 
         TestGraph testGraph = this.graphs.get(graphName);
         if (testGraph == null) {
@@ -416,48 +415,45 @@ public class TestGraphProvider extends AbstractGraphProvider {
         // Ensure tx clean
         testGraph.tx().rollback();
 
+        // Define property key 'aKey' based on specified type in test name
+        String aKeyType = getAKeyType(testClass, testMethod);
+        if (aKeyType != null) {
+            testGraph.initPropertyKey("aKey", aKeyType);
+        }
+
+        if (testMethod.equals(
+                "shouldHaveTruncatedStringRepresentationForEdgeProperty")) {
+            testGraph.initPropertyKey("long", "String");
+        } else {
+            testGraph.initPropertyKey("long", "Long");
+        }
+
+        if (isTransactionMultiThreadedPropertyTest(testClass, testMethod)) {
+            testGraph.initPropertyKey("test", "Integer");
+        }
+
+        // Basic schema is initiated by default once a graph is open
+        String selfVL = isMergeEdgeSelfTest(testClass, testMethod) ?
+                        "person" : TestGraph.DEFAULT_VL;
+        testGraph.initBasicSchema(idStrategy(config), TestGraph.DEFAULT_VL,
+                                  selfVL);
+        if (testClass.getName().equals(
+                "org.apache.tinkerpop.gremlin.process.traversal.step.map.ReadTest$Traversals")) {
+            testGraph.initEdgeLabelPersonKnowsPerson();
+            testGraph.initEdgeLabelPersonCreatedSoftware();
+        } else {
+            testGraph.initEdgeLabelDefaultKnowsDefault(TestGraph.DEFAULT_VL);
+            testGraph.initEdgeLabelDefaultCreatedDefault(TestGraph.DEFAULT_VL);
+        }
+        testGraph.tx().commit();
+
         testGraph.loadedGraph(getIoType(testClass, testMethod));
         testGraph.autoPerson(false);
         testGraph.ioTest(isIoTest(testClass));
 
-        if (loadGraph == null) {
-            // Define property key 'aKey' based on specified type in test name
-            String aKeyType = getAKeyType(testClass, testMethod);
-            if (aKeyType != null) {
-                testGraph.initPropertyKey("aKey", aKeyType);
-            }
-
-            if (testMethod.equals(
-                    "shouldHaveTruncatedStringRepresentationForEdgeProperty")) {
-                testGraph.initPropertyKey("long", "String");
-            } else {
-                testGraph.initPropertyKey("long", "Long");
-            }
-
-            if (isTransactionMultiThreadedPropertyTest(testClass,
-                                                       testMethod)) {
-                testGraph.initPropertyKey("test", "Integer");
-            }
-
-            // Basic schema is initiated by default once a graph is open
-            String selfVL = isMergeEdgeSelfTest(testClass, testMethod) ?
-                            "person" : TestGraph.DEFAULT_VL;
-            testGraph.initBasicSchema(idStrategy(config), TestGraph.DEFAULT_VL,
-                                      selfVL);
-            if (testClass.getName().equals(
-                    "org.apache.tinkerpop.gremlin.process.traversal.step.map.ReadTest$Traversals")) {
-                testGraph.initEdgeLabelPersonKnowsPerson();
-                testGraph.initEdgeLabelPersonCreatedSoftware();
-            } else {
-                testGraph.initEdgeLabelDefaultKnowsDefault(
-                        TestGraph.DEFAULT_VL);
-                testGraph.initEdgeLabelDefaultCreatedDefault(
-                        TestGraph.DEFAULT_VL);
-            }
-            testGraph.tx().commit();
-        } else if (!graphName.endsWith(STANDARD)) {
-            this.loadGraphData(testGraph,
-                               (LoadGraphWith.GraphData) loadGraph);
+        Object loadGraph = config.getProperty(LOAD_GRAPH);
+        if (loadGraph != null && !graphName.endsWith(STANDARD)) {
+            this.loadGraphData(testGraph, (LoadGraphWith.GraphData) loadGraph);
         }
 
         // Used for travis ci output log
@@ -546,7 +542,8 @@ public class TestGraphProvider extends AbstractGraphProvider {
                               final LoadGraphWith.GraphData loadGraphWith) {
         TestGraph testGraph = (TestGraph) graph;
 
-        testGraph.checkSchemaEmptyForLoad();
+        // Clear basic schema initiated in openTestGraph
+        testGraph.clearForLoad();
 
         if (testGraph.loadedGraph() == null) {
             testGraph.loadedGraph(REGULAR_LOAD);
