@@ -109,7 +109,7 @@ done
 
 # --------------------------------------------------------------------------
 echo ""
-echo "2. Linux: ss busy / free / failure"
+echo "2. Linux: ss busy / free / failure, and the netstat fallback"
 (
     uname() { echo "Linux"; }
     command_available() { [[ "$1" == "ss" ]]; }
@@ -135,13 +135,33 @@ echo "2. Linux: ss busy / free / failure"
     SS_RC=1
     expect "ss failure is unknown" "unknown" "$(port_listen_state 8080)"
 
-    # Success with an unusable table proves nothing either.
+    # `-H` prints no header, so a zero exit with no output is a positive "this
+    # host has no TCP listeners" - the state a fresh container starts in.
     SS_RC=0
     SS_OUT=''
-    expect "ss empty output is unknown" "unknown" "$(port_listen_state 8080)"
+    expect "ss empty output is free" "free" "$(port_listen_state 8080)"
 
+    # Success with an unusable table proves nothing.
     SS_OUT='some diagnostic banner'
     expect "ss unparseable output is unknown" "unknown" "$(port_listen_state 8080)"
+
+    # ...and it must not end the search either: netstat may still have a
+    # readable table.  Returning on the first probe left the port "unknown"
+    # even when the fallback could have answered.
+    command_available() { [[ "$1" == "ss" || "$1" == "netstat" ]]; }
+    netstat() {
+        echo 'Active Internet connections (only servers)'
+        echo 'Proto Recv-Q Send-Q Local Address  Foreign Address  State'
+        echo 'tcp        0      0 0.0.0.0:8080   0.0.0.0:*        LISTEN'
+    }
+
+    SS_OUT='some diagnostic banner'
+    expect "unparseable ss falls back to netstat" "busy" "$(port_listen_state 8080)"
+    expect "netstat fallback can also report free" "free" "$(port_listen_state 9999)"
+
+    SS_RC=1
+    SS_OUT=''
+    expect "failed ss falls back to netstat" "busy" "$(port_listen_state 8080)"
 
 )
 
@@ -301,11 +321,38 @@ echo "7. Startup probe is bounded"
     trap 'cd /; rm -rf "$WORK"' EXIT
 
     ARGS_FILE="$WORK/curl-args"
+    SLEEP_FILE="$WORK/sleep-args"
+    : > "$SLEEP_FILE"
     curl() { echo "$*" >> "$ARGS_FILE"; echo "000"; return 28; }
+    # Record what the retry pause asks for, but still take it, so the
+    # end-to-end duration below stays a real measurement.
+    sleep() { echo "$1" >> "$SLEEP_FILE"; command sleep "$1"; }
     process_status() { return 0; }
     ps() { return 0; }
 
-    wait_for_startup "$$" "test-server" "http://127.0.0.1:1" 1 >/dev/null 2>&1
+    TIMEOUT_S=1
+    START_S=$(date '+%s')
+    wait_for_startup "$$" "test-server" "http://127.0.0.1:1" "$TIMEOUT_S" >/dev/null 2>&1
+    ELAPSED_S=$(( $(date '+%s') - START_S ))
+
+    # The deterministic half: bounding each curl does not bound the loop, which
+    # used to sleep a flat 2s and only then re-read the clock.  A 1s timeout
+    # must never ask for more than 1s of sleeping.
+    TOTAL_SLEEP_S=$(awk '{ total += $1 } END { print total + 0 }' "$SLEEP_FILE")
+    if [[ "$TOTAL_SLEEP_S" -le "$TIMEOUT_S" ]]; then
+        pass "retry sleeps stay inside the ${TIMEOUT_S}s deadline"
+    else
+        fail "retry sleeps stay inside the ${TIMEOUT_S}s deadline" \
+             "slept ${TOTAL_SLEEP_S}s in total: $(tr '\n' ' ' < "$SLEEP_FILE")"
+    fi
+
+    # The end-to-end half, with a second of slack for whole-second clock reads.
+    if [[ "$ELAPSED_S" -le $((TIMEOUT_S + 1)) ]]; then
+        pass "wait_for_startup returns within the deadline (${ELAPSED_S}s)"
+    else
+        fail "wait_for_startup returns within the deadline" \
+             "took ${ELAPSED_S}s for a ${TIMEOUT_S}s timeout"
+    fi
 
     if grep -q -- "--max-time" "$ARGS_FILE" 2>/dev/null; then
         pass "startup probe passes --max-time"

@@ -199,7 +199,9 @@ function parse_port_from_url() {
 # Only LISTEN rows and only the local-address column are inspected, so an
 # unrelated outbound connection to the same port number is never mistaken for
 # a local listener.  A tool that is missing, fails, or yields no recognisable
-# listener row reports "unknown" rather than "free".
+# listener row reports "unknown" rather than "free", and the next probe is
+# tried; the sole exception is `ss -H` succeeding with no output at all, which
+# says positively that the host has no TCP listeners.
 #
 # TODO(check_port): port-only matching ignores the listener's address, so a
 # listener bound to one local address (127.0.0.1:8080) reports the port busy
@@ -208,13 +210,14 @@ function parse_port_from_url() {
 # refuse a bind that would have succeeded.  If that is reported in practice,
 # revisit by comparing the local-address column instead of only its port.
 #
-# TODO(check_port): a host with genuinely zero LISTEN sockets is indistinguish-
-# able from a restricted or unparseable table, so both report "unknown" and
-# warn on every start.  Distinguishing them needs a positive signal that the
-# table was readable (e.g. an exit status ss/netstat do not currently give).
+# TODO(check_port): only the `ss` branch can tell "no listeners at all" from
+# "table unreadable", because -H removes the header and leaves a zero exit with
+# empty output as a positive signal.  Both netstat branches print headers that
+# the parser drops, so an empty result there stays "unknown" and warns.
 function port_listen_state() {
     local port="$1"
     local out
+    local state
     local os
     os=$(uname)
 
@@ -238,30 +241,45 @@ function port_listen_state() {
             else print "unknown"
         }'
 
+    # Each probe answers only when it produced a usable listener table; an
+    # inconclusive one falls through to the next rather than ending the search.
     if [[ "$os" == "Darwin" || "$os" == *BSD* ]]; then
         if command_available "netstat" && out=$(netstat -an -p tcp 2>/dev/null) \
            && [[ -n "$out" ]]; then
-            echo "$out" | awk -v port="$port" -v sep="." -v want_listen=1 "$parser"
-            return 0
+            state=$(echo "$out" | awk -v port="$port" -v sep="." -v want_listen=1 "$parser")
+            case "$state" in
+                busy|free) echo "$state"; return 0 ;;
+            esac
         fi
     else
-        # `ss -H -ltn` already restricts output to listening sockets.
-        if command_available "ss" && out=$(ss -H -ltn 2>/dev/null) && [[ -n "$out" ]]; then
-            echo "$out" | awk -v port="$port" -v sep=":" -v want_listen=0 "$parser"
-            return 0
+        # `ss -H -ltn` already restricts output to listening sockets, and -H
+        # drops the header, so a zero exit with no output means "nothing is
+        # listening" - the one case where empty is an answer, not a failure.
+        if command_available "ss" && out=$(ss -H -ltn 2>/dev/null); then
+            if [[ -z "$out" ]]; then
+                echo "free"
+                return 0
+            fi
+            state=$(echo "$out" | awk -v port="$port" -v sep=":" -v want_listen=0 "$parser")
+            case "$state" in
+                busy|free) echo "$state"; return 0 ;;
+            esac
         fi
         if command_available "netstat" && out=$(netstat -ltn 2>/dev/null) \
            && [[ -n "$out" ]]; then
-            echo "$out" | awk -v port="$port" -v sep=":" -v want_listen=1 "$parser"
-            return 0
+            state=$(echo "$out" | awk -v port="$port" -v sep=":" -v want_listen=1 "$parser")
+            case "$state" in
+                busy|free) echo "$state"; return 0 ;;
+            esac
         fi
     fi
 
-    # TODO(check_port): with neither ss nor netstat present (some minimal
-    # container images ship neither) there is no probe left, so the preflight
-    # is permanently "unknown" and never detects a busy port.  A dependency-
-    # free fallback would need a bounded connect, which was deliberately
-    # removed here; adding one back means re-solving the hang this PR fixes.
+    # TODO(check_port): with neither ss nor netstat present there is no probe
+    # left, so the preflight is permanently "unknown" and never detects a busy
+    # port.  The published server images carry iproute2 for this reason, but a
+    # hand-built minimal image can still ship neither.  A dependency-free
+    # fallback would need a bounded connect, which was deliberately removed
+    # here; adding one back means re-solving the hang this PR fixes.
     echo "unknown"
 }
 
@@ -346,9 +364,6 @@ function wait_for_startup() {
 
         # Bound each probe by the time left in the overall deadline: without
         # --max-time a single blackholed request blocks past ${timeout_s}s.
-        # TODO(wait_for_startup): overshoot is now bounded but not zero - the
-        # loop still sleeps 2s after a probe and only then re-reads the clock,
-        # so the total can exceed ${timeout_s}s by roughly one sleep interval.
         local remain_s=$((stop_s - now_s))
         [ "$remain_s" -lt 1 ] && remain_s=1
         local connect_s=$((remain_s < 5 ? remain_s : 5))
@@ -362,7 +377,16 @@ function wait_for_startup() {
             fi
             return 0
         fi
-        sleep 2
+
+        # Pause for the retry interval, but never past the deadline: sleeping a
+        # fixed 2s and only then re-reading the clock made a 1s timeout take 2s.
+        # Nothing left to wait for means the deadline is spent, so stop here
+        # rather than spin until the clock ticks past it.
+        now_s=$(date '+%s')
+        local sleep_s=$((stop_s - now_s))
+        [ "$sleep_s" -le 0 ] && break
+        [ "$sleep_s" -gt 2 ] && sleep_s=2
+        sleep "$sleep_s"
         now_s=$(date '+%s')
     done
 
@@ -555,6 +579,10 @@ function ensure_package_exist() {
 
 ###########################################################################
 
+# TODO(wait_for_shutdown): this loop has the same fixed-2s-then-check-the-clock
+# shape wait_for_startup had, so it can also overrun its timeout by roughly one
+# sleep interval.  Left alone here to keep this PR to the port preflight; the
+# fix is the same remaining-deadline cap used above.
 function wait_for_shutdown() {
     local process_name="$1"
     local pid="$2"

@@ -82,14 +82,15 @@ jobs:
       - name: Run check_port unit tests
         if: ${{ env.BACKEND == 'rocksdb' }}
         run: |
-          # Validates ss/netstat//dev/tcp replacement for lsof
+          # Validates the ss/netstat port preflight that replaced lsof
           $TRAVIS_DIR/test-check-port.sh hugegraph-server/hugegraph-dist/src/assembly/static
 
       - name: Check startup test prerequisites
         id: server-preflight
         if: ${{ env.BACKEND == 'rocksdb' }}
         run: |
-          # Note: lsof removed from prerequisites (replaced with ss/netstat//dev/tcp in check_port).
+          # Note: lsof removed from prerequisites; check_port now uses ss, falling back
+          # to netstat, and warns without blocking when neither can answer.
           # This job always runs on Linux (ubuntu-22.04), which uses fuser for port cleanup.
           for tool in crontab curl java; do
             if ! command -v "$tool" >/dev/null 2>&1; then
@@ -201,7 +202,7 @@ jobs:
           mvn clean compile -pl hugegraph-server/hugegraph-test -am -U -Dmaven.javadoc.skip=true -ntp
 
       - name: Run check_port unit tests
-        # Validates ss/netstat//dev/tcp replacement for lsof
+        # Validates the ss/netstat port preflight that replaced lsof
         run: |
           $TRAVIS_DIR/test-check-port.sh hugegraph-server/hugegraph-dist/src/assembly/static
 
