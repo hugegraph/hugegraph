@@ -104,16 +104,7 @@ public class InitStore {
             LOG.warn("Skipping init-store: '{}' is false in '{}'. Local " +
                      "backend and admin initialization are not performed.",
                      ServerOptions.INIT_STORE_ENABLED.name(), restConf);
-            if (!restServerConfig.get(ServerOptions.AUTHENTICATOR).isEmpty() &&
-                !restServerConfig.get(ServerOptions.USE_PD)) {
-                LOG.warn("'{}' is set but '{}' is false: no component will " +
-                         "create the built-in admin account. Set '{}' to true, " +
-                         "or leave '{}' enabled so it can create the account.",
-                         ServerOptions.AUTHENTICATOR.name(),
-                         ServerOptions.USE_PD.name(),
-                         ServerOptions.USE_PD.name(),
-                         ServerOptions.INIT_STORE_ENABLED.name());
-            }
+            checkAdminBootstrapReachable(restServerConfig, restConf);
             return;
         }
 
@@ -145,6 +136,36 @@ public class InitStore {
             }
             HugeFactory.shutdown(30L, true);
         }
+    }
+
+    /**
+     * Skipping means init-store does not create the built-in admin account,
+     * and the only other component that creates it is
+     * GraphManager.initAdminUserIfNeeded(), reached from loadMetaFromPD() and
+     * so gated on 'usePD'. Failing here rather than returning zero keeps
+     * tarball and init-job callers, which see only the exit status, from
+     * continuing into a server that enforces authentication with no account
+     * to authenticate against.
+     * <p>
+     * Remote auth is exempt: the auth manager is then an RPC client, and
+     * StandardAuthenticator only bootstraps an admin for a local one.
+     */
+    private static void checkAdminBootstrapReachable(HugeConfig conf,
+                                                     String restConf) {
+        if (conf.get(ServerOptions.AUTHENTICATOR).isEmpty() ||
+            conf.get(ServerOptions.USE_PD) ||
+            !conf.get(ServerOptions.AUTH_REMOTE_URL).isEmpty()) {
+            return;
+        }
+        throw new IllegalStateException(String.format(
+                "Refusing to skip init-store: '%s' is set in '%s' but '%s' is " +
+                "false, so no component would create the built-in admin " +
+                "account. Set '%s' to true, set '%s' to delegate auth, or " +
+                "leave '%s' enabled so init-store creates the account.",
+                ServerOptions.AUTHENTICATOR.name(), restConf,
+                ServerOptions.USE_PD.name(), ServerOptions.USE_PD.name(),
+                ServerOptions.AUTH_REMOTE_URL.name(),
+                ServerOptions.INIT_STORE_ENABLED.name()));
     }
 
     private static HugeGraph initGraph(String configPath) throws Exception {

@@ -30,25 +30,6 @@ ENTRYPOINT="${SELF_DIR}/../docker-entrypoint.sh"
 
 PASS=0
 FAIL=0
-SKIP=0
-
-# docker-entrypoint.sh rewrites an existing property with GNU `sed -ri`, which
-# BSD sed rejects. The image is Linux, so the cases that exercise that branch
-# are skipped rather than failed when running locally on macOS.
-if sed --version >/dev/null 2>&1; then
-    GNU_SED=1
-else
-    GNU_SED=0
-fi
-
-skip_without_gnu_sed() {
-    if [[ ${GNU_SED} -eq 1 ]]; then
-        return 1
-    fi
-    echo "    SKIP: needs GNU sed (set_prop rewrites an existing property)"
-    SKIP=$((SKIP + 1))
-    return 0
-}
 
 fail() {
     echo "    FAIL: $*"
@@ -227,27 +208,23 @@ assert_no_file "docker/init_complete"
 cleanup
 
 echo "==> env wins over a conflicting mounted property"
-if ! skip_without_gnu_sed; then
-    new_install
-    echo "init_store.enabled=false" >> "${INSTALL}/conf/rest-server.properties"
-    run_entrypoint -u PASSWORD HG_SERVER_INIT_STORE_ENABLED=true
-    assert_ran "init-store.sh"
-    assert_file "docker/init_complete"
-    cleanup
-fi
+new_install
+echo "init_store.enabled=false" >> "${INSTALL}/conf/rest-server.properties"
+run_entrypoint -u PASSWORD HG_SERVER_INIT_STORE_ENABLED=true
+assert_ran "init-store.sh"
+assert_file "docker/init_complete"
+cleanup
 
 echo "==> false then true: a restart with init enabled still initializes"
-if ! skip_without_gnu_sed; then
-    new_install
-    run_entrypoint -u PASSWORD HG_SERVER_INIT_STORE_ENABLED=false
-    assert_not_ran "init-store.sh"
-    assert_no_file "docker/init_complete"
-    : > "${INSTALL}/calls.log"
-    run_entrypoint -u PASSWORD HG_SERVER_INIT_STORE_ENABLED=true
-    assert_ran "init-store.sh"
-    assert_file "docker/init_complete"
-    cleanup
-fi
+new_install
+run_entrypoint -u PASSWORD HG_SERVER_INIT_STORE_ENABLED=false
+assert_not_ran "init-store.sh"
+assert_no_file "docker/init_complete"
+: > "${INSTALL}/calls.log"
+run_entrypoint -u PASSWORD HG_SERVER_INIT_STORE_ENABLED=true
+assert_ran "init-store.sh"
+assert_file "docker/init_complete"
+cleanup
 
 echo "==> restart with init enabled: the flag file suppresses re-init"
 new_install
@@ -381,6 +358,55 @@ else
 fi
 cleanup
 
+echo "==> mounted config that already enables auth is not duplicated"
+new_install
+enable_pd
+echo "auth.authenticator=org.apache.hugegraph.auth.StandardAuthenticator" \
+    >> "${INSTALL}/conf/rest-server.properties"
+echo "auth.graph_store=hugegraph" >> "${INSTALL}/conf/rest-server.properties"
+run_entrypoint HG_SERVER_INIT_STORE_ENABLED=false PASSWORD=s3cret
+assert_not_ran "enable-auth.sh"
+assert_prop_defined_once "auth.authenticator"
+assert_prop_defined_once "auth.graph_store"
+assert_prop_defined_once "auth.admin_pa"
+assert_prop "auth.admin_pa" "s3cret"
+cleanup
+
+echo "==> remote auth is exempt from the usePD requirement"
+new_install
+echo "auth.authenticator=org.apache.hugegraph.auth.StandardAuthenticator" \
+    >> "${INSTALL}/conf/rest-server.properties"
+echo "auth.remote_url=127.0.0.1:8899" >> "${INSTALL}/conf/rest-server.properties"
+run_entrypoint -u PASSWORD HG_SERVER_INIT_STORE_ENABLED=false
+assert_ran "start-hugegraph.sh"
+assert_not_ran "init-store.sh"
+cleanup
+
+echo "==> set_prop preserves the config file's inode and mode"
+new_install
+chmod 600 "${INSTALL}/conf/rest-server.properties"
+before_inode=$(ls -i "${INSTALL}/conf/rest-server.properties" | awk '{print $1}')
+run_entrypoint -u PASSWORD HG_SERVER_INIT_STORE_ENABLED=false
+after_inode=$(ls -i "${INSTALL}/conf/rest-server.properties" | awk '{print $1}')
+after_mode=$(stat -c '%a' "${INSTALL}/conf/rest-server.properties" 2>/dev/null \
+             || stat -f '%Lp' "${INSTALL}/conf/rest-server.properties")
+# Rewriting in place matters: a single-file bind mount cannot be replaced by
+# rename, and a rename would drop the mode protecting auth.admin_pa
+if [[ "${before_inode}" == "${after_inode}" ]]; then ok; else fail "inode changed"; fi
+if [[ "${after_mode}" == "600" ]]; then ok; else fail "mode became ${after_mode}, expected 600"; fi
+assert_prop "init_store.enabled" "false"
+cleanup
+
+echo "==> no scratch file is left behind"
+new_install
+run_entrypoint -u PASSWORD HG_SERVER_INIT_STORE_ENABLED=false
+if compgen -G "${INSTALL}/conf/rest-server.properties.tmp*" >/dev/null; then
+    fail "a set_prop scratch file was left behind"
+else
+    ok
+fi
+cleanup
+
 echo
-echo "passed: ${PASS}, failed: ${FAIL}, skipped cases: ${SKIP}"
+echo "passed: ${PASS}, failed: ${FAIL}"
 [[ ${FAIL} -eq 0 ]]

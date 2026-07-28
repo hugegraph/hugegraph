@@ -33,7 +33,11 @@ log() { echo "[hugegraph-server-entrypoint] $*"; }
 # read of it would then fail. Comment lines are left alone. Matching is literal,
 # so no regex escaping of the key or value is needed.
 set_prop() {
-    local key="$1" val="$2" file="$3"
+    local key="$1" val="$2" file="$3" tmp
+    tmp="${file}.tmp.$$"
+
+    # The scratch file holds auth.admin_pa, so keep it off the process umask
+    ( umask 077; : > "${tmp}" )
 
     SET_PROP_KEY="$key" SET_PROP_VAL="$val" awk '
         BEGIN { key = ENVIRON["SET_PROP_KEY"]; val = ENVIRON["SET_PROP_VAL"] }
@@ -51,7 +55,23 @@ set_prop() {
             print line
         }
         END { if (!done) print key "=" val }
-    ' "${file}" > "${file}.tmp" && mv "${file}.tmp" "${file}"
+    ' "${file}" > "${tmp}"
+
+    # Truncate and rewrite in place rather than rename: a single-file bind
+    # mount cannot be replaced by rename, and a rename would also discard the
+    # original ownership and mode, which matters where auth.admin_pa is written
+    cat "${tmp}" > "${file}"
+    rm -f "${tmp}"
+}
+
+# Rewrites a key that is already present as a single canonical line, dropping
+# any duplicate definitions. No-op when the key is absent.
+canonicalize_prop() {
+    local key="$1" file="$2" cur
+    cur=$(get_prop "${key}" "${file}")
+    if [[ -n "${cur}" ]]; then
+        set_prop "${key}" "${cur}" "${file}"
+    fi
 }
 
 # Escapes a value for Java-properties serialization. Backslashes must be
@@ -158,6 +178,9 @@ if [[ "${INIT_STORE_ENABLED:-true}" == "false" ]]; then
     AUTH_REQUESTED=""
     [[ -n "${PASSWORD:-}" ]] && AUTH_REQUESTED=1
     [[ -n "$(get_prop "auth.authenticator" "${REST_SERVER_CONF}")" ]] && AUTH_REQUESTED=1
+    # Remote auth delegates to another service and has no local admin to
+    # create, so it is exempt from the requirement below
+    [[ -n "$(get_prop "auth.remote_url" "${REST_SERVER_CONF}")" ]] && AUTH_REQUESTED=""
     if [[ -n "${AUTH_REQUESTED}" ]]; then
         USE_PD=$(to_bool "$(get_prop "usePD" "${REST_SERVER_CONF}")" 2>/dev/null || echo "false")
         if [[ "${USE_PD}" != "true" ]]; then
@@ -177,7 +200,16 @@ if [[ "${INIT_STORE_ENABLED:-true}" == "false" ]]; then
 
     if [[ -n "${PASSWORD:-}" ]]; then
         log "enabling auth mode, admin password applied via auth.admin_pa"
-        ./bin/enable-auth.sh
+        # enable-auth.sh appends its keys unconditionally on its first run, so
+        # running it against a mounted config that already enables auth would
+        # leave those scalar keys defined twice, which the config parser
+        # rejects. Only run it when auth is not configured yet, then collapse
+        # whatever it appended into single definitions.
+        if [[ -z "$(get_prop "auth.authenticator" "${REST_SERVER_CONF}")" ]]; then
+            ./bin/enable-auth.sh
+        fi
+        canonicalize_prop "auth.authenticator" "${REST_SERVER_CONF}"
+        canonicalize_prop "auth.graph_store" "${REST_SERVER_CONF}"
         # TODO: auth.admin_pa only applies when the admin account is first
         # created, so changing PASSWORD on a later restart silently keeps the
         # old one. It also leaves the password at rest in rest-server.properties,

@@ -163,7 +163,8 @@ Configuration is injected via environment variables. The old `docker/configs/app
 | `PASSWORD` | No | — | Enables auth mode | Optional authentication password |
 | `HG_SERVER_INIT_STORE_ENABLED` | No | `true` | `init_store.enabled` in `rest-server.properties` | Set `false` in PD/HStore deployments so init-store skips local backend and admin initialization |
 
-> **Auth with `HG_SERVER_INIT_STORE_ENABLED=false` requires `usePD=true`.**
+> **Auth with `HG_SERVER_INIT_STORE_ENABLED=false` requires `usePD=true`,
+> unless `auth.remote_url` delegates auth elsewhere.**
 > With init-store skipped, the only component that creates the built-in admin
 > account is the PD metadata path, which the server takes only when `usePD` is
 > true. Enabling auth without it would start a server that enforces

@@ -21,8 +21,10 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.List;
 import java.util.stream.Stream;
 
 import org.apache.commons.configuration2.PropertiesConfiguration;
@@ -156,14 +158,50 @@ public class InitStoreConfigTest {
                           ServerOptions.INIT_STORE_ENABLED.name()));
     }
 
-    private String writeDisabledRestServerConf() throws IOException {
-        Path restConf = this.workDir.resolve("rest-server.properties");
+    /**
+     * The CLI must not report success for a configuration that would start an
+     * auth-enabled server with no admin account, since tarball and init-job
+     * callers only see the exit status.
+     */
+    @Test
+    public void testDisabledInitStoreFailsWhenAdminCannotBeCreated()
+                                                        throws IOException {
+        String restConf = this.writeDisabledRestServerConf(
+                ServerOptions.AUTHENTICATOR.name() +
+                "=org.apache.hugegraph.auth.StandardAuthenticator");
+
+        Assert.assertThrows(IllegalStateException.class, () -> {
+            InitStore.main(new String[]{restConf});
+        }, e -> Assert.assertContains("Refusing to skip init-store",
+                                      e.getMessage()));
+    }
+
+    /**
+     * Remote auth delegates to another service, so there is no local admin to
+     * create and the check above must not fire.
+     */
+    @Test
+    public void testDisabledInitStoreAllowsRemoteAuth() throws Exception {
+        String restConf = this.writeDisabledRestServerConf(
+                ServerOptions.AUTHENTICATOR.name() +
+                "=org.apache.hugegraph.auth.StandardAuthenticator",
+                ServerOptions.AUTH_REMOTE_URL.name() + "=127.0.0.1:8899");
+
+        InitStore.main(new String[]{restConf});
+    }
+
+    private String writeDisabledRestServerConf(String... extraLines)
+                                               throws IOException {
+        // A distinct file per call, so the tests that write extra lines do not
+        // collide with each other inside one temporary directory
+        Path restConf = this.workDir.resolve(
+                "rest-server-" + extraLines.length + ".properties");
         String graphsDir = this.workDir.resolve(MISSING_GRAPHS_DIR).toString();
-        Files.write(restConf,
-                    Arrays.asList(ServerOptions.GRAPHS.name() + "=" + graphsDir,
-                                  ServerOptions.INIT_STORE_ENABLED.name() +
-                                  "=false"),
-                    StandardCharsets.UTF_8);
+        List<String> lines = new ArrayList<>();
+        lines.add(ServerOptions.GRAPHS.name() + "=" + graphsDir);
+        lines.add(ServerOptions.INIT_STORE_ENABLED.name() + "=false");
+        lines.addAll(Arrays.asList(extraLines));
+        Files.write(restConf, lines, StandardCharsets.UTF_8);
         return restConf.toString();
     }
 }
