@@ -247,19 +247,24 @@ function download_and_setup_jemalloc() {
     fi
 }
 
-function preload_toplingdb() {
-    local lib_dir="$1"
-    local dest_dir="$2"
+function require_topling_platform() {
     local os_name machine_arch
 
     os_name="$(uname -s)"
     machine_arch="$(uname -m)"
     if [ "$os_name" != "Linux" ] ||
        [[ "$machine_arch" != "x86_64" ]]; then
-        echo "[common-topling] Skip native preload on unsupported platform: " \
-             "$os_name/$machine_arch" >&2
-        return 0
+        printf 'Error: ToplingDB native runtime supports Linux x86_64 only; ' >&2
+        printf 'current platform is %s/%s\n' "$os_name" "$machine_arch" >&2
+        return 1
     fi
+}
+
+function preload_toplingdb() {
+    local lib_dir="$1"
+    local dest_dir="$2"
+
+    require_topling_platform || return 1
 
     local top="$(cd "$lib_dir"/../ && pwd)"
 
