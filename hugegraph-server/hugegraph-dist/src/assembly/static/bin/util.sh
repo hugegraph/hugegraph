@@ -355,7 +355,7 @@ function wait_for_startup() {
     local error_file_name="startup_error.txt"
 
     echo -n "Connecting to $server_name ($server_url)"
-    while [ "$now_s" -le "$stop_s" ]; do
+    while [ "$now_s" -lt "$stop_s" ]; do
         echo -n .
         process_status "$server_name" "$pid" >/dev/null
         if [ $? -eq 1 ]; then
@@ -368,8 +368,12 @@ function wait_for_startup() {
 
         # Bound each probe by the time left in the overall deadline: without
         # --max-time a single blackholed request blocks past ${timeout_s}s.
+        # Refresh the clock after the process check and immediately before the
+        # probe.  A stale loop-entry time must not grant curl a new one-second
+        # budget when the overall deadline has already been reached.
+        now_s=$(date '+%s')
         local remain_s=$((stop_s - now_s))
-        [ "$remain_s" -lt 1 ] && remain_s=1
+        [ "$remain_s" -le 0 ] && break
         local connect_s=$((remain_s < 5 ? remain_s : 5))
         status=$(curl -I -sS -k --connect-timeout "$connect_s" --max-time "$remain_s" \
                       -w "%{http_code}" -o /dev/null "$server_url" 2> "$error_file_name")
@@ -395,8 +399,10 @@ function wait_for_startup() {
     done
 
     echo ""
-    cat "$error_file_name"
-    rm "$error_file_name"
+    if [ -e "$error_file_name" ]; then
+        cat "$error_file_name"
+        rm "$error_file_name"
+    fi
     echo "The operation timed out(${timeout_s}s) when attempting to connect to $server_url" >&2
     return 1
 }

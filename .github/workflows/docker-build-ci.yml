@@ -26,6 +26,7 @@ on:
     paths:
       - '**/Dockerfile*'
       - '.dockerignore'
+      - 'hugegraph-server/hugegraph-dist/src/assembly/static/bin/util.sh'
 
 jobs:
   docker-build:

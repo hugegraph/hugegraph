@@ -318,8 +318,8 @@ download_and_verify() {
         actual_md5=$(md5sum -- "$filepath" | awk '{ print $1 }')
         if [[ "$actual_md5" != "$expected_md5" ]]; then
             echo "MD5 checksum verification failed for $filepath. Expected: $expected_md5, but got: $actual_md5"
-            echo "Deleting $filepath..."
-            rm -f -- "$filepath"
+            # Keep the shared destination until a verified temporary file is
+            # ready; a stale reader must not delete another caller's replacement.
         else
             echo "MD5 checksum verification succeeded for $filepath."
             return 0

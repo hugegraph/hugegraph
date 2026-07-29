@@ -32,10 +32,23 @@ set -u
 
 STATIC_DIR="${1:-hugegraph-server/hugegraph-dist/src/assembly/static}"
 UTIL_SH="$STATIC_DIR/bin/util.sh"
+STORE_UTIL_SH="${2:-}"
 
 if [[ ! -f "$UTIL_SH" ]]; then
-    echo "SKIP: util.sh not found at $UTIL_SH"
+    if [[ $# -gt 0 ]]; then
+        echo "ERROR: required util.sh not found at $UTIL_SH" >&2
+        exit 1
+    fi
+    # With no argument this script may be discovered outside the repository by
+    # an optional test runner.  CI always supplies STATIC_DIR explicitly, so a
+    # bad workflow path takes the required failure branch above.
+    echo "SKIP: default util.sh not found at $UTIL_SH"
     exit 0
+fi
+
+if [[ -n "$STORE_UTIL_SH" && ! -f "$STORE_UTIL_SH" ]]; then
+    echo "ERROR: required Store util.sh not found at $STORE_UTIL_SH" >&2
+    exit 1
 fi
 
 # shellcheck source=/dev/null
@@ -379,6 +392,164 @@ echo "7. Startup probe is bounded"
     fi
 
 )
+
+# --------------------------------------------------------------------------
+echo ""
+echo "8. Deadline boundary starts no probe"
+(
+    WORK=$(mktemp -d)
+    cd "$WORK" || exit 1
+    trap 'cd /; rm -rf "$WORK"' EXIT
+
+    CLOCK_FILE="$WORK/clock-calls"
+    CURL_FILE="$WORK/curl-calls"
+    echo 0 > "$CLOCK_FILE"
+    : > "$CURL_FILE"
+
+    # The first read establishes [100, 101) as the allowed interval.  The
+    # process check consumes that interval, so the mandatory pre-curl refresh
+    # observes the deadline exactly.  File-backed state works through the
+    # command substitutions used by wait_for_startup, including Bash 3.2.
+    date() {
+        local calls
+        calls=$(cat "$CLOCK_FILE")
+        calls=$((calls + 1))
+        echo "$calls" > "$CLOCK_FILE"
+        if [[ "$calls" -eq 1 ]]; then
+            echo 100
+        else
+            echo 101
+        fi
+    }
+    process_status() { return 0; }
+    curl() { echo called >> "$CURL_FILE"; echo "000"; return 28; }
+    sleep() { echo called >> "$WORK/sleep-calls"; }
+
+    wait_for_startup "$$" "boundary-server" "http://127.0.0.1:1" 1 \
+                     >/dev/null 2>&1
+
+    CLOCK_CALLS=$(cat "$CLOCK_FILE")
+    if [[ "$CLOCK_CALLS" -ge 2 ]]; then
+        pass "startup refreshes the clock at the probe boundary"
+    else
+        fail "startup refreshes the clock at the probe boundary" \
+             "clock was read only ${CLOCK_CALLS} time(s)"
+    fi
+
+    PROBE_CALLS=$(wc -l < "$CURL_FILE" | tr -d ' ')
+    expect "no startup probe begins at the deadline" "0" "$PROBE_CALLS"
+
+)
+
+if [[ -n "$STORE_UTIL_SH" ]]; then
+    # ----------------------------------------------------------------------
+    echo ""
+    echo "9. Store verified replacement survives a stale concurrent caller"
+    (
+        # Keep the Store helper overrides isolated from the server helpers used
+        # by every other section in this suite.
+        # shellcheck source=/dev/null
+        source "$STORE_UTIL_SH"
+
+        WORK=$(mktemp -d)
+        DEST="$WORK/lib.so"
+        HASHED="$WORK/stale-hashed"
+        RELEASE="$WORK/release-stale"
+        STALE_DOWNLOAD="$WORK/stale-download"
+        STALE_PID=""
+        trap '
+            touch "$RELEASE"
+            if [[ -n "$STALE_PID" ]]; then
+                kill "$STALE_PID" 2>/dev/null
+                wait "$STALE_PID" 2>/dev/null
+            fi
+            rm -rf "$WORK"
+        ' EXIT
+
+        echo "invalid" > "$DEST"
+
+        wait_for_file() {
+            local path="$1"
+            local _
+            for _ in 1 2 3 4 5 6 7 8 9 10; do
+                [[ -e "$path" ]] && return 0
+                command sleep 1
+            done
+            return 1
+        }
+
+        # Both callers first observe the invalid destination.  The stale caller
+        # then holds that checksum until the installer has atomically published
+        # valid bytes.  Reintroducing the old pre-download rm makes the stale
+        # caller delete that valid replacement before its own download fails.
+        md5sum() {
+            local target="${@: -1}"
+            if [[ "$target" == "$DEST" ]]; then
+                if [[ "$CALLER" == "stale" ]]; then
+                    touch "$HASHED"
+                    wait_for_file "$RELEASE" || return 1
+                fi
+                echo "bad  $target"
+            else
+                echo "good  $target"
+            fi
+        }
+
+        curl() {
+            [[ "$1" == "-fL" && "$2" == "-o" && "$4" == "--" ]] || return 64
+            if [[ "$CALLER" == "installer" ]]; then
+                echo "valid" > "$3"
+                return 0
+            fi
+            touch "$STALE_DOWNLOAD"
+            return 22
+        }
+
+        (
+            CALLER="stale"
+            download_and_verify "https://example.com/lib.so" "$DEST" "good" \
+                                >/dev/null 2>&1
+        ) &
+        STALE_PID=$!
+
+        if ! wait_for_file "$HASHED"; then
+            fail "stale caller captured the original checksum" \
+                 "caller did not reach the checksum barrier"
+            exit 0
+        fi
+        pass "stale caller captured the original checksum"
+
+        CALLER="installer"
+        if download_and_verify "https://example.com/lib.so" "$DEST" "good" \
+                               >/dev/null 2>&1; then
+            pass "concurrent installer succeeds"
+        else
+            fail "concurrent installer succeeds" "installer returned nonzero"
+        fi
+
+        touch "$RELEASE"
+        wait "$STALE_PID" 2>/dev/null
+        STALE_WAIT_RC=$?
+        STALE_PID=""
+        if [[ "$STALE_WAIT_RC" -ne 0 && -e "$STALE_DOWNLOAD" ]]; then
+            pass "stale caller reports its failed replacement download"
+        else
+            CURL_REACHED=$([[ -e "$STALE_DOWNLOAD" ]] && echo yes || echo no)
+            fail "stale caller reports its failed replacement download" \
+                 "rc=$STALE_WAIT_RC, curl reached=$CURL_REACHED"
+        fi
+
+        if [[ -f "$DEST" && "$(cat "$DEST")" == "valid" ]]; then
+            pass "failed stale caller preserves the valid replacement"
+        else
+            fail "failed stale caller preserves the valid replacement" \
+                 "destination is missing or no longer contains valid bytes"
+        fi
+
+        LEFTOVERS=$(find "$WORK" -name 'lib.so.*' -type f | wc -l | tr -d ' ')
+        expect "concurrent replacement cleans private temp files" "0" "$LEFTOVERS"
+    )
+fi
 
 # --------------------------------------------------------------------------
 echo ""

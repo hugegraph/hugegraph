@@ -83,7 +83,9 @@ jobs:
         if: ${{ env.BACKEND == 'rocksdb' }}
         run: |
           # Validates the ss/netstat port preflight that replaced lsof
-          $TRAVIS_DIR/test-check-port.sh hugegraph-server/hugegraph-dist/src/assembly/static
+          $TRAVIS_DIR/test-check-port.sh \
+            hugegraph-server/hugegraph-dist/src/assembly/static \
+            hugegraph-store/hg-store-dist/src/assembly/static/bin/util.sh
 
       - name: Check startup test prerequisites
         id: server-preflight
@@ -204,7 +206,9 @@ jobs:
       - name: Run check_port unit tests
         # Validates the ss/netstat port preflight that replaced lsof
         run: |
-          $TRAVIS_DIR/test-check-port.sh hugegraph-server/hugegraph-dist/src/assembly/static
+          $TRAVIS_DIR/test-check-port.sh \
+            hugegraph-server/hugegraph-dist/src/assembly/static \
+            hugegraph-store/hg-store-dist/src/assembly/static/bin/util.sh
 
       - name: Run RocksDB core test
         run: |
