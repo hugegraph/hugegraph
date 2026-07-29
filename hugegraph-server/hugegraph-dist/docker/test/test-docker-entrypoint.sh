@@ -65,6 +65,14 @@ assert_no_file() {
     if [[ -f "${INSTALL}/$1" ]]; then fail "expected file '$1' NOT to exist"; else ok; fi
 }
 
+assert_output_contains() {
+    if grep -qF "$1" "${INSTALL}/out.log" 2>/dev/null; then
+        ok
+    else
+        fail "expected output to contain '$1': $(cat "${INSTALL}/out.log")"
+    fi
+}
+
 assert_prop() {
     local expected="$1=$2"
     if grep -qxF "${expected}" "${INSTALL}/conf/rest-server.properties" 2>/dev/null; then
@@ -440,6 +448,15 @@ assert_prop_round_trip "auth.admin_pa" "${complex_password}"
 assert_prop_defined_once "auth.admin_pa"
 cleanup
 
+echo "==> a trailing newline survives the properties round trip"
+new_install
+enable_pd
+trailing_newline_password=$'ends-with-newline\n'
+run_entrypoint HG_SERVER_INIT_STORE_ENABLED=false \
+    "PASSWORD=${trailing_newline_password}"
+assert_prop_round_trip "auth.admin_pa" "${trailing_newline_password}"
+cleanup
+
 echo "==> a Java validation failure is propagated before password persistence"
 new_install
 run_entrypoint_fails -u HG_SERVER_INIT_STORE_ENABLED PASSWORD=s3cret \
@@ -594,6 +611,18 @@ if [[ "${after_mode}" == "444" ]]; then
 else
     fail "read-only rest-server.properties mode became ${after_mode}"
 fi
+cleanup
+
+echo "==> an incomplete read-only auth mount fails with the missing property"
+new_install
+echo "auth.authenticator=org.apache.hugegraph.auth.StandardAuthenticator" \
+    >> "${INSTALL}/conf/rest-server.properties"
+chmod 444 "${INSTALL}/conf/rest-server.properties"
+run_entrypoint_fails -u PASSWORD
+assert_not_ran "init-store.sh"
+assert_not_ran "start-hugegraph.sh"
+assert_output_contains \
+    "ERROR: cannot write auth.graph_store to ./conf/rest-server.properties"
 cleanup
 
 echo "==> a custom authenticator is not held to the usePD requirement"

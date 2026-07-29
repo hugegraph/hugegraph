@@ -49,10 +49,20 @@ public class StandardAuthenticator implements HugeAuthenticator {
 
     private void initAdminUser(String password, boolean fromConfig)
                                throws Exception {
-        if (this.requireInitAdminUser()) {
-            this.initAdminUser(fromConfig ? password : this.inputPassword());
+        try {
+            if (this.requireInitAdminUser()) {
+                if (fromConfig) {
+                    E.checkArgument(password != null && !password.isEmpty(),
+                                    "The configured admin password can't be " +
+                                    "null or empty");
+                } else {
+                    password = this.inputPassword();
+                }
+                this.initAdminUser(password);
+            }
+        } finally {
+            this.graph.close();
         }
-        this.graph.close();
     }
 
     @Override

@@ -42,10 +42,13 @@ log() { echo "[hugegraph-server-entrypoint] $*"; }
 # so no regex escaping of the key or value is needed.
 set_prop() {
     local key="$1" val="$2" file="$3" tmp
-    tmp="${file}.tmp.$$"
 
     # The scratch file holds auth.admin_pa, so keep it off the process umask
-    ( umask 077; : > "${tmp}" )
+    # and use an unpredictable same-directory name rather than following a
+    # pre-created predictable symlink.
+    if ! tmp=$(umask 077; mktemp "${file}.tmp.XXXXXX"); then
+        return 1
+    fi
 
     if ! SET_PROP_KEY="$key" SET_PROP_VAL="$val" awk '
         BEGIN { key = ENVIRON["SET_PROP_KEY"]; val = ENVIRON["SET_PROP_VAL"] }
@@ -201,11 +204,18 @@ ensure_auth_enabled() {
     # changing restored configs. Enforce every postcondition after it runs.
     if [[ -z "${authenticator}" ]]; then
         authenticator="${BUILTIN_AUTHENTICATOR}"
-        set_prop "auth.authenticator" "${authenticator}" \
-                 "${REST_SERVER_CONF}"
+        if ! set_prop "auth.authenticator" "${authenticator}" \
+                      "${REST_SERVER_CONF}"; then
+            log "ERROR: cannot write auth.authenticator to ${REST_SERVER_CONF}"
+            return 1
+        fi
     fi
     if [[ -z "$(get_prop "auth.graph_store" "${REST_SERVER_CONF}")" ]]; then
-        set_prop "auth.graph_store" "hugegraph" "${REST_SERVER_CONF}"
+        if ! set_prop "auth.graph_store" "hugegraph" \
+                      "${REST_SERVER_CONF}"; then
+            log "ERROR: cannot write auth.graph_store to ${REST_SERVER_CONF}"
+            return 1
+        fi
     fi
     if ! gremlin_auth_configured; then
         # A file whose last line has no newline would otherwise absorb the
@@ -225,9 +235,12 @@ authentication: {
 EOF
     fi
     if ! graph_auth_proxy_configured; then
-        set_prop "gremlin.graph" \
-                 "org.apache.hugegraph.auth.HugeFactoryAuthProxy" \
-                 "${GRAPH_CONF}"
+        if ! set_prop "gremlin.graph" \
+                      "org.apache.hugegraph.auth.HugeFactoryAuthProxy" \
+                      "${GRAPH_CONF}"; then
+            log "ERROR: cannot write gremlin.graph to ${GRAPH_CONF}"
+            return 1
+        fi
     fi
 
     # enable-auth.sh appends rather than replaces, so collapse whatever it left
@@ -343,7 +356,11 @@ if [[ "${INIT_STORE_ENABLED:-true}" == "false" ]]; then
             log "ERROR: cannot protect ${REST_SERVER_CONF} before writing auth.admin_pa"
             exit 1
         fi
-        set_prop "auth.admin_pa" "${ESCAPED_PASSWORD}" "${REST_SERVER_CONF}"
+        if ! set_prop "auth.admin_pa" "${ESCAPED_PASSWORD}" \
+                      "${REST_SERVER_CONF}"; then
+            log "ERROR: cannot write auth.admin_pa to ${REST_SERVER_CONF}"
+            exit 1
+        fi
     fi
     # No init flag is written here: nothing was initialized, so a later run
     # with init-store enabled must still perform the real initialization.

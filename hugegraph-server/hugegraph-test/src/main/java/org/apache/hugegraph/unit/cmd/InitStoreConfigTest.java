@@ -28,6 +28,8 @@ import java.util.List;
 import java.util.stream.Stream;
 
 import org.apache.commons.configuration2.PropertiesConfiguration;
+import org.apache.hugegraph.HugeGraph;
+import org.apache.hugegraph.auth.StandardAuthManager;
 import org.apache.hugegraph.auth.StandardAuthenticator;
 import org.apache.hugegraph.cmd.InitStore;
 import org.apache.hugegraph.config.CoreOptions;
@@ -36,11 +38,13 @@ import org.apache.hugegraph.config.OptionSpace;
 import org.apache.hugegraph.config.ServerOptions;
 import org.apache.hugegraph.dist.RegisterUtil;
 import org.apache.hugegraph.testutil.Assert;
+import org.apache.hugegraph.testutil.Whitebox;
 import org.apache.hugegraph.util.ConfigUtil;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
+import org.mockito.Mockito;
 
 /**
  * {@code init_store.enabled} controls whether init-store performs local
@@ -81,6 +85,12 @@ public class InitStoreConfigTest {
     public void testInitStoreEnabledByDefault() {
         HugeConfig config = new HugeConfig(new PropertiesConfiguration());
         Assert.assertTrue(config.get(ServerOptions.INIT_STORE_ENABLED));
+    }
+
+    @Test
+    public void testAdminPasswordDefaultsToPa() {
+        HugeConfig config = new HugeConfig(new PropertiesConfiguration());
+        Assert.assertEquals("pa", config.get(ServerOptions.ADMIN_PA));
     }
 
     @Test
@@ -163,6 +173,28 @@ public class InitStoreConfigTest {
         String restConf = this.writeDisabledRestServerConf();
         InitStore.main(new String[]{restConf,
                                    "--use-configured-admin-password"});
+    }
+
+    @Test
+    public void testConfiguredAdminPasswordRejectsNullOrEmptyValue()
+                                                        throws Exception {
+        HugeGraph graph = Mockito.mock(HugeGraph.class);
+        StandardAuthManager authManager = Mockito.mock(StandardAuthManager.class);
+        Mockito.when(graph.hugegraph()).thenReturn(graph);
+        Mockito.when(graph.authManager()).thenReturn(authManager);
+
+        StandardAuthenticator authenticator = new StandardAuthenticator();
+        Whitebox.setInternalState(authenticator, "graph", graph);
+
+        for (String password : new String[]{null, ""}) {
+            Assert.assertThrows(IllegalArgumentException.class, () -> {
+                Whitebox.invoke(StandardAuthenticator.class,
+                                new Class<?>[]{String.class, boolean.class},
+                                "initAdminUser", authenticator, password, true);
+            }, e -> Assert.assertContains("can't be null or empty",
+                                          e.getMessage()));
+        }
+        Mockito.verify(graph, Mockito.times(2)).close();
     }
 
     @Test
