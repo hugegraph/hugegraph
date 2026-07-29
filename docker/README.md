@@ -164,22 +164,22 @@ Configuration is injected via environment variables. The old `docker/configs/app
 | `HG_SERVER_INIT_STORE_ENABLED` | No | `true` | `init_store.enabled` in `rest-server.properties` | Set `false` in PD/HStore deployments so init-store skips local backend and admin initialization |
 
 > **The built-in authenticator with `HG_SERVER_INIT_STORE_ENABLED=false`
-> requires `usePD=true`, unless `auth.remote_url` delegates auth elsewhere.**
-> With init-store skipped, the only component that creates the built-in admin
-> account is the PD metadata path, which the server takes only when `usePD` is
-> true. Enabling auth without it would start a server that enforces
-> authentication while no account exists, so the entrypoint refuses that
-> combination and exits with an error rather than starting. A custom
-> `auth.authenticator` is exempt, since it keeps its identities outside
-> HugeGraph and needs no such account.
+> requires `usePD=true` and an HStore-backed `auth.graph_store`, unless
+> `auth.remote_url` delegates auth elsewhere.** With init-store skipped, the
+> server creates the built-in admin in PD metadata. Only an HStore auth graph
+> uses the PD-backed auth manager that can read that account. The entrypoint
+> invokes InitStore's no-op validation and exits before server startup when the
+> combination is unusable. A custom `auth.authenticator` is exempt because it
+> manages its own identities.
 >
 > When the combination is valid, a `PASSWORD` is written to `auth.admin_pa`
 > instead of being passed to `init-store.sh`, because the admin account is then
 > created on server startup. Two consequences worth knowing:
 >
-> - The password is stored in `conf/rest-server.properties`, so anyone who can
->   read that config volume can read it. With init-store enabled the password
->   only travels over stdin and is never written to disk.
+> - Before writing the password, the entrypoint restricts
+>   `conf/rest-server.properties` to mode `0600`. Administrators with access to
+>   the config volume can still read it. With init-store enabled the password
+>   only travels over stdin and is not written to disk.
 > - `auth.admin_pa` takes effect only when the admin account is first created.
 >   Changing `PASSWORD` on a later restart does not rotate an existing admin
 >   password, and does not report an error.

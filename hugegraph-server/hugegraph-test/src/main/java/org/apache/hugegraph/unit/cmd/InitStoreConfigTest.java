@@ -30,6 +30,7 @@ import java.util.stream.Stream;
 import org.apache.commons.configuration2.PropertiesConfiguration;
 import org.apache.hugegraph.auth.StandardAuthenticator;
 import org.apache.hugegraph.cmd.InitStore;
+import org.apache.hugegraph.config.CoreOptions;
 import org.apache.hugegraph.config.HugeConfig;
 import org.apache.hugegraph.config.OptionSpace;
 import org.apache.hugegraph.config.ServerOptions;
@@ -118,6 +119,23 @@ public class InitStoreConfigTest {
         }, e -> Assert.assertContains("[false, true]", e.getMessage()));
     }
 
+    @Test
+    public void testUnicodeEscapedAdminPasswordRoundTrips() throws IOException {
+        String password = " \tmeta:=#!\\\r\f\np\u00e4ss\u96ea";
+        StringBuilder serialized = new StringBuilder(
+                ServerOptions.ADMIN_PA.name() + "=");
+        for (char item : password.toCharArray()) {
+            serialized.append(String.format("\\u%04x", (int) item));
+        }
+
+        Path conf = this.workDir.resolve("escaped-password.properties");
+        Files.write(conf, Arrays.asList(serialized.toString()),
+                    StandardCharsets.UTF_8);
+
+        HugeConfig config = new HugeConfig(conf.toString());
+        Assert.assertEquals(password, config.get(ServerOptions.ADMIN_PA));
+    }
+
     /**
      * The graphs directory referenced by the temporary config does not exist,
      * so every code path that reaches graph scanning fails. That is what makes
@@ -138,6 +156,21 @@ public class InitStoreConfigTest {
         // Completes instead of failing on the missing graphs directory, which
         // proves the gate is applied before any graph or admin initialization
         InitStore.main(new String[]{restConf});
+    }
+
+    @Test
+    public void testConfiguredAdminPasswordFlagAccepted() throws Exception {
+        String restConf = this.writeDisabledRestServerConf();
+        InitStore.main(new String[]{restConf,
+                                   "--use-configured-admin-password"});
+    }
+
+    @Test
+    public void testUnknownInitStoreFlagRejected() throws IOException {
+        String restConf = this.writeDisabledRestServerConf();
+        Assert.assertThrows(IllegalArgumentException.class, () -> {
+            InitStore.main(new String[]{restConf, "--unknown"});
+        }, e -> Assert.assertContains("optional", e.getMessage()));
     }
 
     /**
@@ -173,12 +206,43 @@ public class InitStoreConfigTest {
                                                         throws IOException {
         String restConf = this.writeDisabledRestServerConf(
                 ServerOptions.AUTHENTICATOR.name() +
-                "=org.apache.hugegraph.auth.StandardAuthenticator");
+                "=" + StandardAuthenticator.class.getName());
 
         Assert.assertThrows(IllegalStateException.class, () -> {
             InitStore.main(new String[]{restConf});
         }, e -> Assert.assertContains("Refusing to skip init-store",
                                       e.getMessage()));
+    }
+
+    @Test
+    public void testDisabledInitStoreFailsWithNonHstoreAuthGraph()
+                                                        throws IOException {
+        Path graphsDir = this.writeAuthGraphConfig("memory");
+        String restConf = this.writeDisabledRestServerConfForGraphs(
+                graphsDir,
+                ServerOptions.AUTHENTICATOR.name() +
+                "=" + StandardAuthenticator.class.getName(),
+                ServerOptions.AUTH_GRAPH_STORE.name() + "=hugegraph",
+                ServerOptions.USE_PD.name() + "=true");
+
+        Assert.assertThrows(IllegalStateException.class, () -> {
+            InitStore.main(new String[]{restConf});
+        }, e -> Assert.assertContains("uses backend 'memory', not 'hstore'",
+                                      e.getMessage()));
+    }
+
+    @Test
+    public void testDisabledInitStoreAllowsPdBackedHstoreAuthGraph()
+                                                        throws Exception {
+        Path graphsDir = this.writeAuthGraphConfig("hstore");
+        String restConf = this.writeDisabledRestServerConfForGraphs(
+                graphsDir,
+                ServerOptions.AUTHENTICATOR.name() +
+                "=" + StandardAuthenticator.class.getName(),
+                ServerOptions.AUTH_GRAPH_STORE.name() + "=hugegraph",
+                ServerOptions.USE_PD.name() + "=true");
+
+        InitStore.main(new String[]{restConf});
     }
 
     /**
@@ -189,7 +253,7 @@ public class InitStoreConfigTest {
     public void testDisabledInitStoreAllowsRemoteAuth() throws Exception {
         String restConf = this.writeDisabledRestServerConf(
                 ServerOptions.AUTHENTICATOR.name() +
-                "=org.apache.hugegraph.auth.StandardAuthenticator",
+                "=" + StandardAuthenticator.class.getName(),
                 ServerOptions.AUTH_REMOTE_URL.name() + "=127.0.0.1:8899");
 
         InitStore.main(new String[]{restConf});
@@ -222,17 +286,32 @@ public class InitStoreConfigTest {
 
     private String writeDisabledRestServerConf(String... extraLines)
                                                throws IOException {
+        return this.writeDisabledRestServerConfForGraphs(
+                this.workDir.resolve(MISSING_GRAPHS_DIR), extraLines);
+    }
+
+    private String writeDisabledRestServerConfForGraphs(Path graphsDir,
+                                                        String... extraLines)
+                                                        throws IOException {
         // A distinct file per call, so two configs written by one test do not
         // collide inside its temporary directory
         Path restConf = this.workDir.resolve(
                 "rest-server-" + this.confSeq++ + ".properties");
-        String graphsDir = this.workDir.resolve(MISSING_GRAPHS_DIR).toString();
         List<String> lines = new ArrayList<>();
         lines.add(ServerOptions.GRAPHS.name() + "=" + graphsDir);
         lines.add(ServerOptions.INIT_STORE_ENABLED.name() + "=false");
         lines.addAll(Arrays.asList(extraLines));
         Files.write(restConf, lines, StandardCharsets.UTF_8);
         return restConf.toString();
+    }
+
+    private Path writeAuthGraphConfig(String backend) throws IOException {
+        Path graphsDir = this.workDir.resolve("graphs-" + this.confSeq++);
+        Files.createDirectories(graphsDir);
+        Files.write(graphsDir.resolve("hugegraph.properties"),
+                    Arrays.asList(CoreOptions.BACKEND.name() + "=" + backend),
+                    StandardCharsets.UTF_8);
+        return graphsDir;
     }
 
     /**

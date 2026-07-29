@@ -50,11 +50,26 @@ DEFAULT_JAVA_OPTIONS="--add-exports=java.base/jdk.internal.reflect=ALL-UNNAMED"
 
 echo "Initializing HugeGraph Store..."
 
+INIT_STORE_ARGS=()
+if [[ $# -gt 1 || ( $# -eq 1 &&
+      "$1" != "--use-configured-admin-password" ) ]]; then
+    echo "Usage: $0 [--use-configured-admin-password]" >&2
+    exit 1
+fi
+if [[ $# -eq 1 ]]; then
+    INIT_STORE_ARGS+=("$1")
+fi
+
 # Build classpath with hugegraph*.jar first to avoid class loading conflicts
 CP=$(find -L "${LIB}" -name 'hugegraph*.jar' | sort | tr '\n' ':')
 CP="$CP":$(find -L "${LIB}" -name '*.jar' \! -name 'hugegraph*' | sort | tr '\n' ':')
 CP="$CP":$(find -L "${PLUGINS}" -name '*.jar' | sort | tr '\n' ':')
 $JAVA -cp $CP ${DEFAULT_JAVA_OPTIONS} \
-org.apache.hugegraph.cmd.InitStore "${CONF}"/rest-server.properties
+org.apache.hugegraph.cmd.InitStore "${CONF}"/rest-server.properties \
+"${INIT_STORE_ARGS[@]}"
+INIT_STORE_STATUS=$?
+if [[ ${INIT_STORE_STATUS} -ne 0 ]]; then
+    exit "${INIT_STORE_STATUS}"
+fi
 
 echo "Initialization finished."

@@ -19,6 +19,7 @@ set -euo pipefail
 
 DOCKER_FOLDER="./docker"
 INIT_FLAG_FILE="init_complete"
+AUTH_INIT_STATE_FILE="auth_init_state"
 GRAPH_CONF="./conf/graphs/hugegraph.properties"
 REST_SERVER_CONF="./conf/rest-server.properties"
 GREMLIN_SERVER_CONF="./conf/gremlin-server.yaml"
@@ -46,7 +47,7 @@ set_prop() {
     # The scratch file holds auth.admin_pa, so keep it off the process umask
     ( umask 077; : > "${tmp}" )
 
-    SET_PROP_KEY="$key" SET_PROP_VAL="$val" awk '
+    if ! SET_PROP_KEY="$key" SET_PROP_VAL="$val" awk '
         BEGIN { key = ENVIRON["SET_PROP_KEY"]; val = ENVIRON["SET_PROP_VAL"] }
         {
             line = $0
@@ -62,30 +63,71 @@ set_prop() {
             print line
         }
         END { if (!done) print key "=" val }
-    ' "${file}" > "${tmp}"
+    ' "${file}" > "${tmp}"; then
+        rm -f "${tmp}"
+        return 1
+    fi
 
     # Truncate and rewrite in place rather than rename: a single-file bind
     # mount cannot be replaced by rename, and a rename would also discard the
     # original ownership and mode, which matters where auth.admin_pa is written
-    cat "${tmp}" > "${file}"
+    if ! cat "${tmp}" > "${file}"; then
+        rm -f "${tmp}"
+        return 1
+    fi
     rm -f "${tmp}"
 }
 
-# Rewrites a key that is already present as a single canonical line, dropping
-# any duplicate definitions. No-op when the key is absent.
+count_prop() {
+    local key="$1" file="$2"
+
+    [[ -f "${file}" ]] || { echo 0; return; }
+    SET_PROP_KEY="$key" awk '
+        BEGIN { key = ENVIRON["SET_PROP_KEY"] }
+        {
+            probe = $0
+            sub(/^[[:space:]]+/, "", probe)
+            if (index(probe, key) == 1) {
+                rest = substr(probe, length(key) + 1)
+                if (rest ~ /^[[:space:]]*[=:]/ || rest ~ /^[[:space:]]+/) {
+                    count++
+                }
+            }
+        }
+        END { print count + 0 }
+    ' "${file}"
+}
+
+# Drops duplicate definitions while leaving a single valid definition untouched.
+# Avoiding a needless rewrite lets complete read-only mounted configs start.
 canonicalize_prop() {
-    local key="$1" file="$2" cur
-    cur=$(get_prop "${key}" "${file}")
-    if [[ -n "${cur}" ]]; then
+    local key="$1" file="$2" count cur
+    count=$(count_prop "${key}" "${file}")
+    if (( count > 1 )); then
+        cur=$(get_prop "${key}" "${file}")
         set_prop "${key}" "${cur}" "${file}"
     fi
 }
 
-# Escapes a value for Java-properties serialization. Backslashes must be
-# doubled or the parser consumes them, so a password like `abc\def` would
-# otherwise be read back as `abcdef`; a leading space would be stripped.
+# Escapes a UTF-8 value for Java-properties serialization. Encoding every
+# UTF-16 code unit as a Unicode escape keeps separators, leading whitespace,
+# backslashes and embedded control characters out of the physical property
+# line while the Java parser reconstructs the exact original string.
 props_escape() {
-    printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/^ /\\ /'
+    printf '%s' "$1" | iconv -f UTF-8 -t UTF-16BE | \
+        od -An -v -t x1 | awk '
+            {
+                for (i = 1; i <= NF; i++) {
+                    if (high == "") {
+                        high = $i
+                    } else {
+                        printf "\\u%s%s", high, $i
+                        high = ""
+                    }
+                }
+            }
+            END { if (high != "") exit 1 }
+        '
 }
 
 # Echoes the value of a property, or nothing when the key or the file is
@@ -138,44 +180,54 @@ graph_auth_proxy_configured() {
 # mounted config sets only auth.authenticator. So run it for the untouched
 # shipped config, and otherwise apply exactly the parts that are missing.
 ensure_auth_enabled() {
-    local authenticator
+    local authenticator class_pattern
     authenticator=$(get_prop "auth.authenticator" "${REST_SERVER_CONF}")
+    class_pattern='^[[:alpha:]_$][[:alnum:]_$]*(\.[[:alpha:]_$][[:alnum:]_$]*)*$'
+    if [[ -n "${authenticator}" && ! "${authenticator}" =~ ${class_pattern} ]]; then
+        log "ERROR: auth.authenticator must be an unescaped Java class name;" \
+            "got '${authenticator}'"
+        return 1
+    fi
 
     if [[ -z "${authenticator}" ]] && ! gremlin_auth_configured && \
        ! graph_auth_proxy_configured; then
         ./bin/enable-auth.sh
+        authenticator=$(get_prop "auth.authenticator" "${REST_SERVER_CONF}")
     else
         log "auth is already configured in part; applying anything still missing"
-        if [[ -z "${authenticator}" ]]; then
-            set_prop "auth.authenticator" "${BUILTIN_AUTHENTICATOR}" \
-                     "${REST_SERVER_CONF}"
+    fi
+
+    # enable-auth.sh is guarded by conf-bak and can return success without
+    # changing restored configs. Enforce every postcondition after it runs.
+    if [[ -z "${authenticator}" ]]; then
+        authenticator="${BUILTIN_AUTHENTICATOR}"
+        set_prop "auth.authenticator" "${authenticator}" \
+                 "${REST_SERVER_CONF}"
+    fi
+    if [[ -z "$(get_prop "auth.graph_store" "${REST_SERVER_CONF}")" ]]; then
+        set_prop "auth.graph_store" "hugegraph" "${REST_SERVER_CONF}"
+    fi
+    if ! gremlin_auth_configured; then
+        # A file whose last line has no newline would otherwise absorb the
+        # first line of the block
+        if [[ -s "${GREMLIN_SERVER_CONF}" && \
+              -n "$(tail -c 1 "${GREMLIN_SERVER_CONF}")" ]]; then
+            echo >> "${GREMLIN_SERVER_CONF}"
         fi
-        if [[ -z "$(get_prop "auth.graph_store" "${REST_SERVER_CONF}")" ]]; then
-            set_prop "auth.graph_store" "hugegraph" "${REST_SERVER_CONF}"
-        fi
-        if ! gremlin_auth_configured; then
-            # A file whose last line has no newline would otherwise absorb the
-            # first line of the block
-            if [[ -s "${GREMLIN_SERVER_CONF}" && \
-                  -n "$(tail -c 1 "${GREMLIN_SERVER_CONF}")" ]]; then
-                echo >> "${GREMLIN_SERVER_CONF}"
-            fi
-            # Kept in step with bin/enable-auth.sh, which owns this block,
-            # except that Gremlin is pointed at whichever authenticator the
-            # REST config names rather than always at the built-in one
-            cat >> "${GREMLIN_SERVER_CONF}" <<EOF
+        # Kept in step with bin/enable-auth.sh, which owns this block, except
+        # that Gremlin uses whichever authenticator the REST config names.
+        cat >> "${GREMLIN_SERVER_CONF}" <<EOF
 authentication: {
-  authenticator: ${authenticator:-${BUILTIN_AUTHENTICATOR}},
+  authenticator: ${authenticator},
   authenticationHandler: org.apache.hugegraph.auth.WsAndHttpBasicAuthHandler,
   config: {tokens: conf/rest-server.properties}
 }
 EOF
-        fi
-        if ! graph_auth_proxy_configured; then
-            set_prop "gremlin.graph" \
-                     "org.apache.hugegraph.auth.HugeFactoryAuthProxy" \
-                     "${GRAPH_CONF}"
-        fi
+    fi
+    if ! graph_auth_proxy_configured; then
+        set_prop "gremlin.graph" \
+                 "org.apache.hugegraph.auth.HugeFactoryAuthProxy" \
+                 "${GRAPH_CONF}"
     fi
 
     # enable-auth.sh appends rather than replaces, so collapse whatever it left
@@ -241,36 +293,39 @@ if [[ -n "${INIT_STORE_ENABLED}" ]]; then
         exit 1
     fi
 fi
-if [[ "${INIT_STORE_ENABLED:-true}" == "false" ]]; then
-    log "init-store disabled, skipping local backend/admin init"
 
-    # With init-store skipped, nothing creates the built-in admin account
-    # unless the server takes the PD metadata path, which it only does when
-    # `usePD=true`. Enabling auth without that combination starts a server
-    # that enforces authentication while no account exists, so refuse it here
-    # rather than fail every request later.
-    # Only the built-in authenticator relies on that account: any other
-    # implementation class keeps its identities outside HugeGraph, so requiring
-    # usePD for it would reject a deployment that works
-    AUTH_REQUESTED=""
-    [[ -n "${PASSWORD:-}" ]] && AUTH_REQUESTED=1
-    [[ "$(get_prop "auth.authenticator" "${REST_SERVER_CONF}")" == \
-       "${BUILTIN_AUTHENTICATOR}" ]] && AUTH_REQUESTED=1
-    # Remote auth delegates to another service and has no local admin to
-    # create, so it is exempt from the requirement below
-    [[ -n "$(get_prop "auth.remote_url" "${REST_SERVER_CONF}")" ]] && AUTH_REQUESTED=""
-    if [[ -n "${AUTH_REQUESTED}" ]]; then
-        USE_PD=$(to_bool "$(get_prop "usePD" "${REST_SERVER_CONF}")" 2>/dev/null || echo "false")
-        if [[ "${USE_PD}" != "true" ]]; then
-            log "ERROR: auth is enabled and init_store.enabled=false, but usePD is not true."
-            log "ERROR: With init-store skipped the admin account is only created on the PD"
-            log "ERROR: metadata path, so this combination would start a server that nobody"
-            log "ERROR: can authenticate against."
-            log "ERROR: Set usePD=true in ${REST_SERVER_CONF}, or leave init-store enabled"
-            log "ERROR: so that it can create the admin account locally."
-            exit 1
-        fi
+# A mounted configuration can enable REST authentication without carrying the
+# matching Gremlin handler or auth graph proxy. Complete all three configs for
+# every configured authenticator, whether or not Docker supplied a PASSWORD.
+AUTHENTICATOR=$(get_prop "auth.authenticator" "${REST_SERVER_CONF}")
+if [[ -n "${PASSWORD:-}" || -n "${AUTHENTICATOR}" ]]; then
+    ensure_auth_enabled
+    AUTHENTICATOR=$(get_prop "auth.authenticator" "${REST_SERVER_CONF}")
+fi
+
+AUTH_STATE=""
+AUTH_INIT_REQUIRED=false
+if [[ -n "${AUTHENTICATOR}" ]]; then
+    AUTH_STATE=$(printf '%s\n%s\n%s' \
+        "${AUTHENTICATOR}" \
+        "$(get_prop "auth.remote_url" "${REST_SERVER_CONF}")" \
+        "$(get_prop "auth.graph_store" "${REST_SERVER_CONF}")")
+    STORED_AUTH_STATE=$(cat \
+        "${DOCKER_FOLDER}/${AUTH_INIT_STATE_FILE}" 2>/dev/null || true)
+    if [[ -f "${DOCKER_FOLDER}/${INIT_FLAG_FILE}" &&
+          "${STORED_AUTH_STATE}" != "${AUTH_STATE}" ]]; then
+        AUTH_INIT_REQUIRED=true
     fi
+fi
+
+if [[ "${INIT_STORE_ENABLED:-true}" == "false" ]]; then
+    log "init-store disabled; validating the no-op configuration"
+
+    # Let InitStore make the type-aware decision about whether this effective
+    # authenticator needs the built-in admin and whether the configured auth
+    # graph can read the PD-created account. The gate returns before backend or
+    # plugin registration, so this invocation performs validation only.
+    ./bin/init-store.sh
 
     # Still wait: the server needs the storage side reachable at startup even
     # though nothing is initialized here
@@ -278,31 +333,48 @@ if [[ "${INIT_STORE_ENABLED:-true}" == "false" ]]; then
 
     if [[ -n "${PASSWORD:-}" ]]; then
         log "enabling auth mode, admin password applied via auth.admin_pa"
-        ensure_auth_enabled
         # TODO: auth.admin_pa only applies when the admin account is first
-        # created, so changing PASSWORD on a later restart silently keeps the
-        # old one. It also leaves the password at rest in rest-server.properties,
-        # unlike the enabled path where it only travels over stdin.
-        set_prop "auth.admin_pa" "$(props_escape "${PASSWORD}")" "${REST_SERVER_CONF}"
+        # created, so changing PASSWORD on a later restart keeps the old one.
+        if ! ESCAPED_PASSWORD=$(props_escape "${PASSWORD}"); then
+            log "ERROR: PASSWORD must be valid UTF-8"
+            exit 1
+        fi
+        if ! chmod 600 "${REST_SERVER_CONF}"; then
+            log "ERROR: cannot protect ${REST_SERVER_CONF} before writing auth.admin_pa"
+            exit 1
+        fi
+        set_prop "auth.admin_pa" "${ESCAPED_PASSWORD}" "${REST_SERVER_CONF}"
     fi
     # No init flag is written here: nothing was initialized, so a later run
     # with init-store enabled must still perform the real initialization.
-elif [[ ! -f "${DOCKER_FOLDER}/${INIT_FLAG_FILE}" ]]; then
+elif [[ ! -f "${DOCKER_FOLDER}/${INIT_FLAG_FILE}" ||
+        "${AUTH_INIT_REQUIRED}" == "true" ]]; then
+    if [[ -f "${DOCKER_FOLDER}/${INIT_FLAG_FILE}" ]]; then
+        log "authentication configuration changed; running init-store once"
+    fi
     wait_storage
 
     if [[ -z "${PASSWORD:-}" ]]; then
-        log "init hugegraph with non-auth mode"
-        ./bin/init-store.sh
+        if [[ -n "${AUTHENTICATOR}" ]]; then
+            log "init hugegraph with configured auth.admin_pa"
+            ./bin/init-store.sh --use-configured-admin-password
+        else
+            log "init hugegraph with non-auth mode"
+            ./bin/init-store.sh
+        fi
     else
         log "init hugegraph with auth mode"
-        ensure_auth_enabled
-        echo "${PASSWORD}" | ./bin/init-store.sh
+        printf '%s\n' "${PASSWORD}" | ./bin/init-store.sh
     fi
-    # TODO: this flag only tracks "init has run", not what it ran with. On a
-    # persisted volume it survives env changes, so flipping HG_SERVER_* on a
-    # later start will not re-init. It also does not survive a Kubernetes pod
-    # restart, which is why init_store.enabled exists rather than a flag file.
+    # This flag tracks only that init has run. The branch above explicitly
+    # handles later auth-mode changes; other HG_SERVER_* changes do not re-init.
+    # It also does not survive a Kubernetes pod restart, which is why
+    # init_store.enabled exists rather than a flag file.
     touch "${DOCKER_FOLDER}/${INIT_FLAG_FILE}"
+    if [[ -n "${AUTH_STATE}" ]]; then
+        printf '%s\n' "${AUTH_STATE}" > \
+            "${DOCKER_FOLDER}/${AUTH_INIT_STATE_FILE}"
+    fi
 else
     log "HugeGraph initialization already done. Skipping re-init..."
 fi

@@ -47,9 +47,10 @@ public class StandardAuthenticator implements HugeAuthenticator {
 
     private HugeGraph graph = null;
 
-    private void initAdminUser() throws Exception {
+    private void initAdminUser(String password, boolean fromConfig)
+                               throws Exception {
         if (this.requireInitAdminUser()) {
-            this.initAdminUser(this.inputPassword());
+            this.initAdminUser(fromConfig ? password : this.inputPassword());
         }
         this.graph.close();
     }
@@ -210,6 +211,19 @@ public class StandardAuthenticator implements HugeAuthenticator {
     }
 
     public static void initAdminUserIfNeeded(String confFile) throws Exception {
+        initAdminUserIfNeeded(confFile, null, false);
+    }
+
+    public static void initAdminUserIfNeeded(String confFile,
+                                             String configuredPassword)
+                                             throws Exception {
+        initAdminUserIfNeeded(confFile, configuredPassword, true);
+    }
+
+    private static void initAdminUserIfNeeded(String confFile,
+                                              String password,
+                                              boolean fromConfig)
+                                              throws Exception {
         StandardAuthenticator auth = new StandardAuthenticator();
         HugeConfig config = new HugeConfig(confFile);
         String authClass = config.get(ServerOptions.AUTHENTICATOR);
@@ -219,7 +233,7 @@ public class StandardAuthenticator implements HugeAuthenticator {
         config.addProperty(INITING_STORE, true);
         auth.setup(config);
         if (auth.graph().backendStoreFeatures().supportsPersistence()) {
-            auth.initAdminUser();
+            auth.initAdminUser(password, fromConfig);
         }
     }
 

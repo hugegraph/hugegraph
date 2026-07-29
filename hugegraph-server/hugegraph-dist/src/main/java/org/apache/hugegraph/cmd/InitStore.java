@@ -41,15 +41,22 @@ import org.slf4j.Logger;
 public class InitStore {
 
     private static final Logger LOG = Log.logger(InitStore.class);
+    private static final String USE_CONFIGURED_ADMIN_PASSWORD =
+            "--use-configured-admin-password";
 
     public static void main(String[] args) throws Exception {
-        E.checkArgument(args.length == 1,
+        E.checkArgument(args.length == 1 ||
+                        args.length == 2 &&
+                        USE_CONFIGURED_ADMIN_PASSWORD.equals(args[1]),
                         "HugeGraph init-store need to pass the config file " +
-                        "of RestServer, like: conf/rest-server.properties");
+                        "of RestServer, like: conf/rest-server.properties, " +
+                        "with an optional %s flag",
+                        USE_CONFIGURED_ADMIN_PASSWORD);
         E.checkArgument(args[0].endsWith(".properties"),
                         "Expect the parameter is properties config file.");
 
         String restConf = args[0];
+        boolean useConfiguredAdminPassword = args.length == 2;
 
         /*
          * Only the server options are needed to read the gate below. Backend
@@ -76,12 +83,10 @@ public class InitStore {
          * not survive one.
          *
          * NOTE: skipping also means the built-in admin account is not created
-         * here. The only other code path that creates it is
-         * GraphManager.initAdminUserIfNeeded(), reached from loadMetaFromPD(),
-         * which runs only when 'usePD' is true. Configuring the built-in
-         * authenticator with this option false and 'usePD' false therefore
-         * yields a server that enforces authentication with no account to
-         * authenticate against, which checkAdminBootstrapReachable() refuses.
+         * here. The PD startup path can replace that work only when usePD is
+         * true and the configured auth graph uses HStore, whose auth manager
+         * reads the same PD metadata. checkAdminBootstrapReachable() rejects
+         * every other local built-in-auth configuration before returning.
          */
         if (!restServerConfig.get(ServerOptions.INIT_STORE_ENABLED)) {
             LOG.warn("Skipping init-store: '{}' is false in '{}'. Local " +
@@ -112,7 +117,16 @@ public class InitStore {
                 }
                 graphs.add(initGraph(configPath));
             }
-            StandardAuthenticator.initAdminUserIfNeeded(restConf);
+            if (requiresBuiltinAdmin(
+                    restServerConfig.get(ServerOptions.AUTHENTICATOR))) {
+                if (useConfiguredAdminPassword) {
+                    StandardAuthenticator.initAdminUserIfNeeded(
+                            restConf,
+                            restServerConfig.get(ServerOptions.ADMIN_PA));
+                } else {
+                    StandardAuthenticator.initAdminUserIfNeeded(restConf);
+                }
+            }
         } finally {
             for (HugeGraph graph : graphs) {
                 graph.close();
@@ -124,11 +138,11 @@ public class InitStore {
     /**
      * Skipping means init-store does not create the built-in admin account,
      * and the only other component that creates it is
-     * GraphManager.initAdminUserIfNeeded(), reached from loadMetaFromPD() and
-     * so gated on 'usePD'. Failing here rather than returning zero keeps
-     * tarball and init-job callers, which see only the exit status, from
-     * continuing into a server that enforces authentication with no account
-     * to authenticate against.
+     * GraphManager.initAdminUserIfNeeded(), reached from loadMetaFromPD(). That
+     * creates the user in PD metadata, so it is reachable by the authenticator
+     * only when usePD is true and the auth graph uses HStore's
+     * StandardAuthManagerV2. Failing here rather than returning zero keeps
+     * tarball and init-job callers from continuing into an unusable server.
      * <p>
      * Remote auth is exempt: the auth manager is then an RPC client, and
      * StandardAuthenticator only bootstraps an admin for a local one. So is
@@ -138,19 +152,56 @@ public class InitStore {
     private static void checkAdminBootstrapReachable(HugeConfig conf,
                                                      String restConf) {
         if (!requiresBuiltinAdmin(conf.get(ServerOptions.AUTHENTICATOR)) ||
-            conf.get(ServerOptions.USE_PD) ||
             !conf.get(ServerOptions.AUTH_REMOTE_URL).isEmpty()) {
             return;
         }
-        throw new IllegalStateException(String.format(
-                "Refusing to skip init-store: '%s' is set in '%s' but '%s' is " +
-                "false, so no component would create the built-in admin " +
-                "account. Set '%s' to true, set '%s' to delegate auth, or " +
-                "leave '%s' enabled so init-store creates the account.",
-                ServerOptions.AUTHENTICATOR.name(), restConf,
-                ServerOptions.USE_PD.name(), ServerOptions.USE_PD.name(),
+
+        if (!conf.get(ServerOptions.USE_PD)) {
+            throw adminBootstrapUnavailable(restConf, String.format(
+                    "'%s' is false", ServerOptions.USE_PD.name()), null);
+        }
+
+        String graphName = conf.get(ServerOptions.AUTH_GRAPH_STORE);
+        String graphPath;
+        try {
+            Map<String, String> graphConfs = ConfigUtil.scanGraphsDir(
+                    conf.get(ServerOptions.GRAPHS));
+            graphPath = graphConfs.get(graphName);
+        } catch (RuntimeException e) {
+            throw adminBootstrapUnavailable(
+                    restConf, "the auth graph configuration cannot be read", e);
+        }
+        if (graphPath == null) {
+            throw adminBootstrapUnavailable(restConf, String.format(
+                    "auth graph '%s' has no local configuration", graphName),
+                    null);
+        }
+
+        HugeConfig graphConfig = new HugeConfig(graphPath);
+        String backend = graphConfig.get(CoreOptions.BACKEND);
+        if (!Objects.equals(backend, "hstore")) {
+            throw adminBootstrapUnavailable(restConf, String.format(
+                    "auth graph '%s' uses backend '%s', not 'hstore'",
+                    graphName, backend), null);
+        }
+    }
+
+    private static IllegalStateException adminBootstrapUnavailable(
+                                                   String restConf,
+                                                   String reason,
+                                                   RuntimeException cause) {
+        String message = String.format(
+                "Refusing to skip init-store: the built-in authenticator is " +
+                "configured in '%s', but %s, so the admin created on the PD " +
+                "startup path would not be available to that authenticator. " +
+                "Set '%s' to true with an HStore auth graph, set '%s' to " +
+                "delegate auth, configure an external authenticator, or leave " +
+                "'%s' enabled so init-store creates the account.",
+                restConf, reason, ServerOptions.USE_PD.name(),
                 ServerOptions.AUTH_REMOTE_URL.name(),
-                ServerOptions.INIT_STORE_ENABLED.name()));
+                ServerOptions.INIT_STORE_ENABLED.name());
+        return cause == null ? new IllegalStateException(message) :
+               new IllegalStateException(message, cause);
     }
 
     /**

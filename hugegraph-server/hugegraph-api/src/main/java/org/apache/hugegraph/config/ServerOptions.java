@@ -376,9 +376,9 @@ public class ServerOptions extends OptionHolder {
                     "deployments (PD/HStore) where the storage side already " +
                     "owns the metadata. Note that setting it false also means " +
                     "the admin account is not created here, and the only " +
-                    "other component that creates it requires 'usePD' to be " +
-                    "true, so configuring the built-in authenticator without " +
-                    "that would leave no account to authenticate against.",
+                    "other component that creates it writes to PD metadata. " +
+                    "The built-in authenticator can use that account only " +
+                    "when 'usePD' is true and its auth graph uses HStore.",
                     disallowEmpty(),
                     true
             );
@@ -433,13 +433,6 @@ public class ServerOptions extends OptionHolder {
                     nonNegativeInt(),
                     0);
 
-    // TODO: these keys are camelCase but conf/rest-server.properties ships them
-    // as arthas.telnet_port / arthas.http_port / arthas.disabled_commands, so
-    // nothing matches and operator values are silently replaced by the defaults
-    // below. Only arthas.ip works. Unnoticed so far because each shipped value
-    // equals its default, but e.g. arthas.disabled_commands=jad,exec is dropped
-    // and exec stays enabled. Rename these to snake_case (pre-existing, tracked
-    // separately from this change).
     public static final ConfigOption<String> ARTHAS_TELNET_PORT =
             new ConfigOption<>(
                     "arthas.telnetPort",

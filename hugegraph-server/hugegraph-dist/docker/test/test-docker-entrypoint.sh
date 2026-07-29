@@ -19,7 +19,8 @@
 #
 # The entrypoint is run against a throwaway install tree whose ./bin scripts are
 # stubs recording their own invocation, so the tests assert on which scripts ran
-# and on the resulting config, without needing a JVM, a backend or Docker.
+# and on the resulting config without a backend or Docker. A source-file Java
+# helper verifies password values with the same properties parser semantics.
 #
 # Usage: hugegraph-server/hugegraph-dist/docker/test/test-docker-entrypoint.sh
 
@@ -70,6 +71,37 @@ assert_prop() {
         ok
     else
         fail "expected property '${expected}' in rest-server.properties"
+    fi
+}
+
+bytes_hex() {
+    printf '%s' "$1" | od -An -v -t x1 | tr -d '[:space:]'
+}
+
+file_mode() {
+    stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1"
+}
+
+file_mtime() {
+    stat -c '%Y' "$1" 2>/dev/null || stat -f '%m' "$1"
+}
+
+# Read the generated property through java.util.Properties and compare UTF-8
+# bytes. This catches physical-line truncation and every escape-sequence error,
+# including trailing newlines that command substitution would otherwise hide.
+assert_prop_round_trip() {
+    local key="$1" expected="$2" actual_hex expected_hex
+    if ! actual_hex=$(java "${SELF_DIR}/JavaPropertiesReader.java" \
+            "${INSTALL}/conf/rest-server.properties" "${key}" \
+            2> "${INSTALL}/java-properties.err"); then
+        fail "Java could not read '${key}': $(cat "${INSTALL}/java-properties.err")"
+        return
+    fi
+    expected_hex=$(bytes_hex "${expected}")
+    if [[ "${actual_hex}" == "${expected_hex}" ]]; then
+        ok
+    else
+        fail "'${key}' parsed as hex '${actual_hex}', expected '${expected_hex}'"
     fi
 }
 
@@ -126,6 +158,7 @@ graphs=./conf/graphs
 #auth.authenticator=org.apache.hugegraph.auth.StandardAuthenticator
 #auth.admin_pa=pa
 EOF
+    chmod 644 "${INSTALL}/conf/rest-server.properties"
     cat > "${INSTALL}/conf/graphs/hugegraph.properties" <<'EOF'
 backend=rocksdb
 gremlin.graph=org.apache.hugegraph.HugeFactory
@@ -147,19 +180,25 @@ EOF
     cat > "${INSTALL}/bin/init-store.sh" <<EOF
 #!/bin/bash
 echo "init-store.sh" >> "${INSTALL}/calls.log"
+if [[ \$# -gt 0 ]]; then
+    echo "init-store.sh:args=\$*" >> "${INSTALL}/calls.log"
+fi
 if [[ ! -t 0 ]]; then
     stdin=\$(cat)
     [[ -n "\${stdin}" ]] && echo "init-store.sh:stdin=\${stdin}" >> "${INSTALL}/calls.log"
 fi
-exit 0
+exit "\${INIT_STORE_STUB_RC:-0}"
 EOF
     chmod +x "${INSTALL}/bin/init-store.sh"
 
     # Mirrors bin/enable-auth.sh: appends the REST keys and the YAML
-    # authentication block, and switches the graph to the auth proxy
+    # authentication block and switches the graph to the auth proxy, but only
+    # before its one-time conf-bak guard exists.
     cat > "${INSTALL}/bin/enable-auth.sh" <<EOF
 #!/bin/bash
 echo "enable-auth.sh" >> "${INSTALL}/calls.log"
+if [[ ! -d "${INSTALL}/conf-bak" ]]; then
+mkdir -p "${INSTALL}/conf-bak"
 {
     echo "auth.authenticator=org.apache.hugegraph.auth.StandardAuthenticator"
     echo "auth.graph_store=hugegraph"
@@ -174,16 +213,20 @@ YAML
 sed -i.bak 's/gremlin.graph=org.apache.hugegraph.HugeFactory/gremlin.graph=org.apache.hugegraph.auth.HugeFactoryAuthProxy/g' \
     "${INSTALL}/conf/graphs/hugegraph.properties"
 rm -f "${INSTALL}/conf/graphs/hugegraph.properties.bak"
+fi
 EOF
     chmod +x "${INSTALL}/bin/enable-auth.sh"
 
     : > "${INSTALL}/calls.log"
 }
 
-# Auth plus skipped init-store is only supported alongside the PD metadata
-# path, which is what actually creates the admin account in that mode
+# The built-in admin created on the PD path is usable only when the auth graph
+# selects HStore's PD-backed auth manager.
 enable_pd() {
     echo "usePD=true" >> "${INSTALL}/conf/rest-server.properties"
+    sed -i.bak 's/^backend=rocksdb$/backend=hstore/' \
+        "${INSTALL}/conf/graphs/hugegraph.properties"
+    rm -f "${INSTALL}/conf/graphs/hugegraph.properties.bak"
 }
 
 # Run the entrypoint inside the throwaway tree. No ./bin/pid is ever written by
@@ -195,6 +238,15 @@ run_entrypoint() {
         fail "entrypoint exited ${rc}; output: $(cat "${INSTALL}/out.log")"
     fi
     return 0
+}
+
+run_entrypoint_fails() {
+    if ( cd "${INSTALL}" && env "$@" bash "${ENTRYPOINT}" ) \
+            > "${INSTALL}/out.log" 2>&1; then
+        fail "expected entrypoint to fail"
+    else
+        ok
+    fi
 }
 
 cleanup() { [[ -n "${INSTALL:-}" ]] && rm -rf "${INSTALL}"; }
@@ -219,11 +271,11 @@ assert_file "docker/init_complete"
 assert_auth_fully_enabled
 cleanup
 
-echo "==> skip via env: init-store never runs and no init flag is written"
+echo "==> skip via env: InitStore validates the no-op and no flag is written"
 new_install
 run_entrypoint -u PASSWORD HG_SERVER_INIT_STORE_ENABLED=false
 assert_ran "wait-storage.sh"
-assert_not_ran "init-store.sh"
+assert_ran "init-store.sh"
 assert_prop "init_store.enabled" "false"
 assert_no_file "docker/init_complete"
 cleanup
@@ -233,9 +285,9 @@ new_install
 enable_pd
 run_entrypoint HG_SERVER_INIT_STORE_ENABLED=false PASSWORD=s3cret
 assert_ran "enable-auth.sh"
-assert_not_ran "init-store.sh"
+assert_ran "init-store.sh"
 assert_not_ran "init-store.sh:stdin=s3cret"
-assert_prop "auth.admin_pa" "s3cret"
+assert_prop_round_trip "auth.admin_pa" "s3cret"
 assert_no_file "docker/init_complete"
 cleanup
 
@@ -244,9 +296,9 @@ new_install
 enable_pd
 echo "init_store.enabled=false" >> "${INSTALL}/conf/rest-server.properties"
 run_entrypoint -u HG_SERVER_INIT_STORE_ENABLED PASSWORD=s3cret
-assert_not_ran "init-store.sh"
+assert_ran "init-store.sh"
 assert_not_ran "init-store.sh:stdin=s3cret"
-assert_prop "auth.admin_pa" "s3cret"
+assert_prop_round_trip "auth.admin_pa" "s3cret"
 assert_no_file "docker/init_complete"
 cleanup
 
@@ -261,7 +313,7 @@ cleanup
 echo "==> false then true: a restart with init enabled still initializes"
 new_install
 run_entrypoint -u PASSWORD HG_SERVER_INIT_STORE_ENABLED=false
-assert_not_ran "init-store.sh"
+assert_ran "init-store.sh"
 assert_no_file "docker/init_complete"
 : > "${INSTALL}/calls.log"
 run_entrypoint -u PASSWORD HG_SERVER_INIT_STORE_ENABLED=true
@@ -279,14 +331,66 @@ assert_not_ran "init-store.sh"
 assert_file "docker/init_complete"
 cleanup
 
+echo "==> adding PASSWORD after no-auth init still creates the admin"
+new_install
+mkdir -p "${INSTALL}/docker"
+touch "${INSTALL}/docker/init_complete"
+run_entrypoint PASSWORD=s3cret
+assert_ran "enable-auth.sh"
+assert_ran "init-store.sh"
+assert_ran "init-store.sh:stdin=s3cret"
+assert_auth_fully_enabled
+assert_file "docker/init_complete"
+assert_file "docker/auth_init_state"
+cleanup
+
+echo "==> mounted built-in auth after no-auth init still creates the admin"
+new_install
+mkdir -p "${INSTALL}/docker"
+touch "${INSTALL}/docker/init_complete"
+echo "auth.authenticator=org.apache.hugegraph.auth.StandardAuthenticator" \
+    >> "${INSTALL}/conf/rest-server.properties"
+run_entrypoint PASSWORD=s3cret
+assert_ran "init-store.sh"
+assert_ran "init-store.sh:stdin=s3cret"
+assert_auth_fully_enabled
+assert_file "docker/auth_init_state"
+cleanup
+
+echo "==> mounted built-in auth without PASSWORD uses configured admin password"
+new_install
+mkdir -p "${INSTALL}/docker"
+touch "${INSTALL}/docker/init_complete"
+echo "auth.authenticator=org.apache.hugegraph.auth.StandardAuthenticator" \
+    >> "${INSTALL}/conf/rest-server.properties"
+run_entrypoint -u PASSWORD
+assert_ran "init-store.sh"
+assert_ran "init-store.sh:args=--use-configured-admin-password"
+assert_auth_fully_enabled
+assert_file "docker/auth_init_state"
+: > "${INSTALL}/calls.log"
+run_entrypoint -u PASSWORD
+assert_not_ran "init-store.sh"
+assert_ran "start-hugegraph.sh"
+cleanup
+
+echo "==> an existing conf-bak cannot suppress requested auth"
+new_install
+mkdir -p "${INSTALL}/conf-bak"
+run_entrypoint PASSWORD=s3cret
+assert_ran "enable-auth.sh"
+assert_ran "init-store.sh:stdin=s3cret"
+assert_auth_fully_enabled
+cleanup
+
 echo "==> uppercase FALSE is honoured, matching the server's boolean parsing"
 new_install
 enable_pd
 run_entrypoint HG_SERVER_INIT_STORE_ENABLED=FALSE PASSWORD=s3cret
-assert_not_ran "init-store.sh"
+assert_ran "init-store.sh"
 assert_not_ran "init-store.sh:stdin=s3cret"
 assert_prop "init_store.enabled" "false"
-assert_prop "auth.admin_pa" "s3cret"
+assert_prop_round_trip "auth.admin_pa" "s3cret"
 assert_no_file "docker/init_complete"
 cleanup
 
@@ -294,7 +398,7 @@ echo "==> 'off' and 'no' are honoured too"
 for value in off no; do
     new_install
     run_entrypoint -u PASSWORD "HG_SERVER_INIT_STORE_ENABLED=${value}"
-    assert_not_ran "init-store.sh"
+    assert_ran "init-store.sh"
     assert_no_file "docker/init_complete"
     cleanup
 done
@@ -314,7 +418,7 @@ echo "==> mounted property with a ':' separator is honoured"
 new_install
 echo "init_store.enabled:false" >> "${INSTALL}/conf/rest-server.properties"
 run_entrypoint -u HG_SERVER_INIT_STORE_ENABLED -u PASSWORD
-assert_not_ran "init-store.sh"
+assert_ran "init-store.sh"
 assert_no_file "docker/init_complete"
 cleanup
 
@@ -322,22 +426,27 @@ echo "==> password with backslashes survives the properties round trip"
 new_install
 enable_pd
 run_entrypoint 'PASSWORD=abc\def' HG_SERVER_INIT_STORE_ENABLED=false
-assert_not_ran "init-store.sh"
-# Written escaped, so the properties parser reads back the original `abc\def`
-assert_prop "auth.admin_pa" 'abc\\def'
+assert_ran "init-store.sh"
+assert_prop_round_trip "auth.admin_pa" 'abc\def'
 cleanup
 
-echo "==> skip + PASSWORD without usePD is refused, not silently started"
+echo "==> properties metacharacters, controls and UTF-8 round-trip exactly"
 new_install
-if ( cd "${INSTALL}" && env -u HG_SERVER_INIT_STORE_ENABLED PASSWORD=s3cret \
-        HG_SERVER_INIT_STORE_ENABLED=false bash "${ENTRYPOINT}" ) >/dev/null 2>&1; then
-    fail "expected auth + skip without usePD to be refused"
-else
-    ok
-fi
-# Refused before starting the server, and without leaving auth half-enabled
+enable_pd
+complex_password=$' \tmeta:=#!\\\r\f\np\xc3\xa4ss\xe9\x9b\xaa'
+run_entrypoint HG_SERVER_INIT_STORE_ENABLED=false \
+    "PASSWORD=${complex_password}"
+assert_prop_round_trip "auth.admin_pa" "${complex_password}"
+assert_prop_defined_once "auth.admin_pa"
+cleanup
+
+echo "==> a Java validation failure is propagated before password persistence"
+new_install
+run_entrypoint_fails -u HG_SERVER_INIT_STORE_ENABLED PASSWORD=s3cret \
+    HG_SERVER_INIT_STORE_ENABLED=false INIT_STORE_STUB_RC=1
 assert_not_ran "start-hugegraph.sh"
-assert_not_ran "init-store.sh"
+assert_ran "init-store.sh"
+assert_no_prop_key "auth.admin_pa"
 assert_no_file "docker/init_complete"
 cleanup
 
@@ -345,20 +454,17 @@ echo "==> skip with auth already in a mounted config, no usePD, is refused too"
 new_install
 echo "auth.authenticator=org.apache.hugegraph.auth.StandardAuthenticator" \
     >> "${INSTALL}/conf/rest-server.properties"
-if ( cd "${INSTALL}" && env -u PASSWORD HG_SERVER_INIT_STORE_ENABLED=false \
-        bash "${ENTRYPOINT}" ) >/dev/null 2>&1; then
-    fail "expected mounted auth + skip without usePD to be refused"
-else
-    ok
-fi
+run_entrypoint_fails -u PASSWORD HG_SERVER_INIT_STORE_ENABLED=false \
+    INIT_STORE_STUB_RC=1
 assert_not_ran "start-hugegraph.sh"
+assert_ran "init-store.sh"
 cleanup
 
 echo "==> skip without auth is unaffected by the usePD requirement"
 new_install
 run_entrypoint -u PASSWORD HG_SERVER_INIT_STORE_ENABLED=false
 assert_ran "start-hugegraph.sh"
-assert_not_ran "init-store.sh"
+assert_ran "init-store.sh"
 assert_no_file "docker/init_complete"
 cleanup
 
@@ -386,7 +492,7 @@ enable_pd
 echo "auth.admin_pa:old" >> "${INSTALL}/conf/rest-server.properties"
 run_entrypoint HG_SERVER_INIT_STORE_ENABLED=false PASSWORD=s3cret
 assert_prop_defined_once "auth.admin_pa"
-assert_prop "auth.admin_pa" "s3cret"
+assert_prop_round_trip "auth.admin_pa" "s3cret"
 cleanup
 
 echo "==> commented-out defaults are not treated as definitions"
@@ -410,7 +516,7 @@ echo "auth.graph_store=hugegraph" >> "${INSTALL}/conf/rest-server.properties"
 run_entrypoint HG_SERVER_INIT_STORE_ENABLED=false PASSWORD=s3cret
 assert_not_ran "enable-auth.sh"
 assert_prop_defined_once "auth.admin_pa"
-assert_prop "auth.admin_pa" "s3cret"
+assert_prop_round_trip "auth.admin_pa" "s3cret"
 # The mounted config carried only the REST keys, so the YAML block and the auth
 # proxy still have to be applied, or Gremlin would stay unauthenticated
 assert_auth_fully_enabled
@@ -425,6 +531,17 @@ run_entrypoint HG_SERVER_INIT_STORE_ENABLED=false PASSWORD=s3cret
 assert_not_ran "enable-auth.sh"
 assert_auth_fully_enabled
 assert_prop "auth.graph_store" "hugegraph"
+cleanup
+
+echo "==> mounted auth without PASSWORD still protects Gremlin and the graph"
+new_install
+enable_pd
+echo "auth.authenticator=org.apache.hugegraph.auth.StandardAuthenticator" \
+    >> "${INSTALL}/conf/rest-server.properties"
+run_entrypoint -u PASSWORD HG_SERVER_INIT_STORE_ENABLED=false
+assert_ran "init-store.sh"
+assert_auth_fully_enabled
+assert_no_prop_key "auth.admin_pa"
 cleanup
 
 echo "==> a gremlin-server.yaml without a trailing newline is still valid"
@@ -454,13 +571,52 @@ assert_not_ran "enable-auth.sh"
 assert_auth_fully_enabled
 cleanup
 
+echo "==> a complete read-only auth mount is not rewritten"
+new_install
+"${INSTALL}/bin/enable-auth.sh"
+: > "${INSTALL}/calls.log"
+touch -t 202001010000 "${INSTALL}/conf/rest-server.properties"
+before_mtime=$(file_mtime "${INSTALL}/conf/rest-server.properties")
+chmod 444 "${INSTALL}/conf/rest-server.properties"
+run_entrypoint -u PASSWORD
+after_mtime=$(file_mtime "${INSTALL}/conf/rest-server.properties")
+after_mode=$(file_mode "${INSTALL}/conf/rest-server.properties")
+assert_ran "init-store.sh:args=--use-configured-admin-password"
+assert_ran "start-hugegraph.sh"
+assert_auth_fully_enabled
+if [[ "${after_mtime}" == "${before_mtime}" ]]; then
+    ok
+else
+    fail "read-only rest-server.properties was rewritten"
+fi
+if [[ "${after_mode}" == "444" ]]; then
+    ok
+else
+    fail "read-only rest-server.properties mode became ${after_mode}"
+fi
+cleanup
+
 echo "==> a custom authenticator is not held to the usePD requirement"
 new_install
 echo "auth.authenticator=org.example.auth.LdapAuthenticator" \
     >> "${INSTALL}/conf/rest-server.properties"
 run_entrypoint -u PASSWORD HG_SERVER_INIT_STORE_ENABLED=false
 assert_ran "start-hugegraph.sh"
-assert_not_ran "init-store.sh"
+assert_ran "init-store.sh"
+assert_auth_fully_enabled
+assert_prop "auth.authenticator" "org.example.auth.LdapAuthenticator"
+cleanup
+
+echo "==> PASSWORD does not turn a custom authenticator into built-in auth"
+new_install
+echo "auth.authenticator=org.example.auth.LdapAuthenticator" \
+    >> "${INSTALL}/conf/rest-server.properties"
+run_entrypoint HG_SERVER_INIT_STORE_ENABLED=false PASSWORD=s3cret
+assert_ran "start-hugegraph.sh"
+assert_ran "init-store.sh"
+assert_auth_fully_enabled
+assert_prop "auth.authenticator" "org.example.auth.LdapAuthenticator"
+assert_prop_round_trip "auth.admin_pa" "s3cret"
 cleanup
 
 echo "==> surrounding whitespace is trimmed, inner whitespace is kept"
@@ -468,21 +624,29 @@ new_install
 printf 'auth.authenticator = %s   \n' \
     "org.apache.hugegraph.auth.StandardAuthenticator" \
     >> "${INSTALL}/conf/rest-server.properties"
-# Trailing spaces must not stop the value matching the built-in class, or the
-# admin-account requirement below would be skipped for a config that needs it
-if ( cd "${INSTALL}" && env -u PASSWORD HG_SERVER_INIT_STORE_ENABLED=false \
-        bash "${ENTRYPOINT}" ) >/dev/null 2>&1; then
-    fail "expected a padded auth.authenticator to still be recognized"
-else
-    ok
-fi
+# The Java validator is the source of truth for the class decision; the
+# entrypoint must preserve its failure status for this padded value.
+run_entrypoint_fails -u PASSWORD HG_SERVER_INIT_STORE_ENABLED=false \
+    INIT_STORE_STUB_RC=1
+assert_ran "init-store.sh"
+assert_not_ran "start-hugegraph.sh"
+cleanup
+
+echo "==> escaped authenticator spelling is rejected before YAML generation"
+new_install
+echo 'auth.authenticator=org.apache.hugegraph.auth.Standard\u0041uthenticator' \
+    >> "${INSTALL}/conf/rest-server.properties"
+run_entrypoint_fails -u PASSWORD HG_SERVER_INIT_STORE_ENABLED=false
+assert_not_ran "enable-auth.sh"
+assert_not_ran "init-store.sh"
+assert_not_ran "start-hugegraph.sh"
 cleanup
 
 echo "==> a value containing spaces survives the round trip"
 new_install
 enable_pd
 run_entrypoint HG_SERVER_INIT_STORE_ENABLED=false 'PASSWORD=two words'
-assert_prop "auth.admin_pa" "two words"
+assert_prop_round_trip "auth.admin_pa" "two words"
 assert_prop_defined_once "auth.admin_pa"
 cleanup
 
@@ -493,22 +657,25 @@ echo "auth.authenticator=org.apache.hugegraph.auth.StandardAuthenticator" \
 echo "auth.remote_url=127.0.0.1:8899" >> "${INSTALL}/conf/rest-server.properties"
 run_entrypoint -u PASSWORD HG_SERVER_INIT_STORE_ENABLED=false
 assert_ran "start-hugegraph.sh"
-assert_not_ran "init-store.sh"
+assert_ran "init-store.sh"
+assert_auth_fully_enabled
 cleanup
 
-echo "==> set_prop preserves the config file's inode and mode"
+echo "==> secret write preserves the inode and restricts the shipped mode"
 new_install
-chmod 600 "${INSTALL}/conf/rest-server.properties"
+enable_pd
 before_inode=$(ls -i "${INSTALL}/conf/rest-server.properties" | awk '{print $1}')
-run_entrypoint -u PASSWORD HG_SERVER_INIT_STORE_ENABLED=false
+before_mode=$(file_mode "${INSTALL}/conf/rest-server.properties")
+run_entrypoint PASSWORD=s3cret HG_SERVER_INIT_STORE_ENABLED=false
 after_inode=$(ls -i "${INSTALL}/conf/rest-server.properties" | awk '{print $1}')
-after_mode=$(stat -c '%a' "${INSTALL}/conf/rest-server.properties" 2>/dev/null \
-             || stat -f '%Lp' "${INSTALL}/conf/rest-server.properties")
+after_mode=$(file_mode "${INSTALL}/conf/rest-server.properties")
 # Rewriting in place matters: a single-file bind mount cannot be replaced by
-# rename, and a rename would drop the mode protecting auth.admin_pa
+# rename. The shipped 0644 mode must be restricted before the secret is written.
+if [[ "${before_mode}" == "644" ]]; then ok; else fail "fixture mode was ${before_mode}"; fi
 if [[ "${before_inode}" == "${after_inode}" ]]; then ok; else fail "inode changed"; fi
 if [[ "${after_mode}" == "600" ]]; then ok; else fail "mode became ${after_mode}, expected 600"; fi
 assert_prop "init_store.enabled" "false"
+assert_prop_round_trip "auth.admin_pa" "s3cret"
 cleanup
 
 echo "==> no scratch file is left behind"
@@ -523,22 +690,74 @@ cleanup
 
 echo "==> the entrypoint's auth block has not drifted from enable-auth.sh"
 # The entrypoint reapplies what bin/enable-auth.sh would have done when it
-# cannot run the script itself, so the two must name the same classes and keys
+# cannot run the script itself, so both sides must retain every exact invariant.
 ENABLE_AUTH="${SELF_DIR}/../../src/assembly/static/bin/enable-auth.sh"
 if [[ -f "${ENABLE_AUTH}" ]]; then
-    for token in "authentication: {" "WsAndHttpBasicAuthHandler" \
+    for token in "authentication: {" \
+                 "org.apache.hugegraph.auth.StandardAuthenticator" \
+                 "WsAndHttpBasicAuthHandler" \
                  "tokens: conf/rest-server.properties" "auth.graph_store" \
                  "HugeFactoryAuthProxy"; do
-        if grep -qF "${token}" "${ENABLE_AUTH}" && \
-           ! grep -qF "${token}" "${ENTRYPOINT}"; then
-            fail "enable-auth.sh has '${token}' but the entrypoint does not"
-        else
+        if grep -qF "${token}" "${ENABLE_AUTH}"; then
             ok
+        else
+            fail "enable-auth.sh is missing '${token}'"
+        fi
+        if grep -qF "${token}" "${ENTRYPOINT}"; then
+            ok
+        else
+            fail "docker-entrypoint.sh is missing '${token}'"
         fi
     done
 else
     fail "enable-auth.sh not found at ${ENABLE_AUTH}"
 fi
+
+echo "==> the production init-store wrapper preserves Java failures"
+new_install
+INIT_STORE_WRAPPER="${SELF_DIR}/../../src/assembly/static/bin/init-store.sh"
+cp "${INIT_STORE_WRAPPER}" "${INSTALL}/bin/init-store.sh"
+mkdir -p "${INSTALL}/lib" "${INSTALL}/plugins"
+cat > "${INSTALL}/bin/util.sh" <<'EOF'
+configure_riscv64_libatomic() { return 0; }
+ensure_path_writable() { return 0; }
+EOF
+mkdir -p "${INSTALL}/fake-java/bin"
+cat > "${INSTALL}/fake-java/bin/java" <<'EOF'
+#!/bin/bash
+if [[ -n "${FAKE_JAVA_ARGS_FILE:-}" ]]; then
+    printf '%s\n' "$*" > "${FAKE_JAVA_ARGS_FILE}"
+fi
+exit "${FAKE_JAVA_STATUS:-0}"
+EOF
+chmod +x "${INSTALL}/fake-java/bin/java"
+if ( cd "${INSTALL}" && env FAKE_JAVA_STATUS=23 \
+        FAKE_JAVA_ARGS_FILE="${INSTALL}/fake-java-args" \
+        JAVA_HOME="${INSTALL}/fake-java" ./bin/init-store.sh \
+        --use-configured-admin-password ) \
+        > "${INSTALL}/init-store-wrapper.out" 2>&1; then
+    fail "production init-store.sh hid the Java failure"
+else
+    status=$?
+    if [[ ${status} -eq 23 ]]; then
+        ok
+    else
+        fail "production init-store.sh returned ${status}, expected 23"
+    fi
+fi
+if grep -qF "Initialization finished." \
+        "${INSTALL}/init-store-wrapper.out"; then
+    fail "production init-store.sh printed success after Java failed"
+else
+    ok
+fi
+if grep -qE 'rest-server\.properties --use-configured-admin-password$' \
+        "${INSTALL}/fake-java-args"; then
+    ok
+else
+    fail "production init-store.sh did not forward its password-mode flag"
+fi
+cleanup
 
 echo
 echo "passed: ${PASS}, failed: ${FAIL}"
