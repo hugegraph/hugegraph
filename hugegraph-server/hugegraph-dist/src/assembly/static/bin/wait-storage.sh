@@ -97,9 +97,10 @@ if env | grep '^hugegraph\.' > /dev/null; then
 
               log() { echo '[wait-storage] '\"\$1\"; }
 
-              check_any_pd() {
+              check_any_pd_stores() {
                 for peer in \$(echo \"\$PD_REST_LIST\" | tr ',' ' '); do
-                  if curl ${PD_AUTH_ARGS} -f -s http://\${peer}/v1/health >/dev/null 2>&1; then
+                  if curl ${PD_AUTH_ARGS} -f -s http://\${peer}/v1/stores 2>/dev/null | \
+                     grep -qi '\"state\"[[:space:]]*:[[:space:]]*\"Up\"'; then
                     echo \"\$peer\"
                     return 0
                   fi
@@ -107,20 +108,11 @@ if env | grep '^hugegraph\.' > /dev/null; then
                 return 1
               }
 
-              until PD_REST=\$(check_any_pd); do
-                log 'No PD peer ready yet, retrying in 5s'
-                sleep 5
-              done
-              log \"PD health check PASSED via \$PD_REST\"
-
-              until curl ${PD_AUTH_ARGS} -f -s \
-                    http://\${PD_REST}/v1/stores 2>/dev/null | \
-                    grep -qi '\"state\"[[:space:]]*:[[:space:]]*\"Up\"'; do
+              until PD_REST=\$(check_any_pd_stores); do
                 log 'No Up store yet, retrying in 5s'
                 sleep 5
               done
-
-              log 'Store registration check PASSED'
+              log \"Store registration check PASSED via \$PD_REST\"
               log 'Storage backend is VIABLE'
             " || { echo "[wait-storage] ERROR: Timeout waiting for storage backend"; exit 1; }
 
