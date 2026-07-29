@@ -53,6 +53,7 @@ import com.google.protobuf.ByteString;
 public class BatchGraphIsolationTest {
 
     private static final int PARTITION_ID = 0;
+    private static final int EMPTY_PARTITION_ID = 1;
     private static final int KEY_CODE = 0;
     private static final byte[] SHARED_KEY =
             "shared-key".getBytes(StandardCharsets.UTF_8);
@@ -111,6 +112,18 @@ public class BatchGraphIsolationTest {
         if (databasePath != null) {
             UnitTestBase.deleteDir(databasePath.toFile());
         }
+    }
+
+    @Test
+    public void testGraphIdAllocationDoesNotCreateVertexTable() {
+        String graph = "graph-id-allocation";
+
+        Assert.assertFalse(handler.existsTable(graph, EMPTY_PARTITION_ID, VERTEX_TABLE));
+
+        ((BusinessHandlerImpl) handler).getKeyCreator()
+                                     .getGraphIdOrCreate(EMPTY_PARTITION_ID, graph);
+
+        Assert.assertFalse(handler.existsTable(graph, EMPTY_PARTITION_ID, VERTEX_TABLE));
     }
 
     @Test
