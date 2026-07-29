@@ -143,8 +143,27 @@ esac
 
 JVM_OPTIONS="-Dlog4j.configurationFile=${CONF}/log4j2.xml"
 if [[ ${OPEN_SECURITY_CHECK} == "true" ]]; then
+    SECURITY_PROPERTIES="${CONF}/java-security.properties"
+    HAS_SECURITY_PROPERTIES_OVERRIDE=false
+    for JAVA_OPTION in ${JAVA_OPTIONS}; do
+        case "${JAVA_OPTION}" in
+            -Djava.security.properties=)
+                HAS_SECURITY_PROPERTIES_OVERRIDE=false
+                ;;
+            -Djava.security.properties=*)
+                HAS_SECURITY_PROPERTIES_OVERRIDE=true
+                ;;
+        esac
+    done
+    if [[ ! -f "${SECURITY_PROPERTIES}" || ! -r "${SECURITY_PROPERTIES}" ]] &&
+       [[ "${HAS_SECURITY_PROPERTIES_OVERRIDE}" != "true" ]]; then
+        ERROR="Required Java security properties path is not a readable file: ${SECURITY_PROPERTIES}"
+        echo "${ERROR}" >&2
+        echo "${ERROR}" >> "${OUTPUT}"
+        exit 1
+    fi
     JVM_OPTIONS="${JVM_OPTIONS} \
-                 -Djava.security.properties=${CONF}/java-security.properties \
+                 -Djava.security.properties=${SECURITY_PROPERTIES} \
                  -Djava.security.manager=org.apache.hugegraph.security.HugeSecurityManager"
 fi
 

@@ -70,6 +70,14 @@ jobs:
         run: |
           mvn clean compile -U -Dmaven.javadoc.skip=true -ntp
 
+      - name: Run Java security properties tests
+        if: ${{ env.BACKEND == 'rocksdb' }}
+        run: |
+          mvn package -Dmaven.test.skip=true -pl hugegraph-server/hugegraph-dist -am -ntp
+          VERSION=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)
+          SERVER_DIR=hugegraph-server/apache-hugegraph-server-$VERSION/
+          $TRAVIS_DIR/test-java-security-properties.sh $SERVER_DIR
+
       - name: Check startup test prerequisites
         id: server-preflight
         if: ${{ env.BACKEND == 'rocksdb' }}
@@ -86,10 +94,8 @@ jobs:
       - name: Run start-hugegraph.sh foreground mode tests
         if: ${{ env.BACKEND == 'rocksdb' && steps.server-preflight.outputs.can_run == 'true' }}
         run: |
-          mvn package -Dmaven.test.skip=true -pl hugegraph-server/hugegraph-dist -am -ntp
           VERSION=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)
           SERVER_DIR=hugegraph-server/apache-hugegraph-server-$VERSION/
-          $TRAVIS_DIR/test-java-security-properties.sh $SERVER_DIR
           $TRAVIS_DIR/test-start-hugegraph.sh $SERVER_DIR
 
       - name: Startup tests skipped (missing prerequisites)
