@@ -29,8 +29,10 @@ import java.util.stream.Stream;
 
 import org.apache.commons.configuration2.PropertiesConfiguration;
 import org.apache.hugegraph.HugeGraph;
+import org.apache.hugegraph.auth.HugeUser;
 import org.apache.hugegraph.auth.StandardAuthManager;
 import org.apache.hugegraph.auth.StandardAuthenticator;
+import org.apache.hugegraph.backend.store.BackendFeatures;
 import org.apache.hugegraph.cmd.InitStore;
 import org.apache.hugegraph.config.CoreOptions;
 import org.apache.hugegraph.config.HugeConfig;
@@ -178,23 +180,170 @@ public class InitStoreConfigTest {
     @Test
     public void testConfiguredAdminPasswordRejectsNullOrEmptyValue()
                                                         throws Exception {
+        HugeConfig config = Mockito.mock(HugeConfig.class);
         HugeGraph graph = Mockito.mock(HugeGraph.class);
+        BackendFeatures features = Mockito.mock(BackendFeatures.class);
         StandardAuthManager authManager = Mockito.mock(StandardAuthManager.class);
         Mockito.when(graph.hugegraph()).thenReturn(graph);
         Mockito.when(graph.authManager()).thenReturn(authManager);
+        Mockito.when(graph.backendStoreFeatures()).thenReturn(features);
+        Mockito.when(features.supportsPersistence()).thenReturn(true);
 
-        StandardAuthenticator authenticator = new StandardAuthenticator();
+        StandardAuthenticator authenticator =
+                Mockito.spy(new StandardAuthenticator());
         Whitebox.setInternalState(authenticator, "graph", graph);
+        Mockito.doNothing().when(authenticator).setup(config);
 
         for (String password : new String[]{null, ""}) {
             Assert.assertThrows(IllegalArgumentException.class, () -> {
                 Whitebox.invoke(StandardAuthenticator.class,
-                                new Class<?>[]{String.class, boolean.class},
-                                "initAdminUser", authenticator, password, true);
+                                new Class<?>[]{HugeConfig.class, String.class,
+                                               boolean.class},
+                                "initAdminUser", authenticator, config,
+                                password, true);
             }, e -> Assert.assertContains("can't be null or empty",
                                           e.getMessage()));
         }
         Mockito.verify(graph, Mockito.times(2)).close();
+    }
+
+    @Test
+    public void testAdminGraphClosedForNonPersistentBackend() throws Exception {
+        HugeConfig config = Mockito.mock(HugeConfig.class);
+        HugeGraph graph = Mockito.mock(HugeGraph.class);
+        BackendFeatures features = Mockito.mock(BackendFeatures.class);
+        Mockito.when(graph.backendStoreFeatures()).thenReturn(features);
+        Mockito.when(features.supportsPersistence()).thenReturn(false);
+
+        StandardAuthenticator authenticator =
+                Mockito.spy(new StandardAuthenticator());
+        Whitebox.setInternalState(authenticator, "graph", graph);
+        Mockito.doNothing().when(authenticator).setup(config);
+
+        Whitebox.invoke(StandardAuthenticator.class,
+                        new Class<?>[]{HugeConfig.class, String.class,
+                                       boolean.class},
+                        "initAdminUser", authenticator, config, null, false);
+
+        Mockito.verify(graph).close();
+    }
+
+    @Test
+    public void testAdminGraphClosedAfterSetupFailure() throws Exception {
+        HugeConfig config = Mockito.mock(HugeConfig.class);
+        HugeGraph graph = Mockito.mock(HugeGraph.class);
+        StandardAuthenticator authenticator =
+                Mockito.spy(new StandardAuthenticator());
+        Whitebox.setInternalState(authenticator, "graph", graph);
+        Mockito.doThrow(new IllegalStateException("setup failed"))
+               .when(authenticator).setup(config);
+
+        Assert.assertThrows(IllegalStateException.class, () -> {
+            Whitebox.invoke(StandardAuthenticator.class,
+                            new Class<?>[]{HugeConfig.class, String.class,
+                                           boolean.class},
+                            "initAdminUser", authenticator, config, null, false);
+        }, e -> Assert.assertContains("setup failed", e.getMessage()));
+
+        Mockito.verify(graph).close();
+    }
+
+    @Test
+    public void testSetupFailureWithoutGraphPreservesOriginalException()
+                                                              throws Exception {
+        HugeConfig config = Mockito.mock(HugeConfig.class);
+        StandardAuthenticator authenticator =
+                Mockito.spy(new StandardAuthenticator());
+        Mockito.doThrow(new IllegalStateException("setup failed before open"))
+               .when(authenticator).setup(config);
+
+        Assert.assertThrows(IllegalStateException.class, () -> {
+            Whitebox.invoke(StandardAuthenticator.class,
+                            new Class<?>[]{HugeConfig.class, String.class,
+                                           boolean.class},
+                            "initAdminUser", authenticator, config, null, false);
+        }, e -> Assert.assertContains("setup failed before open",
+                                      e.getMessage()));
+    }
+
+    @Test
+    public void testAdminGraphClosedAfterFeatureInspectionFailure()
+                                                              throws Exception {
+        HugeConfig config = Mockito.mock(HugeConfig.class);
+        HugeGraph graph = Mockito.mock(HugeGraph.class);
+        Mockito.when(graph.backendStoreFeatures())
+               .thenThrow(new IllegalStateException("feature check failed"));
+
+        StandardAuthenticator authenticator =
+                Mockito.spy(new StandardAuthenticator());
+        Whitebox.setInternalState(authenticator, "graph", graph);
+        Mockito.doNothing().when(authenticator).setup(config);
+
+        Assert.assertThrows(IllegalStateException.class, () -> {
+            Whitebox.invoke(StandardAuthenticator.class,
+                            new Class<?>[]{HugeConfig.class, String.class,
+                                           boolean.class},
+                            "initAdminUser", authenticator, config, null, false);
+        }, e -> Assert.assertContains("feature check failed", e.getMessage()));
+
+        Mockito.verify(graph).close();
+    }
+
+    @Test
+    public void testAdminGraphClosedWhenAdminAlreadyExists() throws Exception {
+        HugeConfig config = Mockito.mock(HugeConfig.class);
+        HugeGraph graph = Mockito.mock(HugeGraph.class);
+        BackendFeatures features = Mockito.mock(BackendFeatures.class);
+        StandardAuthManager authManager = Mockito.mock(StandardAuthManager.class);
+        Mockito.when(graph.backendStoreFeatures()).thenReturn(features);
+        Mockito.when(features.supportsPersistence()).thenReturn(true);
+        Mockito.when(graph.hugegraph()).thenReturn(graph);
+        Mockito.when(graph.authManager()).thenReturn(authManager);
+        Mockito.when(authManager.findUser("admin"))
+               .thenReturn(Mockito.mock(HugeUser.class));
+
+        StandardAuthenticator authenticator =
+                Mockito.spy(new StandardAuthenticator());
+        Whitebox.setInternalState(authenticator, "graph", graph);
+        Mockito.doNothing().when(authenticator).setup(config);
+
+        Whitebox.invoke(StandardAuthenticator.class,
+                        new Class<?>[]{HugeConfig.class, String.class,
+                                       boolean.class},
+                        "initAdminUser", authenticator, config, null, true);
+
+        Mockito.verify(authManager, Mockito.never())
+               .createUser(Mockito.any(HugeUser.class));
+        Mockito.verify(graph).close();
+    }
+
+    @Test
+    public void testAdminGraphClosedAfterCreateUserFailure() throws Exception {
+        HugeConfig config = Mockito.mock(HugeConfig.class);
+        HugeGraph graph = Mockito.mock(HugeGraph.class);
+        BackendFeatures features = Mockito.mock(BackendFeatures.class);
+        StandardAuthManager authManager = Mockito.mock(StandardAuthManager.class);
+        Mockito.when(graph.backendStoreFeatures()).thenReturn(features);
+        Mockito.when(features.supportsPersistence()).thenReturn(true);
+        Mockito.when(graph.hugegraph()).thenReturn(graph);
+        Mockito.when(graph.authManager()).thenReturn(authManager);
+        Mockito.when(authManager.createUser(Mockito.any(HugeUser.class)))
+               .thenThrow(new IllegalStateException("create user failed"));
+
+        StandardAuthenticator authenticator =
+                Mockito.spy(new StandardAuthenticator());
+        Whitebox.setInternalState(authenticator, "graph", graph);
+        Mockito.doNothing().when(authenticator).setup(config);
+
+        Assert.assertThrows(IllegalStateException.class, () -> {
+            Whitebox.invoke(StandardAuthenticator.class,
+                            new Class<?>[]{HugeConfig.class, String.class,
+                                           boolean.class},
+                            "initAdminUser", authenticator, config,
+                            "secret", true);
+        }, e -> Assert.assertContains("create user failed", e.getMessage()));
+
+        Mockito.verify(graph).close();
     }
 
     @Test

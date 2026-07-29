@@ -49,19 +49,15 @@ public class StandardAuthenticator implements HugeAuthenticator {
 
     private void initAdminUser(String password, boolean fromConfig)
                                throws Exception {
-        try {
-            if (this.requireInitAdminUser()) {
-                if (fromConfig) {
-                    E.checkArgument(password != null && !password.isEmpty(),
-                                    "The configured admin password can't be " +
-                                    "null or empty");
-                } else {
-                    password = this.inputPassword();
-                }
-                this.initAdminUser(password);
+        if (this.requireInitAdminUser()) {
+            if (fromConfig) {
+                E.checkArgument(password != null && !password.isEmpty(),
+                                "The configured admin password can't be " +
+                                "null or empty");
+            } else {
+                password = this.inputPassword();
             }
-        } finally {
-            this.graph.close();
+            this.initAdminUser(password);
         }
     }
 
@@ -241,9 +237,20 @@ public class StandardAuthenticator implements HugeAuthenticator {
             return;
         }
         config.addProperty(INITING_STORE, true);
-        auth.setup(config);
-        if (auth.graph().backendStoreFeatures().supportsPersistence()) {
-            auth.initAdminUser(password, fromConfig);
+        auth.initAdminUser(config, password, fromConfig);
+    }
+
+    private void initAdminUser(HugeConfig config, String password,
+                               boolean fromConfig) throws Exception {
+        try {
+            this.setup(config);
+            if (this.graph().backendStoreFeatures().supportsPersistence()) {
+                this.initAdminUser(password, fromConfig);
+            }
+        } finally {
+            if (this.graph != null) {
+                this.graph.close();
+            }
         }
     }
 
