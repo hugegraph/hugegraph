@@ -346,6 +346,9 @@ jobs:
           $TRAVIS_DIR/run-unit-test.sh $BACKEND
 
       - name: Run core test
+        # Bound stuck HStore scans so the diagnostic steps below can run
+        # before the GitHub-hosted job reaches its global execution limit.
+        timeout-minutes: 45
         run: |
           $TRAVIS_DIR/run-core-test.sh $BACKEND
 
@@ -377,8 +380,9 @@ jobs:
         run: |
           $TRAVIS_DIR/run-tinkerpop-test.sh $BACKEND process
 
-      - name: Collect HStore diagnostics on failure
-        if: failure()
+      - name: Collect HStore diagnostics on failure or timeout
+        if: ${{ failure() || cancelled() }}
+        timeout-minutes: 10
         run: |
           set +e
           DIAGNOSTICS_DIR=hstore-diagnostics
@@ -458,7 +462,7 @@ jobs:
           exit 0
 
       - name: Upload HStore diagnostics
-        if: failure()
+        if: ${{ failure() || cancelled() }}
         uses: actions/upload-artifact@v4
         with:
           name: hstore-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
