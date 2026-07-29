@@ -68,6 +68,9 @@ fi
 
 # preload rocksdb/toplingdb
 if [ -n "$SERVER_VERSION_DIR" ] && [ -e "$SERVER_VERSION_DIR/bin/preload-topling.sh" ]; then
+    if [ -z "${TOPLINGDB_EASY_MIGRATE_CONF:-}" ]; then
+        TOPLINGDB_EASY_MIGRATE_CONF="$CONF/rocksdb_store.yaml"
+    fi
     source "$SERVER_VERSION_DIR/bin/preload-topling.sh"
 fi
 

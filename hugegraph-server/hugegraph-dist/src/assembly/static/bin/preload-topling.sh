@@ -49,6 +49,13 @@ fi
 if [ "$PROVIDER" = "topling" ]; then
     # --- ToplingDB mode: swap JAR and set up environment ---
 
+    source "$SERVER_BIN/common-topling.sh"
+    type require_topling_platform >/dev/null 2>&1 || {
+        echo "Error: function require_topling_platform not found" >&2
+        exit 1
+    }
+    require_topling_platform || exit 1
+
     TOPLING_JAR=$(ls -1 "$SERVER_LIB"/topling/rocksdbjni*.jar 2>/dev/null | sort -V | tail -1 || true)
     if [ -z "${TOPLING_JAR:-}" ]; then
         echo "Error: rocksdb.provider=topling but no ToplingDB JAR found in $SERVER_LIB/topling/" >&2
@@ -66,15 +73,17 @@ if [ "$PROVIDER" = "topling" ]; then
     echo "[preload-topling] Activated ToplingDB JAR: $(basename "$TOPLING_JAR")"
 
     # Run native library preload (extract .so, set LD_PRELOAD/LD_LIBRARY_PATH, jemalloc)
-    source "$SERVER_BIN/common-topling.sh"
     type preload_toplingdb >/dev/null 2>&1 || { echo "Error: function preload_toplingdb not found" >&2; exit 1; }
     preload_toplingdb "$SERVER_LIB" "$DEST_DIR"
 
-    # Set Easy Migrate environment variable
-    # Check both hugegraph-server and HStore config locations
-    CONF_FILE="$SERVER_TOP/conf/toplingdb.yaml"
-    if [ ! -f "$CONF_FILE" ]; then
-        CONF_FILE="$SERVER_TOP/conf/rocksdb_store.yaml"
+    # Prefer an Easy Migrate config supplied by the caller;
+    # otherwise check the existing Server and HStore config locations.
+    CONF_FILE="${TOPLINGDB_EASY_MIGRATE_CONF:-}"
+    if [ -z "$CONF_FILE" ]; then
+        CONF_FILE="$SERVER_TOP/conf/toplingdb.yaml"
+        if [ ! -f "$CONF_FILE" ]; then
+            CONF_FILE="$SERVER_TOP/conf/rocksdb_store.yaml"
+        fi
     fi
     if [ -f "$CONF_FILE" ]; then
         export TOPLINGDB_EASY_MIGRATE_CONF="$CONF_FILE"
