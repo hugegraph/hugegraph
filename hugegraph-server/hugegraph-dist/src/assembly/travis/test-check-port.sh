@@ -130,12 +130,35 @@ echo "2. Linux: ss busy / free / failure, and the netstat fallback"
 (
     uname() { echo "Linux"; }
     command_available() { [[ "$1" == "ss" ]]; }
+    WORK=$(mktemp -d)
+    trap 'rm -rf "$WORK"' EXIT
+    SS_ARGS_FILE="$WORK/ss-args"
     SS_OUT=""
     SS_RC=0
-    ss() { printf '%s' "$SS_OUT"; return "$SS_RC"; }
+    SS_FILTER_LISTEN=0
+    ss() {
+        echo "$*" > "$SS_ARGS_FILE"
+        [[ $# -eq 2 && "$1" == "-H" && "$2" == "-ltn" ]] || return 64
+        if [[ "$SS_FILTER_LISTEN" -eq 1 ]]; then
+            echo "$SS_OUT" | awk '$1 == "LISTEN"'
+        else
+            printf '%s' "$SS_OUT"
+        fi
+        return "$SS_RC"
+    }
 
     SS_OUT='LISTEN 0 4096 0.0.0.0:8080 0.0.0.0:*'
     expect "listener on 8080 is busy" "busy" "$(port_listen_state 8080)"
+    expect "ss receives the exact listener-table arguments" \
+           "-H -ltn" "$(cat "$SS_ARGS_FILE")"
+
+    # Model the filtering done by `ss -l`: an established connection may use
+    # the target as its local ephemeral port, but it is not a listener.  The
+    # mock refuses changed argv, so dropping -l makes this unknown, not free.
+    SS_FILTER_LISTEN=1
+    SS_OUT='ESTAB 0 0 127.0.0.1:8080 127.0.0.1:443'
+    expect "Linux non-LISTEN local port is free" "free" "$(port_listen_state 8080)"
+    SS_FILTER_LISTEN=0
 
     SS_OUT='LISTEN 0 4096 0.0.0.0:22 0.0.0.0:*'
     expect "no listener on 8080 is free" "free" "$(port_listen_state 8080)"
@@ -358,8 +381,15 @@ echo "7. Startup probe is bounded"
 
     TIMEOUT_S=1
     START_S=$(date '+%s')
-    wait_for_startup "$$" "test-server" "http://127.0.0.1:1" "$TIMEOUT_S" >/dev/null 2>&1
+    if wait_for_startup "$$" "test-server" "http://127.0.0.1:1" "$TIMEOUT_S" \
+                        >/dev/null 2>&1; then
+        WAIT_STATUS=0
+    else
+        WAIT_STATUS=$?
+    fi
     ELAPSED_S=$(( $(date '+%s') - START_S ))
+
+    expect "failed startup probe returns failure" "1" "$WAIT_STATUS"
 
     # The deterministic half: bounding each curl does not bound the loop, which
     # used to sleep a flat 2s and only then re-read the clock.  A 1s timeout
@@ -380,15 +410,49 @@ echo "7. Startup probe is bounded"
              "took ${ELAPSED_S}s for a ${TIMEOUT_S}s timeout"
     fi
 
-    if grep -q -- "--max-time" "$ARGS_FILE" 2>/dev/null; then
-        pass "startup probe passes --max-time"
+    # With a one-second overall deadline, every positive remaining budget is
+    # exactly one second.  Parse each curl call so option presence, values, and
+    # the deadline bound are all part of the contract rather than string-grep
+    # smoke checks.
+    CURL_CALLS=0
+    TIMEOUT_VALUES_VALID=1
+    TIMEOUT_ERROR=""
+    while IFS= read -r curl_args; do
+        [[ -z "$curl_args" ]] && continue
+        CURL_CALLS=$((CURL_CALLS + 1))
+        CONNECT_TIMEOUT=""
+        MAX_TIME=""
+        set -- $curl_args
+        while [[ $# -gt 0 ]]; do
+            case "$1" in
+                --connect-timeout)
+                    shift
+                    [[ $# -gt 0 ]] && CONNECT_TIMEOUT="$1"
+                    ;;
+                --max-time)
+                    shift
+                    [[ $# -gt 0 ]] && MAX_TIME="$1"
+                    ;;
+            esac
+            [[ $# -gt 0 ]] && shift
+        done
+
+        if [[ ! "$CONNECT_TIMEOUT" =~ ^[0-9]+$ ||
+              ! "$MAX_TIME" =~ ^[0-9]+$ ||
+              "$CONNECT_TIMEOUT" -le 0 || "$CONNECT_TIMEOUT" -gt "$TIMEOUT_S" ||
+              "$MAX_TIME" -le 0 || "$MAX_TIME" -gt "$TIMEOUT_S" ]]; then
+            TIMEOUT_VALUES_VALID=0
+            TIMEOUT_ERROR="invalid timeouts connect='$CONNECT_TIMEOUT' max='$MAX_TIME' in: $curl_args"
+            break
+        fi
+    done < "$ARGS_FILE"
+
+    if [[ "$CURL_CALLS" -gt 0 && "$TIMEOUT_VALUES_VALID" -eq 1 ]]; then
+        pass "startup probe timeouts are positive and within the remaining deadline"
     else
-        fail "startup probe passes --max-time" "args were: $(cat "$ARGS_FILE" 2>/dev/null)"
-    fi
-    if grep -q -- "--connect-timeout" "$ARGS_FILE" 2>/dev/null; then
-        pass "startup probe passes --connect-timeout"
-    else
-        fail "startup probe passes --connect-timeout" "args were: $(cat "$ARGS_FILE" 2>/dev/null)"
+        [[ -n "$TIMEOUT_ERROR" ]] || TIMEOUT_ERROR="no curl calls recorded"
+        fail "startup probe timeouts are positive and within the remaining deadline" \
+             "$TIMEOUT_ERROR"
     fi
 
 )
