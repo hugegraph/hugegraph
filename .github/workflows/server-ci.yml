@@ -89,6 +89,7 @@ jobs:
           mvn package -Dmaven.test.skip=true -pl hugegraph-server/hugegraph-dist -am -ntp
           VERSION=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)
           SERVER_DIR=hugegraph-server/apache-hugegraph-server-$VERSION/
+          $TRAVIS_DIR/test-java-security-properties.sh $SERVER_DIR
           $TRAVIS_DIR/test-start-hugegraph.sh $SERVER_DIR
 
       - name: Startup tests skipped (missing prerequisites)
