@@ -668,6 +668,16 @@ assert_output_contains \
     "ERROR: cannot write auth.graph_store to ./conf/rest-server.properties"
 cleanup
 
+echo "==> a read-only mount rejects an init-store env override"
+new_install
+chmod 444 "${INSTALL}/conf/rest-server.properties"
+run_entrypoint_fails -u PASSWORD HG_SERVER_INIT_STORE_ENABLED=false
+assert_not_ran "init-store.sh"
+assert_not_ran "start-hugegraph.sh"
+assert_output_contains \
+    "ERROR: cannot write init_store.enabled to ./conf/rest-server.properties"
+cleanup
+
 echo "==> a custom authenticator is not held to the usePD requirement"
 new_install
 echo "auth.authenticator=org.example.auth.LdapAuthenticator" \

@@ -151,6 +151,14 @@ EOF
     fi
 }
 
+require_configured_admin_password() {
+    if ! has_prop "auth.admin_pa" "${REST_SERVER_CONF}" ||
+       [[ -z "$(get_prop "auth.admin_pa" "${REST_SERVER_CONF}")" ]]; then
+        log "ERROR: local built-in auth requires PASSWORD or an explicitly configured non-empty auth.admin_pa"
+        return 1
+    fi
+}
+
 migrate_env() {
     local old_name="$1" new_name="$2"
 
@@ -173,7 +181,11 @@ if [[ -n "${HG_SERVER_INIT_STORE_ENABLED:-}" ]]; then
         log "ERROR: HG_SERVER_INIT_STORE_ENABLED must be a boolean, got '${HG_SERVER_INIT_STORE_ENABLED}'"
         exit 1
     fi
-    set_prop "init_store.enabled" "${HG_SERVER_INIT_STORE_ENABLED}" "${REST_SERVER_CONF}"
+    if ! set_prop "init_store.enabled" "${HG_SERVER_INIT_STORE_ENABLED}" \
+                  "${REST_SERVER_CONF}"; then
+        log "ERROR: cannot write init_store.enabled to ${REST_SERVER_CONF}"
+        exit 1
+    fi
 fi
 
 # ── Build wait-storage env ─────────────────────────────────────────────
@@ -260,9 +272,7 @@ if [[ "${INIT_STORE_ENABLED:-true}" == "false" ]]; then
                 log "ERROR: cannot write auth.admin_pa to ${REST_SERVER_CONF}"
                 exit 1
             fi
-        elif ! has_prop "auth.admin_pa" "${REST_SERVER_CONF}" ||
-             [[ -z "$(get_prop "auth.admin_pa" "${REST_SERVER_CONF}")" ]]; then
-            log "ERROR: local built-in auth requires PASSWORD or an explicitly configured non-empty auth.admin_pa"
+        elif ! require_configured_admin_password; then
             exit 1
         fi
     elif [[ -n "${PASSWORD:-}" ]]; then
@@ -287,9 +297,7 @@ elif [[ ! -f "${DOCKER_FOLDER}/${INIT_FLAG_FILE}" ||
 
     if [[ -z "${PASSWORD:-}" ]]; then
         if [[ "${LOCAL_BUILTIN_AUTH}" == "true" ]]; then
-            if ! has_prop "auth.admin_pa" "${REST_SERVER_CONF}" ||
-               [[ -z "$(get_prop "auth.admin_pa" "${REST_SERVER_CONF}")" ]]; then
-                log "ERROR: local built-in auth requires PASSWORD or an explicitly configured non-empty auth.admin_pa"
+            if ! require_configured_admin_password; then
                 exit 1
             fi
             log "init hugegraph with configured auth.admin_pa"
