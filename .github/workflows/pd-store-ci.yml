@@ -339,6 +339,15 @@ jobs:
 
       - name: Prepare env and service
         run: |
+          SOFT_OPEN_FILES=$(ulimit -Sn)
+          echo "[ci] open-file limit before HStore startup:" \
+               "soft=$SOFT_OPEN_FILES, hard=$(ulimit -Hn)"
+          if [[ "$SOFT_OPEN_FILES" != "unlimited" ]] &&
+             (( SOFT_OPEN_FILES < 65535 )); then
+            ulimit -Sn 65535
+          fi
+          echo "[ci] open-file limit for HStore:" \
+               "soft=$(ulimit -Sn), hard=$(ulimit -Hn)"
           $TRAVIS_DIR/install-backend.sh $BACKEND
 
       - name: Run unit test
@@ -400,6 +409,55 @@ jobs:
           PD_DIR=hugegraph-pd/apache-hugegraph-pd-$VERSION
           STORE_DIR=hugegraph-store/apache-hugegraph-store-$VERSION
           SERVER_DIR=hugegraph-server/apache-hugegraph-server-$VERSION
+
+          echo "::group::HugeGraphStore file descriptors"
+          STORE_PID_FILE="$STORE_DIR/bin/pid"
+          if [[ -f "$STORE_PID_FILE" ]]; then
+            STORE_PID=$(tr -d '[:space:]' < "$STORE_PID_FILE")
+            if [[ "$STORE_PID" =~ ^[0-9]+$ ]] &&
+               [[ -r "/proc/$STORE_PID/limits" ]] &&
+               [[ -d "/proc/$STORE_PID/fd" ]]; then
+              cat "/proc/$STORE_PID/limits" |
+                tee "$DIAGNOSTICS_DIR/services/store-process-limits.txt" || true
+
+              FD_TARGETS="$DIAGNOSTICS_DIR/services/store-fd-targets.txt"
+              find "/proc/$STORE_PID/fd" -mindepth 1 -maxdepth 1 -type l \
+                -printf '%l\n' >"$FD_TARGETS" \
+                2>"$DIAGNOSTICS_DIR/services/store-fd-errors.txt" || true
+              ls -l "/proc/$STORE_PID/fd" \
+                >"$DIAGNOSTICS_DIR/services/store-fds.txt" 2>&1 || true
+
+              STORE_FD_COUNT=$(wc -l < "$FD_TARGETS" | tr -d '[:space:]')
+              echo "[ci] Store PID $STORE_PID open fd count: $STORE_FD_COUNT" |
+                tee "$DIAGNOSTICS_DIR/services/store-fd-count.txt" || true
+
+              awk '
+                /\.sst/ { types["rocksdb-sst"]++; next }
+                /^socket:/ { types["socket"]++; next }
+                /^pipe:/ { types["pipe"]++; next }
+                /^anon_inode:/ { types["anon-inode"]++; next }
+                /\/storage\// { types["rocksdb-other"]++; next }
+                { types["other"]++ }
+                END {
+                  for (type in types) {
+                    print types[type], type
+                  }
+                }
+              ' "$FD_TARGETS" | sort -nr |
+                tee "$DIAGNOSTICS_DIR/services/store-fd-types.txt" || true
+
+              sort "$FD_TARGETS" | uniq -c | sort -nr \
+                >"$DIAGNOSTICS_DIR/services/store-fd-target-counts.txt" || true
+              echo "[ci] Store top fd targets:"
+              head -n 50 \
+                "$DIAGNOSTICS_DIR/services/store-fd-target-counts.txt" || true
+            else
+              echo "[ci] Store PID is unavailable for fd diagnostics: $STORE_PID"
+            fi
+          else
+            echo "[ci] Store pid file not found: $STORE_PID_FILE"
+          fi
+          echo "::endgroup::"
 
           echo "::group::Runner process snapshot"
           ps -eo pid,ppid,stat,etime,%cpu,%mem,args --sort=pid |
