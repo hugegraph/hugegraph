@@ -27,8 +27,13 @@ on:
       - '**/Dockerfile*'
       - '.dockerignore'
       - 'hugegraph-server/hugegraph-dist/docker/**'
+      - 'hugegraph-server/hugegraph-dist/src/assembly/static/bin/config-tool.sh'
       - 'hugegraph-server/hugegraph-dist/src/assembly/static/bin/enable-auth.sh'
       - 'hugegraph-server/hugegraph-dist/src/assembly/static/bin/init-store.sh'
+      - 'hugegraph-server/hugegraph-dist/src/main/java/org/apache/hugegraph/cmd/ConfigTool.java'
+      - 'hugegraph-server/hugegraph-dist/src/main/java/org/apache/hugegraph/cmd/InitStore.java'
+      - 'hugegraph-server/hugegraph-api/src/main/java/org/apache/hugegraph/auth/StandardAuthenticator.java'
+      - 'hugegraph-server/hugegraph-api/src/main/java/org/apache/hugegraph/config/ServerOptions.java'
       - '**/docker/docker-entrypoint.sh'
 
 jobs:

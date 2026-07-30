@@ -242,14 +242,26 @@ public class StandardAuthenticator implements HugeAuthenticator {
 
     private void initAdminUser(HugeConfig config, String password,
                                boolean fromConfig) throws Exception {
+        Throwable failure = null;
         try {
             this.setup(config);
             if (this.graph().backendStoreFeatures().supportsPersistence()) {
                 this.initAdminUser(password, fromConfig);
             }
+        } catch (Exception | Error e) {
+            failure = e;
+            throw e;
         } finally {
             if (this.graph != null) {
-                this.graph.close();
+                try {
+                    this.graph.close();
+                } catch (Exception | Error closeFailure) {
+                    if (failure != null) {
+                        failure.addSuppressed(closeFailure);
+                    } else {
+                        throw closeFailure;
+                    }
+                }
             }
         }
     }

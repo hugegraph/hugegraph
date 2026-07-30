@@ -23,6 +23,7 @@ AUTH_INIT_STATE_FILE="auth_init_state"
 GRAPH_CONF="./conf/graphs/hugegraph.properties"
 REST_SERVER_CONF="./conf/rest-server.properties"
 GREMLIN_SERVER_CONF="./conf/gremlin-server.yaml"
+CONFIG_TOOL="./bin/config-tool.sh"
 
 # The only in-tree HugeAuthenticator that bootstraps HugeGraph's built-in admin
 # account. auth.authenticator accepts any implementation class, and a custom one
@@ -34,121 +35,27 @@ mkdir -p "${DOCKER_FOLDER}"
 
 log() { echo "[hugegraph-server-entrypoint] $*"; }
 
-# Sets a property to exactly one canonical `key=value` line. Existing
-# definitions are matched on any separator a properties file allows (`=`, `:`
-# or whitespace) and collapsed into that single line, because leaving a second
-# definition behind would make the parser expose the key as a list and a scalar
-# read of it would then fail. Comment lines are left alone. Matching is literal,
-# so no regex escaping of the key or value is needed.
+# Property access goes through Commons Configuration, the parser HugeConfig
+# uses. This keeps escaped keys, continuations, duplicate definitions and value
+# serialization identical between the entrypoint and the server.
 set_prop() {
-    local key="$1" val="$2" file="$3" tmp
-
-    # The scratch file holds auth.admin_pa, so keep it off the process umask
-    # and use an unpredictable same-directory name rather than following a
-    # pre-created predictable symlink.
-    if ! tmp=$(umask 077; mktemp "${file}.tmp.XXXXXX"); then
-        return 1
-    fi
-
-    if ! SET_PROP_KEY="$key" SET_PROP_VAL="$val" awk '
-        BEGIN { key = ENVIRON["SET_PROP_KEY"]; val = ENVIRON["SET_PROP_VAL"] }
-        {
-            line = $0
-            probe = line
-            sub(/^[[:space:]]+/, "", probe)
-            if (index(probe, key) == 1) {
-                rest = substr(probe, length(key) + 1)
-                if (rest ~ /^[[:space:]]*[=:]/ || rest ~ /^[[:space:]]+/) {
-                    if (!done) { print key "=" val; done = 1 }
-                    next
-                }
-            }
-            print line
-        }
-        END { if (!done) print key "=" val }
-    ' "${file}" > "${tmp}"; then
-        rm -f "${tmp}"
-        return 1
-    fi
-
-    # Truncate and rewrite in place rather than rename: a single-file bind
-    # mount cannot be replaced by rename, and a rename would also discard the
-    # original ownership and mode, which matters where auth.admin_pa is written
-    if ! cat "${tmp}" > "${file}"; then
-        rm -f "${tmp}"
-        return 1
-    fi
-    rm -f "${tmp}"
+    "${CONFIG_TOOL}" set "$3" "$1" "$2"
 }
 
-count_prop() {
-    local key="$1" file="$2"
-
-    [[ -f "${file}" ]] || { echo 0; return; }
-    SET_PROP_KEY="$key" awk '
-        BEGIN { key = ENVIRON["SET_PROP_KEY"] }
-        {
-            probe = $0
-            sub(/^[[:space:]]+/, "", probe)
-            if (index(probe, key) == 1) {
-                rest = substr(probe, length(key) + 1)
-                if (rest ~ /^[[:space:]]*[=:]/ || rest ~ /^[[:space:]]+/) {
-                    count++
-                }
-            }
-        }
-        END { print count + 0 }
-    ' "${file}"
-}
-
-# Drops duplicate definitions while leaving a single valid definition untouched.
-# Avoiding a needless rewrite lets complete read-only mounted configs start.
-canonicalize_prop() {
-    local key="$1" file="$2" count cur
-    count=$(count_prop "${key}" "${file}")
-    if (( count > 1 )); then
-        cur=$(get_prop "${key}" "${file}")
-        set_prop "${key}" "${cur}" "${file}"
-    fi
-}
-
-# Escapes a UTF-8 value for Java-properties serialization. Encoding every
-# UTF-16 code unit as a Unicode escape keeps separators, leading whitespace,
-# backslashes and embedded control characters out of the physical property
-# line while the Java parser reconstructs the exact original string.
-props_escape() {
-    printf '%s' "$1" | iconv -f UTF-8 -t UTF-16BE | \
-        od -An -v -t x1 | awk '
-            {
-                for (i = 1; i <= NF; i++) {
-                    if (high == "") {
-                        high = $i
-                    } else {
-                        printf "\\u%s%s", high, $i
-                        high = ""
-                    }
-                }
-            }
-            END { if (high != "") exit 1 }
-        '
-}
-
-# Echoes the value of a property, or nothing when the key or the file is
-# absent, so callers apply their own default. Accepts the `=`, `:` and
-# whitespace separators that properties files allow. On duplicate keys the last
-# one wins, matching how the properties parser reads the same file. Only
-# surrounding whitespace is trimmed, as the parser does; whitespace inside a
-# value is part of the value and deleting it would corrupt one.
 get_prop() {
-    local key="$1" file="$2"
-    local esc_key
+    "${CONFIG_TOOL}" get "$2" "$1"
+}
 
-    [[ -f "${file}" ]] || return 0
-    esc_key=$(printf '%s' "$key" | sed -e 's/[][(){}.^$*+?|\\/]/\\&/g')
-    # '#' delimits the s command because the pattern itself contains '|'.
-    # '-E' rather than '-r': both GNU and BSD sed accept it
-    sed -En "s#^[[:space:]]*${esc_key}([[:space:]]*[=:]|[[:space:]]+)[[:space:]]*(.*)\$#\\2#p" \
-        "${file}" | tail -n 1 | sed -e 's/[[:space:]]*$//'
+has_prop() {
+    "${CONFIG_TOOL}" has "$2" "$1"
+}
+
+requires_local_admin() {
+    "${CONFIG_TOOL}" requires-local-admin "${REST_SERVER_CONF}"
+}
+
+validate_skip() {
+    "${CONFIG_TOOL}" validate-skip "${REST_SERVER_CONF}"
 }
 
 # Canonicalizes a boolean the way the server does. HugeConfig parses these
@@ -187,7 +94,7 @@ ensure_auth_enabled() {
     authenticator=$(get_prop "auth.authenticator" "${REST_SERVER_CONF}")
     class_pattern='^[[:alpha:]_$][[:alnum:]_$]*(\.[[:alpha:]_$][[:alnum:]_$]*)*$'
     if [[ -n "${authenticator}" && ! "${authenticator}" =~ ${class_pattern} ]]; then
-        log "ERROR: auth.authenticator must be an unescaped Java class name;" \
+        log "ERROR: auth.authenticator must be a Java class name;" \
             "got '${authenticator}'"
         return 1
     fi
@@ -242,11 +149,6 @@ EOF
             return 1
         fi
     fi
-
-    # enable-auth.sh appends rather than replaces, so collapse whatever it left
-    # behind into one definition per key
-    canonicalize_prop "auth.authenticator" "${REST_SERVER_CONF}"
-    canonicalize_prop "auth.graph_store" "${REST_SERVER_CONF}"
 }
 
 migrate_env() {
@@ -316,6 +218,11 @@ if [[ -n "${PASSWORD:-}" || -n "${AUTHENTICATOR}" ]]; then
     AUTHENTICATOR=$(get_prop "auth.authenticator" "${REST_SERVER_CONF}")
 fi
 
+LOCAL_BUILTIN_AUTH=false
+if [[ -n "${AUTHENTICATOR}" ]] && requires_local_admin; then
+    LOCAL_BUILTIN_AUTH=true
+fi
+
 AUTH_STATE=""
 AUTH_INIT_REQUIRED=false
 if [[ -n "${AUTHENTICATOR}" ]]; then
@@ -334,34 +241,41 @@ fi
 if [[ "${INIT_STORE_ENABLED:-true}" == "false" ]]; then
     log "init-store disabled; validating the no-op configuration"
 
-    # Let InitStore make the type-aware decision about whether this effective
-    # authenticator needs the built-in admin and whether the configured auth
-    # graph can read the PD-created account. The gate returns before backend or
-    # plugin registration, so this invocation performs validation only.
+    # Validate topology before writing a secret. The final init-store invocation
+    # below repeats the Java gate after auth.admin_pa has been prepared and also
+    # enforces that local built-in auth has an explicit non-empty password.
+    validate_skip
+
+    if [[ "${LOCAL_BUILTIN_AUTH}" == "true" ]]; then
+        if [[ -n "${PASSWORD:-}" ]]; then
+            log "enabling built-in auth, admin password applied via auth.admin_pa"
+            # TODO: auth.admin_pa only applies when the admin account is first
+            # created, so changing PASSWORD on a later restart keeps the old one.
+            if ! chmod 600 "${REST_SERVER_CONF}"; then
+                log "ERROR: cannot protect ${REST_SERVER_CONF} before writing auth.admin_pa"
+                exit 1
+            fi
+            if ! set_prop "auth.admin_pa" "${PASSWORD}" \
+                          "${REST_SERVER_CONF}"; then
+                log "ERROR: cannot write auth.admin_pa to ${REST_SERVER_CONF}"
+                exit 1
+            fi
+        elif ! has_prop "auth.admin_pa" "${REST_SERVER_CONF}" ||
+             [[ -z "$(get_prop "auth.admin_pa" "${REST_SERVER_CONF}")" ]]; then
+            log "ERROR: local built-in auth requires PASSWORD or an explicitly configured non-empty auth.admin_pa"
+            exit 1
+        fi
+    elif [[ -n "${PASSWORD:-}" ]]; then
+        log "PASSWORD ignored: the configured authenticator does not use HugeGraph's local built-in admin"
+    fi
+
+    # The gate returns before backend or plugin registration, so this performs
+    # validation only.
     ./bin/init-store.sh
 
     # Still wait: the server needs the storage side reachable at startup even
     # though nothing is initialized here
     wait_storage
-
-    if [[ -n "${PASSWORD:-}" ]]; then
-        log "enabling auth mode, admin password applied via auth.admin_pa"
-        # TODO: auth.admin_pa only applies when the admin account is first
-        # created, so changing PASSWORD on a later restart keeps the old one.
-        if ! ESCAPED_PASSWORD=$(props_escape "${PASSWORD}"); then
-            log "ERROR: PASSWORD must be valid UTF-8"
-            exit 1
-        fi
-        if ! chmod 600 "${REST_SERVER_CONF}"; then
-            log "ERROR: cannot protect ${REST_SERVER_CONF} before writing auth.admin_pa"
-            exit 1
-        fi
-        if ! set_prop "auth.admin_pa" "${ESCAPED_PASSWORD}" \
-                      "${REST_SERVER_CONF}"; then
-            log "ERROR: cannot write auth.admin_pa to ${REST_SERVER_CONF}"
-            exit 1
-        fi
-    fi
     # No init flag is written here: nothing was initialized, so a later run
     # with init-store enabled must still perform the real initialization.
 elif [[ ! -f "${DOCKER_FOLDER}/${INIT_FLAG_FILE}" ||
@@ -372,16 +286,27 @@ elif [[ ! -f "${DOCKER_FOLDER}/${INIT_FLAG_FILE}" ||
     wait_storage
 
     if [[ -z "${PASSWORD:-}" ]]; then
-        if [[ -n "${AUTHENTICATOR}" ]]; then
+        if [[ "${LOCAL_BUILTIN_AUTH}" == "true" ]]; then
+            if ! has_prop "auth.admin_pa" "${REST_SERVER_CONF}" ||
+               [[ -z "$(get_prop "auth.admin_pa" "${REST_SERVER_CONF}")" ]]; then
+                log "ERROR: local built-in auth requires PASSWORD or an explicitly configured non-empty auth.admin_pa"
+                exit 1
+            fi
             log "init hugegraph with configured auth.admin_pa"
             ./bin/init-store.sh --use-configured-admin-password
+        elif [[ -n "${AUTHENTICATOR}" ]]; then
+            log "init hugegraph with external authentication"
+            ./bin/init-store.sh
         else
             log "init hugegraph with non-auth mode"
             ./bin/init-store.sh
         fi
-    else
+    elif [[ "${LOCAL_BUILTIN_AUTH}" == "true" ]]; then
         log "init hugegraph with auth mode"
         printf '%s\n' "${PASSWORD}" | ./bin/init-store.sh
+    else
+        log "PASSWORD ignored: the configured authenticator does not use HugeGraph's local built-in admin"
+        ./bin/init-store.sh
     fi
     # This flag tracks only that init has run. The branch above explicitly
     # handles later auth-mode changes; other HG_SERVER_* changes do not re-init.
@@ -399,7 +324,7 @@ fi
 ./bin/start-hugegraph.sh -j "${JAVA_OPTS:-}" -t 120
 
 # Post-startup cluster stabilization check (hstore only — rocksdb has no partitions)
-ACTUAL_BACKEND=$(grep -E '^[[:space:]]*backend[[:space:]]*=' "${GRAPH_CONF}" | head -n 1 | sed 's/.*=//' | tr -d '[:space:]' || true)
+ACTUAL_BACKEND=$(get_prop "backend" "${GRAPH_CONF}")
 if [[ "${ACTUAL_BACKEND}" == "hstore" ]]; then
     STORE_REST="${STORE_REST:-store:8520}"
     export STORE_REST

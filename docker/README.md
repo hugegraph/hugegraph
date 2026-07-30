@@ -160,7 +160,7 @@ Configuration is injected via environment variables. The old `docker/configs/app
 | `HG_SERVER_BACKEND` | Yes | — | `backend` in `hugegraph.properties` | Storage backend (e.g. `hstore`) |
 | `HG_SERVER_PD_PEERS` | Yes | — | `pd.peers` | PD cluster addresses (e.g. `pd0:8686,pd1:8686,pd2:8686`) |
 | `STORE_REST` | No | — | Used by `wait-partition.sh` | Store REST endpoint for partition verification (e.g. `store0:8520`) |
-| `PASSWORD` | No | — | Enables auth mode | Optional authentication password |
+| `PASSWORD` | No | — | Enables built-in auth mode | Optional built-in admin password; ignored when custom or remote auth is already configured |
 | `HG_SERVER_INIT_STORE_ENABLED` | No | `true` | `init_store.enabled` in `rest-server.properties` | Set `false` in PD/HStore deployments so init-store skips local backend and admin initialization |
 
 > **The built-in authenticator with `HG_SERVER_INIT_STORE_ENABLED=false`
@@ -172,9 +172,13 @@ Configuration is injected via environment variables. The old `docker/configs/app
 > combination is unusable. A custom `auth.authenticator` is exempt because it
 > manages its own identities.
 >
-> When the combination is valid, a `PASSWORD` is written to `auth.admin_pa`
-> instead of being passed to `init-store.sh`, because the admin account is then
-> created on server startup. Two consequences worth knowing:
+> When the combination is valid for local built-in auth, a `PASSWORD` is written
+> to `auth.admin_pa` instead of being passed to `init-store.sh`, because the admin
+> account is then created on server startup. Without `PASSWORD`, `auth.admin_pa`
+> must be explicitly configured and non-empty; its public `pa` default is not
+> accepted for bootstrap. Custom and remote authenticators do not consume the
+> built-in admin password, so an inherited `PASSWORD` is ignored rather than
+> persisted. Two consequences worth knowing:
 >
 > - Before writing the password, the entrypoint restricts
 >   `conf/rest-server.properties` to mode `0600`. Administrators with access to
