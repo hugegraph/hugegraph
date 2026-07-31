@@ -18,7 +18,6 @@
 package org.apache.hugegraph.store.client.grpc;
 
 import java.net.InetAddress;
-import java.net.URI;
 import java.net.UnknownHostException;
 import java.util.Arrays;
 import java.util.Map;
@@ -27,6 +26,8 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
@@ -44,8 +45,10 @@ public abstract class AbstractGrpcClient {
 
     protected static Map<String, ManagedChannel[]> channels = new ConcurrentHashMap<>();
     private static final Map<String, String> resolvedTargets = new ConcurrentHashMap<>();
-    private static final Map<String, AtomicLong> resolutionRequests = new ConcurrentHashMap<>();
-    private static final Map<String, Long> appliedResolutions = new ConcurrentHashMap<>();
+    private static final Map<String, AtomicLong> nextResolutions = new ConcurrentHashMap<>();
+    private static final Map<String, ReentrantLock> refreshLocks = new ConcurrentHashMap<>();
+    private static final long DEFAULT_CHANNEL_REFRESH_INTERVAL_NANOS =
+            TimeUnit.SECONDS.toNanos(5L);
     private static final int n = 5;
     protected static int concurrency = 1 << n;
     private static final AtomicLong counter = new AtomicLong(0);
@@ -71,26 +74,7 @@ public abstract class AbstractGrpcClient {
         if ((tc = channels.get(target)) == null) {
             synchronized (channels) {
                 if ((tc = channels.get(target)) == null) {
-                    try {
-                        ManagedChannel[] value = new ManagedChannel[concurrency];
-                        CountDownLatch latch = new CountDownLatch(concurrency);
-                        for (int i = 0; i < concurrency; i++) {
-                            int fi = i;
-                            executor.execute(() -> {
-                                try {
-                                    value[fi] = createChannel(target);
-                                } catch (Exception e) {
-                                    throw new RuntimeException(e);
-                                } finally {
-                                    latch.countDown();
-                                }
-                            });
-                        }
-                        latch.await();
-                        channels.put(target, tc = value);
-                    } catch (Exception e) {
-                        throw new RuntimeException(e);
-                    }
+                    channels.put(target, tc = this.createChannels(target));
                 }
             }
         }
@@ -115,7 +99,7 @@ public abstract class AbstractGrpcClient {
                         HgPair<ManagedChannel, AbstractBlockingStub>[] value =
                                 new HgPair[concurrency];
                         IntStream.range(0, concurrency).forEach(i -> {
-                            ManagedChannel channel = targetChannels[index];
+                            ManagedChannel channel = targetChannels[i];
                             AbstractBlockingStub stub = getBlockingStub(channel);
                             value[i] = new HgPair<>(channel, stub);
                             // log.info("create channel for {}",target);
@@ -168,7 +152,7 @@ public abstract class AbstractGrpcClient {
                         HgPair<ManagedChannel, AbstractAsyncStub>[] value =
                                 new HgPair[concurrency];
                         IntStream.range(0, concurrency).parallel().forEach(i -> {
-                            ManagedChannel channel = targetChannels[index];
+                            ManagedChannel channel = targetChannels[i];
                             AbstractAsyncStub stub = getAsyncStub(channel);
                             // stub.withMaxInboundMessageSize(
                             //         config.getGrpcMaxInboundMessageSize())
@@ -225,46 +209,208 @@ public abstract class AbstractGrpcClient {
     }
 
     private void refreshChannelsIfAddressChanged(String target) {
-        long resolutionRequest = resolutionRequests.computeIfAbsent(target,
-                                                                    key -> new AtomicLong())
-                                                   .incrementAndGet();
-        String resolvedTarget = this.resolveTarget(target);
-        if (resolvedTarget.isEmpty()) {
+        if (!this.shouldRefreshChannels(target)) {
             return;
         }
-        synchronized (channels) {
-            Long appliedResolution = appliedResolutions.get(target);
-            if (appliedResolution != null && appliedResolution >= resolutionRequest) {
+
+        ReentrantLock refreshLock = refreshLocks.computeIfAbsent(target,
+                                                                 key -> new ReentrantLock());
+        if (!refreshLock.tryLock()) {
+            return;
+        }
+
+        try {
+            if (!this.shouldRefreshChannels(target)) {
                 return;
             }
-            appliedResolutions.put(target, resolutionRequest);
-            String previousTarget = resolvedTargets.put(target, resolvedTarget);
-            if (previousTarget == null && !channels.containsKey(target)) {
+
+            String resolvedTarget = this.resolveTarget(target);
+            this.postponeNextRefresh(target);
+            if (resolvedTarget.isEmpty()) {
+                return;
+            }
+
+            ManagedChannel[] staleChannels = channels.get(target);
+            String previousTarget = resolvedTargets.get(target);
+            if (previousTarget == null && staleChannels == null) {
+                resolvedTargets.put(target, resolvedTarget);
                 return;
             }
             if (resolvedTarget.equals(previousTarget)) {
                 return;
             }
-            ManagedChannel[] staleChannels = channels.remove(target);
-            if (staleChannels != null) {
-                Arrays.stream(staleChannels)
-                      .filter(channel -> channel != null && !channel.isShutdown())
-                      .forEach(ManagedChannel::shutdownNow);
+            if (staleChannels == null) {
+                resolvedTargets.put(target, resolvedTarget);
+                return;
             }
+
+            ManagedChannel[] replacementChannels;
+            try {
+                replacementChannels = this.createChannels(target);
+            } catch (RuntimeException ignored) {
+                return;
+            }
+
+            boolean replaced = false;
+            synchronized (channels) {
+                if (channels.get(target) == staleChannels) {
+                    channels.put(target, replacementChannels);
+                    resolvedTargets.put(target, resolvedTarget);
+                    replaced = true;
+                }
+            }
+
+            if (replaced) {
+                this.retireChannels(staleChannels);
+            } else {
+                this.retireChannels(replacementChannels);
+            }
+        } finally {
+            refreshLock.unlock();
         }
     }
 
-    protected String resolveTarget(String target) {
+    private boolean shouldRefreshChannels(String target) {
+        AtomicLong nextResolution = nextResolutions.computeIfAbsent(target,
+                                                                    key -> new AtomicLong());
+        return System.nanoTime() - nextResolution.get() >= 0L;
+    }
+
+    private void postponeNextRefresh(String target) {
+        long interval = Math.max(0L, this.channelRefreshIntervalNanos());
+        nextResolutions.computeIfAbsent(target, key -> new AtomicLong())
+                       .set(System.nanoTime() + interval);
+    }
+
+    protected long channelRefreshIntervalNanos() {
+        return DEFAULT_CHANNEL_REFRESH_INTERVAL_NANOS;
+    }
+
+    protected long channelDrainTimeoutNanos() {
+        return TimeUnit.SECONDS.toNanos(config.getGrpcTimeoutSeconds());
+    }
+
+    private ManagedChannel[] createChannels(String target) {
         try {
-            String host = URI.create("dns://" + target).getHost();
-            if (host == null) {
+            ManagedChannel[] value = new ManagedChannel[concurrency];
+            CountDownLatch latch = new CountDownLatch(concurrency);
+            AtomicReference<RuntimeException> failure = new AtomicReference<>();
+            for (int i = 0; i < concurrency; i++) {
+                int fi = i;
+                executor.execute(() -> {
+                    try {
+                        value[fi] = createChannel(target);
+                    } catch (Exception e) {
+                        failure.compareAndSet(null, new RuntimeException(e));
+                    } finally {
+                        latch.countDown();
+                    }
+                });
+            }
+            latch.await();
+            if (failure.get() != null) {
+                throw failure.get();
+            }
+            return value;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException(e);
+        }
+    }
+
+    private void retireChannels(ManagedChannel[] retiredChannels) {
+        Arrays.stream(retiredChannels)
+              .filter(channel -> channel != null && !channel.isShutdown())
+              .forEach(ManagedChannel::shutdown);
+
+        executor.execute(() -> forceTerminateChannels(retiredChannels));
+    }
+
+    private void forceTerminateChannels(ManagedChannel[] retiredChannels) {
+        long deadline = System.nanoTime() + Math.max(0L, this.channelDrainTimeoutNanos());
+        boolean interrupted = false;
+
+        for (ManagedChannel channel : retiredChannels) {
+            if (channel == null || channel.isTerminated()) {
+                continue;
+            }
+            try {
+                long remaining = deadline - System.nanoTime();
+                if (remaining <= 0L ||
+                    !channel.awaitTermination(remaining, TimeUnit.NANOSECONDS)) {
+                    channel.shutdownNow();
+                }
+            } catch (InterruptedException e) {
+                interrupted = true;
+                channel.shutdownNow();
+            }
+        }
+
+        if (interrupted) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    private static String targetHost(String target) {
+        if (target == null || target.isEmpty()) {
+            return "";
+        }
+
+        String endpoint = target;
+        if (target.startsWith("dns://")) {
+            endpoint = target.substring("dns://".length());
+            while (endpoint.startsWith("/")) {
+                endpoint = endpoint.substring(1);
+            }
+            int pathStart = endpoint.indexOf('/');
+            if (pathStart >= 0) {
+                endpoint = endpoint.substring(pathStart + 1);
+            }
+        } else if (target.contains("://")) {
+            return "";
+        }
+
+        return endpointHost(endpoint);
+    }
+
+    private static String endpointHost(String endpoint) {
+        if (endpoint == null || endpoint.isEmpty()) {
+            return "";
+        }
+
+        if (endpoint.charAt(0) == '[') {
+            int hostEnd = endpoint.indexOf(']');
+            if (hostEnd <= 1) {
                 return "";
             }
-            return Arrays.stream(InetAddress.getAllByName(host))
+            return endpoint.substring(1, hostEnd);
+        }
+
+        int lastColon = endpoint.lastIndexOf(':');
+        if (lastColon < 0) {
+            return endpoint;
+        }
+        if (endpoint.indexOf(':') != lastColon) {
+            return endpoint;
+        }
+        return endpoint.substring(0, lastColon);
+    }
+
+    protected InetAddress[] resolveHost(String host) throws UnknownHostException {
+        return InetAddress.getAllByName(host);
+    }
+
+    protected String resolveTarget(String target) {
+        String host = targetHost(target);
+        if (host.isEmpty()) {
+            return "";
+        }
+        try {
+            return Arrays.stream(this.resolveHost(host))
                          .map(InetAddress::getHostAddress)
                          .sorted()
                          .collect(Collectors.joining(","));
-        } catch (IllegalArgumentException | UnknownHostException ignored) {
+        } catch (UnknownHostException ignored) {
             return "";
         }
     }
