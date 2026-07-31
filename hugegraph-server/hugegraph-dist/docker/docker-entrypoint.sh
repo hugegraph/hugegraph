@@ -23,7 +23,7 @@ AUTH_INIT_STATE_FILE="auth_init_state"
 GRAPH_CONF="./conf/graphs/hugegraph.properties"
 REST_SERVER_CONF="./conf/rest-server.properties"
 GREMLIN_SERVER_CONF="./conf/gremlin-server.yaml"
-CONFIG_TOOL="./bin/config-tool.sh"
+CONFIG_TOOL="${CONFIG_TOOL:-./bin/config-tool.sh}"
 
 # The only in-tree HugeAuthenticator that bootstraps HugeGraph's built-in admin
 # account. auth.authenticator accepts any implementation class, and a custom one
@@ -40,6 +40,10 @@ log() { echo "[hugegraph-server-entrypoint] $*"; }
 # serialization identical between the entrypoint and the server.
 set_prop() {
     "${CONFIG_TOOL}" set "$3" "$1" "$2"
+}
+
+set_secret_prop() {
+    printf '%s' "$2" | "${CONFIG_TOOL}" set-stdin "$3" "$1"
 }
 
 get_prop() {
@@ -73,7 +77,41 @@ to_bool() {
 }
 
 gremlin_auth_configured() {
-    grep -qE '^[[:space:]]*authentication:' "${GREMLIN_SERVER_CONF}" 2>/dev/null
+    grep -qE '^authentication[[:space:]]*:' \
+        "${GREMLIN_SERVER_CONF}" 2>/dev/null
+}
+
+# Print the single authenticator selected by the top-level authentication
+# mapping. This intentionally accepts only the simple scalar form emitted by
+# HugeGraph and Gremlin Server examples; aliases, substitutions, duplicates,
+# or malformed mappings fail closed instead of risking different REST and
+# Gremlin authentication providers.
+gremlin_authenticator() {
+    local blocks auth_block values
+    blocks=$(grep -cE '^authentication[[:space:]]*:' \
+        "${GREMLIN_SERVER_CONF}" 2>/dev/null || true)
+    [[ "${blocks}" == "1" ]] || return 1
+
+    auth_block=$(awk '
+        /^authentication[[:space:]]*:/ { active=1 }
+        active {
+            if (seen && $0 ~ /^[^[:space:]#][^:]*[[:space:]]*:/) exit
+            print
+            seen=1
+            if ($0 ~ /^[[:space:]]*}[[:space:]]*$/) exit
+        }
+    ' "${GREMLIN_SERVER_CONF}")
+    values=$(printf '%s\n' "${auth_block}" | sed -nE \
+        's/.*(^|[,{[:space:]])authenticator[[:space:]]*:[[:space:]]*([[:alnum:]_.$]+).*/\2/p')
+    [[ "$(printf '%s\n' "${values}" | sed '/^$/d' | wc -l | tr -d ' ')" == "1" ]] || \
+        return 1
+    printf '%s\n' "${values}"
+}
+
+gremlin_auth_matches() {
+    local configured
+    configured=$(gremlin_authenticator) || return 1
+    [[ "${configured}" == "$1" ]]
 }
 
 graph_auth_proxy_configured() {
@@ -124,7 +162,12 @@ ensure_auth_enabled() {
             return 1
         fi
     fi
-    if ! gremlin_auth_configured; then
+    if gremlin_auth_configured; then
+        if ! gremlin_auth_matches "${authenticator}"; then
+            log "ERROR: Gremlin authenticator must match REST auth.authenticator '${authenticator}'"
+            return 1
+        fi
+    else
         # A file whose last line has no newline would otherwise absorb the
         # first line of the block
         if [[ -s "${GREMLIN_SERVER_CONF}" && \
@@ -225,6 +268,20 @@ fi
 # matching Gremlin handler or auth graph proxy. Complete all three configs for
 # every configured authenticator, whether or not Docker supplied a PASSWORD.
 AUTHENTICATOR=$(get_prop "auth.authenticator" "${REST_SERVER_CONF}")
+LEGACY_AUTH_CONFIG_ALIGNED=false
+if [[ -n "${AUTHENTICATOR}" ]] &&
+   [[ -d "./conf-bak" ]] &&
+   [[ -n "$(get_prop "auth.graph_store" "${REST_SERVER_CONF}")" ]] &&
+   gremlin_auth_matches "${AUTHENTICATOR}" &&
+   graph_auth_proxy_configured; then
+    LEGACY_AUTH_CONFIG_ALIGNED=true
+fi
+if [[ -z "${AUTHENTICATOR}" ]] &&
+   { gremlin_auth_configured || graph_auth_proxy_configured; }; then
+    log "ERROR: REST authentication is disabled while Gremlin or the graph" \
+        "auth proxy remains enabled"
+    exit 1
+fi
 if [[ -n "${PASSWORD:-}" || -n "${AUTHENTICATOR}" ]]; then
     ensure_auth_enabled
     AUTHENTICATOR=$(get_prop "auth.authenticator" "${REST_SERVER_CONF}")
@@ -246,7 +303,14 @@ if [[ -n "${AUTHENTICATOR}" ]]; then
         "${DOCKER_FOLDER}/${AUTH_INIT_STATE_FILE}" 2>/dev/null || true)
     if [[ -f "${DOCKER_FOLDER}/${INIT_FLAG_FILE}" &&
           "${STORED_AUTH_STATE}" != "${AUTH_STATE}" ]]; then
-        AUTH_INIT_REQUIRED=true
+        if [[ -z "${STORED_AUTH_STATE}" &&
+              "${LEGACY_AUTH_CONFIG_ALIGNED}" == "true" ]]; then
+            log "legacy authenticated volume detected; recording auth state without re-initialization"
+            printf '%s\n' "${AUTH_STATE}" > \
+                "${DOCKER_FOLDER}/${AUTH_INIT_STATE_FILE}"
+        else
+            AUTH_INIT_REQUIRED=true
+        fi
     fi
 fi
 
@@ -267,8 +331,8 @@ if [[ "${INIT_STORE_ENABLED:-true}" == "false" ]]; then
                 log "ERROR: cannot protect ${REST_SERVER_CONF} before writing auth.admin_pa"
                 exit 1
             fi
-            if ! set_prop "auth.admin_pa" "${PASSWORD}" \
-                          "${REST_SERVER_CONF}"; then
+            if ! set_secret_prop "auth.admin_pa" "${PASSWORD}" \
+                                 "${REST_SERVER_CONF}"; then
                 log "ERROR: cannot write auth.admin_pa to ${REST_SERVER_CONF}"
                 exit 1
             fi
@@ -281,7 +345,7 @@ if [[ "${INIT_STORE_ENABLED:-true}" == "false" ]]; then
 
     # The gate returns before backend or plugin registration, so this performs
     # validation only.
-    ./bin/init-store.sh
+    ./bin/init-store.sh --validate-only
 
     # Still wait: the server needs the storage side reachable at startup even
     # though nothing is initialized here

@@ -34,7 +34,24 @@ PLUGINS="$TOP/plugins"
 . "${BIN}"/util.sh
 
 configure_riscv64_libatomic || exit 1
-ensure_path_writable "${PLUGINS}"
+
+VALIDATE_ONLY=false
+INIT_STORE_ARGS=()
+if [[ $# -gt 1 || ( $# -eq 1 &&
+      "$1" != "--use-configured-admin-password" &&
+      "$1" != "--validate-only" ) ]]; then
+    echo "Usage: $0 [--use-configured-admin-password|--validate-only]" >&2
+    exit 1
+fi
+if [[ $# -eq 1 && "$1" == "--validate-only" ]]; then
+    VALIDATE_ONLY=true
+elif [[ $# -eq 1 ]]; then
+    INIT_STORE_ARGS+=("$1")
+fi
+
+if [[ "${VALIDATE_ONLY}" != "true" ]]; then
+    ensure_path_writable "${PLUGINS}" || exit 1
+fi
 
 if [[ -n "$JAVA_HOME" ]]; then
     JAVA="$JAVA_HOME"/bin/java
@@ -49,16 +66,6 @@ cd "${TOP}" || exit
 DEFAULT_JAVA_OPTIONS="--add-exports=java.base/jdk.internal.reflect=ALL-UNNAMED"
 
 echo "Initializing HugeGraph Store..."
-
-INIT_STORE_ARGS=()
-if [[ $# -gt 1 || ( $# -eq 1 &&
-      "$1" != "--use-configured-admin-password" ) ]]; then
-    echo "Usage: $0 [--use-configured-admin-password]" >&2
-    exit 1
-fi
-if [[ $# -eq 1 ]]; then
-    INIT_STORE_ARGS+=("$1")
-fi
 
 # Build classpath with hugegraph*.jar first to avoid class loading conflicts
 CP=$(find -L "${LIB}" -name 'hugegraph*.jar' | sort | tr '\n' ':')

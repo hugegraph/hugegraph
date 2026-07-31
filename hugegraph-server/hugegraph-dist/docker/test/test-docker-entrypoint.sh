@@ -140,7 +140,7 @@ assert_no_prop_key() {
 # the gremlin-server.yaml authentication block and the graph's auth proxy
 assert_auth_fully_enabled() {
     local n
-    n=$(grep -cE '^[[:space:]]*authentication:' \
+    n=$(grep -cE '^authentication[[:space:]]*:' \
         "${INSTALL}/conf/gremlin-server.yaml" 2>/dev/null || true)
     if [[ "${n}" == "1" ]]; then
         ok
@@ -219,6 +219,10 @@ if [[ "\$1" == "requires-local-admin" ]]; then
        "org.apache.hugegraph.auth.StandardAuthenticator" && \
        -z "\${remote_url}" ]]
     exit
+fi
+if [[ "\$1" == "set" || "\$1" == "set-stdin" ]] &&
+   [[ -n "\${CONFIG_TOOL_STUB_RC:-}" ]]; then
+    exit "\${CONFIG_TOOL_STUB_RC}"
 fi
 exec java -cp "${TEST_CLASSES}" JavaPropertiesTool "\$@"
 EOF
@@ -410,6 +414,18 @@ assert_file "docker/auth_init_state"
 run_entrypoint -u PASSWORD
 assert_not_ran "init-store.sh"
 assert_ran "start-hugegraph.sh"
+cleanup
+
+echo "==> legacy authenticated volume upgrades without the old password"
+new_install
+mkdir -p "${INSTALL}/docker"
+touch "${INSTALL}/docker/init_complete"
+"${INSTALL}/bin/enable-auth.sh"
+: > "${INSTALL}/calls.log"
+run_entrypoint -u PASSWORD
+assert_not_ran "init-store.sh"
+assert_ran "start-hugegraph.sh"
+assert_file "docker/auth_init_state"
 cleanup
 
 echo "==> an existing conf-bak cannot suppress requested auth"
@@ -630,14 +646,78 @@ assert_not_ran "enable-auth.sh"
 assert_auth_fully_enabled
 cleanup
 
-echo "==> a complete read-only auth mount is not rewritten"
+echo "==> a stale Gremlin authenticator fails closed"
+new_install
+echo "auth.authenticator=org.example.auth.LdapAuthenticator" \
+    >> "${INSTALL}/conf/rest-server.properties"
+cat >> "${INSTALL}/conf/gremlin-server.yaml" <<'YAML'
+authentication: {
+  authenticator: org.apache.hugegraph.auth.StandardAuthenticator,
+  authenticationHandler: org.apache.hugegraph.auth.WsAndHttpBasicAuthHandler,
+  config: {tokens: conf/rest-server.properties}
+}
+YAML
+run_entrypoint_fails -u PASSWORD HG_SERVER_INIT_STORE_ENABLED=false
+assert_not_ran "init-store.sh"
+assert_not_ran "start-hugegraph.sh"
+assert_output_contains "Gremlin authenticator"
+cleanup
+
+echo "==> removing REST auth while Gremlin auth remains fails closed"
+new_install
+cat >> "${INSTALL}/conf/gremlin-server.yaml" <<'YAML'
+authentication: {
+  authenticator: org.apache.hugegraph.auth.StandardAuthenticator,
+  authenticationHandler: org.apache.hugegraph.auth.WsAndHttpBasicAuthHandler,
+  config: {tokens: conf/rest-server.properties}
+}
+YAML
+run_entrypoint_fails -u PASSWORD
+assert_not_ran "init-store.sh"
+assert_not_ran "start-hugegraph.sh"
+assert_output_contains "REST authentication is disabled"
+cleanup
+
+echo "==> authentication with separator whitespace is recognized"
+new_install
+enable_pd
+echo "auth.authenticator=org.apache.hugegraph.auth.StandardAuthenticator" \
+    >> "${INSTALL}/conf/rest-server.properties"
+cat >> "${INSTALL}/conf/gremlin-server.yaml" <<'YAML'
+authentication : {
+  authenticator: org.apache.hugegraph.auth.StandardAuthenticator,
+  authenticationHandler: org.apache.hugegraph.auth.WsAndHttpBasicAuthHandler,
+  config: {tokens: conf/rest-server.properties}
+}
+YAML
+run_entrypoint HG_SERVER_INIT_STORE_ENABLED=false PASSWORD=s3cret
+assert_auth_fully_enabled
+cleanup
+
+echo "==> nested authentication does not masquerade as top-level auth"
+new_install
+enable_pd
+echo "auth.authenticator=org.apache.hugegraph.auth.StandardAuthenticator" \
+    >> "${INSTALL}/conf/rest-server.properties"
+cat >> "${INSTALL}/conf/gremlin-server.yaml" <<'YAML'
+security:
+  authentication: {
+    authenticator: org.apache.hugegraph.auth.StandardAuthenticator,
+    authenticationHandler: org.apache.hugegraph.auth.WsAndHttpBasicAuthHandler,
+    config: {tokens: conf/rest-server.properties}
+  }
+YAML
+run_entrypoint HG_SERVER_INIT_STORE_ENABLED=false PASSWORD=s3cret
+assert_auth_fully_enabled
+cleanup
+
+echo "==> a complete auth configuration is not rewritten"
 new_install
 "${INSTALL}/bin/enable-auth.sh"
 echo "auth.admin_pa=s3cret" >> "${INSTALL}/conf/rest-server.properties"
 : > "${INSTALL}/calls.log"
 touch -t 202001010000 "${INSTALL}/conf/rest-server.properties"
 before_mtime=$(file_mtime "${INSTALL}/conf/rest-server.properties")
-chmod 444 "${INSTALL}/conf/rest-server.properties"
 run_entrypoint -u PASSWORD
 after_mtime=$(file_mtime "${INSTALL}/conf/rest-server.properties")
 after_mode=$(file_mode "${INSTALL}/conf/rest-server.properties")
@@ -649,29 +729,28 @@ if [[ "${after_mtime}" == "${before_mtime}" ]]; then
 else
     fail "read-only rest-server.properties was rewritten"
 fi
-if [[ "${after_mode}" == "444" ]]; then
+if [[ "${after_mode}" == "644" ]]; then
     ok
 else
-    fail "read-only rest-server.properties mode became ${after_mode}"
+    fail "rest-server.properties mode became ${after_mode}"
 fi
 cleanup
 
-echo "==> an incomplete read-only auth mount fails with the missing property"
+echo "==> a failed auth config mutation stops startup"
 new_install
 echo "auth.authenticator=org.apache.hugegraph.auth.StandardAuthenticator" \
     >> "${INSTALL}/conf/rest-server.properties"
-chmod 444 "${INSTALL}/conf/rest-server.properties"
-run_entrypoint_fails -u PASSWORD
+run_entrypoint_fails -u PASSWORD CONFIG_TOOL_STUB_RC=30
 assert_not_ran "init-store.sh"
 assert_not_ran "start-hugegraph.sh"
 assert_output_contains \
     "ERROR: cannot write auth.graph_store to ./conf/rest-server.properties"
 cleanup
 
-echo "==> a read-only mount rejects an init-store env override"
+echo "==> a failed init-store env mutation stops startup"
 new_install
-chmod 444 "${INSTALL}/conf/rest-server.properties"
-run_entrypoint_fails -u PASSWORD HG_SERVER_INIT_STORE_ENABLED=false
+run_entrypoint_fails -u PASSWORD HG_SERVER_INIT_STORE_ENABLED=false \
+    CONFIG_TOOL_STUB_RC=30
 assert_not_ran "init-store.sh"
 assert_not_ran "start-hugegraph.sh"
 assert_output_contains \
@@ -771,6 +850,30 @@ assert_not_ran "start-hugegraph.sh"
 assert_output_contains "requires PASSWORD or an explicitly configured non-empty auth.admin_pa"
 cleanup
 
+echo "==> complete auth mounted onto a no-auth volume still needs bootstrap"
+new_install
+mkdir -p "${INSTALL}/docker"
+touch "${INSTALL}/docker/init_complete"
+echo "auth.authenticator=org.apache.hugegraph.auth.StandardAuthenticator" \
+    >> "${INSTALL}/conf/rest-server.properties"
+echo "auth.graph_store=hugegraph" >> "${INSTALL}/conf/rest-server.properties"
+cat >> "${INSTALL}/conf/gremlin-server.yaml" <<'YAML'
+authentication: {
+  authenticator: org.apache.hugegraph.auth.StandardAuthenticator,
+  authenticationHandler: org.apache.hugegraph.auth.WsAndHttpBasicAuthHandler,
+  config: {tokens: conf/rest-server.properties}
+}
+YAML
+sed -i.bak 's/gremlin.graph=org.apache.hugegraph.HugeFactory/gremlin.graph=org.apache.hugegraph.auth.HugeFactoryAuthProxy/' \
+    "${INSTALL}/conf/graphs/hugegraph.properties"
+rm -f "${INSTALL}/conf/graphs/hugegraph.properties.bak"
+run_entrypoint_fails -u PASSWORD
+assert_not_ran "init-store.sh"
+assert_not_ran "start-hugegraph.sh"
+assert_output_contains \
+    "requires PASSWORD or an explicitly configured non-empty auth.admin_pa"
+cleanup
+
 echo "==> skipped built-in auth also rejects the default password"
 new_install
 enable_pd
@@ -797,6 +900,25 @@ if [[ "${before_inode}" == "${after_inode}" ]]; then ok; else fail "inode change
 if [[ "${after_mode}" == "600" ]]; then ok; else fail "mode became ${after_mode}, expected 600"; fi
 assert_prop "init_store.enabled" "false"
 assert_prop_round_trip "auth.admin_pa" "s3cret"
+cleanup
+
+echo "==> PASSWORD is never forwarded in ConfigTool argv"
+new_install
+enable_pd
+cat > "${INSTALL}/bin/config-tool-wrapper.sh" <<EOF
+#!/bin/bash
+printf '%s\n' "\$*" >> "${INSTALL}/config-tool-argv.log"
+exec "${INSTALL}/bin/config-tool.sh" "\$@"
+EOF
+chmod +x "${INSTALL}/bin/config-tool-wrapper.sh"
+run_entrypoint CONFIG_TOOL=./bin/config-tool-wrapper.sh \
+    HG_SERVER_INIT_STORE_ENABLED=false PASSWORD=argv-secret
+if grep -qF "argv-secret" "${INSTALL}/config-tool-argv.log" 2>/dev/null; then
+    fail "PASSWORD appeared in ConfigTool argv"
+else
+    ok
+fi
+assert_prop_round_trip "auth.admin_pa" "argv-secret"
 cleanup
 
 echo "==> no scratch file is left behind"
@@ -841,7 +963,7 @@ cp "${INIT_STORE_WRAPPER}" "${INSTALL}/bin/init-store.sh"
 mkdir -p "${INSTALL}/lib" "${INSTALL}/plugins"
 cat > "${INSTALL}/bin/util.sh" <<'EOF'
 configure_riscv64_libatomic() { return 0; }
-ensure_path_writable() { return 0; }
+ensure_path_writable() { return "${ENSURE_PATH_STATUS:-0}"; }
 EOF
 mkdir -p "${INSTALL}/fake-java/bin"
 cat > "${INSTALL}/fake-java/bin/java" <<'EOF'
@@ -877,6 +999,21 @@ if grep -qE 'rest-server\.properties --use-configured-admin-password$' \
     ok
 else
     fail "production init-store.sh did not forward its password-mode flag"
+fi
+
+echo "==> validation-only wrapper does not require writable plugins"
+if ( cd "${INSTALL}" && env ENSURE_PATH_STATUS=91 FAKE_JAVA_STATUS=0 \
+        FAKE_JAVA_ARGS_FILE="${INSTALL}/validate-only-java-args" \
+        JAVA_HOME="${INSTALL}/fake-java" ./bin/init-store.sh --validate-only ) \
+        > "${INSTALL}/validate-only.out" 2>&1; then
+    ok
+else
+    fail "validation-only wrapper required writable plugins"
+fi
+if grep -qF -- "--validate-only" "${INSTALL}/validate-only-java-args"; then
+    fail "validation-only wrapper forwarded its private flag to Java"
+else
+    ok
 fi
 cleanup
 

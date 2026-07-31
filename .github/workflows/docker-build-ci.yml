@@ -78,3 +78,14 @@ jobs:
           HC=$(docker inspect --format='{{json .Config.Healthcheck}}' "$IMAGE_ID")
           echo "Healthcheck: $HC"
           [[ "$HC" != "null" ]] || { echo "ERROR: HEALTHCHECK missing in ${{ matrix.dockerfile }}"; exit 1; }
+          if [[ "${{ matrix.dockerfile }}" == hugegraph-server/Dockerfile* ]]; then
+            RO_CONF=$(mktemp)
+            printf 'restserver.url=http://0.0.0.0:8080\n' > "$RO_CONF"
+            if docker run --rm --entrypoint bash \
+                 -v "$RO_CONF:/tmp/rest-server.properties:ro" "$IMAGE_ID" \
+                 -c './bin/config-tool.sh set /tmp/rest-server.properties init_store.enabled false; status=$?; [[ $status -eq 0 ]] || compgen -G "/tmp/rest-server.properties.tmp.*" >/dev/null; unexpected=$?; [[ $unexpected -eq 0 ]] && exit 0; exit "$status"'; then
+              echo "ERROR: ConfigTool rewrote a read-only bind mount or leaked a scratch file"
+              exit 1
+            fi
+            grep -qxF 'restserver.url=http://0.0.0.0:8080' "$RO_CONF"
+          fi

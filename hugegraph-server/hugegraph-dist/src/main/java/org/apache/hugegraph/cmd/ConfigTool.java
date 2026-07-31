@@ -23,6 +23,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.Reader;
 import java.io.Writer;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
@@ -48,6 +49,7 @@ public final class ConfigTool {
     private static final String GET = "get";
     private static final String HAS = "has";
     private static final String SET = "set";
+    private static final String SET_STDIN = "set-stdin";
     private static final String REQUIRES_LOCAL_ADMIN =
             "requires-local-admin";
     private static final String VALIDATE_SKIP = "validate-skip";
@@ -99,6 +101,13 @@ public final class ConfigTool {
                                 "Usage: ConfigTool set <file> <key> <value>");
                 setProperty(file, args[2], args[3]);
                 break;
+            case SET_STDIN:
+                E.checkArgument(args.length == 3,
+                                "Usage: ConfigTool set-stdin <file> <key>");
+                String stdinValue = new String(System.in.readAllBytes(),
+                                               StandardCharsets.UTF_8);
+                setProperty(file, args[2], stdinValue);
+                break;
             case REQUIRES_LOCAL_ADMIN:
                 E.checkArgument(args.length == 2,
                                 "Usage: ConfigTool requires-local-admin " +
@@ -144,9 +153,10 @@ public final class ConfigTool {
             return;
         }
 
+        Path target = new File(file).toPath().toAbsolutePath();
+        rejectIncludes(target);
         config.setProperty(key, value);
         config.setIOFactory(EXACT_PROPERTIES_IO_FACTORY);
-        Path target = new File(file).toPath().toAbsolutePath();
         Path parent = target.getParent();
         E.checkState(parent != null, "Config file has no parent: %s", file);
         Path scratch = Files.createTempFile(parent,
@@ -155,19 +165,80 @@ public final class ConfigTool {
         try {
             FileHandler handler = new FileHandler(config);
             handler.save(scratch.toFile());
-            try (InputStream input = Files.newInputStream(scratch);
-                 OutputStream output = Files.newOutputStream(
-                         target, StandardOpenOption.WRITE,
-                         StandardOpenOption.TRUNCATE_EXISTING)) {
-                byte[] buffer = new byte[8192];
-                int length;
-                while ((length = input.read(buffer)) != -1) {
-                    output.write(buffer, 0, length);
-                }
-            }
+            replaceInPlace(target, scratch, ConfigTool::copyFile);
         } finally {
             Files.deleteIfExists(scratch);
         }
+    }
+
+    private static void rejectIncludes(Path target) throws IOException {
+        String include = PropertiesConfiguration.getInclude();
+        String optional = PropertiesConfiguration.getIncludeOptional();
+        try (Reader input = Files.newBufferedReader(target,
+                                                     StandardCharsets.UTF_8)) {
+            PropertiesReader reader = new PropertiesReader(input);
+            while (reader.nextProperty()) {
+                String key = reader.getPropertyName();
+                if (key.equalsIgnoreCase(include) ||
+                    key.equalsIgnoreCase(optional)) {
+                    throw new IllegalStateException(String.format(
+                            "Refusing to rewrite '%s': '%s' directives would " +
+                            "be flattened; update the included file instead",
+                            target, key));
+                }
+            }
+        }
+    }
+
+    private static void replaceInPlace(Path target, Path replacement,
+                                       FileCopier copier) throws IOException {
+        Path parent = target.getParent();
+        Path backup = Files.createTempFile(parent,
+                                           target.getFileName() + ".bak.",
+                                           null);
+        boolean retainBackup = false;
+        try {
+            Files.copy(target, backup,
+                       java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            try {
+                copier.copy(replacement, target);
+            } catch (IOException writeFailure) {
+                try {
+                    copyFile(backup, target);
+                } catch (IOException restoreFailure) {
+                    retainBackup = true;
+                    writeFailure.addSuppressed(restoreFailure);
+                    throw new IOException(String.format(
+                            "Failed to rewrite '%s'; recovery also failed, " +
+                            "backup retained at '%s'", target, backup),
+                                          writeFailure);
+                }
+                throw writeFailure;
+            }
+        } finally {
+            if (!retainBackup) {
+                Files.deleteIfExists(backup);
+            }
+        }
+    }
+
+    private static void copyFile(Path source, Path target) throws IOException {
+        try (InputStream input = Files.newInputStream(source);
+             OutputStream output = Files.newOutputStream(
+                     target, StandardOpenOption.WRITE,
+                     StandardOpenOption.TRUNCATE_EXISTING)) {
+            byte[] buffer = new byte[8192];
+            int length;
+            while ((length = input.read(buffer)) != -1) {
+                output.write(buffer, 0, length);
+            }
+        }
+    }
+
+    @FunctionalInterface
+    private interface FileCopier {
+
+        void copy(Path source, Path target) throws IOException;
     }
 
     static boolean requiresLocalAdmin(String file) {

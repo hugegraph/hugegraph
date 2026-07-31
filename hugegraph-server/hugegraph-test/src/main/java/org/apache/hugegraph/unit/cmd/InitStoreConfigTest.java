@@ -18,6 +18,7 @@
 package org.apache.hugegraph.unit.cmd;
 
 import java.io.IOException;
+import java.lang.reflect.Proxy;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -202,6 +203,39 @@ public class InitStoreConfigTest {
         Assert.assertEquals(password, config.get(ServerOptions.ADMIN_PA));
     }
 
+    @Test
+    public void testConfigToolRejectsRewriteWithInclude() throws Exception {
+        Path child = this.workDir.resolve("included.properties");
+        Files.write(child, Arrays.asList("child.key=child-value"),
+                    StandardCharsets.UTF_8);
+        Path conf = this.workDir.resolve("parent.properties");
+        Files.write(conf, Arrays.asList(
+                "include=included.properties",
+                "parent.key=old-value"), StandardCharsets.UTF_8);
+
+        Assert.assertThrows(IllegalStateException.class, () -> {
+            configToolSet(conf, "parent.key", "new-value");
+        }, e -> Assert.assertContains("include", e.getMessage()));
+
+        String content = new String(Files.readAllBytes(conf),
+                                    StandardCharsets.UTF_8);
+        Assert.assertContains("include=included.properties", content);
+        Assert.assertContains("parent.key=old-value", content);
+    }
+
+    @Test
+    public void testConfigToolRejectsRewriteWithOptionalInclude()
+                                                         throws Exception {
+        Path conf = this.workDir.resolve("optional-parent.properties");
+        Files.write(conf, Arrays.asList(
+                "include\\u006fptional=missing.properties",
+                "parent.key=old-value"), StandardCharsets.UTF_8);
+
+        Assert.assertThrows(IllegalStateException.class, () -> {
+            configToolSet(conf, "parent.key", "new-value");
+        }, e -> Assert.assertContains("includeoptional", e.getMessage()));
+    }
+
     /**
      * The graphs directory referenced by the temporary config does not exist,
      * so every code path that reaches graph scanning fails. That is what makes
@@ -214,6 +248,39 @@ public class InitStoreConfigTest {
         Assert.assertThrows(IllegalArgumentException.class, () -> {
             ConfigUtil.scanGraphsDir(graphsDir);
         });
+    }
+
+    @Test
+    public void testConfigToolRestoresTargetAfterInterruptedCopy()
+                                                         throws Exception {
+        Path target = this.workDir.resolve("recover.properties");
+        Path replacement = this.workDir.resolve("replacement.properties");
+        byte[] original = "key=original\n".getBytes(StandardCharsets.UTF_8);
+        Files.write(target, original);
+        Files.write(replacement,
+                    "key=replacement\n".getBytes(StandardCharsets.UTF_8));
+
+        Class<?> copierType = Class.forName(
+                "org.apache.hugegraph.cmd.ConfigTool$FileCopier");
+        Object failingCopier = Proxy.newProxyInstance(
+                copierType.getClassLoader(), new Class<?>[]{copierType},
+                (proxy, method, args) -> {
+                    Files.write((Path) args[1],
+                                "partial".getBytes(StandardCharsets.UTF_8));
+                    throw new IOException("injected mid-copy failure");
+                });
+
+        Assert.assertThrows(RuntimeException.class, () -> {
+            Whitebox.invokeStatic(
+                    ConfigTool.class,
+                    new Class<?>[]{Path.class, Path.class, copierType},
+                    "replaceInPlace", target, replacement, failingCopier);
+        });
+        Assert.assertArrayEquals(original, Files.readAllBytes(target));
+        try (Stream<Path> files = Files.list(this.workDir)) {
+            Assert.assertFalse(files.anyMatch(path ->
+                    path.getFileName().toString().contains(".bak.")));
+        }
     }
 
     @Test
