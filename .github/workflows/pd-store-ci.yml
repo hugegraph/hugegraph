@@ -381,28 +381,6 @@ jobs:
         run: |
           $TRAVIS_DIR/run-tinkerpop-test.sh $BACKEND structure
 
-      - name: Restart HStore before TinkerPop process tests
-        if: ${{ env.RUN_TINKERPOP_TESTS == 'true' }}
-        timeout-minutes: 5
-        run: |
-          SOFT_OPEN_FILES=$(ulimit -Sn)
-          if [[ "$SOFT_OPEN_FILES" != "unlimited" ]] &&
-             (( SOFT_OPEN_FILES < 65535 )); then
-            ulimit -Sn 65535
-          fi
-          echo "[ci] open-file limit for restarted HStore:" \
-               "soft=$(ulimit -Sn), hard=$(ulimit -Hn)"
-          VERSION=$(grep -E '^VersionInBash=' \
-            hugegraph-commons/hugegraph-common/src/main/resources/version.properties |
-            cut -d'=' -f2-)
-          [[ "$VERSION" =~ ^[0-9A-Za-z._-]+$ ]] || {
-            echo "Invalid VersionInBash: $VERSION"
-            exit 1
-          }
-          STORE_DIR=hugegraph-store/apache-hugegraph-store-$VERSION
-          bash "$STORE_DIR/bin/stop-hugegraph-store.sh"
-          $TRAVIS_DIR/start-store.sh
-
       - name: Run TinkerPop process standard test
         if: ${{ env.RUN_TINKERPOP_TESTS == 'true' }}
         timeout-minutes: 120
