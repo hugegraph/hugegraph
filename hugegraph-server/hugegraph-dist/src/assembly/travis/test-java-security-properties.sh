@@ -55,6 +55,12 @@ if [[ -n "${JAVA_HOME:-}" ]]; then
 else
     JAVA_BIN="java"
 fi
+JAVA_MAJOR=$($JAVA_BIN -version 2>&1 | head -1 | cut -d'"' -f2 |
+             sed 's/^1\.//' | cut -d'.' -f1)
+SECURITY_MANAGER_OPTION=""
+if [[ "$JAVA_MAJOR" -ge 18 ]]; then
+    SECURITY_MANAGER_OPTION="-Djava.security.manager=allow"
+fi
 
 TEMP_DIR=$(mktemp -d)
 SECURITY_PROPERTIES_BACKUP="${TEMP_DIR}/java-security.properties"
@@ -78,10 +84,153 @@ import java.security.Security;
 
 public class ReadDnsCacheTtl {
     public static void main(String[] args) {
-        System.out.print(Security.getProperty("networkaddress.cache.ttl"));
+        String value = Security.getProperty("networkaddress.cache.ttl");
+        if (args.length == 0) {
+            System.out.print(value);
+            return;
+        }
+        try {
+            if (Integer.parseInt(value) <= 0) {
+                System.exit(1);
+            }
+        } catch (NumberFormatException e) {
+            System.exit(1);
+        }
     }
 }
 JAVA
+
+assert_valid_security_properties() {
+    "$JAVA_BIN" "$@" "$CHECK_SOURCE" --validate >/dev/null ||
+        fail "expected valid Java security properties: $*"
+}
+
+assert_invalid_security_properties() {
+    if "$JAVA_BIN" "$@" "$CHECK_SOURCE" --validate >/dev/null 2>&1; then
+        fail "expected invalid Java security properties: $*"
+    fi
+}
+
+assert_clean_bootstrap_error() {
+    local error_file="$1"
+    if grep -Eq 'Log4j|NetUtils|UnknownHost|hostname' "$error_file"; then
+        fail "bootstrap initialized logging or hostname resolution"
+    fi
+}
+
+assert_bootstrap_rejects_security_properties() {
+    local error_file="${TEMP_DIR}/server-validation.err"
+    if "$JAVA_BIN" "$@" \
+       ${SECURITY_MANAGER_OPTION} \
+       -cp "${SERVER_ROOT}/lib/*" \
+       org.apache.hugegraph.bootstrap.HugeGraphServerBootstrap true \
+       >/dev/null 2>"$error_file"; then
+        fail "server accepted invalid Java security properties: $*"
+    fi
+    grep -Fq "networkaddress.cache.ttl must load as a finite positive integer" \
+             "$error_file" || fail "server did not report the invalid DNS TTL"
+    assert_clean_bootstrap_error "$error_file"
+}
+
+assert_bootstrap_accepts_security_properties() {
+    local error_file="${TEMP_DIR}/server-validation.err"
+    if "$JAVA_BIN" "$@" \
+       ${SECURITY_MANAGER_OPTION} \
+       -cp "${SERVER_ROOT}/lib/*" \
+       org.apache.hugegraph.bootstrap.HugeGraphServerBootstrap true \
+       >/dev/null 2>"$error_file"; then
+        fail "server unexpectedly started without configuration arguments"
+    fi
+    grep -Fq "Expected validation flag and two HugeGraphServer" \
+             "$error_file" || fail "valid DNS TTL did not reach argument validation"
+    assert_clean_bootstrap_error "$error_file"
+}
+
+assert_bootstrap_handles_security_properties_load_failure() {
+    local error_file="${TEMP_DIR}/server-validation.err"
+    if "$JAVA_BIN" "$@" \
+       ${SECURITY_MANAGER_OPTION} \
+       -cp "${SERVER_ROOT}/lib/*" \
+       org.apache.hugegraph.bootstrap.HugeGraphServerBootstrap true \
+       >/dev/null 2>"$error_file"; then
+        fail "server accepted unloadable Java security properties: $*"
+    fi
+    grep -Fq "networkaddress.cache.ttl must load as a finite positive integer" \
+             "$error_file" || fail "server did not report a stable load error"
+    assert_clean_bootstrap_error "$error_file"
+}
+
+assert_bootstrap_skips_security_validation() {
+    local error_file="${TEMP_DIR}/server-validation.err"
+    if "$JAVA_BIN" "$@" -cp "${SERVER_ROOT}/lib/*" \
+       org.apache.hugegraph.bootstrap.HugeGraphServerBootstrap false \
+       >/dev/null 2>"$error_file"; then
+        fail "server unexpectedly started without configuration arguments"
+    fi
+    grep -Fq "Expected validation flag and two HugeGraphServer" \
+             "$error_file" || fail "disabled DNS TTL validation was not skipped"
+    assert_clean_bootstrap_error "$error_file"
+}
+
+assert_launcher_rejects_marker_bypass() {
+    local marker_value="$1"
+    local error_file="${TEMP_DIR}/launcher-marker-${marker_value}.err"
+    if _JAVA_OPTIONS="-Dhugegraph.security.validate_dns_cache_ttl=${marker_value}" \
+       JAVA_OPTIONS="" STDOUT_MODE=true "$SERVER_SCRIPT" \
+       "${CONF}/gremlin-server.yaml" "${CONF}/rest-server.properties" true \
+       "-Djava.security.properties=${INFINITE_PROPERTIES}" \
+       >/dev/null 2>"$error_file"; then
+        fail "_JAVA_OPTIONS marker bypassed DNS TTL validation"
+    fi
+    grep -Fq "networkaddress.cache.ttl must load as a finite positive integer" \
+             "$error_file" || fail "launcher did not report invalid DNS TTL"
+    assert_clean_bootstrap_error "$error_file"
+}
+
+assert_launcher_rejects_security_properties() {
+    local properties_path="$1"
+    local error_file="${TEMP_DIR}/launcher-properties.err"
+    if JAVA_OPTIONS="" STDOUT_MODE=true "$SERVER_SCRIPT" \
+       "${CONF}/gremlin-server.yaml" "${CONF}/rest-server.properties" true \
+       "-Djava.security.properties=${properties_path}" \
+       >/dev/null 2>"$error_file"; then
+        fail "launcher accepted invalid Java security properties"
+    fi
+    grep -Fq "networkaddress.cache.ttl must load as a finite positive integer" \
+             "$error_file" || fail "launcher did not report invalid DNS TTL"
+    assert_clean_bootstrap_error "$error_file"
+}
+
+assert_launcher_accepts_security_properties() {
+    local properties_path="$1"
+    local error_file="${TEMP_DIR}/launcher-valid.err"
+    if JAVA_OPTIONS="" STDOUT_MODE=true "$SERVER_SCRIPT" \
+       "${TEMP_DIR}/missing-gremlin.yaml" \
+       "${TEMP_DIR}/missing-rest.properties" true \
+       "-Djava.security.properties=${properties_path}" \
+       >/dev/null 2>"$error_file"; then
+        fail "server unexpectedly started with missing configuration"
+    fi
+    if grep -Eq 'networkaddress.cache.ttl must load|Failed to install' \
+                "$error_file"; then
+        fail "launcher rejected valid Java security properties"
+    fi
+}
+
+assert_launcher_skips_security_validation() {
+    local error_file="${TEMP_DIR}/launcher-disabled.err"
+    if _JAVA_OPTIONS="-Dhugegraph.security.validate_dns_cache_ttl=true \
+                      -Djava.security.properties=${INFINITE_PROPERTIES}" \
+       JAVA_OPTIONS="" STDOUT_MODE=true "$SERVER_SCRIPT" \
+       "${TEMP_DIR}/missing-gremlin.yaml" \
+       "${TEMP_DIR}/missing-rest.properties" false \
+       >/dev/null 2>"$error_file"; then
+        fail "server unexpectedly started with missing configuration"
+    fi
+    if grep -Fq "networkaddress.cache.ttl must load" "$error_file"; then
+        fail "disabled launcher unexpectedly validated DNS TTL"
+    fi
+}
 
 ACTUAL_TTL=$("$JAVA_BIN" \
     -Djava.security.properties="$SECURITY_PROPERTIES" "$CHECK_SOURCE")
@@ -97,13 +246,90 @@ if [[ "$SYSTEM_PROPERTY_TTL" != "30" ]]; then
 fi
 
 OPERATOR_PROPERTIES="${TEMP_DIR}/operator-security.properties"
-echo "networkaddress.cache.ttl=45" > "$OPERATOR_PROPERTIES"
+echo "networkaddress.cache.ttl = 45" > "$OPERATOR_PROPERTIES"
 OPERATOR_TTL=$("$JAVA_BIN" \
     -Djava.security.properties="$SECURITY_PROPERTIES" \
     -Djava.security.properties="$OPERATOR_PROPERTIES" "$CHECK_SOURCE")
 if [[ "$OPERATOR_TTL" != "45" ]]; then
     fail "operator security properties override was not honored"
 fi
+
+REPLACEMENT_TTL=$("$JAVA_BIN" \
+    "-Djava.security.properties=${OPERATOR_PROPERTIES}" \
+    "-Djava.security.properties==${OPERATOR_PROPERTIES}" "$CHECK_SOURCE")
+if [[ "$REPLACEMENT_TTL" != "45" ]]; then
+    fail "operator security properties replacement was not honored"
+fi
+
+assert_valid_security_properties \
+    "-Djava.security.properties=${SECURITY_PROPERTIES}" \
+    "-Djava.security.properties=${OPERATOR_PROPERTIES}"
+assert_valid_security_properties \
+    "-Djava.security.properties==${OPERATOR_PROPERTIES}"
+
+SPACED_PROPERTIES="${TEMP_DIR}/operator security.properties"
+cp "$OPERATOR_PROPERTIES" "$SPACED_PROPERTIES"
+SPACED_PROPERTIES_URL="file:${SPACED_PROPERTIES// /%20}"
+assert_valid_security_properties \
+    "-Djava.security.properties=${SPACED_PROPERTIES_URL}"
+
+ESCAPED_DUPLICATE="${TEMP_DIR}/escaped-duplicate.properties"
+cat > "$ESCAPED_DUPLICATE" <<'PROPERTIES'
+networkaddress.cache.ttl=45
+networkaddress.cache.tt\u006c=-1
+PROPERTIES
+assert_invalid_security_properties \
+    "-Djava.security.properties=${ESCAPED_DUPLICATE}"
+
+CONTINUED_PROPERTIES="${TEMP_DIR}/continued.properties"
+cat > "$CONTINUED_PROPERTIES" <<'PROPERTIES'
+unrelated.property=value\
+networkaddress.cache.ttl=45
+PROPERTIES
+assert_invalid_security_properties \
+    "-Djava.security.properties==${CONTINUED_PROPERTIES}"
+
+INVALID_UNICODE="${TEMP_DIR}/invalid-unicode.properties"
+cat > "$INVALID_UNICODE" <<'PROPERTIES'
+networkaddress.cache.ttl=\u00ZZ
+PROPERTIES
+assert_invalid_security_properties \
+    "-Djava.security.properties=${INVALID_UNICODE}"
+
+INFINITE_PROPERTIES="${TEMP_DIR}/infinite-security.properties"
+echo "networkaddress.cache.ttl=-1" > "$INFINITE_PROPERTIES"
+assert_invalid_security_properties \
+    "-Djava.security.properties=${INFINITE_PROPERTIES}"
+
+MISSING_OVERRIDE="${TEMP_DIR}/missing-operator-security.properties"
+assert_invalid_security_properties \
+    "-Djava.security.properties=${MISSING_OVERRIDE}"
+
+assert_bootstrap_accepts_security_properties \
+    "-Djava.security.properties=${OPERATOR_PROPERTIES}"
+assert_bootstrap_accepts_security_properties \
+    "-Djava.security.properties==${OPERATOR_PROPERTIES}"
+assert_bootstrap_accepts_security_properties \
+    "-Djava.security.properties=${SPACED_PROPERTIES_URL}"
+assert_bootstrap_rejects_security_properties \
+    "-Djava.security.properties=${ESCAPED_DUPLICATE}"
+assert_bootstrap_rejects_security_properties \
+    "-Djava.security.properties==${CONTINUED_PROPERTIES}"
+assert_bootstrap_rejects_security_properties \
+    "-Djava.security.properties=${INFINITE_PROPERTIES}"
+assert_bootstrap_rejects_security_properties \
+    "-Djava.security.properties=${MISSING_OVERRIDE}"
+assert_bootstrap_handles_security_properties_load_failure \
+    "-Djava.security.properties=${INVALID_UNICODE}"
+assert_bootstrap_skips_security_validation \
+    "-Djava.security.properties=${INFINITE_PROPERTIES}"
+assert_launcher_rejects_marker_bypass false
+assert_launcher_rejects_marker_bypass true
+assert_launcher_rejects_security_properties "$MISSING_OVERRIDE"
+assert_launcher_rejects_security_properties "$INFINITE_PROPERTIES"
+assert_launcher_rejects_security_properties "$INVALID_UNICODE"
+assert_launcher_accepts_security_properties "$OPERATOR_PROPERTIES"
+assert_launcher_skips_security_validation
 
 MISSING_DEFAULT="${TEMP_DIR}/missing-default-security.properties"
 MISSING_DEFAULT_TTL=$("$JAVA_BIN" \
@@ -118,7 +344,7 @@ mkdir -p "${MOCK_JAVA_HOME}/bin"
 cat > "${MOCK_JAVA_HOME}/bin/java" <<'MOCK'
 #!/bin/bash
 if [[ " $* " == *" -version "* ]]; then
-    echo 'openjdk version "11.0.0"' >&2
+    echo "openjdk version \"${MOCK_JAVA_VERSION:-11}.0.0\"" >&2
     exit 0
 fi
 printf '%s\n' "$@" > "$CAPTURE_FILE"
@@ -129,25 +355,44 @@ ENABLED_CAPTURE="${TEMP_DIR}/enabled.args"
 CAPTURE_FILE="$ENABLED_CAPTURE" JAVA_HOME="$MOCK_JAVA_HOME" \
     STDOUT_MODE=true "$SERVER_SCRIPT" \
     "${CONF}/gremlin-server.yaml" "${CONF}/rest-server.properties" true \
-    "-Doperator.marker=preserved" >/dev/null
+    "-Doperator.marker=preserved \
+     -Dhugegraph.security.validate_dns_cache_ttl=false" >/dev/null
 
 assert_argument \
     "-Djava.security.properties=${SECURITY_PROPERTIES}" "$ENABLED_CAPTURE"
+assert_no_argument '^-Djava\.security\.manager=' "$ENABLED_CAPTURE"
 assert_argument \
-    "-Djava.security.manager=org.apache.hugegraph.security.HugeSecurityManager" \
-    "$ENABLED_CAPTURE"
+    "org.apache.hugegraph.bootstrap.HugeGraphServerBootstrap" "$ENABLED_CAPTURE"
+assert_argument "true" "$ENABLED_CAPTURE"
 assert_argument "-Doperator.marker=preserved" "$ENABLED_CAPTURE"
 assert_no_argument '^-D(networkaddress\.cache\.ttl|sun\.net\.inetaddr\.ttl)=' \
                    "$ENABLED_CAPTURE"
+
+JDK21_CAPTURE="${TEMP_DIR}/jdk21.args"
+CAPTURE_FILE="$JDK21_CAPTURE" JAVA_HOME="$MOCK_JAVA_HOME" \
+    MOCK_JAVA_VERSION=21 STDOUT_MODE=true "$SERVER_SCRIPT" \
+    "${CONF}/gremlin-server.yaml" "${CONF}/rest-server.properties" true \
+    "-Djava.security.manager=operator.Override" >/dev/null
+
+LAST_SECURITY_MANAGER_ARGUMENT=$(grep -E '^-Djava\.security\.manager=' \
+                                 "$JDK21_CAPTURE" | tail -n 1)
+if [[ "$LAST_SECURITY_MANAGER_ARGUMENT" != \
+      "-Djava.security.manager=allow" ]]; then
+    fail "operator option overrode the JDK 18+ security manager allowance"
+fi
 
 DISABLED_CAPTURE="${TEMP_DIR}/disabled.args"
 CAPTURE_FILE="$DISABLED_CAPTURE" JAVA_HOME="$MOCK_JAVA_HOME" \
     STDOUT_MODE=true "$SERVER_SCRIPT" \
     "${CONF}/gremlin-server.yaml" "${CONF}/rest-server.properties" false \
-    "-Doperator.marker=preserved" >/dev/null
+    "-Doperator.marker=preserved \
+     -Dhugegraph.security.validate_dns_cache_ttl=true" >/dev/null
 
 assert_no_argument '^-Djava\.security\.properties=' "$DISABLED_CAPTURE"
 assert_no_argument '^-Djava\.security\.manager=' "$DISABLED_CAPTURE"
+assert_argument \
+    "org.apache.hugegraph.bootstrap.HugeGraphServerBootstrap" "$DISABLED_CAPTURE"
+assert_argument "false" "$DISABLED_CAPTURE"
 assert_argument "-Doperator.marker=preserved" "$DISABLED_CAPTURE"
 
 OVERRIDE_CAPTURE="${TEMP_DIR}/override.args"
@@ -163,65 +408,33 @@ if [[ "$LAST_SECURITY_ARGUMENT" != \
     fail "operator security properties argument was overwritten"
 fi
 
-mv "$SECURITY_PROPERTIES" "$SECURITY_PROPERTIES_BACKUP"
-
-MISSING_ERROR="${TEMP_DIR}/missing-security-properties.err"
-if CAPTURE_FILE="${TEMP_DIR}/missing.args" JAVA_HOME="$MOCK_JAVA_HOME" \
-   STDOUT_MODE=true "$SERVER_SCRIPT" \
-   "${CONF}/gremlin-server.yaml" "${CONF}/rest-server.properties" true \
-   "-Doperator.marker=preserved" >/dev/null 2>"$MISSING_ERROR"; then
-    fail "server startup succeeded without security properties"
-fi
-grep -Fq "Required Java security properties path is not a readable file" \
-         "$MISSING_ERROR" || fail "missing security properties error was not reported"
-
-EMPTY_OVERRIDE_ERROR="${TEMP_DIR}/empty-override.err"
-if CAPTURE_FILE="${TEMP_DIR}/empty-override.args" JAVA_HOME="$MOCK_JAVA_HOME" \
-   STDOUT_MODE=true "$SERVER_SCRIPT" \
-   "${CONF}/gremlin-server.yaml" "${CONF}/rest-server.properties" true \
-   "-Djava.security.properties=" >/dev/null 2>"$EMPTY_OVERRIDE_ERROR"; then
-    fail "server startup accepted an empty security properties override"
-fi
-grep -Fq "Required Java security properties path is not a readable file" \
-         "$EMPTY_OVERRIDE_ERROR" || fail "empty override error was not reported"
-
-EMPTY_LAST_OVERRIDE_ERROR="${TEMP_DIR}/empty-last-override.err"
-if CAPTURE_FILE="${TEMP_DIR}/empty-last-override.args" \
-   JAVA_HOME="$MOCK_JAVA_HOME" STDOUT_MODE=true "$SERVER_SCRIPT" \
-   "${CONF}/gremlin-server.yaml" "${CONF}/rest-server.properties" true \
-   "-Djava.security.properties=${OPERATOR_PROPERTIES} \
-    -Djava.security.properties=" >/dev/null 2>"$EMPTY_LAST_OVERRIDE_ERROR"; then
-    fail "server startup accepted an empty final security properties override"
-fi
-grep -Fq "Required Java security properties path is not a readable file" \
-         "$EMPTY_LAST_OVERRIDE_ERROR" || \
-    fail "empty final override error was not reported"
-
-MISSING_OVERRIDE_CAPTURE="${TEMP_DIR}/missing-override.args"
-CAPTURE_FILE="$MISSING_OVERRIDE_CAPTURE" JAVA_HOME="$MOCK_JAVA_HOME" \
+REPLACEMENT_CAPTURE="${TEMP_DIR}/replacement.args"
+CAPTURE_FILE="$REPLACEMENT_CAPTURE" JAVA_HOME="$MOCK_JAVA_HOME" \
     STDOUT_MODE=true "$SERVER_SCRIPT" \
     "${CONF}/gremlin-server.yaml" "${CONF}/rest-server.properties" true \
-    "-Djava.security.properties= \
-     -Djava.security.properties=${OPERATOR_PROPERTIES}" >/dev/null
+    "-Djava.security.properties==${OPERATOR_PROPERTIES}" >/dev/null
 
 LAST_SECURITY_ARGUMENT=$(grep -E '^-Djava\.security\.properties=' \
-                         "$MISSING_OVERRIDE_CAPTURE" | tail -n 1)
+                         "$REPLACEMENT_CAPTURE" | tail -n 1)
 if [[ "$LAST_SECURITY_ARGUMENT" != \
-      "-Djava.security.properties=${OPERATOR_PROPERTIES}" ]]; then
-    fail "operator override did not bypass the missing bundled properties"
+      "-Djava.security.properties==${OPERATOR_PROPERTIES}" ]]; then
+    fail "operator security properties replacement was overwritten"
 fi
+
+mv "$SECURITY_PROPERTIES" "$SECURITY_PROPERTIES_BACKUP"
+
+assert_invalid_security_properties \
+    "-Djava.security.properties=${SECURITY_PROPERTIES}"
+assert_invalid_security_properties \
+    "-Djava.security.properties=${OPERATOR_PROPERTIES}" \
+    "-Djava.security.properties="
+assert_valid_security_properties \
+    "-Djava.security.properties=" \
+    "-Djava.security.properties=${OPERATOR_PROPERTIES}"
 
 mkdir "$SECURITY_PROPERTIES"
-
-NON_FILE_ERROR="${TEMP_DIR}/non-file-security-properties.err"
-if CAPTURE_FILE="${TEMP_DIR}/non-file.args" JAVA_HOME="$MOCK_JAVA_HOME" \
-   STDOUT_MODE=true "$SERVER_SCRIPT" \
-   "${CONF}/gremlin-server.yaml" "${CONF}/rest-server.properties" true \
-   "-Doperator.marker=preserved" >/dev/null 2>"$NON_FILE_ERROR"; then
-    fail "server startup accepted a non-file security properties path"
-fi
-grep -Fq "Required Java security properties path is not a readable file" \
-         "$NON_FILE_ERROR" || fail "non-file security properties error was not reported"
+assert_invalid_security_properties \
+    "-Djava.security.properties=${SECURITY_PROPERTIES}"
 
 rmdir "$SECURITY_PROPERTIES"
 mv "$SECURITY_PROPERTIES_BACKUP" "$SECURITY_PROPERTIES"

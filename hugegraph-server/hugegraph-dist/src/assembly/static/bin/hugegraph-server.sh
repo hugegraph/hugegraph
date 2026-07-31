@@ -142,29 +142,15 @@ case "$GC_OPTION" in
 esac
 
 JVM_OPTIONS="-Dlog4j.configurationFile=${CONF}/log4j2.xml"
+SECURITY_MANAGER_OPTION=""
 if [[ ${OPEN_SECURITY_CHECK} == "true" ]]; then
     SECURITY_PROPERTIES="${CONF}/java-security.properties"
-    HAS_SECURITY_PROPERTIES_OVERRIDE=false
-    for JAVA_OPTION in ${JAVA_OPTIONS}; do
-        case "${JAVA_OPTION}" in
-            -Djava.security.properties=)
-                HAS_SECURITY_PROPERTIES_OVERRIDE=false
-                ;;
-            -Djava.security.properties=*)
-                HAS_SECURITY_PROPERTIES_OVERRIDE=true
-                ;;
-        esac
-    done
-    if [[ ! -f "${SECURITY_PROPERTIES}" || ! -r "${SECURITY_PROPERTIES}" ]] &&
-       [[ "${HAS_SECURITY_PROPERTIES_OVERRIDE}" != "true" ]]; then
-        ERROR="Required Java security properties path is not a readable file: ${SECURITY_PROPERTIES}"
-        echo "${ERROR}" >&2
-        echo "${ERROR}" >> "${OUTPUT}"
-        exit 1
-    fi
     JVM_OPTIONS="${JVM_OPTIONS} \
-                 -Djava.security.properties=${SECURITY_PROPERTIES} \
-                 -Djava.security.manager=org.apache.hugegraph.security.HugeSecurityManager"
+                 -Djava.security.properties=${SECURITY_PROPERTIES}"
+    if [[ ${JAVA_VERSION} -ge 18 ]]; then
+        # Required to install HugeSecurityManager programmatically on JDK 18+.
+        SECURITY_MANAGER_OPTION="-Djava.security.manager=allow"
+    fi
 fi
 
 if [ "${OPEN_TELEMETRY}" == "true" ]; then
@@ -207,10 +193,14 @@ fi
 
 # Turn on security check
 if [[ "${STDOUT_MODE:-false}" == "true" ]]; then
-    exec ${JAVA} -Dname="HugeGraphServer" ${JVM_OPTIONS} ${JAVA_OPTIONS} -cp ${CLASSPATH}: \
-        org.apache.hugegraph.dist.HugeGraphServer ${GREMLIN_SERVER_CONF} ${REST_SERVER_CONF}
+    exec ${JAVA} -Dname="HugeGraphServer" ${JVM_OPTIONS} ${JAVA_OPTIONS} \
+        ${SECURITY_MANAGER_OPTION} -cp ${CLASSPATH}: \
+        org.apache.hugegraph.bootstrap.HugeGraphServerBootstrap \
+        ${OPEN_SECURITY_CHECK} ${GREMLIN_SERVER_CONF} ${REST_SERVER_CONF}
 else
-    exec ${JAVA} -Dname="HugeGraphServer" ${JVM_OPTIONS} ${JAVA_OPTIONS} -cp ${CLASSPATH}: \
-        org.apache.hugegraph.dist.HugeGraphServer ${GREMLIN_SERVER_CONF} ${REST_SERVER_CONF} \
+    exec ${JAVA} -Dname="HugeGraphServer" ${JVM_OPTIONS} ${JAVA_OPTIONS} \
+        ${SECURITY_MANAGER_OPTION} -cp ${CLASSPATH}: \
+        org.apache.hugegraph.bootstrap.HugeGraphServerBootstrap \
+        ${OPEN_SECURITY_CHECK} ${GREMLIN_SERVER_CONF} ${REST_SERVER_CONF} \
         >> ${LOGS}/hugegraph-server-stdout.log 2>&1
 fi
