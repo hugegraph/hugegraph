@@ -36,8 +36,11 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
 import org.apache.hugegraph.store.term.HgPair;
@@ -118,6 +121,25 @@ public class AbstractGrpcClientTest {
         return Arrays.stream(pairs).map(HgPair::getKey).collect(Collectors.toList());
     }
 
+    @SuppressWarnings("unchecked")
+    private static HgPair<ManagedChannel, AbstractBlockingStub>[] cachedBlockingStubs(
+            AbstractGrpcClient client, String target) throws Exception {
+        Field field = AbstractGrpcClient.class.getDeclaredField("blockingStubs");
+        field.setAccessible(true);
+        Map<String, HgPair<ManagedChannel, AbstractBlockingStub>[]> stubs =
+                (Map<String, HgPair<ManagedChannel, AbstractBlockingStub>[]>) field.get(client);
+        HgPair<ManagedChannel, AbstractBlockingStub>[] pairs = stubs.get(target);
+        assertNotNull("the blocking stub cache must exist", pairs);
+        return pairs;
+    }
+
+    private static ThreadPoolExecutor channelCreationExecutor(AbstractGrpcClient client)
+            throws Exception {
+        Field field = AbstractGrpcClient.class.getDeclaredField("executor");
+        field.setAccessible(true);
+        return (ThreadPoolExecutor) field.get(client);
+    }
+
     @Test
     public void testAddressChangeReplacesChannelAndStubPools() {
         String target = uniqueTarget("address-change");
@@ -176,6 +198,153 @@ public class AbstractGrpcClientTest {
                                                  .anyMatch(FakeManagedChannel::isForceShutdown));
         assertTrue("the resolved channel pool must remain live",
                    allChannelsAreLive(resolvedChannels));
+    }
+
+    @Test
+    public void testRetirementDoesNotBlockWhenCreationExecutorIsSaturated()
+            throws Exception {
+        String target = uniqueTarget("saturated-retirement");
+        ActiveRetirementGrpcClient client = new ActiveRetirementGrpcClient();
+        ManagedChannel[] oldChannels = client.getChannels(target);
+        ThreadPoolExecutor channelExecutor = channelCreationExecutor(client);
+        CountDownLatch workersStarted = new CountDownLatch(AbstractGrpcClient.concurrency);
+        CountDownLatch releaseWorkers = new CountDownLatch(1);
+        ExecutorService caller = Executors.newSingleThreadExecutor();
+
+        try {
+            for (int i = 0; i < AbstractGrpcClient.concurrency; i++) {
+                channelExecutor.execute(() -> {
+                    workersStarted.countDown();
+                    try {
+                        releaseWorkers.await();
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                });
+            }
+            assertTrue("the shared creation executor must be fully occupied",
+                       workersStarted.await(5, TimeUnit.SECONDS));
+
+            client.resolvedTarget = "10.0.0.2";
+            Future<ManagedChannel[]> refreshed =
+                    caller.submit(() -> client.getChannels(target));
+            ManagedChannel[] newChannels = refreshed.get(1, TimeUnit.SECONDS);
+
+            assertNotSame("refresh must publish the replacement pool",
+                          oldChannels, newChannels);
+            assertTrue("the retired pool must be shut down before refresh returns",
+                       allChannelsAreShutdown(oldChannels));
+            assertFalse("the scheduled cleanup must preserve the drain window",
+                        fakeChannels(oldChannels).stream()
+                                                 .anyMatch(FakeManagedChannel::isForceShutdown));
+        } finally {
+            releaseWorkers.countDown();
+            client.finishActiveCalls();
+            caller.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testPartialChannelsAreRetiredAfterMixedCreationFailure()
+            throws Exception {
+        String target = uniqueTarget("partial-creation-failure");
+        FailingCreationGrpcClient client = new FailingCreationGrpcClient(5);
+
+        try {
+            client.getChannels(target);
+            assertTrue("channel creation must propagate the injected failure", false);
+        } catch (RuntimeException ignored) {
+            // Expected.
+        }
+
+        assertEquals("all creation tasks must converge before failure is returned",
+                     AbstractGrpcClient.concurrency - 1, client.createdChannels.size());
+        assertTrue("every partial channel must be force terminated before failure returns",
+                   client.createdChannels.stream().allMatch(channel ->
+                           channel.isTerminated() &&
+                           ((FakeManagedChannel) channel).isForceShutdown()));
+    }
+
+    @Test
+    public void testInterruptedCreationWaitsAndRetiresPartialChannels()
+            throws Exception {
+        String target = uniqueTarget("interrupted-creation");
+        DelayedCreationGrpcClient client = new DelayedCreationGrpcClient();
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        AtomicBoolean interrupted = new AtomicBoolean();
+        Thread caller = new Thread(() -> {
+            try {
+                client.getChannels(target);
+            } catch (Throwable e) {
+                failure.set(e);
+                interrupted.set(Thread.currentThread().isInterrupted());
+            }
+        });
+
+        caller.start();
+        assertTrue("all channel creation tasks must start",
+                   client.creationStarted.await(5, TimeUnit.SECONDS));
+        caller.interrupt();
+        try {
+            Thread.sleep(100L);
+            assertTrue("an interrupted caller must wait for creation tasks to converge",
+                       caller.isAlive());
+        } finally {
+            client.releaseCreation.countDown();
+        }
+        caller.join(TimeUnit.SECONDS.toMillis(5L));
+
+        assertFalse("the interrupted creation call must finish", caller.isAlive());
+        assertTrue("interruption must be reported as a runtime failure",
+                   failure.get() instanceof RuntimeException);
+        assertTrue("the caller interrupt status must be restored", interrupted.get());
+        assertEquals("every creation task must finish before interruption is reported",
+                     AbstractGrpcClient.concurrency, client.createdChannels.size());
+        assertTrue("all partial channels must be force terminated before interruption returns",
+                   client.createdChannels.stream().allMatch(channel ->
+                           channel.isTerminated() &&
+                           ((FakeManagedChannel) channel).isForceShutdown()));
+    }
+
+    @Test
+    public void testDrainDeadlineForceTerminatesRetiredChannels() throws Exception {
+        String target = uniqueTarget("drain-deadline");
+        ImmediateRetirementGrpcClient client = new ImmediateRetirementGrpcClient();
+        ManagedChannel[] oldChannels = client.getChannels(target);
+
+        client.resolvedTarget = "10.0.0.2";
+        ManagedChannel[] newChannels = client.getChannels(target);
+
+        assertNotSame("refresh must publish a replacement pool", oldChannels, newChannels);
+        awaitCondition("expired drain deadline must force terminate the retired pool",
+                       () -> fakeChannels(oldChannels).stream().allMatch(channel ->
+                               channel.isTerminated() && channel.isForceShutdown()));
+        assertTrue("the replacement pool must remain live", allChannelsAreLive(newChannels));
+    }
+
+    @Test
+    public void testStubCacheRequiresIndexIdentityMapping() throws Exception {
+        String target = uniqueTarget("index-mapping");
+        RecordingGrpcClient client = new RecordingGrpcClient();
+        ManagedChannel[] targetChannels = client.getChannels(target);
+        assertNotNull(client.getBlockingStub(target));
+        HgPair<ManagedChannel, AbstractBlockingStub>[] pairs =
+                cachedBlockingStubs(client, target);
+        HgPair<ManagedChannel, AbstractBlockingStub> first = pairs[0];
+        pairs[0] = pairs[1];
+        pairs[1] = first;
+        client.blockingStubChannels.clear();
+
+        assertNotNull(client.getBlockingStub(target));
+
+        assertEquals("a permuted cache must be rebuilt instead of reused",
+                     AbstractGrpcClient.concurrency, client.blockingStubChannels.size());
+        HgPair<ManagedChannel, AbstractBlockingStub>[] rebuilt =
+                cachedBlockingStubs(client, target);
+        for (int i = 0; i < targetChannels.length; i++) {
+            assertTrue("each cached stub must map to the channel at the same index",
+                       rebuilt[i].getKey() == targetChannels[i]);
+        }
     }
 
     @Test
@@ -259,10 +428,6 @@ public class AbstractGrpcClientTest {
                    retiredChannels.stream().allMatch(FakeManagedChannel::isShutdown));
         assertFalse("active streams must not be force closed immediately",
                     retiredChannels.stream().anyMatch(FakeManagedChannel::isForceShutdown));
-        assertTrue("retirement should wait for in-flight calls to drain",
-                   retiredChannels.get(0)
-                                  .awaitTerminationStarted(5, TimeUnit.SECONDS));
-
         client.finishActiveCalls();
         awaitCondition("retired channels should terminate after active calls finish",
                        () -> retiredChannels.stream().allMatch(FakeManagedChannel::isTerminated));
@@ -460,6 +625,67 @@ public class AbstractGrpcClientTest {
         }
     }
 
+    private static class ImmediateRetirementGrpcClient extends RecordingGrpcClient {
+
+        private final CountDownLatch activeCallsFinished = new CountDownLatch(1);
+
+        @Override
+        protected long channelDrainTimeoutNanos() {
+            return 0L;
+        }
+
+        @Override
+        protected FakeManagedChannel newFakeChannel(String authority) {
+            return new FakeManagedChannel(authority, this.activeCallsFinished);
+        }
+    }
+
+    private static class FailingCreationGrpcClient extends RecordingGrpcClient {
+
+        private final int failedAttempt;
+        private final AtomicInteger attempt = new AtomicInteger();
+        private final List<ManagedChannel> createdChannels =
+                Collections.synchronizedList(new ArrayList<>());
+
+        private FailingCreationGrpcClient(int failedAttempt) {
+            this.failedAttempt = failedAttempt;
+        }
+
+        @Override
+        protected ManagedChannel createChannel(String target) {
+            int current = this.attempt.getAndIncrement();
+            if (current == this.failedAttempt) {
+                throw new IllegalStateException("injected channel creation failure");
+            }
+            ManagedChannel channel = this.newFakeChannel(target + "#" + current);
+            this.createdChannels.add(channel);
+            return channel;
+        }
+    }
+
+    private static class DelayedCreationGrpcClient extends RecordingGrpcClient {
+
+        private final CountDownLatch creationStarted =
+                new CountDownLatch(AbstractGrpcClient.concurrency);
+        private final CountDownLatch releaseCreation = new CountDownLatch(1);
+        private final List<ManagedChannel> createdChannels =
+                Collections.synchronizedList(new ArrayList<>());
+
+        @Override
+        protected ManagedChannel createChannel(String target) {
+            this.creationStarted.countDown();
+            try {
+                this.releaseCreation.await();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new AssertionError(e);
+            }
+            ManagedChannel channel = this.newFakeChannel(target);
+            this.createdChannels.add(channel);
+            return channel;
+        }
+    }
+
     private static class StubInterleavingGrpcClient extends RecordingGrpcClient {
 
         private final AtomicInteger blockingStubSeq = new AtomicInteger();
@@ -609,6 +835,10 @@ public class AbstractGrpcClientTest {
 
         @Override
         public boolean isTerminated() {
+            if (this.shutdown && this.activeCallsFinished != null &&
+                this.activeCallsFinished.getCount() == 0L) {
+                this.terminated = true;
+            }
             return this.terminated;
         }
 

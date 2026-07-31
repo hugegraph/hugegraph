@@ -23,6 +23,7 @@ import java.util.Arrays;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
@@ -47,6 +48,9 @@ public abstract class AbstractGrpcClient {
     private static final Map<String, String> resolvedTargets = new ConcurrentHashMap<>();
     private static final Map<String, AtomicLong> nextResolutions = new ConcurrentHashMap<>();
     private static final Map<String, ReentrantLock> refreshLocks = new ConcurrentHashMap<>();
+    private static final ScheduledThreadPoolExecutor CHANNEL_CLEANUP_EXECUTOR =
+            new ScheduledThreadPoolExecutor(
+                    1, ExecutorPool.newThreadFactory("channel-cleanup"));
     private static final long DEFAULT_CHANNEL_REFRESH_INTERVAL_NANOS =
             TimeUnit.SECONDS.toNanos(5L);
     private static final int n = 5;
@@ -194,18 +198,13 @@ public abstract class AbstractGrpcClient {
         if (pairs == null || pairs.length != channels.length) {
             return false;
         }
-        for (HgPair<ManagedChannel, ?> pair : pairs) {
-            if (pair == null || pair.getKey() == null ||
-                !containsChannel(channels, pair.getKey())) {
+        for (int i = 0; i < pairs.length; i++) {
+            HgPair<ManagedChannel, ?> pair = pairs[i];
+            if (pair == null || pair.getKey() != channels[i]) {
                 return false;
             }
         }
         return true;
-    }
-
-    private static boolean containsChannel(ManagedChannel[] channels,
-                                           ManagedChannel expected) {
-        return Arrays.stream(channels).anyMatch(channel -> channel == expected);
     }
 
     private void refreshChannelsIfAddressChanged(String target) {
@@ -291,31 +290,42 @@ public abstract class AbstractGrpcClient {
     }
 
     private ManagedChannel[] createChannels(String target) {
-        try {
-            ManagedChannel[] value = new ManagedChannel[concurrency];
-            CountDownLatch latch = new CountDownLatch(concurrency);
-            AtomicReference<RuntimeException> failure = new AtomicReference<>();
-            for (int i = 0; i < concurrency; i++) {
-                int fi = i;
-                executor.execute(() -> {
-                    try {
-                        value[fi] = createChannel(target);
-                    } catch (Exception e) {
-                        failure.compareAndSet(null, new RuntimeException(e));
-                    } finally {
-                        latch.countDown();
-                    }
-                });
-            }
-            latch.await();
-            if (failure.get() != null) {
-                throw failure.get();
-            }
-            return value;
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new RuntimeException(e);
+        ManagedChannel[] value = new ManagedChannel[concurrency];
+        CountDownLatch latch = new CountDownLatch(concurrency);
+        AtomicReference<RuntimeException> failure = new AtomicReference<>();
+        for (int i = 0; i < concurrency; i++) {
+            int fi = i;
+            executor.execute(() -> {
+                try {
+                    value[fi] = createChannel(target);
+                } catch (Exception e) {
+                    failure.compareAndSet(null, new RuntimeException(e));
+                } finally {
+                    latch.countDown();
+                }
+            });
         }
+
+        InterruptedException interruption = null;
+        while (latch.getCount() > 0L) {
+            try {
+                latch.await();
+            } catch (InterruptedException e) {
+                interruption = e;
+            }
+        }
+
+        if (failure.get() != null || interruption != null) {
+            forceTerminateChannels(value);
+        }
+        if (interruption != null) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException(interruption);
+        }
+        if (failure.get() != null) {
+            throw failure.get();
+        }
+        return value;
     }
 
     private void retireChannels(ManagedChannel[] retiredChannels) {
@@ -323,31 +333,17 @@ public abstract class AbstractGrpcClient {
               .filter(channel -> channel != null && !channel.isShutdown())
               .forEach(ManagedChannel::shutdown);
 
-        executor.execute(() -> forceTerminateChannels(retiredChannels));
+        long timeout = Math.max(0L, this.channelDrainTimeoutNanos());
+        CHANNEL_CLEANUP_EXECUTOR.schedule(
+                () -> forceTerminateChannels(retiredChannels), timeout,
+                TimeUnit.NANOSECONDS);
     }
 
     private void forceTerminateChannels(ManagedChannel[] retiredChannels) {
-        long deadline = System.nanoTime() + Math.max(0L, this.channelDrainTimeoutNanos());
-        boolean interrupted = false;
-
         for (ManagedChannel channel : retiredChannels) {
-            if (channel == null || channel.isTerminated()) {
-                continue;
-            }
-            try {
-                long remaining = deadline - System.nanoTime();
-                if (remaining <= 0L ||
-                    !channel.awaitTermination(remaining, TimeUnit.NANOSECONDS)) {
-                    channel.shutdownNow();
-                }
-            } catch (InterruptedException e) {
-                interrupted = true;
+            if (channel != null && !channel.isTerminated()) {
                 channel.shutdownNow();
             }
-        }
-
-        if (interrupted) {
-            Thread.currentThread().interrupt();
         }
     }
 
