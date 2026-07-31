@@ -9,6 +9,15 @@ on:
   pull_request:
 
 jobs:
+  wait-storage-shell-test:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run wait-storage.sh peer failover tests
+        run: hugegraph-server/hugegraph-dist/src/assembly/travis/test-wait-storage.sh
+
   build-server:
     # TODO: we need test & replace it to ubuntu-24.04 or ubuntu-latest
     runs-on: ubuntu-22.04
