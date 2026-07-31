@@ -369,25 +369,31 @@ echo "7. Startup probe is bounded"
     cd "$WORK" || exit 1
     trap 'cd /; rm -rf "$WORK"' EXIT
 
+    CLOCK_FILE="$WORK/clock"
     ARGS_FILE="$WORK/curl-args"
     SLEEP_FILE="$WORK/sleep-args"
+    echo 100 > "$CLOCK_FILE"
+    : > "$ARGS_FILE"
     : > "$SLEEP_FILE"
     curl() { echo "$*" >> "$ARGS_FILE"; echo "000"; return 28; }
-    # Record what the retry pause asks for, but still take it, so the
-    # end-to-end duration below stays a real measurement.
-    sleep() { echo "$1" >> "$SLEEP_FILE"; command sleep "$1"; }
+    # Keep the contract checks deterministic across whole-second boundaries.
+    # The retry pause consumes the remaining simulated second without making
+    # this half of the test depend on scheduler timing.
+    date() { cat "$CLOCK_FILE"; }
+    sleep() {
+        echo "$1" >> "$SLEEP_FILE"
+        echo 101 > "$CLOCK_FILE"
+    }
     process_status() { return 0; }
     ps() { return 0; }
 
     TIMEOUT_S=1
-    START_S=$(date '+%s')
     if wait_for_startup "$$" "test-server" "http://127.0.0.1:1" "$TIMEOUT_S" \
                         >/dev/null 2>&1; then
         WAIT_STATUS=0
     else
         WAIT_STATUS=$?
     fi
-    ELAPSED_S=$(( $(date '+%s') - START_S ))
 
     expect "failed startup probe returns failure" "1" "$WAIT_STATUS"
 
@@ -400,14 +406,6 @@ echo "7. Startup probe is bounded"
     else
         fail "retry sleeps stay inside the ${TIMEOUT_S}s deadline" \
              "slept ${TOTAL_SLEEP_S}s in total: $(tr '\n' ' ' < "$SLEEP_FILE")"
-    fi
-
-    # The end-to-end half, with a second of slack for whole-second clock reads.
-    if [[ "$ELAPSED_S" -le $((TIMEOUT_S + 1)) ]]; then
-        pass "wait_for_startup returns within the deadline (${ELAPSED_S}s)"
-    else
-        fail "wait_for_startup returns within the deadline" \
-             "took ${ELAPSED_S}s for a ${TIMEOUT_S}s timeout"
     fi
 
     # With a one-second overall deadline, every positive remaining budget is
@@ -453,6 +451,55 @@ echo "7. Startup probe is bounded"
         [[ -n "$TIMEOUT_ERROR" ]] || TIMEOUT_ERROR="no curl calls recorded"
         fail "startup probe timeouts are positive and within the remaining deadline" \
              "$TIMEOUT_ERROR"
+    fi
+
+    # A probe may consume all of its assigned budget.  Refreshing the clock
+    # after curl must then suppress the retry pause rather than sleep beyond
+    # the overall deadline.
+    EXHAUST_SLEEP_FILE="$WORK/exhausted-sleep-calls"
+    echo 100 > "$CLOCK_FILE"
+    : > "$EXHAUST_SLEEP_FILE"
+    curl() {
+        echo 101 > "$CLOCK_FILE"
+        echo "000"
+        return 28
+    }
+    sleep() { echo "$1" >> "$EXHAUST_SLEEP_FILE"; }
+    if wait_for_startup "$$" "budget-server" "http://127.0.0.1:1" \
+                        "$TIMEOUT_S" >/dev/null 2>&1; then
+        EXHAUST_STATUS=0
+    else
+        EXHAUST_STATUS=$?
+    fi
+
+    expect "budget-exhausting probe returns failure" "1" "$EXHAUST_STATUS"
+    EXHAUST_SLEEP_CALLS=$(wc -l < "$EXHAUST_SLEEP_FILE" | tr -d ' ')
+    expect "budget-exhausting probe starts no retry sleep" \
+           "0" "$EXHAUST_SLEEP_CALLS"
+
+    # Keep a small real-clock smoke test for the end-to-end deadline.  Crossing
+    # an integer-second boundary between the initial and pre-probe clock reads
+    # may legitimately produce zero curl calls, so this half checks only the
+    # return status and wall-clock bound and does not require an args file.
+    date() { command date "$@"; }
+    curl() { echo "000"; return 28; }
+    sleep() { command sleep "$1"; }
+    START_S=$(date '+%s')
+    if wait_for_startup "$$" "wall-clock-server" "http://127.0.0.1:1" \
+                        "$TIMEOUT_S" >/dev/null 2>&1; then
+        WALL_STATUS=0
+    else
+        WALL_STATUS=$?
+    fi
+    ELAPSED_S=$(( $(date '+%s') - START_S ))
+
+    expect "real-clock failed startup probe returns failure" "1" "$WALL_STATUS"
+    # One second of slack accounts for the granularity of date '+%s'.
+    if [[ "$ELAPSED_S" -le $((TIMEOUT_S + 1)) ]]; then
+        pass "wait_for_startup returns within the deadline (${ELAPSED_S}s)"
+    else
+        fail "wait_for_startup returns within the deadline" \
+             "took ${ELAPSED_S}s for a ${TIMEOUT_S}s timeout"
     fi
 
 )
