@@ -17,13 +17,61 @@
 #
 set -ev
 
+if [[ $# -ne 2 ]]; then
+    echo "Usage: $0 BACKEND {structure|process|process-standard|process-feature|tinkerpop}"
+    exit 2
+fi
+
 BACKEND=$1
 SUITE=$2
+REPORT_DIR=hugegraph-server/hugegraph-test/target/surefire-reports
 
-if [[ "$SUITE" == "structure" || "$SUITE" == "tinkerpop" ]]; then
+function run_structure_test() {
     mvn test -pl hugegraph-server/hugegraph-test -am -P tinkerpop-structure-test,$BACKEND
-fi
+}
 
-if [[ "$SUITE" == "process" || "$SUITE" == "tinkerpop" ]]; then
+function run_process_test() {
     mvn test -pl hugegraph-server/hugegraph-test -am -P tinkerpop-process-test,$BACKEND
-fi
+}
+
+function run_selected_process_test() {
+    local tests=$1
+    local expected_report=$2
+    local report="$REPORT_DIR/TEST-org.apache.hugegraph.tinkerpop.$expected_report.xml"
+
+    rm -f "$report"
+    mvn test -pl hugegraph-server/hugegraph-test -am \
+        -P tinkerpop-process-test,$BACKEND \
+        -Dtest="$tests" \
+        -Dsurefire.failIfNoSpecifiedTests=false
+
+    if [[ ! -s "$report" ]] || ! grep -Eq 'tests="[1-9][0-9]*"' "$report"; then
+        echo "Expected a non-empty Surefire report: $report"
+        exit 1
+    fi
+}
+
+case "$SUITE" in
+    structure)
+        run_structure_test
+        ;;
+    process)
+        run_process_test
+        ;;
+    process-standard)
+        run_selected_process_test \
+            "ProcessStandardTest,HugeGraphProviderLifecycleTest" \
+            "ProcessStandardTest"
+        ;;
+    process-feature)
+        run_selected_process_test "HugeGraphFeatureTest" "HugeGraphFeatureTest"
+        ;;
+    tinkerpop)
+        run_structure_test
+        run_process_test
+        ;;
+    *)
+        echo "Unsupported TinkerPop suite: $SUITE"
+        exit 2
+        ;;
+esac
