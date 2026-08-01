@@ -57,9 +57,11 @@ migrate_env "PD_PEERS" "HG_SERVER_PD_PEERS"
 [[ -n "${HG_SERVER_PD_PEERS:-}" ]] && set_prop "pd.peers" "${HG_SERVER_PD_PEERS}" "${GRAPH_CONF}"
 
 # Normalized once here and reused by the init-flag guard below. The accepted
-# spellings are the ones HugeConfig accepts (BooleanUtils, case-insensitive);
-# anything else is rejected now rather than touching the init flag for a value
-# the server is going to refuse anyway.
+# spellings are the ones HugeConfig accepts, case-insensitive: commons-lang 2.x
+# BooleanUtils, reached through commons-configuration 1.x PropertyConverter.
+# That set excludes 0 and 1, which commons-lang3 would have taken. Anything
+# outside it is rejected now rather than touching the init flag for a value the
+# server is going to refuse anyway.
 INIT_STORE_ENABLED=$(printf '%s' "${HG_SERVER_INIT_STORE_ENABLED:-}" |
                      tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')
 case "${INIT_STORE_ENABLED}" in

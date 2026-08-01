@@ -172,8 +172,10 @@ Configuration is injected via environment variables. The old `docker/configs/app
 > nobody can log in to. A custom `auth.authenticator` is exempt because it
 > manages its own identities.
 >
-> With `false`, the entrypoint deliberately never writes `docker/init_complete`,
-> so a later re-enable is still able to initialize.
+> With the variable set to `false`, the entrypoint deliberately never writes
+> `docker/init_complete`, so a later re-enable is still able to initialize.
+> Setting the property directly in a mounted `rest-server.properties` does not
+> get that guard.
 >
 > **`PASSWORD` has no effect on that path.** init-store reads it from standard
 > input, and a disabled one returns before doing so. The admin is created on

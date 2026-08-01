@@ -85,10 +85,8 @@ public class InitStoreConfigTest {
     }
 
     /**
-     * docker-entrypoint.sh writes this property verbatim from the environment
-     * and decides on its own whether to record initialization as done, so its
-     * accepted spellings have to be the ones pinned here. The shell side is
-     * not executed by this test; keep the two lists in step by hand.
+     * Pins the spellings docker-entrypoint.sh may pass through. The shell side
+     * is not executed here, so keep the two lists in step by hand.
      */
     @Test
     public void testBooleanSpellingsAcceptedByHugeConfig() {
@@ -101,9 +99,9 @@ public class InitStoreConfigTest {
     }
 
     /**
-     * Anything outside that vocabulary is refused while the config loads, so
-     * the entrypoint rejects such a value instead of passing it through and
-     * recording an initialization that never happened.
+     * Conversion runs at load time via commons-configuration 1.x
+     * PropertyConverter, which delegates to commons-lang 2.x BooleanUtils —
+     * so "0" and "1" are refused here even though commons-lang3 accepts them.
      */
     @Test
     public void testUnparseableBooleanFailsToLoad() {
@@ -121,11 +119,8 @@ public class InitStoreConfigTest {
     }
 
     /**
-     * A key defined twice collects both values into a list, which fails the
-     * scalar type check while the config is still being loaded. Both
-     * init-store and server startup would therefore fail outright, so a
-     * caller that maps an environment variable onto the property has to
-     * replace any existing definition rather than append a second one.
+     * A key defined twice loads as a list and fails the scalar type check, so
+     * a caller mapping an env var onto it must replace, not append.
      */
     @Test
     public void testDuplicateDefinitionFailsToLoad() throws IOException {
@@ -140,10 +135,8 @@ public class InitStoreConfigTest {
     }
 
     /**
-     * The graphs directory referenced by the temporary config does not exist,
-     * so every code path that reaches graph scanning fails. That is what makes
-     * {@link #testDisabledInitStoreExitsBeforeGraphInit()} a real assertion
-     * rather than a tautology.
+     * Establishes that graph scanning fails for these configs, which is what
+     * keeps {@link #testDisabledInitStoreExitsBeforeGraphInit()} honest.
      */
     @Test
     public void testMissingGraphsDirFailsScan() {
@@ -162,21 +155,14 @@ public class InitStoreConfigTest {
     }
 
     /**
-     * Disabled mode must not reach RegisterUtil.registerBackends() or
-     * registerPlugins(): plugin registration runs every discovered plugin's
-     * register() and propagates its failures, which a documented no-op path
-     * must not do. Backend options land in OptionSpace only via
-     * registerBackends(), so their registration state shows whether it ran.
-     * OptionSpace is process-wide, so the assertion is that main() leaves that
-     * state unchanged rather than that it starts out empty.
-     * <p>
-     * The enabled run at the end is the control: it shares this method so that
-     * it provably happens after the disabled assertions, since registering
-     * backends here would otherwise make them vacuous. Without it, every
-     * assertion above would still hold for a gate that skipped unconditionally.
-     * That run leaves backend providers registered for the rest of the suite's
-     * JVM, and BackendProviderFactory.register() rejects a duplicate, so a
-     * later suite member registering backends itself has to tolerate that.
+     * Disabled mode must not reach registerBackends() or registerPlugins(),
+     * since plugin registration propagates every plugin's failures. Backend
+     * options reach OptionSpace only through registerBackends(), so that state
+     * shows whether it ran; OptionSpace is process-wide, hence unchanged rather
+     * than empty. The enabled run shares this method so it provably follows the
+     * disabled assertions, which registering backends first would make vacuous.
+     * It leaves backend providers registered for the rest of the suite's JVM,
+     * and BackendProviderFactory.register() rejects duplicates.
      */
     @Test
     public void testGateDecidesWhetherRegistrationRuns() throws Exception {

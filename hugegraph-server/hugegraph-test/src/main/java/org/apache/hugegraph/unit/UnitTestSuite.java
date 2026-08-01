@@ -144,7 +144,6 @@ import org.junit.runners.Suite;
         SecurityManagerTest.class,
         RolePermissionTest.class,
         ExceptionTest.class,
-        InitStoreConfigTest.class,
         GraphManagerConfigTest.class,
         BackendStoreInfoTest.class,
         TraversalUtilTest.class,
@@ -156,6 +155,9 @@ import org.junit.runners.Suite;
         RoleElectionStateMachineTest.class,
         HugeGraphAuthProxyTest.class,
         SchemaElementTest.class,
+
+        /* cmd */
+        InitStoreConfigTest.class,
 
         /* serializer */
         BytesBufferTest.class,
