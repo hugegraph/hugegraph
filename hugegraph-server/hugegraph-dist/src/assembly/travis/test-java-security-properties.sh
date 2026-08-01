@@ -111,6 +111,19 @@ assert_invalid_security_properties() {
     fi
 }
 
+# The bootstrap only hands over to HugeGraphServer once the DNS TTL check and
+# the HugeSecurityManager installation have both succeeded, so this downstream
+# configuration failure is a positive signal instead of merely a nonzero exit.
+assert_reached_server_startup() {
+    local error_file="$1"
+    local message="$2"
+    grep -Fq "Failed to load yaml config file" "$error_file" || fail "$message"
+    grep -Fq "org.apache.hugegraph.bootstrap.HugeGraphServerBootstrap.main" \
+             "$error_file" || fail "$message"
+    grep -Fq "org.apache.hugegraph.dist.HugeGraphServer.main" \
+             "$error_file" || fail "$message"
+}
+
 assert_clean_bootstrap_error() {
     local error_file="$1"
     if grep -Eq 'Log4j|NetUtils|UnknownHost|hostname' "$error_file"; then
@@ -215,6 +228,8 @@ assert_launcher_accepts_security_properties() {
                 "$error_file"; then
         fail "launcher rejected valid Java security properties"
     fi
+    assert_reached_server_startup "$error_file" \
+        "valid Java security properties did not reach server startup"
 }
 
 assert_launcher_skips_security_validation() {
@@ -230,6 +245,8 @@ assert_launcher_skips_security_validation() {
     if grep -Fq "networkaddress.cache.ttl must load" "$error_file"; then
         fail "disabled launcher unexpectedly validated DNS TTL"
     fi
+    assert_reached_server_startup "$error_file" \
+        "disabled security check did not reach server startup"
 }
 
 ACTUAL_TTL=$("$JAVA_BIN" \
@@ -380,6 +397,34 @@ if [[ "$LAST_SECURITY_MANAGER_ARGUMENT" != \
       "-Djava.security.manager=allow" ]]; then
     fail "operator option overrode the JDK 18+ security manager allowance"
 fi
+
+JDK23_CAPTURE="${TEMP_DIR}/jdk23.args"
+CAPTURE_FILE="$JDK23_CAPTURE" JAVA_HOME="$MOCK_JAVA_HOME" \
+    MOCK_JAVA_VERSION=23 STDOUT_MODE=true "$SERVER_SCRIPT" \
+    "${CONF}/gremlin-server.yaml" "${CONF}/rest-server.properties" true >/dev/null
+
+assert_argument "-Djava.security.manager=allow" "$JDK23_CAPTURE"
+assert_argument \
+    "-Djava.security.properties=${SECURITY_PROPERTIES}" "$JDK23_CAPTURE"
+
+JDK24_ERROR="${TEMP_DIR}/jdk24.err"
+if JAVA_HOME="$MOCK_JAVA_HOME" MOCK_JAVA_VERSION=24 STDOUT_MODE=true \
+   "$SERVER_SCRIPT" "${CONF}/gremlin-server.yaml" \
+   "${CONF}/rest-server.properties" true >/dev/null 2>"$JDK24_ERROR"; then
+    fail "launcher accepted a security-enabled JDK 24 runtime"
+fi
+grep -Fq "JDK 24+ removed the Security Manager" "$JDK24_ERROR" ||
+    fail "launcher did not explain the JDK 24 security incompatibility"
+
+JDK24_DISABLED_CAPTURE="${TEMP_DIR}/jdk24-disabled.args"
+CAPTURE_FILE="$JDK24_DISABLED_CAPTURE" JAVA_HOME="$MOCK_JAVA_HOME" \
+    MOCK_JAVA_VERSION=24 STDOUT_MODE=true "$SERVER_SCRIPT" \
+    "${CONF}/gremlin-server.yaml" "${CONF}/rest-server.properties" false \
+    >/dev/null
+
+assert_no_argument '^-Djava\.security\.manager=' "$JDK24_DISABLED_CAPTURE"
+assert_no_argument '^-Djava\.security\.properties=' "$JDK24_DISABLED_CAPTURE"
+assert_argument "false" "$JDK24_DISABLED_CAPTURE"
 
 DISABLED_CAPTURE="${TEMP_DIR}/disabled.args"
 CAPTURE_FILE="$DISABLED_CAPTURE" JAVA_HOME="$MOCK_JAVA_HOME" \

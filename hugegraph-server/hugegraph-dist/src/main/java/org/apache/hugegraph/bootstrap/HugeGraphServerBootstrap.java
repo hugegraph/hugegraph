@@ -39,10 +39,10 @@ public final class HugeGraphServerBootstrap {
             try {
                 validateDnsCacheTtl(
                         Security.getProperty("networkaddress.cache.ttl"));
-            } catch (Throwable ignored) {
+            } catch (Throwable e) {
                 System.err.println("ERROR: Java security property " +
                                    "networkaddress.cache.ttl must load as a " +
-                                   "finite positive integer");
+                                   "finite positive integer: " + e);
                 System.exit(1);
                 return;
             }
@@ -54,9 +54,9 @@ public final class HugeGraphServerBootstrap {
                     throw new IllegalStateException(
                             "Unexpected security manager");
                 }
-            } catch (Throwable ignored) {
+            } catch (Throwable e) {
                 System.err.println("ERROR: Failed to install " +
-                                   "HugeSecurityManager");
+                                   "HugeSecurityManager: " + e);
                 System.exit(1);
                 return;
             }

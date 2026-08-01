@@ -64,6 +64,10 @@ ensure_path_writable "$PLUGINS"
 MAX_MEM=$((32 * 1024))
 MIN_MEM=$((1 * 512))
 MIN_JAVA_VERSION=11
+# JDK 24 removed the Security Manager (JEP 486): "-Djava.security.manager=allow"
+# is a fatal VM initialization error there and System.setSecurityManager() always
+# throws, so HugeSecurityManager cannot be installed on newer runtimes.
+MAX_SECURITY_JAVA_VERSION=23
 
 # Add the slf4j-log4j12 binding
 CP=$(find -L $LIB -name 'log4j-slf4j-impl*.jar' | sort | tr '\n' ':')
@@ -144,6 +148,19 @@ esac
 JVM_OPTIONS="-Dlog4j.configurationFile=${CONF}/log4j2.xml"
 SECURITY_MANAGER_OPTION=""
 if [[ ${OPEN_SECURITY_CHECK} == "true" ]]; then
+    if [[ ${JAVA_VERSION} -gt ${MAX_SECURITY_JAVA_VERSION} ]]; then
+        SECURITY_UNSUPPORTED_MSG=$(cat <<EOF
+The security check requires Java ${MIN_JAVA_VERSION}-${MAX_SECURITY_JAVA_VERSION}, current is ${JAVA_VERSION}.
+JDK 24+ removed the Security Manager (JEP 486), so HugeSecurityManager can no longer be installed.
+Run the server on Java ${MAX_SECURITY_JAVA_VERSION} or lower, or start it with the security check
+disabled: 'start-hugegraph.sh -s false'.
+EOF
+)
+        echo "${SECURITY_UNSUPPORTED_MSG}" >&2
+        echo "${SECURITY_UNSUPPORTED_MSG}" >> "${OUTPUT}"
+        exit 1
+    fi
+
     SECURITY_PROPERTIES="${CONF}/java-security.properties"
     JVM_OPTIONS="${JVM_OPTIONS} \
                  -Djava.security.properties=${SECURITY_PROPERTIES}"
