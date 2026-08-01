@@ -41,59 +41,35 @@ import org.slf4j.Logger;
 public class InitStore {
 
     private static final Logger LOG = Log.logger(InitStore.class);
-    private static final String USE_CONFIGURED_ADMIN_PASSWORD =
-            "--use-configured-admin-password";
 
     public static void main(String[] args) throws Exception {
-        E.checkArgument(args.length == 1 ||
-                        args.length == 2 &&
-                        USE_CONFIGURED_ADMIN_PASSWORD.equals(args[1]),
+        E.checkArgument(args.length == 1,
                         "HugeGraph init-store need to pass the config file " +
-                        "of RestServer, like: conf/rest-server.properties, " +
-                        "with an optional %s flag",
-                        USE_CONFIGURED_ADMIN_PASSWORD);
+                        "of RestServer, like: conf/rest-server.properties");
         E.checkArgument(args[0].endsWith(".properties"),
                         "Expect the parameter is properties config file.");
 
         String restConf = args[0];
-        boolean useConfiguredAdminPassword = args.length == 2;
 
-        /*
-         * Only the server options are needed to read the gate below. Backend
-         * and plugin registration is deferred to the enabled path:
-         * registerPlugins() invokes every discovered plugin's register() and
-         * propagates their failures, which must not happen on a path that is
-         * documented to be a no-op.
-         */
+        // Server options alone can answer the gate below. Backend and plugin
+        // registration waits for the enabled path, because registerPlugins()
+        // runs every plugin's register() and propagates its failures.
         RegisterUtil.registerServer();
 
         HugeConfig restServerConfig = new HugeConfig(restConf);
 
         /*
-         * Distributed deployments (PD/HStore) let the storage side own the
-         * metadata, so there is nothing for init-store to do. The option
-         * defaults to true, keeping standalone/tarball installs on the full
-         * init path.
-         *
-         * The loop below already skips hstore backends, so what this gate
-         * additionally avoids is the full graph scan and opening the auth graph
-         * store in initAdminUserIfNeeded(). The validation below may still scan
-         * graph configuration files to prove that a local built-in authenticator
-         * can reach the PD-created admin, but it never opens those graphs. On
-         * Kubernetes the full work ran on every Server pod restart, since the
-         * entrypoint's init flag file does not survive one.
-         *
-         * NOTE: skipping also means the built-in admin account is not created
-         * here. The PD startup path can replace that work only when usePD is
-         * true and the configured auth graph uses HStore, whose auth manager
-         * reads the same PD metadata. checkAdminBootstrapReachable() rejects
-         * every other local built-in-auth configuration before returning.
+         * PD/HStore deployments let the storage side own the metadata, so
+         * init-store has nothing to do; on Kubernetes it re-ran on every Server
+         * pod restart, since the entrypoint's flag file does not survive one.
+         * Skipping also skips creating the built-in admin, which only the PD
+         * startup path can replace, and only for a PD-backed HStore auth graph.
          */
         if (!restServerConfig.get(ServerOptions.INIT_STORE_ENABLED)) {
             LOG.warn("Skipping init-store: '{}' is false in '{}'. Local " +
                      "backend and admin initialization are not performed.",
                      ServerOptions.INIT_STORE_ENABLED.name(), restConf);
-            checkAdminBootstrapReachable(restServerConfig, restConf, true);
+            checkAdminBootstrapReachable(restServerConfig, restConf);
             return;
         }
 
@@ -118,17 +94,7 @@ public class InitStore {
                 }
                 graphs.add(initGraph(configPath));
             }
-            if (requiresBuiltinAdmin(
-                    restServerConfig.get(ServerOptions.AUTHENTICATOR))) {
-                if (useConfiguredAdminPassword) {
-                    StandardAuthenticator.initAdminUserIfNeeded(
-                            restConf,
-                            configuredAdminPassword(restServerConfig,
-                                                    restConf));
-                } else {
-                    StandardAuthenticator.initAdminUserIfNeeded(restConf);
-                }
-            }
+            StandardAuthenticator.initAdminUserIfNeeded(restConf);
         } finally {
             for (HugeGraph graph : graphs) {
                 graph.close();
@@ -138,75 +104,44 @@ public class InitStore {
     }
 
     /**
-     * Skipping means init-store does not create the built-in admin account,
-     * and the only other component that creates it is
-     * GraphManager.initAdminUserIfNeeded(), reached from loadMetaFromPD(). That
-     * creates the user in PD metadata, so it is reachable by the authenticator
-     * only when usePD is true and the auth graph uses HStore's
-     * StandardAuthManagerV2. Failing here rather than returning zero keeps
-     * tarball and init-job callers from continuing into an unusable server.
-     * <p>
-     * Remote auth is exempt: the auth manager is then an RPC client, and
-     * StandardAuthenticator only bootstraps an admin for a local one. So is
-     * any authenticator other than the built-in one, which keeps its
-     * identities outside HugeGraph and needs no such account.
+     * Skipping leaves the built-in admin to GraphManager.initAdminUserIfNeeded()
+     * on the PD startup path, which writes it to PD metadata. Only an HStore
+     * auth graph reads that metadata back, so every other local built-in-auth
+     * configuration would start a server nobody can log in to. Remote auth and
+     * custom authenticators keep their identities elsewhere and are exempt.
      */
-    static void checkAdminBootstrapReachable(HugeConfig conf, String restConf,
-                                             boolean requirePassword) {
+    private static void checkAdminBootstrapReachable(HugeConfig conf,
+                                                     String restConf) {
         if (!requiresLocalBuiltinAdmin(conf)) {
             return;
         }
-
         if (!conf.get(ServerOptions.USE_PD)) {
-            throw adminBootstrapUnavailable(restConf, String.format(
-                    "'%s' is false", ServerOptions.USE_PD.name()), null);
+            throw unreachableAdmin(restConf, ServerOptions.USE_PD.name() +
+                                             " is false");
         }
 
-        String graphName = conf.get(ServerOptions.AUTH_GRAPH_STORE);
-        String graphPath;
-        try {
-            Map<String, String> graphConfs = ConfigUtil.scanGraphsDir(
-                    conf.get(ServerOptions.GRAPHS));
-            graphPath = graphConfs.get(graphName);
-        } catch (RuntimeException e) {
-            throw adminBootstrapUnavailable(
-                    restConf, "the auth graph configuration cannot be read", e);
+        String name = conf.get(ServerOptions.AUTH_GRAPH_STORE);
+        String path = ConfigUtil.scanGraphsDir(
+                conf.get(ServerOptions.GRAPHS)).get(name);
+        if (path == null) {
+            throw unreachableAdmin(restConf, "auth graph '" + name +
+                                             "' has no local configuration");
         }
-        if (graphPath == null) {
-            throw adminBootstrapUnavailable(restConf, String.format(
-                    "auth graph '%s' has no local configuration", graphName),
-                    null);
-        }
-
-        HugeConfig graphConfig = new HugeConfig(graphPath);
-        String backend = graphConfig.get(CoreOptions.BACKEND);
-        if (!Objects.equals(backend, "hstore")) {
-            throw adminBootstrapUnavailable(restConf, String.format(
-                    "auth graph '%s' uses backend '%s', not 'hstore'",
-                    graphName, backend), null);
-        }
-
-        if (requirePassword) {
-            configuredAdminPassword(conf, restConf);
+        String backend = new HugeConfig(path).get(CoreOptions.BACKEND);
+        if (!"hstore".equals(backend)) {
+            throw unreachableAdmin(restConf, "auth graph '" + name +
+                                             "' uses backend '" + backend +
+                                             "', not 'hstore'");
         }
     }
 
-    private static IllegalStateException adminBootstrapUnavailable(
-                                                   String restConf,
-                                                   String reason,
-                                                   RuntimeException cause) {
-        String message = String.format(
-                "Refusing to skip init-store: the built-in authenticator is " +
-                "configured in '%s', but %s, so the admin created on the PD " +
-                "startup path would not be available to that authenticator. " +
-                "Set '%s' to true with an HStore auth graph, set '%s' to " +
-                "delegate auth, configure an external authenticator, or leave " +
-                "'%s' enabled so init-store creates the account.",
-                restConf, reason, ServerOptions.USE_PD.name(),
-                ServerOptions.AUTH_REMOTE_URL.name(),
-                ServerOptions.INIT_STORE_ENABLED.name());
-        return cause == null ? new IllegalStateException(message) :
-               new IllegalStateException(message, cause);
+    private static IllegalStateException unreachableAdmin(String restConf,
+                                                          String reason) {
+        return new IllegalStateException(String.format(
+                "Refusing to skip init-store: '%s' configures the built-in " +
+                "authenticator but %s, so the admin created on the PD startup " +
+                "path would be unreachable. See docker/README.md.",
+                restConf, reason));
     }
 
     /**
@@ -217,12 +152,11 @@ public class InitStore {
      * resolved without initializing it, and one that is not on the init-store
      * classpath is by definition not the built-in authenticator.
      */
-    static boolean requiresLocalBuiltinAdmin(HugeConfig conf) {
-        return conf.get(ServerOptions.AUTH_REMOTE_URL).isEmpty() &&
-               requiresBuiltinAdmin(conf.get(ServerOptions.AUTHENTICATOR));
-    }
-
-    private static boolean requiresBuiltinAdmin(String authClass) {
+    private static boolean requiresLocalBuiltinAdmin(HugeConfig conf) {
+        if (!conf.get(ServerOptions.AUTH_REMOTE_URL).isEmpty()) {
+            return false;
+        }
+        String authClass = conf.get(ServerOptions.AUTHENTICATOR);
         if (authClass.isEmpty()) {
             return false;
         }
@@ -231,25 +165,10 @@ public class InitStore {
                                            InitStore.class.getClassLoader());
             return StandardAuthenticator.class.isAssignableFrom(clazz);
         } catch (ClassNotFoundException | LinkageError e) {
-            LOG.info("Authenticator '{}' is not resolvable here, assuming it " +
-                     "does not need the built-in admin account", authClass);
+            LOG.info("Authenticator '{}' is not on the init-store classpath, " +
+                     "so it is not the built-in one", authClass);
             return false;
         }
-    }
-
-    private static String configuredAdminPassword(HugeConfig conf,
-                                                  String restConf) {
-        String key = ServerOptions.ADMIN_PA.name();
-        E.checkArgument(conf.containsKey(key),
-                        "The local built-in authenticator in '%s' must " +
-                        "explicitly define a non-empty '%s'; the default " +
-                        "value is not accepted for admin bootstrap",
-                        restConf, key);
-        String password = conf.get(ServerOptions.ADMIN_PA);
-        E.checkArgument(!password.isEmpty(),
-                        "The configured admin password in '%s' can't be empty",
-                        restConf);
-        return password;
     }
 
     private static HugeGraph initGraph(String configPath) throws Exception {

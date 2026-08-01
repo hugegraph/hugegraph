@@ -160,33 +160,27 @@ Configuration is injected via environment variables. The old `docker/configs/app
 | `HG_SERVER_BACKEND` | Yes | — | `backend` in `hugegraph.properties` | Storage backend (e.g. `hstore`) |
 | `HG_SERVER_PD_PEERS` | Yes | — | `pd.peers` | PD cluster addresses (e.g. `pd0:8686,pd1:8686,pd2:8686`) |
 | `STORE_REST` | No | — | Used by `wait-partition.sh` | Store REST endpoint for partition verification (e.g. `store0:8520`) |
-| `PASSWORD` | No | — | Enables built-in auth mode | Optional built-in admin password; ignored when custom or remote auth is already configured |
+| `PASSWORD` | No | — | Enables auth mode | Optional authentication password; ignored when `HG_SERVER_INIT_STORE_ENABLED` is `false` (see below) |
 | `HG_SERVER_INIT_STORE_ENABLED` | No | `true` | `init_store.enabled` in `rest-server.properties` | Set `false` in PD/HStore deployments so init-store skips local backend and admin initialization |
 
 > **The built-in authenticator with `HG_SERVER_INIT_STORE_ENABLED=false`
 > requires `usePD=true` and an HStore-backed `auth.graph_store`, unless
 > `auth.remote_url` delegates auth elsewhere.** With init-store skipped, the
-> server creates the built-in admin in PD metadata. Only an HStore auth graph
-> uses the PD-backed auth manager that can read that account. The entrypoint
-> invokes InitStore's no-op validation and exits before server startup when the
-> combination is unusable. A custom `auth.authenticator` is exempt because it
+> server creates the built-in admin in PD metadata, and only an HStore auth
+> graph uses the PD-backed auth manager that can read that account. init-store
+> exits non-zero when the combination is unusable, rather than leaving a server
+> nobody can log in to. A custom `auth.authenticator` is exempt because it
 > manages its own identities.
 >
-> When the combination is valid for local built-in auth, a `PASSWORD` is written
-> to `auth.admin_pa` instead of being passed to `init-store.sh`, because the admin
-> account is then created on server startup. Without `PASSWORD`, `auth.admin_pa`
-> must be explicitly configured and non-empty; its public `pa` default is not
-> accepted for bootstrap. Custom and remote authenticators do not consume the
-> built-in admin password, so an inherited `PASSWORD` is ignored rather than
-> persisted. Two consequences worth knowing:
+> With `false`, the entrypoint deliberately never writes `docker/init_complete`,
+> so a later re-enable is still able to initialize.
 >
-> - Before writing the password, the entrypoint restricts
->   `conf/rest-server.properties` to mode `0600`. Administrators with access to
->   the config volume can still read it. With init-store enabled the password
->   only travels over stdin and is not written to disk.
-> - `auth.admin_pa` takes effect only when the admin account is first created.
->   Changing `PASSWORD` on a later restart does not rotate an existing admin
->   password, and does not report an error.
+> **`PASSWORD` has no effect on that path.** init-store reads it from standard
+> input, and a disabled one returns before doing so. The admin is created on
+> the PD startup path from `auth.admin_pa`, which defaults to the public value
+> `pa`, so set it explicitly in a mounted `rest-server.properties`. It applies
+> only when the account is first created, so changing it later does not rotate
+> an existing password.
 
 **Deprecated aliases** (still work but log a warning):
 

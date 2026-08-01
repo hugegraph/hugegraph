@@ -374,11 +374,7 @@ public class ServerOptions extends OptionHolder {
                     "Whether init-store initializes the local backend stores " +
                     "and the built-in admin account. Set false in distributed " +
                     "deployments (PD/HStore) where the storage side already " +
-                    "owns the metadata. Note that setting it false also means " +
-                    "the admin account is not created here, and the only " +
-                    "other component that creates it writes to PD metadata. " +
-                    "The built-in authenticator can use that account only " +
-                    "when 'usePD' is true and its auth graph uses HStore.",
+                    "owns the metadata.",
                     disallowEmpty(),
                     true
             );

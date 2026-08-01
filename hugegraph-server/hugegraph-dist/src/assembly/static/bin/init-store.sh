@@ -34,24 +34,7 @@ PLUGINS="$TOP/plugins"
 . "${BIN}"/util.sh
 
 configure_riscv64_libatomic || exit 1
-
-VALIDATE_ONLY=false
-INIT_STORE_ARGS=()
-if [[ $# -gt 1 || ( $# -eq 1 &&
-      "$1" != "--use-configured-admin-password" &&
-      "$1" != "--validate-only" ) ]]; then
-    echo "Usage: $0 [--use-configured-admin-password|--validate-only]" >&2
-    exit 1
-fi
-if [[ $# -eq 1 && "$1" == "--validate-only" ]]; then
-    VALIDATE_ONLY=true
-elif [[ $# -eq 1 ]]; then
-    INIT_STORE_ARGS+=("$1")
-fi
-
-if [[ "${VALIDATE_ONLY}" != "true" ]]; then
-    ensure_path_writable "${PLUGINS}" || exit 1
-fi
+ensure_path_writable "${PLUGINS}"
 
 if [[ -n "$JAVA_HOME" ]]; then
     JAVA="$JAVA_HOME"/bin/java
@@ -72,8 +55,7 @@ CP=$(find -L "${LIB}" -name 'hugegraph*.jar' | sort | tr '\n' ':')
 CP="$CP":$(find -L "${LIB}" -name '*.jar' \! -name 'hugegraph*' | sort | tr '\n' ':')
 CP="$CP":$(find -L "${PLUGINS}" -name '*.jar' | sort | tr '\n' ':')
 $JAVA -cp $CP ${DEFAULT_JAVA_OPTIONS} \
-org.apache.hugegraph.cmd.InitStore "${CONF}"/rest-server.properties \
-"${INIT_STORE_ARGS[@]}"
+org.apache.hugegraph.cmd.InitStore "${CONF}"/rest-server.properties
 INIT_STORE_STATUS=$?
 if [[ ${INIT_STORE_STATUS} -ne 0 ]]; then
     exit "${INIT_STORE_STATUS}"

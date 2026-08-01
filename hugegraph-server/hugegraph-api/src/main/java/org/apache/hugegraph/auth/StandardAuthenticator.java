@@ -47,18 +47,11 @@ public class StandardAuthenticator implements HugeAuthenticator {
 
     private HugeGraph graph = null;
 
-    private void initAdminUser(String password, boolean fromConfig)
-                               throws Exception {
+    private void initAdminUser() throws Exception {
         if (this.requireInitAdminUser()) {
-            if (fromConfig) {
-                E.checkArgument(password != null && !password.isEmpty(),
-                                "The configured admin password can't be " +
-                                "null or empty");
-            } else {
-                password = this.inputPassword();
-            }
-            this.initAdminUser(password);
+            this.initAdminUser(this.inputPassword());
         }
+        this.graph.close();
     }
 
     @Override
@@ -217,19 +210,6 @@ public class StandardAuthenticator implements HugeAuthenticator {
     }
 
     public static void initAdminUserIfNeeded(String confFile) throws Exception {
-        initAdminUserIfNeeded(confFile, null, false);
-    }
-
-    public static void initAdminUserIfNeeded(String confFile,
-                                             String configuredPassword)
-                                             throws Exception {
-        initAdminUserIfNeeded(confFile, configuredPassword, true);
-    }
-
-    private static void initAdminUserIfNeeded(String confFile,
-                                              String password,
-                                              boolean fromConfig)
-                                              throws Exception {
         StandardAuthenticator auth = new StandardAuthenticator();
         HugeConfig config = new HugeConfig(confFile);
         String authClass = config.get(ServerOptions.AUTHENTICATOR);
@@ -237,32 +217,9 @@ public class StandardAuthenticator implements HugeAuthenticator {
             return;
         }
         config.addProperty(INITING_STORE, true);
-        auth.initAdminUser(config, password, fromConfig);
-    }
-
-    private void initAdminUser(HugeConfig config, String password,
-                               boolean fromConfig) throws Exception {
-        Throwable failure = null;
-        try {
-            this.setup(config);
-            if (this.graph().backendStoreFeatures().supportsPersistence()) {
-                this.initAdminUser(password, fromConfig);
-            }
-        } catch (Exception | Error e) {
-            failure = e;
-            throw e;
-        } finally {
-            if (this.graph != null) {
-                try {
-                    this.graph.close();
-                } catch (Exception | Error closeFailure) {
-                    if (failure != null) {
-                        failure.addSuppressed(closeFailure);
-                    } else {
-                        throw closeFailure;
-                    }
-                }
-            }
+        auth.setup(config);
+        if (auth.graph().backendStoreFeatures().supportsPersistence()) {
+            auth.initAdminUser();
         }
     }
 

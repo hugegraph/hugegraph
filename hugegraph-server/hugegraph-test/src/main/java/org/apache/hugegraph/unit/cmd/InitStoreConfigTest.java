@@ -18,7 +18,6 @@
 package org.apache.hugegraph.unit.cmd;
 
 import java.io.IOException;
-import java.lang.reflect.Proxy;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -29,26 +28,20 @@ import java.util.List;
 import java.util.stream.Stream;
 
 import org.apache.commons.configuration2.PropertiesConfiguration;
-import org.apache.hugegraph.HugeGraph;
-import org.apache.hugegraph.auth.HugeUser;
-import org.apache.hugegraph.auth.StandardAuthManager;
 import org.apache.hugegraph.auth.StandardAuthenticator;
-import org.apache.hugegraph.backend.store.BackendFeatures;
-import org.apache.hugegraph.cmd.ConfigTool;
 import org.apache.hugegraph.cmd.InitStore;
+import org.apache.hugegraph.config.ConfigException;
 import org.apache.hugegraph.config.CoreOptions;
 import org.apache.hugegraph.config.HugeConfig;
 import org.apache.hugegraph.config.OptionSpace;
 import org.apache.hugegraph.config.ServerOptions;
 import org.apache.hugegraph.dist.RegisterUtil;
 import org.apache.hugegraph.testutil.Assert;
-import org.apache.hugegraph.testutil.Whitebox;
 import org.apache.hugegraph.util.ConfigUtil;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
-import org.mockito.Mockito;
 
 /**
  * {@code init_store.enabled} controls whether init-store performs local
@@ -91,35 +84,48 @@ public class InitStoreConfigTest {
         Assert.assertTrue(config.get(ServerOptions.INIT_STORE_ENABLED));
     }
 
+    /**
+     * docker-entrypoint.sh writes this property verbatim from the environment
+     * and decides on its own whether to record initialization as done, so its
+     * accepted spellings have to be the ones pinned here. The shell side is
+     * not executed by this test; keep the two lists in step by hand.
+     */
     @Test
-    public void testAdminPasswordDefaultsToPa() {
-        HugeConfig config = new HugeConfig(new PropertiesConfiguration());
-        Assert.assertEquals("pa", config.get(ServerOptions.ADMIN_PA));
+    public void testBooleanSpellingsAcceptedByHugeConfig() {
+        for (String value : new String[]{"true", "TRUE", "t", "on", "y", "yes"}) {
+            Assert.assertTrue(value, initStoreEnabled(value));
+        }
+        for (String value : new String[]{"false", "FALSE", "f", "off", "n", "no"}) {
+            Assert.assertFalse(value, initStoreEnabled(value));
+        }
     }
 
+    /**
+     * Anything outside that vocabulary is refused while the config loads, so
+     * the entrypoint rejects such a value instead of passing it through and
+     * recording an initialization that never happened.
+     */
     @Test
-    public void testExplicitTrueKeepsInitStoreEnabled() {
-        PropertiesConfiguration properties = new PropertiesConfiguration();
-        properties.setProperty(ServerOptions.INIT_STORE_ENABLED.name(), "true");
-        HugeConfig config = new HugeConfig(properties);
-        Assert.assertTrue(config.get(ServerOptions.INIT_STORE_ENABLED));
+    public void testUnparseableBooleanFailsToLoad() {
+        for (String value : new String[]{"0", "1", "disabled"}) {
+            Assert.assertThrows(ConfigException.class, () -> {
+                initStoreEnabled(value);
+            });
+        }
     }
 
-    @Test
-    public void testExplicitFalseDisablesInitStore() {
+    private static boolean initStoreEnabled(String value) {
         PropertiesConfiguration properties = new PropertiesConfiguration();
-        properties.setProperty(ServerOptions.INIT_STORE_ENABLED.name(), "false");
-        HugeConfig config = new HugeConfig(properties);
-        Assert.assertFalse(config.get(ServerOptions.INIT_STORE_ENABLED));
+        properties.setProperty(ServerOptions.INIT_STORE_ENABLED.name(), value);
+        return new HugeConfig(properties).get(ServerOptions.INIT_STORE_ENABLED);
     }
 
     /**
      * A key defined twice collects both values into a list, which fails the
      * scalar type check while the config is still being loaded. Both
-     * init-store and server startup would therefore fail outright. That is why
-     * docker-entrypoint.sh collapses any existing definition into one
-     * canonical line instead of appending a second one when it maps an
-     * environment variable onto the property.
+     * init-store and server startup would therefore fail outright, so a
+     * caller that maps an environment variable onto the property has to
+     * replace any existing definition rather than append a second one.
      */
     @Test
     public void testDuplicateDefinitionFailsToLoad() throws IOException {
@@ -131,109 +137,6 @@ public class InitStoreConfigTest {
         Assert.assertThrows(IllegalArgumentException.class, () -> {
             new HugeConfig(conf.toString());
         }, e -> Assert.assertContains("[false, true]", e.getMessage()));
-    }
-
-    @Test
-    public void testUnicodeEscapedAdminPasswordRoundTrips() throws IOException {
-        String password = " \tmeta:=#!\\\r\f\np\u00e4ss\u96ea";
-        StringBuilder serialized = new StringBuilder(
-                ServerOptions.ADMIN_PA.name() + "=");
-        for (char item : password.toCharArray()) {
-            serialized.append(String.format("\\u%04x", (int) item));
-        }
-
-        Path conf = this.workDir.resolve("escaped-password.properties");
-        Files.write(conf, Arrays.asList(serialized.toString()),
-                    StandardCharsets.UTF_8);
-
-        HugeConfig config = new HugeConfig(conf.toString());
-        Assert.assertEquals(password, config.get(ServerOptions.ADMIN_PA));
-    }
-
-    @Test
-    public void testConfigToolUsesJavaPropertiesGrammar() throws Exception {
-        Path conf = this.workDir.resolve("grammar.properties");
-        Files.write(conf, Arrays.asList(
-                "auth\\.authenticator=" +
-                StandardAuthenticator.class.getName(),
-                "init_store.enabled=fal\\",
-                "  se"), StandardCharsets.UTF_8);
-
-        Assert.assertEquals(StandardAuthenticator.class.getName(),
-                            configToolGet(conf, "auth.authenticator"));
-        Assert.assertEquals("false",
-                            configToolGet(conf, "init_store.enabled"));
-    }
-
-    @Test
-    public void testConfigToolReplacesLogicalPropertyAndPreservesLayout()
-                                                              throws Exception {
-        Path conf = this.workDir.resolve("rewrite.properties");
-        String key = ServerOptions.AUTHENTICATOR.name();
-        Files.write(conf, Arrays.asList(
-                "# mounted configuration",
-                "auth\\.authenticator=old.Authenticator",
-                key + "=duplicate.Authenticator"), StandardCharsets.UTF_8);
-
-        configToolSet(conf, key, StandardAuthenticator.class.getName());
-
-        Assert.assertEquals(StandardAuthenticator.class.getName(),
-                            configToolGet(conf, key));
-        HugeConfig config = new HugeConfig(conf.toString());
-        Assert.assertEquals(StandardAuthenticator.class.getName(),
-                            config.get(ServerOptions.AUTHENTICATOR));
-        Assert.assertContains("# mounted configuration",
-                              new String(Files.readAllBytes(conf),
-                                         StandardCharsets.UTF_8));
-        try (Stream<Path> files = Files.list(this.workDir)) {
-            Assert.assertFalse(files.anyMatch(path ->
-                    path.getFileName().toString().contains(".tmp.")));
-        }
-    }
-
-    @Test
-    public void testConfigToolSerializesPasswordExactly() throws Exception {
-        Path conf = this.workDir.resolve("password.properties");
-        Files.write(conf, Arrays.asList("# password"), StandardCharsets.UTF_8);
-        String password = " \tmeta:=#!\\\r\f\np\u00e4ss\u96ea\n";
-
-        configToolSet(conf, ServerOptions.ADMIN_PA.name(), password);
-
-        HugeConfig config = new HugeConfig(conf.toString());
-        Assert.assertEquals(password, config.get(ServerOptions.ADMIN_PA));
-    }
-
-    @Test
-    public void testConfigToolRejectsRewriteWithInclude() throws Exception {
-        Path child = this.workDir.resolve("included.properties");
-        Files.write(child, Arrays.asList("child.key=child-value"),
-                    StandardCharsets.UTF_8);
-        Path conf = this.workDir.resolve("parent.properties");
-        Files.write(conf, Arrays.asList(
-                "include=included.properties",
-                "parent.key=old-value"), StandardCharsets.UTF_8);
-
-        Assert.assertThrows(IllegalStateException.class, () -> {
-            configToolSet(conf, "parent.key", "new-value");
-        }, e -> Assert.assertContains("include", e.getMessage()));
-
-        String content = new String(Files.readAllBytes(conf),
-                                    StandardCharsets.UTF_8);
-        Assert.assertContains("include=included.properties", content);
-        Assert.assertContains("parent.key=old-value", content);
-    }
-
-    @Test
-    public void testConfigToolRejectsRewriteWithOptionalInclude()
-                                                         throws Exception {
-        Path conf = this.workDir.resolve("optional-parent.properties");
-        Files.write(conf, Arrays.asList(
-                "include\\u006fptional=missing.properties",
-                "parent.key=old-value"), StandardCharsets.UTF_8);
-
-        Assert.assertThrows(IllegalStateException.class, () -> {
-            configToolSet(conf, "parent.key", "new-value");
-        }, e -> Assert.assertContains("includeoptional", e.getMessage()));
     }
 
     /**
@@ -251,271 +154,11 @@ public class InitStoreConfigTest {
     }
 
     @Test
-    public void testConfigToolRestoresTargetAfterInterruptedCopy()
-                                                         throws Exception {
-        Path target = this.workDir.resolve("recover.properties");
-        Path replacement = this.workDir.resolve("replacement.properties");
-        byte[] original = "key=original\n".getBytes(StandardCharsets.UTF_8);
-        Files.write(target, original);
-        Files.write(replacement,
-                    "key=replacement\n".getBytes(StandardCharsets.UTF_8));
-
-        Class<?> copierType = Class.forName(
-                "org.apache.hugegraph.cmd.ConfigTool$FileCopier");
-        Object failingCopier = Proxy.newProxyInstance(
-                copierType.getClassLoader(), new Class<?>[]{copierType},
-                (proxy, method, args) -> {
-                    Files.write((Path) args[1],
-                                "partial".getBytes(StandardCharsets.UTF_8));
-                    throw new IOException("injected mid-copy failure");
-                });
-
-        Assert.assertThrows(RuntimeException.class, () -> {
-            Whitebox.invokeStatic(
-                    ConfigTool.class,
-                    new Class<?>[]{Path.class, Path.class, copierType},
-                    "replaceInPlace", target, replacement, failingCopier);
-        });
-        Assert.assertArrayEquals(original, Files.readAllBytes(target));
-        try (Stream<Path> files = Files.list(this.workDir)) {
-            Assert.assertFalse(files.anyMatch(path ->
-                    path.getFileName().toString().contains(".bak.")));
-        }
-    }
-
-    @Test
     public void testDisabledInitStoreExitsBeforeGraphInit() throws Exception {
         String restConf = this.writeDisabledRestServerConf();
         // Completes instead of failing on the missing graphs directory, which
         // proves the gate is applied before any graph or admin initialization
         InitStore.main(new String[]{restConf});
-    }
-
-    @Test
-    public void testConfiguredAdminPasswordFlagAccepted() throws Exception {
-        String restConf = this.writeDisabledRestServerConf();
-        InitStore.main(new String[]{restConf,
-                                   "--use-configured-admin-password"});
-    }
-
-    @Test
-    public void testConfiguredAdminPasswordRejectsNullOrEmptyValue()
-                                                        throws Exception {
-        HugeConfig config = Mockito.mock(HugeConfig.class);
-        HugeGraph graph = Mockito.mock(HugeGraph.class);
-        BackendFeatures features = Mockito.mock(BackendFeatures.class);
-        StandardAuthManager authManager = Mockito.mock(StandardAuthManager.class);
-        Mockito.when(graph.hugegraph()).thenReturn(graph);
-        Mockito.when(graph.authManager()).thenReturn(authManager);
-        Mockito.when(graph.backendStoreFeatures()).thenReturn(features);
-        Mockito.when(features.supportsPersistence()).thenReturn(true);
-
-        StandardAuthenticator authenticator =
-                Mockito.spy(new StandardAuthenticator());
-        Whitebox.setInternalState(authenticator, "graph", graph);
-        Mockito.doNothing().when(authenticator).setup(config);
-
-        for (String password : new String[]{null, ""}) {
-            Assert.assertThrows(IllegalArgumentException.class, () -> {
-                Whitebox.invoke(StandardAuthenticator.class,
-                                new Class<?>[]{HugeConfig.class, String.class,
-                                               boolean.class},
-                                "initAdminUser", authenticator, config,
-                                password, true);
-            }, e -> Assert.assertContains("can't be null or empty",
-                                          e.getMessage()));
-        }
-        Mockito.verify(graph, Mockito.times(2)).close();
-    }
-
-    @Test
-    public void testAdminGraphClosedForNonPersistentBackend() throws Exception {
-        HugeConfig config = Mockito.mock(HugeConfig.class);
-        HugeGraph graph = Mockito.mock(HugeGraph.class);
-        BackendFeatures features = Mockito.mock(BackendFeatures.class);
-        Mockito.when(graph.backendStoreFeatures()).thenReturn(features);
-        Mockito.when(features.supportsPersistence()).thenReturn(false);
-
-        StandardAuthenticator authenticator =
-                Mockito.spy(new StandardAuthenticator());
-        Whitebox.setInternalState(authenticator, "graph", graph);
-        Mockito.doNothing().when(authenticator).setup(config);
-
-        Whitebox.invoke(StandardAuthenticator.class,
-                        new Class<?>[]{HugeConfig.class, String.class,
-                                       boolean.class},
-                        "initAdminUser", authenticator, config, null, false);
-
-        Mockito.verify(graph).close();
-    }
-
-    @Test
-    public void testAdminGraphClosedAfterSetupFailure() throws Exception {
-        HugeConfig config = Mockito.mock(HugeConfig.class);
-        HugeGraph graph = Mockito.mock(HugeGraph.class);
-        StandardAuthenticator authenticator =
-                Mockito.spy(new StandardAuthenticator());
-        Whitebox.setInternalState(authenticator, "graph", graph);
-        Mockito.doThrow(new IllegalStateException("setup failed"))
-               .when(authenticator).setup(config);
-
-        Assert.assertThrows(IllegalStateException.class, () -> {
-            Whitebox.invoke(StandardAuthenticator.class,
-                            new Class<?>[]{HugeConfig.class, String.class,
-                                           boolean.class},
-                            "initAdminUser", authenticator, config, null, false);
-        }, e -> Assert.assertContains("setup failed", e.getMessage()));
-
-        Mockito.verify(graph).close();
-    }
-
-    @Test
-    public void testPrimaryAdminFailureSuppressesCloseFailure() throws Exception {
-        HugeConfig config = Mockito.mock(HugeConfig.class);
-        HugeGraph graph = Mockito.mock(HugeGraph.class);
-        StandardAuthenticator authenticator =
-                Mockito.spy(new StandardAuthenticator());
-        Whitebox.setInternalState(authenticator, "graph", graph);
-        Mockito.doThrow(new IllegalStateException("setup failed"))
-               .when(authenticator).setup(config);
-        Mockito.doThrow(new IllegalStateException("close failed"))
-               .when(graph).close();
-
-        Assert.assertThrows(IllegalStateException.class, () -> {
-            invokeInitAdminUser(authenticator, config, null, false);
-        }, e -> {
-            Assert.assertContains("setup failed", e.getMessage());
-            Assert.assertEquals(1, e.getSuppressed().length);
-            Assert.assertContains("close failed",
-                                  e.getSuppressed()[0].getMessage());
-        });
-    }
-
-    @Test
-    public void testAdminCloseFailureSurfacesWhenItIsOnlyFailure()
-                                                              throws Exception {
-        HugeConfig config = Mockito.mock(HugeConfig.class);
-        HugeGraph graph = Mockito.mock(HugeGraph.class);
-        BackendFeatures features = Mockito.mock(BackendFeatures.class);
-        Mockito.when(graph.backendStoreFeatures()).thenReturn(features);
-        Mockito.when(features.supportsPersistence()).thenReturn(false);
-        Mockito.doThrow(new IllegalStateException("close failed"))
-               .when(graph).close();
-
-        StandardAuthenticator authenticator =
-                Mockito.spy(new StandardAuthenticator());
-        Whitebox.setInternalState(authenticator, "graph", graph);
-        Mockito.doNothing().when(authenticator).setup(config);
-
-        Assert.assertThrows(IllegalStateException.class, () -> {
-            invokeInitAdminUser(authenticator, config, null, false);
-        }, e -> Assert.assertContains("close failed", e.getMessage()));
-    }
-
-    @Test
-    public void testSetupFailureWithoutGraphPreservesOriginalException()
-                                                              throws Exception {
-        HugeConfig config = Mockito.mock(HugeConfig.class);
-        StandardAuthenticator authenticator =
-                Mockito.spy(new StandardAuthenticator());
-        Mockito.doThrow(new IllegalStateException("setup failed before open"))
-               .when(authenticator).setup(config);
-
-        Assert.assertThrows(IllegalStateException.class, () -> {
-            Whitebox.invoke(StandardAuthenticator.class,
-                            new Class<?>[]{HugeConfig.class, String.class,
-                                           boolean.class},
-                            "initAdminUser", authenticator, config, null, false);
-        }, e -> Assert.assertContains("setup failed before open",
-                                      e.getMessage()));
-    }
-
-    @Test
-    public void testAdminGraphClosedAfterFeatureInspectionFailure()
-                                                              throws Exception {
-        HugeConfig config = Mockito.mock(HugeConfig.class);
-        HugeGraph graph = Mockito.mock(HugeGraph.class);
-        Mockito.when(graph.backendStoreFeatures())
-               .thenThrow(new IllegalStateException("feature check failed"));
-
-        StandardAuthenticator authenticator =
-                Mockito.spy(new StandardAuthenticator());
-        Whitebox.setInternalState(authenticator, "graph", graph);
-        Mockito.doNothing().when(authenticator).setup(config);
-
-        Assert.assertThrows(IllegalStateException.class, () -> {
-            Whitebox.invoke(StandardAuthenticator.class,
-                            new Class<?>[]{HugeConfig.class, String.class,
-                                           boolean.class},
-                            "initAdminUser", authenticator, config, null, false);
-        }, e -> Assert.assertContains("feature check failed", e.getMessage()));
-
-        Mockito.verify(graph).close();
-    }
-
-    @Test
-    public void testAdminGraphClosedWhenAdminAlreadyExists() throws Exception {
-        HugeConfig config = Mockito.mock(HugeConfig.class);
-        HugeGraph graph = Mockito.mock(HugeGraph.class);
-        BackendFeatures features = Mockito.mock(BackendFeatures.class);
-        StandardAuthManager authManager = Mockito.mock(StandardAuthManager.class);
-        Mockito.when(graph.backendStoreFeatures()).thenReturn(features);
-        Mockito.when(features.supportsPersistence()).thenReturn(true);
-        Mockito.when(graph.hugegraph()).thenReturn(graph);
-        Mockito.when(graph.authManager()).thenReturn(authManager);
-        Mockito.when(authManager.findUser("admin"))
-               .thenReturn(Mockito.mock(HugeUser.class));
-
-        StandardAuthenticator authenticator =
-                Mockito.spy(new StandardAuthenticator());
-        Whitebox.setInternalState(authenticator, "graph", graph);
-        Mockito.doNothing().when(authenticator).setup(config);
-
-        Whitebox.invoke(StandardAuthenticator.class,
-                        new Class<?>[]{HugeConfig.class, String.class,
-                                       boolean.class},
-                        "initAdminUser", authenticator, config, null, true);
-
-        Mockito.verify(authManager, Mockito.never())
-               .createUser(Mockito.any(HugeUser.class));
-        Mockito.verify(graph).close();
-    }
-
-    @Test
-    public void testAdminGraphClosedAfterCreateUserFailure() throws Exception {
-        HugeConfig config = Mockito.mock(HugeConfig.class);
-        HugeGraph graph = Mockito.mock(HugeGraph.class);
-        BackendFeatures features = Mockito.mock(BackendFeatures.class);
-        StandardAuthManager authManager = Mockito.mock(StandardAuthManager.class);
-        Mockito.when(graph.backendStoreFeatures()).thenReturn(features);
-        Mockito.when(features.supportsPersistence()).thenReturn(true);
-        Mockito.when(graph.hugegraph()).thenReturn(graph);
-        Mockito.when(graph.authManager()).thenReturn(authManager);
-        Mockito.when(authManager.createUser(Mockito.any(HugeUser.class)))
-               .thenThrow(new IllegalStateException("create user failed"));
-
-        StandardAuthenticator authenticator =
-                Mockito.spy(new StandardAuthenticator());
-        Whitebox.setInternalState(authenticator, "graph", graph);
-        Mockito.doNothing().when(authenticator).setup(config);
-
-        Assert.assertThrows(IllegalStateException.class, () -> {
-            Whitebox.invoke(StandardAuthenticator.class,
-                            new Class<?>[]{HugeConfig.class, String.class,
-                                           boolean.class},
-                            "initAdminUser", authenticator, config,
-                            "secret", true);
-        }, e -> Assert.assertContains("create user failed", e.getMessage()));
-
-        Mockito.verify(graph).close();
-    }
-
-    @Test
-    public void testUnknownInitStoreFlagRejected() throws IOException {
-        String restConf = this.writeDisabledRestServerConf();
-        Assert.assertThrows(IllegalArgumentException.class, () -> {
-            InitStore.main(new String[]{restConf, "--unknown"});
-        }, e -> Assert.assertContains("optional", e.getMessage()));
     }
 
     /**
@@ -526,10 +169,17 @@ public class InitStoreConfigTest {
      * registerBackends(), so their registration state shows whether it ran.
      * OptionSpace is process-wide, so the assertion is that main() leaves that
      * state unchanged rather than that it starts out empty.
+     * <p>
+     * The enabled run at the end is the control: it shares this method so that
+     * it provably happens after the disabled assertions, since registering
+     * backends here would otherwise make them vacuous. Without it, every
+     * assertion above would still hold for a gate that skipped unconditionally.
+     * That run leaves backend providers registered for the rest of the suite's
+     * JVM, and BackendProviderFactory.register() rejects a duplicate, so a
+     * later suite member registering backends itself has to tolerate that.
      */
     @Test
-    public void testDisabledInitStoreSkipsBackendAndPluginRegistration()
-                                                            throws Exception {
+    public void testGateDecidesWhetherRegistrationRuns() throws Exception {
         boolean backendsRegistered = OptionSpace.containKey(ROCKSDB_OPTION);
 
         InitStore.main(new String[]{this.writeDisabledRestServerConf()});
@@ -539,6 +189,13 @@ public class InitStoreConfigTest {
         // Server options are still registered, since the gate is read from them
         Assert.assertTrue(OptionSpace.containKey(
                           ServerOptions.INIT_STORE_ENABLED.name()));
+
+        // Absent gate means enabled, so the same config now has to reach the
+        // graph scan and fail on the directory the disabled run never looked at
+        Assert.assertThrows(IllegalArgumentException.class, () -> {
+            InitStore.main(new String[]{this.writeEnabledRestServerConf()});
+        });
+        Assert.assertTrue(OptionSpace.containKey(ROCKSDB_OPTION));
     }
 
     /**
@@ -585,30 +242,9 @@ public class InitStoreConfigTest {
                 ServerOptions.AUTHENTICATOR.name() +
                 "=" + StandardAuthenticator.class.getName(),
                 ServerOptions.AUTH_GRAPH_STORE.name() + "=hugegraph",
-                ServerOptions.USE_PD.name() + "=true",
-                ServerOptions.ADMIN_PA.name() + "=secret");
-
-        InitStore.main(new String[]{restConf});
-    }
-
-    @Test
-    public void testDisabledInitStoreRejectsDefaultAdminPassword()
-                                                        throws Exception {
-        Path graphsDir = this.writeAuthGraphConfig("hstore");
-        String restConf = this.writeDisabledRestServerConfForGraphs(
-                graphsDir,
-                ServerOptions.AUTHENTICATOR.name() +
-                "=" + StandardAuthenticator.class.getName(),
-                ServerOptions.AUTH_GRAPH_STORE.name() + "=hugegraph",
                 ServerOptions.USE_PD.name() + "=true");
 
-        // Docker uses this topology-only preflight before it writes PASSWORD.
-        Whitebox.invokeStatic(ConfigTool.class,
-                              new Class<?>[]{String.class},
-                              "validateSkip", restConf);
-        Assert.assertThrows(IllegalArgumentException.class, () -> {
-            InitStore.main(new String[]{restConf});
-        }, e -> Assert.assertContains("must explicitly define", e.getMessage()));
+        InitStore.main(new String[]{restConf});
     }
 
     /**
@@ -650,63 +286,23 @@ public class InitStoreConfigTest {
                                       e.getMessage()));
     }
 
-    @Test
-    public void testConfigToolClassifiesLocalBuiltinAuth() throws Exception {
-        String standard = this.writeDisabledRestServerConf(
-                ServerOptions.AUTHENTICATOR.name() + "=" +
-                StandardAuthenticator.class.getName());
-        String derived = this.writeDisabledRestServerConf(
-                ServerOptions.AUTHENTICATOR.name() + "=" +
-                DerivedAuthenticator.class.getName());
-        String remote = this.writeDisabledRestServerConf(
-                ServerOptions.AUTHENTICATOR.name() + "=" +
-                StandardAuthenticator.class.getName(),
-                ServerOptions.AUTH_REMOTE_URL.name() + "=127.0.0.1:8899");
-        String custom = this.writeDisabledRestServerConf(
-                ServerOptions.AUTHENTICATOR.name() +
-                "=org.example.auth.LdapAuthenticator");
-
-        Assert.assertTrue(configToolRequiresLocalAdmin(standard));
-        Assert.assertTrue(configToolRequiresLocalAdmin(derived));
-        Assert.assertFalse(configToolRequiresLocalAdmin(remote));
-        Assert.assertFalse(configToolRequiresLocalAdmin(custom));
-    }
-
-    private static String configToolGet(Path file, String key) {
-        return Whitebox.invokeStatic(
-                ConfigTool.class,
-                new Class<?>[]{String.class, String.class},
-                "getProperty", file.toString(), key);
-    }
-
-    private static void configToolSet(Path file, String key, String value) {
-        Whitebox.invokeStatic(
-                ConfigTool.class,
-                new Class<?>[]{String.class, String.class, String.class},
-                "setProperty", file.toString(), key, value);
-    }
-
-    private static boolean configToolRequiresLocalAdmin(String file) {
-        return Whitebox.invokeStatic(
-                ConfigTool.class, new Class<?>[]{String.class},
-                "requiresLocalAdmin", file);
-    }
-
-    private static void invokeInitAdminUser(
-                             StandardAuthenticator authenticator,
-                             HugeConfig config, String password,
-                             boolean fromConfig) {
-        Whitebox.invoke(StandardAuthenticator.class,
-                        new Class<?>[]{HugeConfig.class, String.class,
-                                       boolean.class},
-                        "initAdminUser", authenticator, config,
-                        password, fromConfig);
-    }
-
     private String writeDisabledRestServerConf(String... extraLines)
                                                throws IOException {
         return this.writeDisabledRestServerConfForGraphs(
                 this.workDir.resolve(MISSING_GRAPHS_DIR), extraLines);
+    }
+
+    /**
+     * The same configuration with the gate left out entirely, so it takes the
+     * option's default rather than an explicit value.
+     */
+    private String writeEnabledRestServerConf() throws IOException {
+        Path restConf = this.workDir.resolve(
+                "rest-server-" + this.confSeq++ + ".properties");
+        Files.write(restConf, Arrays.asList(ServerOptions.GRAPHS.name() + "=" +
+                                            this.workDir.resolve(MISSING_GRAPHS_DIR)),
+                    StandardCharsets.UTF_8);
+        return restConf.toString();
     }
 
     private String writeDisabledRestServerConfForGraphs(Path graphsDir,
