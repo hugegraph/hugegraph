@@ -36,19 +36,31 @@ function run_process_test() {
 
 function run_selected_process_test() {
     local tests=$1
-    local expected_report=$2
-    local report="$REPORT_DIR/TEST-org.apache.hugegraph.tinkerpop.$expected_report.xml"
+    shift
+    if [[ $# -eq 0 ]]; then
+        echo "At least one expected Surefire report is required"
+        exit 2
+    fi
+    local expected_reports=("$@")
+    local expected_report
+    local report
 
-    rm -f "$report"
+    for expected_report in "${expected_reports[@]}"; do
+        report="$REPORT_DIR/TEST-org.apache.hugegraph.tinkerpop.$expected_report.xml"
+        rm -f "$report"
+    done
     mvn test -pl hugegraph-server/hugegraph-test -am \
         -P tinkerpop-process-test,$BACKEND \
         -Dtest="$tests" \
         -Dsurefire.failIfNoSpecifiedTests=false
 
-    if [[ ! -s "$report" ]] || ! grep -Eq 'tests="[1-9][0-9]*"' "$report"; then
-        echo "Expected a non-empty Surefire report: $report"
-        exit 1
-    fi
+    for expected_report in "${expected_reports[@]}"; do
+        report="$REPORT_DIR/TEST-org.apache.hugegraph.tinkerpop.$expected_report.xml"
+        if [[ ! -s "$report" ]] || ! grep -Eq 'tests="[1-9][0-9]*"' "$report"; then
+            echo "Expected a non-empty Surefire report: $report"
+            exit 1
+        fi
+    done
 }
 
 case "$SUITE" in
@@ -61,7 +73,8 @@ case "$SUITE" in
     process-standard)
         run_selected_process_test \
             "ProcessStandardTest,HugeGraphProviderLifecycleTest" \
-            "ProcessStandardTest"
+            "ProcessStandardTest" \
+            "HugeGraphProviderLifecycleTest"
         ;;
     process-feature)
         run_selected_process_test "HugeGraphFeatureTest" "HugeGraphFeatureTest"

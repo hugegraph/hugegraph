@@ -339,6 +339,30 @@ jobs:
 
       - name: Prepare env and service
         run: |
+          VERSION=$(grep -E '^VersionInBash=' \
+            hugegraph-commons/hugegraph-common/src/main/resources/version.properties | cut -d'=' -f2-)
+          [[ "$VERSION" =~ ^[0-9A-Za-z._-]+$ ]] || {
+            echo "Invalid VersionInBash: $VERSION"
+            exit 1
+          }
+          STORE_CONFIG=hugegraph-store/apache-hugegraph-store-$VERSION/conf/application-pd.yml
+          [[ -f "$STORE_CONFIG" ]] || {
+            echo "Store config not found: $STORE_CONFIG"
+            exit 1
+          }
+          [[ $(grep -Ec '^[[:space:]]*min_write_buffer_number_to_merge:' \
+                       "$STORE_CONFIG") -eq 1 ]] || {
+            echo "Unable to locate RocksDB config insertion point: $STORE_CONFIG"
+            exit 1
+          }
+          # Bound file-handle caching for this CI topology without changing
+          # the released Store default for deployments with different limits.
+          sed -i \
+            -e '/^[[:space:]]*max_open_files:/d' \
+            -e '/^[[:space:]]*min_write_buffer_number_to_merge:/a\  max_open_files: 4096' \
+            "$STORE_CONFIG"
+          grep -n 'max_open_files' "$STORE_CONFIG"
+
           SOFT_OPEN_FILES=$(ulimit -Sn)
           echo "[ci] open-file limit before HStore startup:" \
                "soft=$SOFT_OPEN_FILES, hard=$(ulimit -Hn)"

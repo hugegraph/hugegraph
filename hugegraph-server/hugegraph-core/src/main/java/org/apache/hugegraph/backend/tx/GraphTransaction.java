@@ -567,14 +567,10 @@ public class GraphTransaction extends IndexableTransaction {
         QueryList<Number> queries = this.optimizeQueries(query, q -> {
             boolean isIndexQuery = q instanceof IdQuery;
             assert isIndexQuery || isConditionQuery || q == query;
-            // Need to fall back if there are uncommitted records
-            boolean fallback = hasUpdate;
+            boolean fallback = false;
             Number result;
 
-            if (fallback) {
-                // Here just ignore it, and do fall back later
-                result = null;
-            } else if (!isIndexQuery || !isConditionQuery) {
+            if (!isIndexQuery || !isConditionQuery) {
                 // It's a sysprop-query, let parent tx do it
                 assert !fallback;
                 result = super.queryNumber(q);
@@ -840,7 +836,7 @@ public class GraphTransaction extends IndexableTransaction {
     public Iterator<Vertex> queryVertices(Query query) {
         if (this.hasUpdate()) {
             E.checkArgument(query.noLimitAndOffset(),
-                            "It's not allowed to query with offser/limit " +
+                            "It's not allowed to query with offset/limit " +
                             "when there are uncommitted records.");
             // TODO: also add check: no SCAN, no OLAP
             E.checkArgument(!query.paging(),
@@ -1006,7 +1002,7 @@ public class GraphTransaction extends IndexableTransaction {
     public Iterator<Edge> queryEdges(Query query) {
         if (this.hasUpdate()) {
             E.checkArgument(query.noLimitAndOffset(),
-                            "It's not allowed to query with offser/limit " +
+                            "It's not allowed to query with offset/limit " +
                             "when there are uncommitted records.");
             // TODO: also add check: no SCAN, no OLAP
             E.checkArgument(!query.paging(),

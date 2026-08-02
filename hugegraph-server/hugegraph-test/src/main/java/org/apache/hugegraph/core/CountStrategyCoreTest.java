@@ -116,6 +116,15 @@ public class CountStrategyCoreTest extends BaseCoreTest {
         return false;
     }
 
+    private static void assertUncommittedRangeUnsupported(
+            GraphTraversal<?, ?> traversal) {
+        Assert.assertThrows(IllegalArgumentException.class, traversal::next,
+                            e -> {
+                                Assert.assertContains("offset/limit", e.getMessage());
+                                Assert.assertContains("uncommitted records", e.getMessage());
+                            });
+    }
+
     private void initTextRangeSchema(boolean withEdge) {
         SchemaManager schema = graph().schema();
         schema.propertyKey("vp4").asText().create();
@@ -275,6 +284,31 @@ public class CountStrategyCoreTest extends BaseCoreTest {
     }
 
     @Test
+    public void testVertexLimitCountRejectsUncommittedAddition() {
+        this.initSchema();
+        graph().addVertex(T.label, "person", "name", "marko");
+
+        assertUncommittedRangeUnsupported(
+                graph().traversal().V().limit(1L).count());
+    }
+
+    @Test
+    public void testVertexRangeCountRejectsUncommittedDeletion() {
+        this.initSchema();
+        graph().schema().indexLabel("personByName")
+               .onV("person").by("name").create();
+        this.initGraph();
+        Vertex marko = graph().traversal().V()
+                              .hasLabel("person")
+                              .has("name", "marko")
+                              .next();
+        marko.remove();
+
+        assertUncommittedRangeUnsupported(
+                graph().traversal().V().range(1L, 3L).count());
+    }
+
+    @Test
     public void testQueryNumberKeepsOriginalAggregate() {
         this.initSchema();
         graph().addVertex(T.label, "person", "name", "marko");
@@ -303,6 +337,37 @@ public class CountStrategyCoreTest extends BaseCoreTest {
         long count = graph().traversal().E().hasLabel("knows").count().next();
 
         Assert.assertEquals(2L, count);
+    }
+
+    @Test
+    public void testEdgeRangeCountRejectsUncommittedAddition() {
+        this.initSchema();
+        graph().schema().indexLabel("personByName")
+               .onV("person").by("name").create();
+        this.initGraph();
+        Vertex josh = graph().traversal().V()
+                             .hasLabel("person")
+                             .has("name", "josh")
+                             .next();
+        Vertex marko = graph().traversal().V()
+                              .hasLabel("person")
+                              .has("name", "marko")
+                              .next();
+        josh.addEdge("knows", marko);
+
+        assertUncommittedRangeUnsupported(
+                graph().traversal().E().range(1L, 3L).count());
+    }
+
+    @Test
+    public void testEdgeLimitCountRejectsUncommittedDeletion() {
+        this.initSchema();
+        this.initGraph();
+        Edge edge = graph().traversal().E().hasLabel("knows").next();
+        edge.remove();
+
+        assertUncommittedRangeUnsupported(
+                graph().traversal().E().limit(1L).count());
     }
 
     @Test

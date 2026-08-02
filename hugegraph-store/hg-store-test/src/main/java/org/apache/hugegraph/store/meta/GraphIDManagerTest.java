@@ -18,68 +18,166 @@
 package org.apache.hugegraph.store.meta;
 
 import java.io.File;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
-import org.apache.hugegraph.pd.common.PDException;
 import org.apache.hugegraph.rocksdb.access.RocksDBSession;
 import org.apache.hugegraph.store.UnitTestBase;
+import org.apache.hugegraph.store.business.BusinessHandlerImpl;
 import org.apache.hugegraph.store.meta.base.DBSessionBuilder;
+import org.apache.hugegraph.store.util.HgStoreException;
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
 public class GraphIDManagerTest extends UnitTestBase {
+
+    private static final int PARTITION_ID = 0;
+    private static final int GRAPH_ID_LIMIT = 8;
+
+    private String dbName;
+    private File dbPath;
+    private RocksDBSession session;
+    private DBSessionBuilder sessionBuilder;
+    private int previousMaxGraphId;
+
     @Before
     public void init() {
-        String dbPath = "/tmp/junit";
-        UnitTestBase.deleteDir(new File(dbPath));
-        super.initDB(dbPath);
+        this.previousMaxGraphId = GraphIdManager.maxGraphID;
+        GraphIdManager.maxGraphID = GRAPH_ID_LIMIT;
+        this.dbName = "graph-id-manager-" + System.nanoTime();
+        this.dbPath = new File("target/graph-id-manager-test", this.dbName);
+        Map<String, Object> config = new HashMap<>();
+        config.put("rocksdb.write_buffer_size", "1048576");
+        config.put("rocksdb.bloom_filter_bits_per_key", "10");
+        BusinessHandlerImpl.initRocksdb(config, null);
+        this.session = factory.createGraphDB(this.dbPath.getAbsolutePath(),
+                                             this.dbName);
+        this.sessionBuilder = partId -> this.session.clone();
+    }
+
+    @After
+    public void clear() {
+        GraphIdManager.maxGraphID = this.previousMaxGraphId;
+        if (this.session != null) {
+            this.session.close();
+        }
+        if (this.dbName != null) {
+            factory.releaseGraphDB(this.dbName);
+        }
+        if (this.dbPath != null) {
+            UnitTestBase.deleteDir(this.dbPath);
+        }
     }
 
     @Test
-    public void test() throws PDException {
-        GraphIdManager.maxGraphID = 64;
-        int max = GraphIdManager.maxGraphID;
-        try (RocksDBSession session = getDBSession("test")) {
-            GraphIdManager gid = new GraphIdManager(new DBSessionBuilder() {
-                @Override
-                public RocksDBSession getSession(int partId) {
-                    return session.clone();
-                }
-            }, 0);
-            for (int i = 0; i < max; i++) {
-                Assert.assertEquals(i, gid.getCId("Test", max));
-            }
+    public void testAllocateBoundaryIdBeforeWrap() {
+        GraphIdManager manager = this.newManager();
 
-            Assert.assertEquals(-1, gid.getCId("Test", max));
+        Assert.assertEquals(0L, manager.getCId("boundary", 4));
+        Assert.assertEquals(1L, manager.getCId("boundary", 4));
+        Assert.assertEquals(2L, manager.getCId("boundary", 4));
+        Assert.assertEquals(3L, manager.getCId("boundary", 4));
+    }
 
-            gid.delCId("Test", 3);
-            Assert.assertEquals(3, gid.getCId("Test", max));
-            Assert.assertEquals(-1, gid.getCId("Test", max));
+    @Test
+    public void testReturnMinusOneWhenAllIdsAreUsed() {
+        GraphIdManager manager = this.newManager();
 
-            long start = System.currentTimeMillis();
-            for (int i = 0; i < GraphIdManager.maxGraphID; i++) {
-                long id = gid.getGraphId("g" + i);
-                Assert.assertEquals(i, id);
-            }
-            System.out.println("time is " + (System.currentTimeMillis() - start));
-            {
-                gid.releaseGraphId("g" + 10);
-                long id = gid.getGraphId("g" + 10);
-                Assert.assertEquals(10, id);
-            }
-            start = System.currentTimeMillis();
-            for (int i = 0; i < GraphIdManager.maxGraphID; i++) {
-                long id = gid.releaseGraphId("g" + i);
-                Assert.assertEquals(i, id);
-            }
-            System.out.println("time is " + (System.currentTimeMillis() - start));
-            start = System.currentTimeMillis();
-            for (int i = 0; i < GraphIdManager.maxGraphID; i++) {
-                long id = gid.getCId(GraphIdManager.GRAPH_ID_PREFIX, GraphIdManager.maxGraphID);
-                //  long id = gid.getGraphId("g" + i);
-                Assert.assertTrue(id >= 0);
-            }
-            System.out.println("time is " + (System.currentTimeMillis() - start));
+        for (int i = 0; i < 4; i++) {
+            Assert.assertEquals(i, manager.getCId("full", 4));
         }
+        Assert.assertEquals(-1L, manager.getCId("full", 4));
+    }
+
+    @Test
+    public void testReuseReleasedId() {
+        GraphIdManager manager = this.newManager();
+
+        for (int i = 0; i < 4; i++) {
+            Assert.assertEquals(i, manager.getCId("release", 4));
+        }
+        manager.delCId("release", 1L);
+
+        Assert.assertEquals(1L, manager.getCId("release", 4));
+        Assert.assertEquals(-1L, manager.getCId("release", 4));
+    }
+
+    @Test
+    public void testWrapToBeginningAfterBoundary() {
+        GraphIdManager manager = this.newManager();
+
+        Assert.assertEquals(0L, manager.getCId("wrap", 4));
+        Assert.assertEquals(1L, manager.getCId("wrap", 4));
+        manager.delCId("wrap", 0L);
+        Assert.assertEquals(2L, manager.getCId("wrap", 4));
+        Assert.assertEquals(3L, manager.getCId("wrap", 4));
+
+        Assert.assertEquals(0L, manager.getCId("wrap", 4));
+    }
+
+    @Test
+    public void testPersistGraphIdAcrossManagerRestart() {
+        GraphIdManager firstManager = this.newManager();
+
+        Assert.assertEquals(0L, firstManager.getGraphIdOrCreate("first"));
+
+        GraphIdManager restartedManager = this.newManager();
+        Assert.assertEquals(0L, restartedManager.getGraphId("first"));
+        Assert.assertEquals(1L, restartedManager.getGraphIdOrCreate("second"));
+    }
+
+    @Test
+    public void testGraphIdDomainExcludesMissingSentinel() {
+        GraphIdManager manager = this.newManager();
+
+        for (int i = 0; i < GRAPH_ID_LIMIT; i++) {
+            Assert.assertEquals(i, manager.getGraphIdOrCreate("graph-" + i));
+        }
+        Assert.assertEquals(GRAPH_ID_LIMIT, manager.getGraphId("missing"));
+        Assert.assertThrows(HgStoreException.class,
+                            () -> manager.getGraphIdOrCreate("overflow"));
+    }
+
+    @Test
+    public void testConcurrentCreateSameGraphReturnsSameId() throws Exception {
+        int threadCount = 8;
+        ExecutorService executor = Executors.newFixedThreadPool(threadCount);
+        CountDownLatch start = new CountDownLatch(1);
+        List<Future<Long>> futures = new ArrayList<>(threadCount);
+
+        try {
+            for (int i = 0; i < threadCount; i++) {
+                futures.add(executor.submit(() -> {
+                    GraphIdManager manager = this.newManager();
+                    start.await();
+                    return manager.getGraphIdOrCreate("same-graph");
+                }));
+            }
+            start.countDown();
+
+            Set<Long> graphIds = new HashSet<>();
+            for (Future<Long> future : futures) {
+                graphIds.add(future.get(10L, TimeUnit.SECONDS));
+            }
+            Assert.assertEquals(1, graphIds.size());
+            Assert.assertTrue(graphIds.contains(0L));
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    private GraphIdManager newManager() {
+        return new GraphIdManager(this.sessionBuilder, PARTITION_ID);
     }
 }

@@ -32,6 +32,3 @@ rocksdb:
   write_buffer_size: 32000000
   # For each rocksdb, the number of memtables reaches this value for writing to disk.
   min_write_buffer_number_to_merge: 16
-  # Keep each RocksDB table cache bounded. With 12 partitions, 4096 leaves
-  # process-wide headroom below the default 65536 open-file limit.
-  max_open_files: 4096
