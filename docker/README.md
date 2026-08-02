@@ -172,17 +172,17 @@ Configuration is injected via environment variables. The old `docker/configs/app
 > nobody can log in to. A custom `auth.authenticator` is exempt because it
 > manages its own identities.
 >
-> With the variable set to `false`, the entrypoint deliberately never writes
-> `docker/init_complete`, so a later re-enable is still able to initialize.
-> Setting the property directly in a mounted `rest-server.properties` does not
-> get that guard.
+> `docker/init_complete` is written by init-store itself, and only after it has
+> initialized. A skipped run therefore records nothing, whether it was disabled
+> by the variable or by the property in a mounted `rest-server.properties`, so a
+> later re-enable is still able to initialize.
 >
-> **`PASSWORD` has no effect on that path.** init-store reads it from standard
-> input, and a disabled one returns before doing so. The admin is created on
-> the PD startup path from `auth.admin_pa`, which defaults to the public value
-> `pa`, so set it explicitly in a mounted `rest-server.properties`. It applies
-> only when the account is first created, so changing it later does not rotate
-> an existing password.
+> **`PASSWORD` does not reach that path.** init-store reads it from standard
+> input, and a disabled one returns before doing so. The admin is instead
+> created from `auth.admin_pa`, whose `pa` default is public, so init-store
+> refuses to skip unless it is explicitly set to a non-empty value in a mounted
+> `rest-server.properties`. It applies only when the account is first created,
+> so changing it later does not rotate an existing password.
 
 **Deprecated aliases** (still work but log a warning):
 
