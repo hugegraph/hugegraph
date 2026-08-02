@@ -21,6 +21,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNotSame;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
 import java.lang.reflect.Field;
@@ -43,6 +44,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
+import org.apache.hugegraph.store.client.query.QueryV2Client;
+import org.apache.hugegraph.store.grpc.query.QueryServiceGrpc;
 import org.apache.hugegraph.store.term.HgPair;
 import org.junit.Test;
 
@@ -55,18 +58,19 @@ import io.grpc.stub.AbstractAsyncStub;
 import io.grpc.stub.AbstractBlockingStub;
 
 /**
- * Verifies that Store address changes replace channels and cached stubs safely.
+ * Verifies that Store address changes replace channels and cached stubs safely, and that the
+ * refresh never resolves or creates channels on the thread that asked for a stub.
  */
 public class AbstractGrpcClientTest {
 
+    private static final String MAINTENANCE_THREAD_PREFIX = "channel-maintenance";
     private static final AtomicInteger TARGET_SEQ = new AtomicInteger();
 
     private static String uniqueTarget(String prefix) {
         return prefix + "-" + TARGET_SEQ.incrementAndGet() + ":8500";
     }
 
-    private static boolean belongsToPool(Channel channel,
-                                         ManagedChannel[] channels) {
+    private static boolean belongsToPool(Channel channel, ManagedChannel[] channels) {
         return Arrays.stream(channels).anyMatch(current -> current == channel);
     }
 
@@ -108,6 +112,30 @@ public class AbstractGrpcClientTest {
         assertTrue(message, condition.isTrue());
     }
 
+    /**
+     * Refresh runs on the maintenance thread, so a replacement pool becomes visible some time
+     * after the address changes rather than on the call that observes the change. Retirement
+     * deliberately trails publication, so waiting for both is what marks a refresh complete.
+     */
+    private static ManagedChannel[] awaitPoolReplacement(RecordingGrpcClient client,
+                                                         String target,
+                                                         ManagedChannel[] staleChannels)
+            throws Exception {
+        awaitCondition("refresh must publish a replacement pool",
+                       () -> client.getChannels(target) != staleChannels);
+        awaitCondition("refresh must retire the previous pool after publishing",
+                       () -> allChannelsAreShutdown(staleChannels));
+        return client.getChannels(target);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static boolean refreshIsIdle(AbstractGrpcClient client, String target)
+            throws Exception {
+        Field field = AbstractGrpcClient.class.getDeclaredField("refreshTasks");
+        field.setAccessible(true);
+        return !((Map<String, ?>) field.get(client)).containsKey(target);
+    }
+
     @SuppressWarnings("unchecked")
     private static List<ManagedChannel> cachedAsyncStubChannels(AbstractGrpcClient client,
                                                                 String target)
@@ -121,18 +149,6 @@ public class AbstractGrpcClientTest {
         return Arrays.stream(pairs).map(HgPair::getKey).collect(Collectors.toList());
     }
 
-    @SuppressWarnings("unchecked")
-    private static HgPair<ManagedChannel, AbstractBlockingStub>[] cachedBlockingStubs(
-            AbstractGrpcClient client, String target) throws Exception {
-        Field field = AbstractGrpcClient.class.getDeclaredField("blockingStubs");
-        field.setAccessible(true);
-        Map<String, HgPair<ManagedChannel, AbstractBlockingStub>[]> stubs =
-                (Map<String, HgPair<ManagedChannel, AbstractBlockingStub>[]>) field.get(client);
-        HgPair<ManagedChannel, AbstractBlockingStub>[] pairs = stubs.get(target);
-        assertNotNull("the blocking stub cache must exist", pairs);
-        return pairs;
-    }
-
     private static ThreadPoolExecutor channelCreationExecutor(AbstractGrpcClient client)
             throws Exception {
         Field field = AbstractGrpcClient.class.getDeclaredField("executor");
@@ -141,7 +157,7 @@ public class AbstractGrpcClientTest {
     }
 
     @Test
-    public void testAddressChangeReplacesChannelAndStubPools() {
+    public void testAddressChangeReplacesChannelAndStubPools() throws Exception {
         String target = uniqueTarget("address-change");
         RecordingGrpcClient client = new RecordingGrpcClient();
         ManagedChannel[] oldChannels = client.getChannels(target);
@@ -149,9 +165,7 @@ public class AbstractGrpcClientTest {
         assertNotNull(client.getAsyncStub(target));
 
         client.resolvedTarget = "10.0.0.2";
-        ManagedChannel[] newChannels = client.getChannels(target);
-        assertNotSame("an address change must replace the channel pool",
-                      oldChannels, newChannels);
+        ManagedChannel[] newChannels = awaitPoolReplacement(client, target, oldChannels);
         assertTrue("every stale channel must be gracefully shut down",
                    allChannelsAreShutdown(oldChannels));
         assertFalse("refresh must not force close stale channels immediately",
@@ -162,35 +176,57 @@ public class AbstractGrpcClientTest {
         client.asyncStubChannels.clear();
         assertNotNull(client.getBlockingStub(target));
         assertNotNull(client.getAsyncStub(target));
-        assertEquals("the blocking stub pool must be rebuilt",
-                     newChannels.length, client.blockingStubChannels.size());
-        assertTrue("replacement blocking stubs must use the new channel pool",
-                   client.blockingStubChannels.stream()
-                                              .allMatch(channel ->
-                                                        belongsToPool(channel, newChannels)));
+        assertCachedChannelsCurrentAndLive("the blocking stub pool must be rebuilt on the new pool",
+                                           client.blockingStubChannels, newChannels);
         assertUsesEveryChannel("blocking stubs must be spread across the pool",
                                client.blockingStubChannels, newChannels);
-        assertEquals("the async stub pool must be rebuilt",
-                     newChannels.length, client.asyncStubChannels.size());
-        assertTrue("replacement async stubs must use the new channel pool",
-                   client.asyncStubChannels.stream()
-                                           .allMatch(channel ->
-                                                     belongsToPool(channel, newChannels)));
+        assertCachedChannelsCurrentAndLive("the async stub pool must be rebuilt on the new pool",
+                                           client.asyncStubChannels, newChannels);
         assertUsesEveryChannel("async stubs must be spread across the pool",
                                client.asyncStubChannels, newChannels);
     }
 
     @Test
-    public void testFirstSuccessfulResolutionReplacesUnknownChannels() {
+    public void testStubPoolsCoverEveryChannelOnFirstBuild() {
+        String target = uniqueTarget("initial-stub-spread");
+        RecordingGrpcClient client = new RecordingGrpcClient();
+        ManagedChannel[] channels = client.getChannels(target);
+
+        assertNotNull(client.getBlockingStub(target));
+        assertNotNull(client.getAsyncStub(target));
+        assertUsesEveryChannel("the first blocking stub pool must cover every channel",
+                               client.blockingStubChannels, channels);
+        assertUsesEveryChannel("the first async stub pool must cover every channel",
+                               client.asyncStubChannels, channels);
+    }
+
+    @Test
+    public void testFirstPoolIsBuiltAfterItsAddressIsKnown() throws Exception {
+        String target = uniqueTarget("initial-resolution");
+        RecordingGrpcClient client = new RecordingGrpcClient();
+        ManagedChannel[] initialChannels = client.getChannels(target);
+
+        assertEquals("the first pool must be built once its address is known",
+                     1, client.resolutionCount.get());
+        // Let every refresh settle first, otherwise the assertions below race the swap.
+        awaitCondition("the refresh must settle", () -> refreshIsIdle(client, target));
+        assertSame("a pool built with a known address must not be replaced",
+                   initialChannels, client.getChannels(target));
+        awaitCondition("the settled refresh must leave no further work",
+                       () -> refreshIsIdle(client, target));
+        assertTrue("the first pool must not be retired by its own resolution",
+                   allChannelsAreLive(initialChannels));
+    }
+
+    @Test
+    public void testUnknownAddressPoolIsReplacedOnFirstSuccessfulResolution() throws Exception {
         String target = uniqueTarget("first-successful-resolution");
         RecordingGrpcClient client = new RecordingGrpcClient();
         client.resolvedTarget = "";
         ManagedChannel[] unknownChannels = client.getChannels(target);
 
         client.resolvedTarget = "10.0.0.1";
-        ManagedChannel[] resolvedChannels = client.getChannels(target);
-        assertNotSame("a pool with unknown addresses must be replaced",
-                      unknownChannels, resolvedChannels);
+        ManagedChannel[] resolvedChannels = awaitPoolReplacement(client, target, unknownChannels);
         assertTrue("every channel from the unknown pool must be gracefully shut down",
                    allChannelsAreShutdown(unknownChannels));
         assertFalse("unknown channels must not be force closed immediately",
@@ -200,16 +236,63 @@ public class AbstractGrpcClientTest {
                    allChannelsAreLive(resolvedChannels));
     }
 
+    /**
+     * HugeSecurityManager denies socket connection and thread creation on Gremlin worker stacks,
+     * and InetAddress.getAllByName() performs exactly the checkConnect(host, -1) simulated here.
+     * A refresh triggered by such a caller must therefore resolve somewhere else entirely.
+     */
     @Test
-    public void testRetirementDoesNotBlockWhenCreationExecutorIsSaturated()
-            throws Exception {
+    public void testRefreshSucceedsWhenTheCallerThreadIsDeniedSocketAccess() throws Exception {
+        String target = uniqueTarget("denied-caller");
+        HostCapturingGrpcClient client = new HostCapturingGrpcClient();
+        client.checkSocketPermission = true;
+        ManagedChannel[] oldChannels = client.getChannels(target);
+        assertNotNull(client.getBlockingStub(target));
+
+        SecurityManager previous = System.getSecurityManager();
+        System.setSecurityManager(new DenyingWorkerSecurityManager());
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        AtomicReference<AbstractBlockingStub> stub = new AtomicReference<>();
+        try {
+            client.resolvedAddress = "10.0.0.2";
+            // The name is what HugeSecurityManager keys its Gremlin worker check on.
+            Thread worker = new Thread(() -> {
+                try {
+                    stub.set(client.getBlockingStub(target));
+                } catch (Throwable e) {
+                    failure.set(e);
+                }
+            }, "gremlin-server-exec-1");
+            worker.start();
+            worker.join(TimeUnit.SECONDS.toMillis(10L));
+
+            assertFalse("the denied caller must finish", worker.isAlive());
+            assertNotNull("a denied caller must still receive a stub", stub.get());
+            assertTrue("a denied caller must not observe a security failure: " + failure.get(),
+                       failure.get() == null);
+            awaitCondition("the refresh must still publish a replacement pool",
+                           () -> client.getChannels(target) != oldChannels);
+            assertFalse("the assertion below is vacuous unless something resolved",
+                        client.resolutionThreads.isEmpty());
+            assertTrue("every resolution must run on the channel maintenance thread",
+                       client.resolutionThreads.stream()
+                                               .allMatch(name -> name.startsWith(
+                                                       MAINTENANCE_THREAD_PREFIX)));
+        } finally {
+            System.setSecurityManager(previous);
+        }
+    }
+
+    @Test
+    public void testRetirementDoesNotBlockWhenCreationExecutorIsSaturated() throws Exception {
         String target = uniqueTarget("saturated-retirement");
-        ActiveRetirementGrpcClient client = new ActiveRetirementGrpcClient();
+        RecordingGrpcClient client = new RecordingGrpcClient();
+        client.activeCallsFinished = new CountDownLatch(1);
+        client.drainTimeoutNanos = TimeUnit.SECONDS.toNanos(5L);
         ManagedChannel[] oldChannels = client.getChannels(target);
         ThreadPoolExecutor channelExecutor = channelCreationExecutor(client);
         CountDownLatch workersStarted = new CountDownLatch(AbstractGrpcClient.concurrency);
         CountDownLatch releaseWorkers = new CountDownLatch(1);
-        ExecutorService caller = Executors.newSingleThreadExecutor();
 
         try {
             for (int i = 0; i < AbstractGrpcClient.concurrency; i++) {
@@ -226,29 +309,25 @@ public class AbstractGrpcClientTest {
                        workersStarted.await(5, TimeUnit.SECONDS));
 
             client.resolvedTarget = "10.0.0.2";
-            Future<ManagedChannel[]> refreshed =
-                    caller.submit(() -> client.getChannels(target));
-            ManagedChannel[] newChannels = refreshed.get(1, TimeUnit.SECONDS);
+            ManagedChannel[] newChannels = awaitPoolReplacement(client, target, oldChannels);
 
-            assertNotSame("refresh must publish the replacement pool",
-                          oldChannels, newChannels);
-            assertTrue("the retired pool must be shut down before refresh returns",
+            assertNotSame("refresh must publish the replacement pool", oldChannels, newChannels);
+            assertTrue("the retired pool must be shut down once refresh completes",
                        allChannelsAreShutdown(oldChannels));
             assertFalse("the scheduled cleanup must preserve the drain window",
                         fakeChannels(oldChannels).stream()
                                                  .anyMatch(FakeManagedChannel::isForceShutdown));
         } finally {
             releaseWorkers.countDown();
-            client.finishActiveCalls();
-            caller.shutdownNow();
+            client.activeCallsFinished.countDown();
         }
     }
 
     @Test
-    public void testPartialChannelsAreRetiredAfterMixedCreationFailure()
-            throws Exception {
+    public void testPartialChannelsAreRetiredAfterMixedCreationFailure() {
         String target = uniqueTarget("partial-creation-failure");
-        FailingCreationGrpcClient client = new FailingCreationGrpcClient(5);
+        CreationControlGrpcClient client = new CreationControlGrpcClient();
+        client.failedAttempt = 5;
 
         try {
             client.getChannels(target);
@@ -266,10 +345,10 @@ public class AbstractGrpcClientTest {
     }
 
     @Test
-    public void testInterruptedCreationWaitsAndRetiresPartialChannels()
-            throws Exception {
+    public void testInterruptedCreationWaitsAndRetiresPartialChannels() throws Exception {
         String target = uniqueTarget("interrupted-creation");
-        DelayedCreationGrpcClient client = new DelayedCreationGrpcClient();
+        CreationControlGrpcClient client = new CreationControlGrpcClient();
+        client.releaseCreation = new CountDownLatch(1);
         AtomicReference<Throwable> failure = new AtomicReference<>();
         AtomicBoolean interrupted = new AtomicBoolean();
         Thread caller = new Thread(() -> {
@@ -309,13 +388,14 @@ public class AbstractGrpcClientTest {
     @Test
     public void testDrainDeadlineForceTerminatesRetiredChannels() throws Exception {
         String target = uniqueTarget("drain-deadline");
-        ImmediateRetirementGrpcClient client = new ImmediateRetirementGrpcClient();
+        RecordingGrpcClient client = new RecordingGrpcClient();
+        client.activeCallsFinished = new CountDownLatch(1);
+        client.drainTimeoutNanos = 0L;
         ManagedChannel[] oldChannels = client.getChannels(target);
 
         client.resolvedTarget = "10.0.0.2";
-        ManagedChannel[] newChannels = client.getChannels(target);
+        ManagedChannel[] newChannels = awaitPoolReplacement(client, target, oldChannels);
 
-        assertNotSame("refresh must publish a replacement pool", oldChannels, newChannels);
         awaitCondition("expired drain deadline must force terminate the retired pool",
                        () -> fakeChannels(oldChannels).stream().allMatch(channel ->
                                channel.isTerminated() && channel.isForceShutdown()));
@@ -323,34 +403,9 @@ public class AbstractGrpcClientTest {
     }
 
     @Test
-    public void testStubCacheRequiresIndexIdentityMapping() throws Exception {
-        String target = uniqueTarget("index-mapping");
-        RecordingGrpcClient client = new RecordingGrpcClient();
-        ManagedChannel[] targetChannels = client.getChannels(target);
-        assertNotNull(client.getBlockingStub(target));
-        HgPair<ManagedChannel, AbstractBlockingStub>[] pairs =
-                cachedBlockingStubs(client, target);
-        HgPair<ManagedChannel, AbstractBlockingStub> first = pairs[0];
-        pairs[0] = pairs[1];
-        pairs[1] = first;
-        client.blockingStubChannels.clear();
-
-        assertNotNull(client.getBlockingStub(target));
-
-        assertEquals("a permuted cache must be rebuilt instead of reused",
-                     AbstractGrpcClient.concurrency, client.blockingStubChannels.size());
-        HgPair<ManagedChannel, AbstractBlockingStub>[] rebuilt =
-                cachedBlockingStubs(client, target);
-        for (int i = 0; i < targetChannels.length; i++) {
-            assertTrue("each cached stub must map to the channel at the same index",
-                       rebuilt[i].getKey() == targetChannels[i]);
-        }
-    }
-
-    @Test
-    public void testStubAcquisitionReusesResolutionWithinRefreshInterval() {
+    public void testStubAcquisitionReusesResolutionWithinRefreshInterval() throws Exception {
         String target = uniqueTarget("throttled-refresh");
-        CountingResolverGrpcClient client = new CountingResolverGrpcClient();
+        RecordingGrpcClient client = new RecordingGrpcClient();
         client.refreshIntervalNanos = TimeUnit.HOURS.toNanos(1L);
 
         assertNotNull(client.getBlockingStub(target));
@@ -360,6 +415,7 @@ public class AbstractGrpcClientTest {
             assertNotNull(client.getAsyncStub(target));
         }
 
+        Thread.sleep(100L);
         assertEquals("stub acquisition must not resolve again inside the refresh interval",
                      1, client.resolutionCount.get());
     }
@@ -368,14 +424,16 @@ public class AbstractGrpcClientTest {
     public void testConcurrentStubAcquisitionRetainsHealthyPoolDuringDelayedRefresh()
             throws Exception {
         String target = uniqueTarget("delayed-refresh");
-        DelayedResolverGrpcClient client = new DelayedResolverGrpcClient();
-        client.refreshIntervalNanos = 0L;
+        RecordingGrpcClient client = new RecordingGrpcClient();
         ManagedChannel[] oldChannels = client.getChannels(target);
         assertNotNull(client.getBlockingStub(target));
+        // Let any refresh already in flight settle, so the resolution count below is stable.
+        awaitCondition("the initial refresh must settle before the count is captured",
+                       () -> refreshIsIdle(client, target));
         int resolutionsBeforeConcurrentCalls = client.resolutionCount.get();
 
         client.resolvedTarget = "10.0.0.2";
-        client.delayChangedResolution = true;
+        client.delayResolution = true;
         client.refreshIntervalNanos = TimeUnit.HOURS.toNanos(1L);
 
         ExecutorService executor = Executors.newFixedThreadPool(6);
@@ -386,24 +444,21 @@ public class AbstractGrpcClientTest {
             }
             assertTrue("one refresh should be waiting in the delayed resolver",
                        client.delayedResolutionStarted.await(5, TimeUnit.SECONDS));
-            awaitCondition("callers that miss the refresh lock must keep using the cache",
-                           () -> futures.stream().anyMatch(Future::isDone));
+            for (Future<AbstractBlockingStub> future : futures) {
+                assertNotNull("no caller may block on the delayed refresh",
+                              future.get(5, TimeUnit.SECONDS));
+            }
             assertTrue("the existing healthy pool must stay live during refresh",
                        allChannelsAreLive(oldChannels));
 
             client.releaseDelayedResolution.countDown();
-            for (Future<AbstractBlockingStub> future : futures) {
-                assertNotNull(future.get(5, TimeUnit.SECONDS));
-            }
-
-            ManagedChannel[] currentChannels = client.getChannels(target);
-            assertNotSame("the completed refresh must publish a new channel pool",
-                          oldChannels, currentChannels);
+            ManagedChannel[] currentChannels =
+                    awaitPoolReplacement(client, target, oldChannels);
             assertTrue("the previous pool must be retired after replacement is published",
                        allChannelsAreShutdown(oldChannels));
+            assertTrue("the replacement pool must be live", allChannelsAreLive(currentChannels));
             assertEquals("concurrent callers must share a single refresh resolution",
-                         resolutionsBeforeConcurrentCalls + 1,
-                         client.resolutionCount.get());
+                         resolutionsBeforeConcurrentCalls + 1, client.resolutionCount.get());
         } finally {
             client.releaseDelayedResolution.countDown();
             executor.shutdownNow();
@@ -413,67 +468,38 @@ public class AbstractGrpcClientTest {
     @Test
     public void testRefreshGracefullyRetiresActiveStreamChannels() throws Exception {
         String target = uniqueTarget("active-stream-refresh");
-        ActiveRetirementGrpcClient client = new ActiveRetirementGrpcClient();
+        RecordingGrpcClient client = new RecordingGrpcClient();
+        client.activeCallsFinished = new CountDownLatch(1);
+        client.drainTimeoutNanos = TimeUnit.SECONDS.toNanos(5L);
         ManagedChannel[] oldChannels = client.getChannels(target);
         AbstractAsyncStub activeStreamStub = client.getAsyncStub(target);
         assertTrue("the simulated active stream must be on the old pool",
                    belongsToPool(activeStreamStub.getChannel(), oldChannels));
 
         client.resolvedTarget = "10.0.0.2";
-        ManagedChannel[] newChannels = client.getChannels(target);
-        assertNotSame("an address change must publish a replacement pool first",
-                      oldChannels, newChannels);
+        ManagedChannel[] newChannels = awaitPoolReplacement(client, target, oldChannels);
         List<FakeManagedChannel> retiredChannels = fakeChannels(oldChannels);
         assertTrue("the retired pool must receive graceful shutdown",
                    retiredChannels.stream().allMatch(FakeManagedChannel::isShutdown));
         assertFalse("active streams must not be force closed immediately",
                     retiredChannels.stream().anyMatch(FakeManagedChannel::isForceShutdown));
-        client.finishActiveCalls();
+        client.activeCallsFinished.countDown();
         awaitCondition("retired channels should terminate after active calls finish",
                        () -> retiredChannels.stream().allMatch(FakeManagedChannel::isTerminated));
         assertFalse("drained channels must not need forced shutdown",
                     retiredChannels.stream().anyMatch(FakeManagedChannel::isForceShutdown));
-        assertTrue("the replacement pool must remain live",
-                   allChannelsAreLive(newChannels));
+        assertTrue("the replacement pool must remain live", allChannelsAreLive(newChannels));
     }
 
+    /**
+     * Holds a stub pool build open, refreshes the pool underneath it, and asserts that both the
+     * interleaved build and a concurrent one return stubs bound to the published pool. Blocking
+     * and asynchronous acquisition share one implementation, so the asynchronous path stands in
+     * for both; it is the one that also publishes a stub cache worth asserting on.
+     */
     @Test
-    public void testBlockingStubBuildRetriesAfterChannelRefresh() throws Exception {
-        String target = uniqueTarget("concurrent-blocking-stub-refresh");
-        StubInterleavingGrpcClient client = new StubInterleavingGrpcClient();
-        ManagedChannel[] oldChannels = client.getChannels(target);
-        ExecutorService executor = Executors.newFixedThreadPool(2);
-
-        try {
-            Future<AbstractBlockingStub> staleStub =
-                    executor.submit(() -> client.getBlockingStub(target));
-            assertTrue("the old blocking stub pool build must be in flight",
-                       client.staleBlockingStubBuildStarted.await(5, TimeUnit.SECONDS));
-            client.resolvedTarget = "10.0.0.2";
-            Future<AbstractBlockingStub> freshStub =
-                    executor.submit(() -> client.getBlockingStub(target));
-            awaitCondition("refresh must retire the old channel pool",
-                           () -> allChannelsAreShutdown(oldChannels));
-            client.releaseStaleBlockingStubBuild.countDown();
-
-            AbstractBlockingStub staleResult = staleStub.get(5, TimeUnit.SECONDS);
-            AbstractBlockingStub freshResult = freshStub.get(5, TimeUnit.SECONDS);
-            ManagedChannel[] currentChannels = client.getChannels(target);
-            assertTrue("the stale build must retry against the current pool",
-                       belongsToPool(staleResult.getChannel(), currentChannels));
-            assertTrue("the concurrent build must use the current pool",
-                       belongsToPool(freshResult.getChannel(), currentChannels));
-            assertTrue("the current channel pool must remain live",
-                       allChannelsAreLive(currentChannels));
-        } finally {
-            client.releaseStaleBlockingStubBuild.countDown();
-            executor.shutdownNow();
-        }
-    }
-
-    @Test
-    public void testAsyncStubBuildRetriesAfterChannelRefresh() throws Exception {
-        String target = uniqueTarget("concurrent-async-stub-refresh");
+    public void testStubBuildRetriesAfterChannelRefresh() throws Exception {
+        String target = uniqueTarget("concurrent-stub-refresh");
         StubInterleavingGrpcClient client = new StubInterleavingGrpcClient();
         ManagedChannel[] oldChannels = client.getChannels(target);
         ExecutorService executor = Executors.newFixedThreadPool(2);
@@ -481,60 +507,134 @@ public class AbstractGrpcClientTest {
         try {
             Future<AbstractAsyncStub> staleStub =
                     executor.submit(() -> client.getAsyncStub(target));
-            assertTrue("the old async stub pool build must be in flight",
-                       client.staleAsyncStubBuildStarted.await(5, TimeUnit.SECONDS));
+            assertTrue("the old stub pool build must be in flight",
+                       client.staleStubBuildStarted.await(5, TimeUnit.SECONDS));
             client.resolvedTarget = "10.0.0.2";
             Future<AbstractAsyncStub> freshStub =
                     executor.submit(() -> client.getAsyncStub(target));
             awaitCondition("refresh must retire the old channel pool",
                            () -> allChannelsAreShutdown(oldChannels));
-            client.releaseStaleAsyncStubBuild.countDown();
+            client.releaseStaleStubBuild.countDown();
 
-            AbstractAsyncStub staleResult = staleStub.get(5, TimeUnit.SECONDS);
-            AbstractAsyncStub freshResult = freshStub.get(5, TimeUnit.SECONDS);
             ManagedChannel[] currentChannels = client.getChannels(target);
-            assertTrue("the stale async build must retry against the current pool",
-                       belongsToPool(staleResult.getChannel(), currentChannels));
-            assertTrue("the concurrent async build must use the current pool",
-                       belongsToPool(freshResult.getChannel(), currentChannels));
+            assertTrue("the stale build must retry against the current pool",
+                       belongsToPool(staleStub.get(5, TimeUnit.SECONDS).getChannel(),
+                                     currentChannels));
+            assertTrue("the concurrent build must use the current pool",
+                       belongsToPool(freshStub.get(5, TimeUnit.SECONDS).getChannel(),
+                                     currentChannels));
+            assertTrue("the current channel pool must remain live",
+                       allChannelsAreLive(currentChannels));
             assertCachedChannelsCurrentAndLive(
-                    "the final async cache must only reference current live channels",
+                    "the final stub cache must only reference current live channels",
                     cachedAsyncStubChannels(client, target), currentChannels);
         } finally {
-            client.releaseStaleAsyncStubBuild.countDown();
+            client.releaseStaleStubBuild.countDown();
+            executor.shutdownNow();
+        }
+    }
+
+    /**
+     * QueryV2 used to take a channel straight from the pool and build its stub afterwards, which
+     * let a refresh retire that channel in between. It must now go through the guarded path.
+     */
+    @Test
+    public void testQueryV2StubFollowsPublishedPoolAcrossRefresh() throws Exception {
+        String target = uniqueTarget("query-v2-refresh");
+        QueryV2TestClient client = new QueryV2TestClient();
+        ManagedChannel[] oldChannels = client.getChannels(target);
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+
+        try {
+            /*
+             * Interleave a refresh with the stub build. Taking a channel from the pool and
+             * building the stub afterwards would bind it to a channel retired in between.
+             */
+            Future<QueryServiceGrpc.QueryServiceStub> stub =
+                    executor.submit(() -> client.getQueryServiceStub(target));
+            assertTrue("the QueryV2 stub build must be in flight",
+                       client.stubBuildStarted.await(5, TimeUnit.SECONDS));
+            client.resolvedTarget = "10.0.0.2";
+            // getChannels is what triggers a refresh, and the blocked build cannot call it.
+            awaitCondition("refresh must retire the old channel pool",
+                           () -> client.getChannels(target) != oldChannels &&
+                                 allChannelsAreShutdown(oldChannels));
+            client.releaseStubBuild.countDown();
+
+            ManagedChannel[] newChannels = client.getChannels(target);
+            Channel channel = stub.get(5, TimeUnit.SECONDS).getChannel();
+            assertTrue("QueryV2 must never return a stub bound to a retired channel",
+                       belongsToPool(channel, newChannels));
+            assertFalse("QueryV2 must never return a stub on a shut down channel",
+                        ((ManagedChannel) channel).isShutdown());
+
+            List<ManagedChannel> stubChannels = new ArrayList<>();
+            for (int i = 0; i < AbstractGrpcClient.concurrency; i++) {
+                stubChannels.add((ManagedChannel) client.getQueryServiceStub(target).getChannel());
+            }
+            assertCachedChannelsCurrentAndLive("QueryV2 stubs must stay on the published pool",
+                                               stubChannels, newChannels);
+            assertUsesEveryChannel("QueryV2 stubs must still spread across the pool",
+                                   stubChannels, newChannels);
+        } finally {
+            client.releaseStubBuild.countDown();
             executor.shutdownNow();
         }
     }
 
     @Test
     public void testResolveTargetSupportsDnsUriAndBracketedIpv6Targets() {
-        HostCapturingGrpcClient dnsClient = new HostCapturingGrpcClient();
-        assertEquals("10.0.0.1", dnsClient.resolveTarget("dns:///store.example.com:8500"));
-        assertEquals("store.example.com", dnsClient.capturedHost);
+        HostCapturingGrpcClient client = new HostCapturingGrpcClient();
+        assertEquals("10.0.0.1", client.resolveTarget("store.example.com:8500"));
+        assertEquals("store.example.com", client.capturedHost);
 
-        HostCapturingGrpcClient ipv6Client = new HostCapturingGrpcClient();
-        assertEquals("10.0.0.1", ipv6Client.resolveTarget("[2001:db8::1]:8500"));
-        assertEquals("2001:db8::1", ipv6Client.capturedHost);
+        assertEquals("10.0.0.1", client.resolveTarget("dns:///store.example.com:8500"));
+        assertEquals("store.example.com", client.capturedHost);
+
+        // The scheme-only spelling is a legal gRPC dns target too.
+        assertEquals("10.0.0.1", client.resolveTarget("dns:store.example.com:8500"));
+        assertEquals("store.example.com", client.capturedHost);
+
+        assertEquals("10.0.0.1", client.resolveTarget("dns://8.8.8.8/store.example.com:8500"));
+        assertEquals("store.example.com", client.capturedHost);
+
+        assertEquals("10.0.0.1", client.resolveTarget("[2001:db8::1]:8500"));
+        assertEquals("2001:db8::1", client.capturedHost);
     }
 
     @Test
     public void testResolveTargetSkipsUnsupportedGrpcSchemes() {
         HostCapturingGrpcClient client = new HostCapturingGrpcClient();
         assertEquals("", client.resolveTarget("unix:///var/run/store.sock"));
+        // The single-slash spelling is legal too, and must not resolve the literal host "unix".
+        assertEquals("", client.resolveTarget("unix:/var/run/store.sock"));
+        assertEquals("", client.resolveTarget("xds:///store.example.com"));
         assertEquals("unsupported schemes must not invoke DNS resolution",
-                     0, client.resolutionCount.get());
+                     0, client.hostResolutionCount.get());
     }
 
     private interface Condition {
 
-        boolean isTrue();
+        boolean isTrue() throws Exception;
     }
 
     private static class RecordingGrpcClient extends AbstractGrpcClient {
 
         private final AtomicInteger channelSeq = new AtomicInteger();
+        protected final AtomicInteger resolutionCount = new AtomicInteger();
+        protected final List<String> resolutionThreads =
+                Collections.synchronizedList(new ArrayList<>());
+        protected final CountDownLatch delayedResolutionStarted = new CountDownLatch(1);
+        protected final CountDownLatch releaseDelayedResolution = new CountDownLatch(1);
         protected volatile String resolvedTarget = "10.0.0.1";
         protected volatile long refreshIntervalNanos = 0L;
+        protected volatile boolean delayResolution;
+        /** Resolves through the real implementation instead of returning resolvedTarget. */
+        protected volatile boolean useRealResolution;
+        /** Null keeps the inherited drain deadline. */
+        protected volatile Long drainTimeoutNanos;
+        /** Null makes channels terminate as soon as they are shut down. */
+        protected volatile CountDownLatch activeCallsFinished;
         protected final List<ManagedChannel> blockingStubChannels =
                 Collections.synchronizedList(new ArrayList<>());
         protected final List<ManagedChannel> asyncStubChannels =
@@ -546,17 +646,32 @@ public class AbstractGrpcClientTest {
         }
 
         @Override
-        protected ManagedChannel createChannel(String target) {
-            return this.newFakeChannel(target + "#" + this.channelSeq.getAndIncrement());
+        protected long channelDrainTimeoutNanos() {
+            Long timeout = this.drainTimeoutNanos;
+            return timeout == null ? super.channelDrainTimeoutNanos() : timeout;
         }
 
-        protected FakeManagedChannel newFakeChannel(String authority) {
-            return new FakeManagedChannel(authority);
+        @Override
+        protected ManagedChannel createChannel(String target) {
+            return new FakeManagedChannel(target + "#" + this.channelSeq.getAndIncrement(),
+                                          this.activeCallsFinished);
         }
 
         @Override
         protected String resolveTarget(String target) {
-            return this.resolvedTarget;
+            this.resolutionCount.incrementAndGet();
+            this.resolutionThreads.add(Thread.currentThread().getName());
+            if (this.delayResolution) {
+                this.delayedResolutionStarted.countDown();
+                try {
+                    assertTrue("the delayed resolution must be released",
+                               this.releaseDelayedResolution.await(5, TimeUnit.SECONDS));
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new AssertionError(e);
+                }
+            }
+            return this.useRealResolution ? super.resolveTarget(target) : this.resolvedTarget;
         }
 
         @Override
@@ -572,115 +687,35 @@ public class AbstractGrpcClientTest {
         }
     }
 
-    private static class CountingResolverGrpcClient extends RecordingGrpcClient {
+    private static class CreationControlGrpcClient extends RecordingGrpcClient {
 
-        protected final AtomicInteger resolutionCount = new AtomicInteger();
-
-        @Override
-        protected String resolveTarget(String target) {
-            this.resolutionCount.incrementAndGet();
-            return super.resolveTarget(target);
-        }
-    }
-
-    private static class DelayedResolverGrpcClient extends CountingResolverGrpcClient {
-
-        private final CountDownLatch delayedResolutionStarted = new CountDownLatch(1);
-        private final CountDownLatch releaseDelayedResolution = new CountDownLatch(1);
-        private volatile boolean delayChangedResolution;
+        private final AtomicInteger attempt = new AtomicInteger();
+        private final CountDownLatch creationStarted =
+                new CountDownLatch(AbstractGrpcClient.concurrency);
+        private final List<ManagedChannel> createdChannels =
+                Collections.synchronizedList(new ArrayList<>());
+        /** Negative never fails. */
+        private volatile int failedAttempt = -1;
+        /** Null creates channels without delay. */
+        private volatile CountDownLatch releaseCreation;
 
         @Override
-        protected String resolveTarget(String target) {
-            this.resolutionCount.incrementAndGet();
-            if (this.delayChangedResolution) {
-                this.delayedResolutionStarted.countDown();
+        protected ManagedChannel createChannel(String target) {
+            int current = this.attempt.getAndIncrement();
+            this.creationStarted.countDown();
+            if (current == this.failedAttempt) {
+                throw new IllegalStateException("injected channel creation failure");
+            }
+            CountDownLatch release = this.releaseCreation;
+            if (release != null) {
                 try {
-                    assertTrue("the delayed resolution must be released",
-                               this.releaseDelayedResolution.await(5, TimeUnit.SECONDS));
+                    release.await();
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                     throw new AssertionError(e);
                 }
             }
-            return this.resolvedTarget;
-        }
-    }
-
-    private static class ActiveRetirementGrpcClient extends RecordingGrpcClient {
-
-        private final CountDownLatch activeCallsFinished = new CountDownLatch(1);
-
-        @Override
-        protected long channelDrainTimeoutNanos() {
-            return TimeUnit.SECONDS.toNanos(5L);
-        }
-
-        @Override
-        protected FakeManagedChannel newFakeChannel(String authority) {
-            return new FakeManagedChannel(authority, this.activeCallsFinished);
-        }
-
-        private void finishActiveCalls() {
-            this.activeCallsFinished.countDown();
-        }
-    }
-
-    private static class ImmediateRetirementGrpcClient extends RecordingGrpcClient {
-
-        private final CountDownLatch activeCallsFinished = new CountDownLatch(1);
-
-        @Override
-        protected long channelDrainTimeoutNanos() {
-            return 0L;
-        }
-
-        @Override
-        protected FakeManagedChannel newFakeChannel(String authority) {
-            return new FakeManagedChannel(authority, this.activeCallsFinished);
-        }
-    }
-
-    private static class FailingCreationGrpcClient extends RecordingGrpcClient {
-
-        private final int failedAttempt;
-        private final AtomicInteger attempt = new AtomicInteger();
-        private final List<ManagedChannel> createdChannels =
-                Collections.synchronizedList(new ArrayList<>());
-
-        private FailingCreationGrpcClient(int failedAttempt) {
-            this.failedAttempt = failedAttempt;
-        }
-
-        @Override
-        protected ManagedChannel createChannel(String target) {
-            int current = this.attempt.getAndIncrement();
-            if (current == this.failedAttempt) {
-                throw new IllegalStateException("injected channel creation failure");
-            }
-            ManagedChannel channel = this.newFakeChannel(target + "#" + current);
-            this.createdChannels.add(channel);
-            return channel;
-        }
-    }
-
-    private static class DelayedCreationGrpcClient extends RecordingGrpcClient {
-
-        private final CountDownLatch creationStarted =
-                new CountDownLatch(AbstractGrpcClient.concurrency);
-        private final CountDownLatch releaseCreation = new CountDownLatch(1);
-        private final List<ManagedChannel> createdChannels =
-                Collections.synchronizedList(new ArrayList<>());
-
-        @Override
-        protected ManagedChannel createChannel(String target) {
-            this.creationStarted.countDown();
-            try {
-                this.releaseCreation.await();
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                throw new AssertionError(e);
-            }
-            ManagedChannel channel = this.newFakeChannel(target);
+            ManagedChannel channel = new FakeManagedChannel(target + "#" + current);
             this.createdChannels.add(channel);
             return channel;
         }
@@ -688,35 +723,17 @@ public class AbstractGrpcClientTest {
 
     private static class StubInterleavingGrpcClient extends RecordingGrpcClient {
 
-        private final AtomicInteger blockingStubSeq = new AtomicInteger();
-        private final AtomicInteger asyncStubSeq = new AtomicInteger();
-        private final CountDownLatch staleBlockingStubBuildStarted = new CountDownLatch(1);
-        private final CountDownLatch releaseStaleBlockingStubBuild = new CountDownLatch(1);
-        private final CountDownLatch staleAsyncStubBuildStarted = new CountDownLatch(1);
-        private final CountDownLatch releaseStaleAsyncStubBuild = new CountDownLatch(1);
-
-        @Override
-        public AbstractBlockingStub getBlockingStub(ManagedChannel channel) {
-            if (this.blockingStubSeq.incrementAndGet() == 1) {
-                this.staleBlockingStubBuildStarted.countDown();
-                try {
-                    assertTrue("the stale blocking stub build must be released",
-                               this.releaseStaleBlockingStubBuild.await(5, TimeUnit.SECONDS));
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    throw new AssertionError(e);
-                }
-            }
-            return super.getBlockingStub(channel);
-        }
+        private final AtomicInteger stubSeq = new AtomicInteger();
+        private final CountDownLatch staleStubBuildStarted = new CountDownLatch(1);
+        private final CountDownLatch releaseStaleStubBuild = new CountDownLatch(1);
 
         @Override
         public AbstractAsyncStub getAsyncStub(ManagedChannel channel) {
-            if (this.asyncStubSeq.incrementAndGet() == 1) {
-                this.staleAsyncStubBuildStarted.countDown();
+            if (this.stubSeq.incrementAndGet() == 1) {
+                this.staleStubBuildStarted.countDown();
                 try {
-                    assertTrue("the stale async stub build must be released",
-                               this.releaseStaleAsyncStubBuild.await(5, TimeUnit.SECONDS));
+                    assertTrue("the stale stub build must be released",
+                               this.releaseStaleStubBuild.await(5, TimeUnit.SECONDS));
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                     throw new AssertionError(e);
@@ -726,31 +743,103 @@ public class AbstractGrpcClientTest {
         }
     }
 
-    private static class HostCapturingGrpcClient extends AbstractGrpcClient {
+    private static class QueryV2TestClient extends QueryV2Client {
 
-        private final AtomicInteger resolutionCount = new AtomicInteger();
-        private volatile String capturedHost;
+        private final AtomicInteger channelSeq = new AtomicInteger();
+        private final AtomicInteger stubSeq = new AtomicInteger();
+        private final CountDownLatch stubBuildStarted = new CountDownLatch(1);
+        private final CountDownLatch releaseStubBuild = new CountDownLatch(1);
+        private volatile String resolvedTarget = "10.0.0.1";
+
+        @Override
+        protected long channelRefreshIntervalNanos() {
+            return 0L;
+        }
+
+        @Override
+        public AbstractAsyncStub<?> getAsyncStub(ManagedChannel channel) {
+            if (this.stubSeq.incrementAndGet() == 1) {
+                this.stubBuildStarted.countDown();
+                try {
+                    assertTrue("the QueryV2 stub build must be released",
+                               this.releaseStubBuild.await(5, TimeUnit.SECONDS));
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new AssertionError(e);
+                }
+            }
+            return super.getAsyncStub(channel);
+        }
 
         @Override
         protected ManagedChannel createChannel(String target) {
-            return new FakeManagedChannel(target);
+            return new FakeManagedChannel(target + "#" + this.channelSeq.getAndIncrement());
         }
 
         @Override
-        public AbstractBlockingStub getBlockingStub(ManagedChannel channel) {
-            return new FakeBlockingStub(channel, CallOptions.DEFAULT);
+        protected String resolveTarget(String target) {
+            return this.resolvedTarget;
         }
+    }
 
-        @Override
-        public AbstractAsyncStub getAsyncStub(ManagedChannel channel) {
-            return new FakeAsyncStub(channel, CallOptions.DEFAULT);
+    /**
+     * Resolves through the inherited implementation, optionally reproducing the security check
+     * that InetAddress.getAllByName() performs on whichever thread resolution runs on.
+     */
+    private static class HostCapturingGrpcClient extends RecordingGrpcClient {
+
+        private final AtomicInteger hostResolutionCount = new AtomicInteger();
+        private volatile String capturedHost;
+        private volatile String resolvedAddress = "10.0.0.1";
+        private volatile boolean checkSocketPermission;
+
+        HostCapturingGrpcClient() {
+            this.useRealResolution = true;
         }
 
         @Override
         protected InetAddress[] resolveHost(String host) throws UnknownHostException {
-            this.resolutionCount.incrementAndGet();
+            SecurityManager security = System.getSecurityManager();
+            if (this.checkSocketPermission && security != null) {
+                security.checkConnect(host, -1);
+            }
+            this.hostResolutionCount.incrementAndGet();
             this.capturedHost = host;
-            return new InetAddress[]{InetAddress.getByName("10.0.0.1")};
+            return new InetAddress[]{InetAddress.getByName(this.resolvedAddress)};
+        }
+    }
+
+    /**
+     * Denies a deliberately narrow subset of what HugeSecurityManager denies on a Gremlin worker
+     * stack: the two checks this fix is about, opening sockets and creating threads. Everything
+     * else stays permitted so the test JVM keeps working, including restoring the previous
+     * manager. Keys on the thread name alone, where HugeSecurityManager also requires a Gremlin
+     * script engine frame on the stack. Relies on System.setSecurityManager, which is a no-op
+     * from JDK 18 and removed in JDK 24; this module builds and runs on Java 11.
+     */
+    private static class DenyingWorkerSecurityManager extends SecurityManager {
+
+        private static boolean isDeniedWorker() {
+            return Thread.currentThread().getName().startsWith("gremlin-server-exec");
+        }
+
+        @Override
+        public void checkConnect(String host, int port) {
+            if (isDeniedWorker()) {
+                throw new SecurityException("Not allowed to connect socket via Gremlin");
+            }
+        }
+
+        @Override
+        public void checkAccess(ThreadGroup threadGroup) {
+            if (isDeniedWorker()) {
+                throw new SecurityException("Not allowed to access thread group via Gremlin");
+            }
+        }
+
+        @Override
+        public void checkPermission(java.security.Permission permission) {
+            // Everything else stays permitted, including restoring the previous manager.
         }
     }
 
@@ -782,7 +871,6 @@ public class AbstractGrpcClientTest {
 
         private final String authority;
         private final CountDownLatch activeCallsFinished;
-        private final CountDownLatch awaitTerminationStarted = new CountDownLatch(1);
         private volatile boolean shutdown;
         private volatile boolean forceShutdown;
         private volatile boolean terminated;
@@ -842,27 +930,9 @@ public class AbstractGrpcClientTest {
             return this.terminated;
         }
 
-        boolean awaitTerminationStarted(long timeout, TimeUnit unit)
-                throws InterruptedException {
-            return this.awaitTerminationStarted.await(timeout, unit);
-        }
-
         @Override
-        public boolean awaitTermination(long timeout, TimeUnit unit)
-                throws InterruptedException {
-            this.awaitTerminationStarted.countDown();
-            if (this.terminated) {
-                return true;
-            }
-            if (this.activeCallsFinished == null) {
-                this.terminated = this.shutdown;
-                return this.terminated;
-            }
-            if (this.activeCallsFinished.await(timeout, unit)) {
-                this.terminated = true;
-                return true;
-            }
-            return false;
+        public boolean awaitTermination(long timeout, TimeUnit unit) {
+            return this.isTerminated();
         }
     }
 }

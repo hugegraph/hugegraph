@@ -18,9 +18,12 @@
 package org.apache.hugegraph.store.client.grpc;
 
 import java.net.InetAddress;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.net.UnknownHostException;
 import java.util.Arrays;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
@@ -28,7 +31,7 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.concurrent.locks.ReentrantLock;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
@@ -41,18 +44,42 @@ import io.grpc.ManagedChannelBuilder;
 import io.grpc.stub.AbstractAsyncStub;
 import io.grpc.stub.AbstractBlockingStub;
 import io.grpc.stub.AbstractStub;
+import lombok.extern.slf4j.Slf4j;
 
+@Slf4j
 public abstract class AbstractGrpcClient {
 
     protected static Map<String, ManagedChannel[]> channels = new ConcurrentHashMap<>();
     private static final Map<String, String> resolvedTargets = new ConcurrentHashMap<>();
     private static final Map<String, AtomicLong> nextResolutions = new ConcurrentHashMap<>();
-    private static final Map<String, ReentrantLock> refreshLocks = new ConcurrentHashMap<>();
-    private static final ScheduledThreadPoolExecutor CHANNEL_CLEANUP_EXECUTOR =
+    private static final Map<String, CompletableFuture<Void>> refreshTasks =
+            new ConcurrentHashMap<>();
+    /*
+     * Refresh runs here rather than on a request thread: a caller of getChannels() may hold a
+     * Gremlin worker stack, which HugeSecurityManager denies socket access to. Creating the very
+     * first pool for a target is still done by the caller, so that path stays exposed.
+     */
+    private static final ScheduledThreadPoolExecutor CHANNEL_MAINTENANCE_EXECUTOR =
             new ScheduledThreadPoolExecutor(
-                    1, ExecutorPool.newThreadFactory("channel-cleanup"));
+                    2, ExecutorPool.newThreadFactory("channel-maintenance"));
     private static final long DEFAULT_CHANNEL_REFRESH_INTERVAL_NANOS =
             TimeUnit.SECONDS.toNanos(5L);
+    private static final long DEFAULT_INITIAL_RESOLUTION_TIMEOUT_NANOS =
+            TimeUnit.SECONDS.toNanos(1L);
+    private static final String DNS_SCHEME = "dns:";
+
+    static {
+        try {
+            // Create the maintenance threads eagerly, so no request thread ever creates one.
+            CHANNEL_MAINTENANCE_EXECUTOR.prestartAllCoreThreads();
+        } catch (Throwable e) {
+            // A denied prestart must not leave this class permanently uninitializable, but a
+            // request thread has to create the thread instead, where it may be denied again.
+            log.warn("Failed to start the channel maintenance threads eagerly, " +
+                     "channel refresh may be delayed until a permitted thread submits one", e);
+        }
+    }
+
     private static final int n = 5;
     protected static int concurrency = 1 << n;
     private static final AtomicLong counter = new AtomicLong(0);
@@ -72,14 +99,22 @@ public abstract class AbstractGrpcClient {
 
     }
 
-    public ManagedChannel[] getChannels(String target) {
-        this.refreshChannelsIfAddressChanged(target);
-        ManagedChannel[] tc;
-        if ((tc = channels.get(target)) == null) {
-            synchronized (channels) {
-                if ((tc = channels.get(target)) == null) {
-                    channels.put(target, tc = this.createChannels(target));
-                }
+    protected ManagedChannel[] getChannels(String target) {
+        CompletableFuture<Void> refresh = this.triggerChannelRefresh(target);
+        ManagedChannel[] tc = channels.get(target);
+        if (tc != null) {
+            return tc;
+        }
+
+        /*
+         * Only the very first pool for a target waits, and only for a bounded time: building it
+         * before its address is known makes the resolution that lands next rebuild it. Waiting
+         * avoids that in the common case; if the wait expires the rebuild still happens.
+         */
+        this.awaitInitialResolution(refresh);
+        synchronized (channels) {
+            if ((tc = channels.get(target)) == null) {
+                channels.put(target, tc = this.createChannels(target));
             }
         }
         return tc;
@@ -88,44 +123,58 @@ public abstract class AbstractGrpcClient {
     public abstract AbstractBlockingStub getBlockingStub(ManagedChannel channel);
 
     public AbstractBlockingStub getBlockingStub(String target) {
+        return this.acquireStub(target, this.blockingStubs, this::getBlockingStub,
+                                stub -> (AbstractBlockingStub) this.setBlockingStubOption(stub));
+    }
+
+    /**
+     * Returns a cached stub bound to a channel of the target's current pool, rebuilding the
+     * cache when the pool has been replaced. The stub comes from the pool that was published at
+     * the last check; a refresh landing immediately afterwards can still retire that pool, so
+     * callers are not shielded from an in-flight replacement.
+     *
+     * <p>The pool check needs no lock: the pool is published before the previous one is retired,
+     * so reading the current pool from the map is enough to know retirement has not started.
+     */
+    @SuppressWarnings("unchecked")
+    private <S> S acquireStub(String target,
+                              Map<String, HgPair<ManagedChannel, S>[]> stubCache,
+                              Function<ManagedChannel, S> stubFactory,
+                              Function<S, S> stubOption) {
         while (true) {
-            ManagedChannel[] targetChannels = getChannels(target);
-            HgPair<ManagedChannel, AbstractBlockingStub>[] pairs = blockingStubs.get(target);
-            long l = counter.getAndIncrement();
-            if (l >= limit) {
-                counter.set(0);
-            }
-            int index = (int) (l & (concurrency - 1));
+            ManagedChannel[] targetChannels = this.getChannels(target);
+            HgPair<ManagedChannel, S>[] pairs = stubCache.get(target);
+            int index = nextStubIndex();
             if (!usesChannels(pairs, targetChannels)) {
-                synchronized (blockingStubs) {
-                    pairs = blockingStubs.get(target);
+                synchronized (stubCache) {
+                    pairs = stubCache.get(target);
                     if (!usesChannels(pairs, targetChannels)) {
-                        HgPair<ManagedChannel, AbstractBlockingStub>[] value =
-                                new HgPair[concurrency];
+                        HgPair<ManagedChannel, S>[] value = new HgPair[concurrency];
                         IntStream.range(0, concurrency).forEach(i -> {
                             ManagedChannel channel = targetChannels[i];
-                            AbstractBlockingStub stub = getBlockingStub(channel);
-                            value[i] = new HgPair<>(channel, stub);
-                            // log.info("create channel for {}",target);
+                            value[i] = new HgPair<>(channel, stubFactory.apply(channel));
                         });
-                        synchronized (channels) {
-                            if (channels.get(target) != targetChannels) {
-                                continue;
-                            }
-                            blockingStubs.put(target, value);
-                            AbstractBlockingStub stub = value[index].getValue();
-                            return (AbstractBlockingStub) setBlockingStubOption(stub);
+                        if (channels.get(target) != targetChannels) {
+                            continue;
                         }
+                        stubCache.put(target, value);
+                        return stubOption.apply(value[index].getValue());
                     }
                 }
             }
-            synchronized (channels) {
-                if (channels.get(target) != targetChannels) {
-                    continue;
-                }
-                return (AbstractBlockingStub) setBlockingStubOption(pairs[index].getValue());
+            if (channels.get(target) != targetChannels) {
+                continue;
             }
+            return stubOption.apply(pairs[index].getValue());
         }
+    }
+
+    private static int nextStubIndex() {
+        long l = counter.getAndIncrement();
+        if (l >= limit) {
+            counter.set(0);
+        }
+        return (int) (l & (concurrency - 1));
     }
 
     private AbstractStub setBlockingStubOption(AbstractBlockingStub stub) {
@@ -141,49 +190,8 @@ public abstract class AbstractGrpcClient {
     }
 
     public AbstractAsyncStub getAsyncStub(String target) {
-        while (true) {
-            ManagedChannel[] targetChannels = getChannels(target);
-            HgPair<ManagedChannel, AbstractAsyncStub>[] pairs = asyncStubs.get(target);
-            long l = counter.getAndIncrement();
-            if (l >= limit) {
-                counter.set(0);
-            }
-            int index = (int) (l & (concurrency - 1));
-            if (!usesChannels(pairs, targetChannels)) {
-                synchronized (asyncStubs) {
-                    pairs = asyncStubs.get(target);
-                    if (!usesChannels(pairs, targetChannels)) {
-                        HgPair<ManagedChannel, AbstractAsyncStub>[] value =
-                                new HgPair[concurrency];
-                        IntStream.range(0, concurrency).parallel().forEach(i -> {
-                            ManagedChannel channel = targetChannels[i];
-                            AbstractAsyncStub stub = getAsyncStub(channel);
-                            // stub.withMaxInboundMessageSize(
-                            //         config.getGrpcMaxInboundMessageSize())
-                            //     .withMaxOutboundMessageSize(
-                            //         config.getGrpcMaxOutboundMessageSize());
-                            value[i] = new HgPair<>(channel, stub);
-                            // log.info("create channel for {}",target);
-                        });
-                        synchronized (channels) {
-                            if (channels.get(target) != targetChannels) {
-                                continue;
-                            }
-                            asyncStubs.put(target, value);
-                            AbstractAsyncStub stub =
-                                    (AbstractAsyncStub) setStubOption(value[index].getValue());
-                            return stub;
-                        }
-                    }
-                }
-            }
-            synchronized (channels) {
-                if (channels.get(target) != targetChannels) {
-                    continue;
-                }
-                return (AbstractAsyncStub) setStubOption(pairs[index].getValue());
-            }
-        }
+        return this.acquireStub(target, this.asyncStubs, this::getAsyncStub,
+                                stub -> (AbstractAsyncStub) this.setStubOption(stub));
     }
 
     protected AbstractStub setStubOption(AbstractStub value) {
@@ -207,66 +215,125 @@ public abstract class AbstractGrpcClient {
         return true;
     }
 
-    private void refreshChannelsIfAddressChanged(String target) {
+    /**
+     * Submits a refresh for the target unless one is already in flight or the refresh interval
+     * has not elapsed. Returns the in-flight refresh, or null when none is running.
+     */
+    private CompletableFuture<Void> triggerChannelRefresh(String target) {
+        CompletableFuture<Void> inFlight = refreshTasks.get(target);
+        if (inFlight != null) {
+            return inFlight;
+        }
         if (!this.shouldRefreshChannels(target)) {
-            return;
+            return null;
         }
 
-        ReentrantLock refreshLock = refreshLocks.computeIfAbsent(target,
-                                                                 key -> new ReentrantLock());
-        if (!refreshLock.tryLock()) {
-            return;
+        CompletableFuture<Void> refresh = new CompletableFuture<>();
+        CompletableFuture<Void> running = refreshTasks.putIfAbsent(target, refresh);
+        if (running != null) {
+            return running;
         }
 
+        // Throttle before submitting, so that a failing resolver cannot be retried in a loop.
+        this.postponeNextRefresh(target);
         try {
-            if (!this.shouldRefreshChannels(target)) {
-                return;
-            }
-
-            String resolvedTarget = this.resolveTarget(target);
-            this.postponeNextRefresh(target);
-            if (resolvedTarget.isEmpty()) {
-                return;
-            }
-
-            ManagedChannel[] staleChannels = channels.get(target);
-            String previousTarget = resolvedTargets.get(target);
-            if (previousTarget == null && staleChannels == null) {
-                resolvedTargets.put(target, resolvedTarget);
-                return;
-            }
-            if (resolvedTarget.equals(previousTarget)) {
-                return;
-            }
-            if (staleChannels == null) {
-                resolvedTargets.put(target, resolvedTarget);
-                return;
-            }
-
-            ManagedChannel[] replacementChannels;
-            try {
-                replacementChannels = this.createChannels(target);
-            } catch (RuntimeException ignored) {
-                return;
-            }
-
-            boolean replaced = false;
-            synchronized (channels) {
-                if (channels.get(target) == staleChannels) {
-                    channels.put(target, replacementChannels);
-                    resolvedTargets.put(target, resolvedTarget);
-                    replaced = true;
+            this.submitChannelRefresh(() -> {
+                try {
+                    this.refreshChannelsIfAddressChanged(target);
+                } catch (Throwable e) {
+                    // The executor discards what a task throws, so report it here.
+                    log.warn("Failed to refresh channels of target {}", target, e);
+                } finally {
+                    this.completeRefresh(target, refresh);
                 }
-            }
-
-            if (replaced) {
-                this.retireChannels(staleChannels);
-            } else {
-                this.retireChannels(replacementChannels);
-            }
-        } finally {
-            refreshLock.unlock();
+            });
+        } catch (Throwable e) {
+            // Includes a thread creation denied on this thread; never leave the entry behind.
+            log.warn("Failed to submit a channel refresh for target {}", target, e);
+            this.completeRefresh(target, refresh);
         }
+        return refresh;
+    }
+
+    private void completeRefresh(String target, CompletableFuture<Void> refresh) {
+        /*
+         * Throttle from completion as well as from submission: a resolver that is slow rather
+         * than failing can outlast its own interval, which would let every later call queue
+         * another lookup behind it.
+         */
+        this.postponeNextRefresh(target);
+        refreshTasks.remove(target, refresh);
+        refresh.complete(null);
+    }
+
+    private void submitChannelRefresh(Runnable task) {
+        CHANNEL_MAINTENANCE_EXECUTOR.execute(task);
+    }
+
+    private void awaitInitialResolution(CompletableFuture<Void> refresh) {
+        if (refresh == null) {
+            return;
+        }
+        try {
+            refresh.get(Math.max(0L, this.initialResolutionTimeoutNanos()),
+                        TimeUnit.NANOSECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } catch (Exception ignored) {
+            // A slow or failing resolver must not delay the first pool any further.
+        }
+    }
+
+    /**
+     * Runs on a maintenance thread, never on a request thread. At most one runs per target at a
+     * time — that comes from the refreshTasks entry, not from the size of the executor. Replaces
+     * the target's pool when its resolved address set has changed, publishing the replacement
+     * before retiring the previous pool.
+     */
+    private void refreshChannelsIfAddressChanged(String target) {
+        String resolvedTarget = this.resolveTarget(target);
+        if (resolvedTarget.isEmpty()) {
+            return;
+        }
+
+        ManagedChannel[] staleChannels = channels.get(target);
+        String previousTarget = resolvedTargets.get(target);
+        if (resolvedTarget.equals(previousTarget)) {
+            return;
+        }
+        if (staleChannels == null) {
+            /*
+             * Nothing to replace yet. Recording the address here is what lets the common path
+             * build its first pool already knowing the address, instead of rebuilding it.
+             */
+            resolvedTargets.put(target, resolvedTarget);
+            return;
+        }
+
+        ManagedChannel[] replacementChannels;
+        try {
+            replacementChannels = this.createChannels(target);
+        } catch (RuntimeException e) {
+            // Keep serving from the last healthy pool.
+            log.warn("Failed to create replacement channels of target {}, " +
+                     "keeping the current pool", target, e);
+            return;
+        }
+
+        boolean replaced = false;
+        synchronized (channels) {
+            if (channels.get(target) == staleChannels) {
+                channels.put(target, replacementChannels);
+                resolvedTargets.put(target, resolvedTarget);
+                replaced = true;
+            }
+        }
+        if (replaced) {
+            log.info("Replaced the channel pool of target {}, address changed from {} to {}",
+                     target, previousTarget, resolvedTarget);
+        }
+
+        this.retireChannels(replaced ? staleChannels : replacementChannels);
     }
 
     private boolean shouldRefreshChannels(String target) {
@@ -283,6 +350,10 @@ public abstract class AbstractGrpcClient {
 
     protected long channelRefreshIntervalNanos() {
         return DEFAULT_CHANNEL_REFRESH_INTERVAL_NANOS;
+    }
+
+    private long initialResolutionTimeoutNanos() {
+        return DEFAULT_INITIAL_RESOLUTION_TIMEOUT_NANOS;
     }
 
     protected long channelDrainTimeoutNanos() {
@@ -334,7 +405,7 @@ public abstract class AbstractGrpcClient {
               .forEach(ManagedChannel::shutdown);
 
         long timeout = Math.max(0L, this.channelDrainTimeoutNanos());
-        CHANNEL_CLEANUP_EXECUTOR.schedule(
+        CHANNEL_MAINTENANCE_EXECUTOR.schedule(
                 () -> forceTerminateChannels(retiredChannels), timeout,
                 TimeUnit.NANOSECONDS);
     }
@@ -347,14 +418,20 @@ public abstract class AbstractGrpcClient {
         }
     }
 
+    /**
+     * Extracts the host that a gRPC target resolves through, covering the plain {@code host:port}
+     * form and the {@code dns:} scheme in both its {@code dns:host:port} and
+     * {@code dns://authority/host:port} spellings. Any other resolver scheme returns an empty
+     * host, leaving that target to gRPC instead of monitoring the wrong endpoint.
+     */
     private static String targetHost(String target) {
         if (target == null || target.isEmpty()) {
             return "";
         }
 
         String endpoint = target;
-        if (target.startsWith("dns://")) {
-            endpoint = target.substring("dns://".length());
+        if (target.regionMatches(true, 0, DNS_SCHEME, 0, DNS_SCHEME.length())) {
+            endpoint = target.substring(DNS_SCHEME.length());
             while (endpoint.startsWith("/")) {
                 endpoint = endpoint.substring(1);
             }
@@ -362,34 +439,30 @@ public abstract class AbstractGrpcClient {
             if (pathStart >= 0) {
                 endpoint = endpoint.substring(pathStart + 1);
             }
-        } else if (target.contains("://")) {
+        } else if (hasResolverScheme(target)) {
             return "";
         }
 
-        return endpointHost(endpoint);
-    }
-
-    private static String endpointHost(String endpoint) {
-        if (endpoint == null || endpoint.isEmpty()) {
-            return "";
-        }
-
-        if (endpoint.charAt(0) == '[') {
-            int hostEnd = endpoint.indexOf(']');
-            if (hostEnd <= 1) {
+        try {
+            // The authority parser handles ports and bracketed IPv6 literals.
+            String host = new URI("//" + endpoint).getHost();
+            if (host == null) {
                 return "";
             }
-            return endpoint.substring(1, hostEnd);
+            return host.startsWith("[") ? host.substring(1, host.length() - 1) : host;
+        } catch (URISyntaxException ignored) {
+            return "";
         }
+    }
 
-        int lastColon = endpoint.lastIndexOf(':');
-        if (lastColon < 0) {
-            return endpoint;
-        }
-        if (endpoint.indexOf(':') != lastColon) {
-            return endpoint;
-        }
-        return endpoint.substring(0, lastColon);
+    /**
+     * Tells a resolver scheme from the port of a plain {@code host:port} target: a scheme is
+     * followed by a path, so {@code unix:/var/run/store.sock} is a scheme while
+     * {@code store:8500} is not.
+     */
+    private static boolean hasResolverScheme(String target) {
+        int scheme = target.indexOf(':');
+        return scheme >= 0 && scheme + 1 < target.length() && target.charAt(scheme + 1) == '/';
     }
 
     protected InetAddress[] resolveHost(String host) throws UnknownHostException {

@@ -17,8 +17,6 @@
 
 package org.apache.hugegraph.store.client.query;
 
-import java.util.concurrent.atomic.AtomicInteger;
-
 import org.apache.hugegraph.store.client.grpc.AbstractGrpcClient;
 import org.apache.hugegraph.store.grpc.query.QueryServiceGrpc;
 
@@ -30,8 +28,6 @@ import io.grpc.stub.AbstractBlockingStub;
 public class QueryV2Client extends AbstractGrpcClient {
 
     private volatile static ManagedChannel channel = null;
-
-    private final AtomicInteger seq = new AtomicInteger(0);
 
     @Override
     public AbstractBlockingStub<?> getBlockingStub(ManagedChannel channel) {
@@ -48,13 +44,7 @@ public class QueryV2Client extends AbstractGrpcClient {
     }
 
     public QueryServiceGrpc.QueryServiceStub getQueryServiceStub(String target) {
-        return (QueryServiceGrpc.QueryServiceStub) setStubOption(
-                QueryServiceGrpc.newStub(getManagedChannel(target)));
-        // return (QueryServiceGrpc.QueryServiceStub) getAsyncStub(target);
-    }
-
-    private ManagedChannel getManagedChannel(String target) {
-        return getChannels(target)[Math.abs(seq.getAndIncrement() % concurrency)];
+        return (QueryServiceGrpc.QueryServiceStub) getAsyncStub(target);
     }
 
     public static void setTestChannel(ManagedChannel directChannel) {

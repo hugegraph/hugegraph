@@ -21,6 +21,10 @@ import org.apache.hugegraph.store.client.grpc.AbstractGrpcClientTest;
 import org.junit.runner.RunWith;
 import org.junit.runners.Suite;
 
+/**
+ * Entry point of the {@code store-client-test} profile. Cluster-dependent tests are deliberately
+ * excluded.
+ */
 @RunWith(Suite.class)
 @Suite.SuiteClasses({
         AbstractGrpcClientTest.class
