@@ -78,18 +78,22 @@ WAIT_ENV=()
 [[ -n "${HG_SERVER_BACKEND:-}"  ]] && WAIT_ENV+=("hugegraph.backend=${HG_SERVER_BACKEND}")
 [[ -n "${HG_SERVER_PD_PEERS:-}" ]] && WAIT_ENV+=("hugegraph.pd.peers=${HG_SERVER_PD_PEERS}")
 
-# ── Init store (once) ─────────────────────────────────────────────────
-if [[ ! -f "${DOCKER_FOLDER}/${INIT_FLAG_FILE}" ]]; then
+# ── Init store ────────────────────────────────────────────────────────
+# init-store owns the marker: it skips re-initialization when the marker is
+# present and writes it only after it has actually initialized. Deciding here
+# would mean guessing from the environment variable, which says nothing about
+# a config mounted with the property already set. Absolute, so the in-Java
+# existence check agrees with the guard below no matter where init-store.sh
+# leaves its working directory.
+INIT_MARKER_PATH="$(cd "${DOCKER_FOLDER}" && pwd)/${INIT_FLAG_FILE}"
+export HG_SERVER_INIT_COMPLETE_MARKER="${INIT_MARKER_PATH}"
+
+if [[ ! -f "${INIT_MARKER_PATH}" ]]; then
     if (( ${#WAIT_ENV[@]} > 0 )); then
         env "${WAIT_ENV[@]}" ./bin/wait-storage.sh
     else
         ./bin/wait-storage.sh
     fi
-
-    # init-store writes the marker itself, and only if it initialized. Deciding
-    # here would mean guessing from the environment variable, which says
-    # nothing about a config mounted with the property already set.
-    export HG_SERVER_INIT_COMPLETE_MARKER="${DOCKER_FOLDER}/${INIT_FLAG_FILE}"
 
     if [[ -z "${PASSWORD:-}" ]]; then
         log "init hugegraph with non-auth mode"
@@ -108,7 +112,14 @@ if [[ ! -f "${DOCKER_FOLDER}/${INIT_FLAG_FILE}" ]]; then
         echo "${PASSWORD}" | ./bin/init-store.sh
     fi
 else
-    log "HugeGraph initialization already done. Skipping re-init..."
+    log "HugeGraph initialization already done. Revalidating the config..."
+    # The marker skips re-initialization inside init-store, not init-store
+    # itself: a disabled one must pass its fail-closed check on every startup,
+    # because the marker may predate this configuration or this release and
+    # says nothing about whether the admin the current config relies on is
+    # reachable. An enabled one returns at the marker, before it touches the
+    # backend or reads stdin, so neither wait-storage nor PASSWORD is needed.
+    ./bin/init-store.sh
 fi
 
 ./bin/start-hugegraph.sh -j "${JAVA_OPTS:-}" -t 120

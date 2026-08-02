@@ -18,6 +18,7 @@
 package org.apache.hugegraph.cmd;
 
 import java.io.IOException;
+import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -48,8 +49,11 @@ public class InitStore {
 
     /**
      * Where to record that initialization actually happened. The caller that
-     * wants the record supplies the path; nothing is written when it is unset,
-     * so tarball callers are unaffected.
+     * wants the record supplies the path; nothing is read or written when it
+     * is unset, so tarball callers are unaffected. A present marker skips
+     * re-initialization only: the disabled path's fail-closed check runs
+     * before it is consulted, since a marker left by an earlier release or an
+     * earlier enabled run says nothing about the current configuration.
      */
     public static final String INIT_COMPLETE_MARKER =
                                "hugegraph.init_complete_marker";
@@ -87,6 +91,14 @@ public class InitStore {
             return;
         }
 
+        String initedMarker = presentInitCompleteMarker();
+        if (initedMarker != null) {
+            LOG.info("Skipping init-store: completion marker '{}' is " +
+                     "present, so this deployment is already initialized",
+                     initedMarker);
+            return;
+        }
+
         RegisterUtil.registerBackends();
         RegisterUtil.registerPlugins();
 
@@ -119,6 +131,25 @@ public class InitStore {
         recordInitComplete();
     }
 
+    private static String configuredInitCompleteMarker() {
+        String marker = System.getProperty(INIT_COMPLETE_MARKER,
+                                           System.getenv(INIT_COMPLETE_MARKER_ENV));
+        return marker == null || marker.isEmpty() ? null : marker;
+    }
+
+    /**
+     * The configured marker path, or null when none is configured or the
+     * file does not exist yet. Consulted only after the disabled-path check,
+     * so an existing marker can never bypass the fail-closed validation.
+     */
+    private static String presentInitCompleteMarker() {
+        String marker = configuredInitCompleteMarker();
+        if (marker != null && Files.exists(Paths.get(marker))) {
+            return marker;
+        }
+        return null;
+    }
+
     /**
      * Only this process knows whether it initialized anything. The Docker
      * entrypoint used to decide from its environment variable alone, so a
@@ -127,9 +158,8 @@ public class InitStore {
      * only after initialization succeeded.
      */
     private static void recordInitComplete() throws IOException {
-        String marker = System.getProperty(INIT_COMPLETE_MARKER,
-                                           System.getenv(INIT_COMPLETE_MARKER_ENV));
-        if (marker == null || marker.isEmpty()) {
+        String marker = configuredInitCompleteMarker();
+        if (marker == null) {
             return;
         }
         Path path = Paths.get(marker);
@@ -137,8 +167,11 @@ public class InitStore {
         if (dir != null) {
             Files.createDirectories(dir);
         }
-        if (Files.notExists(path)) {
+        try {
             Files.createFile(path);
+        } catch (FileAlreadyExistsException e) {
+            // A concurrent container finishing its own successful init has
+            // already recorded it, which is the same outcome
         }
         LOG.info("Recorded init-store completion at '{}'", path);
     }

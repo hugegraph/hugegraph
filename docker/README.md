@@ -175,7 +175,10 @@ Configuration is injected via environment variables. The old `docker/configs/app
 > `docker/init_complete` is written by init-store itself, and only after it has
 > initialized. A skipped run therefore records nothing, whether it was disabled
 > by the variable or by the property in a mounted `rest-server.properties`, so a
-> later re-enable is still able to initialize.
+> later re-enable is still able to initialize. The marker only short-circuits
+> re-initialization: init-store runs on every container start, and a disabled
+> one performs the fail-closed check above first, so a marker left by an
+> earlier release or an earlier enabled run cannot bypass it.
 >
 > **`PASSWORD` does not reach that path.** init-store reads it from standard
 > input, and a disabled one returns before doing so. The admin is instead

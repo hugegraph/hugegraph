@@ -204,6 +204,62 @@ public class InitStoreConfigTest {
     }
 
     /**
+     * The upgrade scenario: earlier releases wrote the completion marker
+     * from the entrypoint, so one can exist for a configuration that was
+     * never validated — including a later switch to the disabled gate. The
+     * entrypoint half of the regression (skipping init-store entirely on a
+     * present marker) is shell and out of a unit test's reach; what is
+     * pinned here is the ordering invariant the fix relies on instead: the
+     * fail-closed check runs before the marker is consulted, so it fires
+     * with the marker present exactly as {@code
+     * testDisabledInitStoreFailsWhenAdminCannotBeCreated} shows without it.
+     */
+    @Test
+    public void testExistingMarkerDoesNotBypassDisabledPathCheck()
+                                                        throws IOException {
+        System.setProperty(InitStore.INIT_COMPLETE_MARKER,
+                           this.writeExistingMarker().toString());
+        try {
+            String restConf = this.writeDisabledRestServerConf(
+                    ServerOptions.AUTHENTICATOR.name() +
+                    "=" + StandardAuthenticator.class.getName());
+
+            Assert.assertThrows(IllegalStateException.class, () -> {
+                InitStore.main(new String[]{restConf});
+            }, e -> Assert.assertContains("Refusing to skip init-store",
+                                          e.getMessage()));
+        } finally {
+            System.clearProperty(InitStore.INIT_COMPLETE_MARKER);
+        }
+    }
+
+    /**
+     * The enabled path with a present marker is the plain Docker restart: it
+     * must return before the graph scan — completing on a config whose graphs
+     * directory is missing proves that — and before backend registration,
+     * which {@link #testGateDecidesWhetherRegistrationRuns} relies on being
+     * run at most once per JVM.
+     */
+    @Test
+    public void testExistingMarkerSkipsReinitializationWhenEnabled()
+                                                        throws Exception {
+        System.setProperty(InitStore.INIT_COMPLETE_MARKER,
+                           this.writeExistingMarker().toString());
+        try {
+            InitStore.main(new String[]{this.writeEnabledRestServerConf()});
+        } finally {
+            System.clearProperty(InitStore.INIT_COMPLETE_MARKER);
+        }
+    }
+
+    private Path writeExistingMarker() throws IOException {
+        Path marker = this.workDir.resolve("docker/init_complete");
+        Files.createDirectories(marker.getParent());
+        Files.createFile(marker);
+        return marker;
+    }
+
+    /**
      * The CLI must not report success for a configuration that would start an
      * auth-enabled server with no admin account, since tarball and init-job
      * callers only see the exit status.
