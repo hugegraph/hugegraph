@@ -42,7 +42,11 @@ public final class HugeGraphServerBootstrap {
             } catch (Throwable e) {
                 System.err.println("ERROR: Java security property " +
                                    "networkaddress.cache.ttl must load as a " +
-                                   "finite positive integer: " + e);
+                                   "finite positive integer " +
+                                   "(java.security.properties=" +
+                                   System.getProperty(
+                                           "java.security.properties") +
+                                   "): " + e);
                 System.exit(1);
                 return;
             }

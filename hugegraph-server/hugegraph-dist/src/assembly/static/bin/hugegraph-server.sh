@@ -97,8 +97,15 @@ else
     JAVA="$JAVA_HOME/bin/java -server"
 fi
 
-JAVA_VERSION=$($JAVA -version 2>&1 | head -1 | cut -d'"' -f2 | sed 's/^1\.//' | cut -d'.' -f1)
-if [[ $? -ne 0 || $JAVA_VERSION -lt $MIN_JAVA_VERSION ]]; then
+# Pick the version line explicitly: the JVM prints a preamble such as
+# "Picked up JAVA_TOOL_OPTIONS: ..." before it whenever JAVA_TOOL_OPTIONS or
+# _JAVA_OPTIONS is set, and reading that line instead would leave JAVA_VERSION
+# unusable and silently skip every version-gated option below.
+JAVA_VERSION=$($JAVA -version 2>&1 | awk -F'"' '/version "/ {print $2; exit}' |
+               sed 's/^1\.//' | cut -d'.' -f1)
+# Drop any pre-release suffix, e.g. "24-ea" -> "24"
+JAVA_VERSION="${JAVA_VERSION%%[!0-9]*}"
+if [[ -z $JAVA_VERSION || $JAVA_VERSION -lt $MIN_JAVA_VERSION ]]; then
     echo "Make sure the JDK is installed and the version >= $MIN_JAVA_VERSION, current is $JAVA_VERSION" \
          >> "${OUTPUT}"
     exit 1
@@ -162,6 +169,17 @@ EOF
     fi
 
     SECURITY_PROPERTIES="${CONF}/java-security.properties"
+    if [[ ! -r ${SECURITY_PROPERTIES} ]]; then
+        # The bootstrap validates the effective policy and refuses to start, but
+        # its stderr goes to the stdout log in daemon mode. Name the cause here
+        # so it also reaches the log start-hugegraph.sh points operators at.
+        cat >> "${OUTPUT}" <<EOF
+ERROR: Missing or unreadable '${SECURITY_PROPERTIES}'.
+An upgraded deployment that reuses an older conf/ directory must add this file,
+or supply its own -Djava.security.properties=<file> setting a finite positive
+networkaddress.cache.ttl.
+EOF
+    fi
     JVM_OPTIONS="${JVM_OPTIONS} \
                  -Djava.security.properties=${SECURITY_PROPERTIES}"
     if [[ ${JAVA_VERSION} -ge 18 ]]; then

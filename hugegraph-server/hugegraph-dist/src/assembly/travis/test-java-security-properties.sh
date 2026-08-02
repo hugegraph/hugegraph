@@ -361,6 +361,11 @@ mkdir -p "${MOCK_JAVA_HOME}/bin"
 cat > "${MOCK_JAVA_HOME}/bin/java" <<'MOCK'
 #!/bin/bash
 if [[ " $* " == *" -version "* ]]; then
+    # Real JVMs print this preamble ahead of the version line whenever
+    # JAVA_TOOL_OPTIONS or _JAVA_OPTIONS is set.
+    if [[ -n "${MOCK_JAVA_PREAMBLE:-}" ]]; then
+        echo "${MOCK_JAVA_PREAMBLE}" >&2
+    fi
     echo "openjdk version \"${MOCK_JAVA_VERSION:-11}.0.0\"" >&2
     exit 0
 fi
@@ -416,6 +421,29 @@ fi
 grep -Fq "JDK 24+ removed the Security Manager" "$JDK24_ERROR" ||
     fail "launcher did not explain the JDK 24 security incompatibility"
 
+# A version-line preamble must not hide the runtime version from the
+# version-gated security options above.
+VERSION_PREAMBLE="Picked up JAVA_TOOL_OPTIONS: -XX:+UseSerialGC"
+
+PREAMBLE_JDK21_CAPTURE="${TEMP_DIR}/preamble-jdk21.args"
+CAPTURE_FILE="$PREAMBLE_JDK21_CAPTURE" JAVA_HOME="$MOCK_JAVA_HOME" \
+    MOCK_JAVA_VERSION=21 MOCK_JAVA_PREAMBLE="$VERSION_PREAMBLE" \
+    STDOUT_MODE=true "$SERVER_SCRIPT" \
+    "${CONF}/gremlin-server.yaml" "${CONF}/rest-server.properties" true >/dev/null
+
+assert_argument "-Djava.security.manager=allow" "$PREAMBLE_JDK21_CAPTURE"
+
+PREAMBLE_JDK24_ERROR="${TEMP_DIR}/preamble-jdk24.err"
+if JAVA_HOME="$MOCK_JAVA_HOME" MOCK_JAVA_VERSION=24 \
+   MOCK_JAVA_PREAMBLE="$VERSION_PREAMBLE" STDOUT_MODE=true \
+   "$SERVER_SCRIPT" "${CONF}/gremlin-server.yaml" \
+   "${CONF}/rest-server.properties" true \
+   >/dev/null 2>"$PREAMBLE_JDK24_ERROR"; then
+    fail "version preamble hid a security-enabled JDK 24 runtime"
+fi
+grep -Fq "JDK 24+ removed the Security Manager" "$PREAMBLE_JDK24_ERROR" ||
+    fail "version preamble defeated the JDK 24 guard"
+
 JDK24_DISABLED_CAPTURE="${TEMP_DIR}/jdk24-disabled.args"
 CAPTURE_FILE="$JDK24_DISABLED_CAPTURE" JAVA_HOME="$MOCK_JAVA_HOME" \
     MOCK_JAVA_VERSION=24 STDOUT_MODE=true "$SERVER_SCRIPT" \
@@ -467,6 +495,17 @@ if [[ "$LAST_SECURITY_ARGUMENT" != \
 fi
 
 mv "$SECURITY_PROPERTIES" "$SECURITY_PROPERTIES_BACKUP"
+
+# An upgrade that reuses an older conf/ must say which file is missing, in the
+# log that start-hugegraph.sh points operators at rather than only on stderr.
+SERVER_LOG="${SERVER_ROOT}/logs/hugegraph-server.log"
+: > "$SERVER_LOG"
+CAPTURE_FILE="${TEMP_DIR}/missing-bundled.args" JAVA_HOME="$MOCK_JAVA_HOME" \
+    STDOUT_MODE=true "$SERVER_SCRIPT" \
+    "${CONF}/gremlin-server.yaml" "${CONF}/rest-server.properties" true \
+    >/dev/null 2>&1
+grep -Fq "Missing or unreadable '${SECURITY_PROPERTIES}'" "$SERVER_LOG" ||
+    fail "launcher did not name the missing bundled security properties file"
 
 assert_invalid_security_properties \
     "-Djava.security.properties=${SECURITY_PROPERTIES}"
