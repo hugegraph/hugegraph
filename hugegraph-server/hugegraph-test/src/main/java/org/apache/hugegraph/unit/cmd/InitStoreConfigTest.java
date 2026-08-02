@@ -162,26 +162,45 @@ public class InitStoreConfigTest {
      * than empty. The enabled run shares this method so it provably follows the
      * disabled assertions, which registering backends first would make vacuous.
      * It leaves backend providers registered for the rest of the suite's JVM,
-     * and BackendProviderFactory.register() rejects duplicates.
+     * and BackendProviderFactory.register() rejects duplicates, so this has to
+     * stay the only enabled run in the class.
+     * <p>
+     * The completion marker is asserted here for the same reason. A disabled
+     * run must not write it: the entrypoint treats it as "already initialized",
+     * so recording one for a config mounted with the property set to false
+     * would skip the real initialization for good on a later re-enable. Only
+     * a successful enabled run may write it, which needs a live backend and so
+     * is not covered here.
      */
     @Test
     public void testGateDecidesWhetherRegistrationRuns() throws Exception {
         boolean backendsRegistered = OptionSpace.containKey(ROCKSDB_OPTION);
+        Path marker = this.workDir.resolve("docker/init_complete");
+        System.setProperty(InitStore.INIT_COMPLETE_MARKER, marker.toString());
 
-        InitStore.main(new String[]{this.writeDisabledRestServerConf()});
+        try {
+            InitStore.main(new String[]{this.writeDisabledRestServerConf()});
 
-        Assert.assertEquals(backendsRegistered,
-                            OptionSpace.containKey(ROCKSDB_OPTION));
-        // Server options are still registered, since the gate is read from them
-        Assert.assertTrue(OptionSpace.containKey(
-                          ServerOptions.INIT_STORE_ENABLED.name()));
+            Assert.assertEquals(backendsRegistered,
+                                OptionSpace.containKey(ROCKSDB_OPTION));
+            // Server options stay registered, the gate is read from them
+            Assert.assertTrue(OptionSpace.containKey(
+                              ServerOptions.INIT_STORE_ENABLED.name()));
+            Assert.assertFalse("a disabled run initialized nothing",
+                               Files.exists(marker));
 
-        // Absent gate means enabled, so the same config now has to reach the
-        // graph scan and fail on the directory the disabled run never looked at
-        Assert.assertThrows(IllegalArgumentException.class, () -> {
-            InitStore.main(new String[]{this.writeEnabledRestServerConf()});
-        });
-        Assert.assertTrue(OptionSpace.containKey(ROCKSDB_OPTION));
+            // Absent gate means enabled, so the same config now has to reach
+            // the graph scan and fail on the directory the disabled run never
+            // looked at — a re-enable is not short-circuited by the marker
+            Assert.assertThrows(IllegalArgumentException.class, () -> {
+                InitStore.main(new String[]{this.writeEnabledRestServerConf()});
+            });
+            Assert.assertTrue(OptionSpace.containKey(ROCKSDB_OPTION));
+            Assert.assertFalse("a failed run initialized nothing",
+                               Files.exists(marker));
+        } finally {
+            System.clearProperty(InitStore.INIT_COMPLETE_MARKER);
+        }
     }
 
     /**
@@ -228,9 +247,37 @@ public class InitStoreConfigTest {
                 ServerOptions.AUTHENTICATOR.name() +
                 "=" + StandardAuthenticator.class.getName(),
                 ServerOptions.AUTH_GRAPH_STORE.name() + "=hugegraph",
-                ServerOptions.USE_PD.name() + "=true");
+                ServerOptions.USE_PD.name() + "=true",
+                ServerOptions.ADMIN_PA.name() + "=secret");
 
         InitStore.main(new String[]{restConf});
+    }
+
+    /**
+     * The server creates the admin from auth.admin_pa without prompting, and
+     * Docker PASSWORD never reaches this path, so an absent or empty value
+     * would publish the well-known 'pa' default as a working credential.
+     */
+    @Test
+    public void testDisabledInitStoreRejectsDefaultAdminPassword()
+                                                        throws IOException {
+        Path graphsDir = this.writeAuthGraphConfig("hstore");
+        for (String adminPa : new String[]{null, ""}) {
+            List<String> extra = new ArrayList<>(Arrays.asList(
+                    ServerOptions.AUTHENTICATOR.name() +
+                    "=" + StandardAuthenticator.class.getName(),
+                    ServerOptions.AUTH_GRAPH_STORE.name() + "=hugegraph",
+                    ServerOptions.USE_PD.name() + "=true"));
+            if (adminPa != null) {
+                extra.add(ServerOptions.ADMIN_PA.name() + "=" + adminPa);
+            }
+            String restConf = this.writeDisabledRestServerConfForGraphs(
+                    graphsDir, extra.toArray(new String[0]));
+
+            Assert.assertThrows(IllegalStateException.class, () -> {
+                InitStore.main(new String[]{restConf});
+            }, e -> Assert.assertContains("public default", e.getMessage()));
+        }
     }
 
     /**

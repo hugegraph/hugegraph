@@ -86,6 +86,11 @@ if [[ ! -f "${DOCKER_FOLDER}/${INIT_FLAG_FILE}" ]]; then
         ./bin/wait-storage.sh
     fi
 
+    # init-store writes the marker itself, and only if it initialized. Deciding
+    # here would mean guessing from the environment variable, which says
+    # nothing about a config mounted with the property already set.
+    export HG_SERVER_INIT_COMPLETE_MARKER="${DOCKER_FOLDER}/${INIT_FLAG_FILE}"
+
     if [[ -z "${PASSWORD:-}" ]]; then
         log "init hugegraph with non-auth mode"
         ./bin/init-store.sh
@@ -102,12 +107,6 @@ if [[ ! -f "${DOCKER_FOLDER}/${INIT_FLAG_FILE}" ]]; then
         esac
         echo "${PASSWORD}" | ./bin/init-store.sh
     fi
-    # A disabled init-store initialized nothing, so recording it as done would
-    # stop a later re-enable from initializing.
-    case "${INIT_STORE_ENABLED}" in
-        n | f | no | off | false) ;;
-        *) touch "${DOCKER_FOLDER}/${INIT_FLAG_FILE}" ;;
-    esac
 else
     log "HugeGraph initialization already done. Skipping re-init..."
 fi

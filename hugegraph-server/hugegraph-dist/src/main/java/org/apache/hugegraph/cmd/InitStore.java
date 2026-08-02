@@ -17,6 +17,10 @@
 
 package org.apache.hugegraph.cmd;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -41,6 +45,16 @@ import org.slf4j.Logger;
 public class InitStore {
 
     private static final Logger LOG = Log.logger(InitStore.class);
+
+    /**
+     * Where to record that initialization actually happened. The caller that
+     * wants the record supplies the path; nothing is written when it is unset,
+     * so tarball callers are unaffected.
+     */
+    public static final String INIT_COMPLETE_MARKER =
+                               "hugegraph.init_complete_marker";
+    private static final String INIT_COMPLETE_MARKER_ENV =
+                                "HG_SERVER_INIT_COMPLETE_MARKER";
 
     public static void main(String[] args) throws Exception {
         E.checkArgument(args.length == 1,
@@ -101,6 +115,32 @@ public class InitStore {
             }
             HugeFactory.shutdown(30L, true);
         }
+
+        recordInitComplete();
+    }
+
+    /**
+     * Only this process knows whether it initialized anything. The Docker
+     * entrypoint used to decide from its environment variable alone, so a
+     * mounted config that disabled init-store was still recorded as done and a
+     * later re-enable skipped for good. Reached only on the enabled path, and
+     * only after initialization succeeded.
+     */
+    private static void recordInitComplete() throws IOException {
+        String marker = System.getProperty(INIT_COMPLETE_MARKER,
+                                           System.getenv(INIT_COMPLETE_MARKER_ENV));
+        if (marker == null || marker.isEmpty()) {
+            return;
+        }
+        Path path = Paths.get(marker);
+        Path dir = path.toAbsolutePath().getParent();
+        if (dir != null) {
+            Files.createDirectories(dir);
+        }
+        if (Files.notExists(path)) {
+            Files.createFile(path);
+        }
+        LOG.info("Recorded init-store completion at '{}'", path);
     }
 
     /**
@@ -132,6 +172,19 @@ public class InitStore {
             throw unreachableAdmin(restConf, "auth graph '" + name +
                                              "' uses backend '" + backend +
                                              "', not 'hstore'");
+        }
+
+        // The server creates the admin from this value and cannot prompt for
+        // it, and Docker PASSWORD never reaches this path. An absent or empty
+        // one would hand out the public 'pa' default, so fail instead. Checked
+        // with containsKey because the default is not a configured secret.
+        if (!conf.containsKey(ServerOptions.ADMIN_PA.name()) ||
+            conf.get(ServerOptions.ADMIN_PA).isEmpty()) {
+            throw unreachableAdmin(restConf, "no explicit non-empty '" +
+                                             ServerOptions.ADMIN_PA.name() +
+                                             "' is configured, so the admin " +
+                                             "would be created with the " +
+                                             "public default");
         }
     }
 
