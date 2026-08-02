@@ -55,8 +55,16 @@ if [[ -n "${JAVA_HOME:-}" ]]; then
 else
     JAVA_BIN="java"
 fi
-JAVA_MAJOR=$($JAVA_BIN -version 2>&1 | head -1 | cut -d'"' -f2 |
+# Select the version line the same way the launcher does: a preamble such as
+# "Picked up JAVA_TOOL_OPTIONS: ..." precedes it whenever JAVA_TOOL_OPTIONS or
+# _JAVA_OPTIONS is set, and parsing that would silently drop the option below.
+JAVA_MAJOR=$($JAVA_BIN -version 2>&1 |
+             awk -F'"' '/version "/ {print $2; exit}' |
              sed 's/^1\.//' | cut -d'.' -f1)
+JAVA_MAJOR="${JAVA_MAJOR%%[!0-9]*}"
+if [[ -z "$JAVA_MAJOR" ]]; then
+    fail "could not determine the Java major version of $JAVA_BIN"
+fi
 SECURITY_MANAGER_OPTION=""
 if [[ "$JAVA_MAJOR" -ge 18 ]]; then
     SECURITY_MANAGER_OPTION="-Djava.security.manager=allow"
@@ -506,6 +514,30 @@ CAPTURE_FILE="${TEMP_DIR}/missing-bundled.args" JAVA_HOME="$MOCK_JAVA_HOME" \
     >/dev/null 2>&1
 grep -Fq "Missing or unreadable '${SECURITY_PROPERTIES}'" "$SERVER_LOG" ||
     fail "launcher did not name the missing bundled security properties file"
+
+# ... but an operator override legitimately replaces the bundled policy, so the
+# same missing file must not be reported as an error in that case.
+for OVERRIDE_OPTION in "-Djava.security.properties=${OPERATOR_PROPERTIES}" \
+                       "-Djava.security.properties==${OPERATOR_PROPERTIES}"; do
+    : > "$SERVER_LOG"
+    CAPTURE_FILE="${TEMP_DIR}/missing-bundled-override.args" \
+        JAVA_HOME="$MOCK_JAVA_HOME" STDOUT_MODE=true "$SERVER_SCRIPT" \
+        "${CONF}/gremlin-server.yaml" "${CONF}/rest-server.properties" true \
+        "${OVERRIDE_OPTION}" >/dev/null 2>&1
+    if grep -Fq "Missing or unreadable" "$SERVER_LOG"; then
+        fail "launcher reported a missing bundled file despite ${OVERRIDE_OPTION}"
+    fi
+done
+
+# An override that clears itself is not an override, so the error must return.
+: > "$SERVER_LOG"
+CAPTURE_FILE="${TEMP_DIR}/missing-bundled-cleared.args" \
+    JAVA_HOME="$MOCK_JAVA_HOME" STDOUT_MODE=true "$SERVER_SCRIPT" \
+    "${CONF}/gremlin-server.yaml" "${CONF}/rest-server.properties" true \
+    "-Djava.security.properties=${OPERATOR_PROPERTIES} -Djava.security.properties=" \
+    >/dev/null 2>&1
+grep -Fq "Missing or unreadable '${SECURITY_PROPERTIES}'" "$SERVER_LOG" ||
+    fail "cleared security properties override suppressed the missing-file error"
 
 assert_invalid_security_properties \
     "-Djava.security.properties=${SECURITY_PROPERTIES}"

@@ -170,6 +170,22 @@ EOF
 
     SECURITY_PROPERTIES="${CONF}/java-security.properties"
     if [[ ! -r ${SECURITY_PROPERTIES} ]]; then
+        # An operator may deliberately replace the bundled policy with their own
+        # -Djava.security.properties=<file>, which the JVM applies last and which
+        # makes a missing bundled file harmless. Track the last such option, since
+        # an empty value clears any earlier override.
+        SECURITY_PROPERTIES_OVERRIDDEN="false"
+        for OPTION in ${JAVA_OPTIONS} ${_JAVA_OPTIONS:-}; do
+            case "${OPTION}" in
+                -Djava.security.properties=)
+                    SECURITY_PROPERTIES_OVERRIDDEN="false" ;;
+                -Djava.security.properties=?*)
+                    SECURITY_PROPERTIES_OVERRIDDEN="true" ;;
+            esac
+        done
+    fi
+    if [[ ! -r ${SECURITY_PROPERTIES} &&
+          ${SECURITY_PROPERTIES_OVERRIDDEN:-false} == "false" ]]; then
         # The bootstrap validates the effective policy and refuses to start, but
         # its stderr goes to the stdout log in daemon mode. Name the cause here
         # so it also reaches the log start-hugegraph.sh points operators at.
