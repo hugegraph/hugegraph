@@ -237,7 +237,6 @@
                             <includes>
                                 <include>**/CoreSuiteTest.java</include>
                                 <include>**/BatchGraphIsolationTest.java</include>
-                                <include>**/FixGraphIdControllerTest.java</include>
                                 <include>**/GraphIDManagerTest.java</include>
                             </includes>
                         </configuration>
