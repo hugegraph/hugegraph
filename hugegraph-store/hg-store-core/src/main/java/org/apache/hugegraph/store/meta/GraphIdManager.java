@@ -69,12 +69,17 @@ public class GraphIdManager extends PartitionMetaStore {
                     byte[] key = MetadataKeyHelper.getGraphIDKey(graphName);
                     Int64Value id = get(Int64Value.parser(), key);
                     if (id == null) {
-                        id = Int64Value.of(maxGraphID);
+                        l = (long) maxGraphID;
+                    } else {
+                        l = checkGraphId(graphName, id.getValue(),
+                                         this.partitionId);
                     }
-                    l = id.getValue();
                     graphIdCache.put(graphName, l);
                 }
             }
+        }
+        if (l != maxGraphID) {
+            checkGraphId(graphName, l, this.partitionId);
         }
         return l;
     }
@@ -99,13 +104,29 @@ public class GraphIdManager extends PartitionMetaStore {
                                  Arrays.toString(Thread.currentThread().getStackTrace()));
                         put(key, id);
                         flush();
+                    } else {
+                        checkGraphId(graphName, id.getValue(),
+                                     this.partitionId);
                     }
                     l = id.getValue();
                     graphIdCache.put(graphName, l);
                 }
             }
         }
+        checkGraphId(graphName, l, this.partitionId);
         return l;
+    }
+
+    public static long checkGraphId(String graphName, long graphId,
+                                    int partitionId) {
+        if (graphId < 0L || graphId >= maxGraphID) {
+            throw new HgStoreException(
+                    HgStoreException.EC_FAIL,
+                    "Invalid graph ID %s for graph '%s' in partition %s, " +
+                    "expected a value in [0, %s)",
+                    graphId, graphName, partitionId, maxGraphID);
+        }
+        return graphId;
     }
 
     /**

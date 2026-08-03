@@ -558,10 +558,10 @@ public class GraphTransaction extends IndexableTransaction {
                             aggregate.func().string());
             Query queryWithoutAggregate = query.copy();
             queryWithoutAggregate.aggregate(null);
-            return IteratorUtils.count(
-                    queryWithoutAggregate.resultType().isVertex() ?
-                    this.queryVertices(queryWithoutAggregate) :
-                    this.queryEdges(queryWithoutAggregate));
+            Iterator<?> results = queryWithoutAggregate.resultType().isVertex() ?
+                                  this.queryVertices(queryWithoutAggregate) :
+                                  this.queryEdges(queryWithoutAggregate);
+            return countAndClose(results);
         }
 
         QueryList<Number> queries = this.optimizeQueries(query, q -> {
@@ -608,6 +608,19 @@ public class GraphTransaction extends IndexableTransaction {
                                        QueryResults.empty() :
                                        queries.fetch(this.pageSize);
         return aggregate.reduce(results.iterator());
+    }
+
+    private static long countAndClose(Iterator<?> results) {
+        try {
+            long count = 0L;
+            while (results.hasNext()) {
+                results.next();
+                count++;
+            }
+            return count;
+        } finally {
+            CloseableIterator.closeIterator(results);
+        }
     }
 
     @Watched(prefix = "graph")

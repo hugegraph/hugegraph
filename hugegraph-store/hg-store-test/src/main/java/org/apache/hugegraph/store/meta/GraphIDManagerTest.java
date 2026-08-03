@@ -17,6 +17,8 @@
 
 package org.apache.hugegraph.store.meta;
 
+import static org.apache.hugegraph.store.constant.HugeServerTables.VERTEX_TABLE;
+
 import java.io.File;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -31,14 +33,18 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
 import org.apache.hugegraph.rocksdb.access.RocksDBSession;
+import org.apache.hugegraph.rocksdb.access.SessionOperator;
 import org.apache.hugegraph.store.UnitTestBase;
 import org.apache.hugegraph.store.business.BusinessHandlerImpl;
 import org.apache.hugegraph.store.meta.base.DBSessionBuilder;
+import org.apache.hugegraph.store.term.Bits;
 import org.apache.hugegraph.store.util.HgStoreException;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+
+import com.google.protobuf.Int64Value;
 
 public class GraphIDManagerTest extends UnitTestBase {
 
@@ -132,9 +138,49 @@ public class GraphIDManagerTest extends UnitTestBase {
 
         Assert.assertEquals(0L, firstManager.getGraphIdOrCreate("first"));
 
+        this.reopenDatabase();
         GraphIdManager restartedManager = this.newManager();
         Assert.assertEquals(0L, restartedManager.getGraphId("first"));
         Assert.assertEquals(1L, restartedManager.getGraphIdOrCreate("second"));
+    }
+
+    @Test
+    public void testRejectPersistedGraphIdsOutsideAllocatableDomain() {
+        long[] invalidGraphIds = {-1L, GRAPH_ID_LIMIT, 65536L};
+
+        for (long graphId : invalidGraphIds) {
+            String readGraph = "invalid-read-" + graphId;
+            this.persistGraphId(readGraph, graphId);
+            this.assertInvalidPersistedGraphId(
+                    readGraph, graphId,
+                    () -> this.newManager().getGraphId(readGraph));
+
+            String writeGraph = "invalid-write-" + graphId;
+            this.persistGraphId(writeGraph, graphId);
+            this.assertInvalidPersistedGraphId(
+                    writeGraph, graphId,
+                    () -> this.newManager().getGraphIdOrCreate(writeGraph));
+        }
+    }
+
+    @Test
+    public void testSkipVertexDataWithoutGraphIdSlot() {
+        GraphIdManager manager = this.newManager();
+        this.persistVertexWithGraphId(0);
+
+        Assert.assertEquals(1L, manager.getCId("stale-forward", 4));
+    }
+
+    @Test
+    public void testSkipVertexDataWithoutGraphIdSlotAfterWrap() {
+        String key = "stale-wrap";
+        GraphIdManager manager = this.newManager();
+        this.persistVertexWithGraphId(0);
+        manager.put(MetadataKeyHelper.getCidKey(key), Int64Value.of(2L));
+        manager.put(manager.genCIDSlotKey(key, 2L), Int64Value.of(2L));
+        manager.put(manager.genCIDSlotKey(key, 3L), Int64Value.of(3L));
+
+        Assert.assertEquals(1L, manager.getCId(key, 4));
     }
 
     @Test
@@ -179,5 +225,47 @@ public class GraphIDManagerTest extends UnitTestBase {
 
     private GraphIdManager newManager() {
         return new GraphIdManager(this.sessionBuilder, PARTITION_ID);
+    }
+
+    private void persistGraphId(String graphName, long graphId) {
+        GraphIdManager manager = this.newManager();
+        manager.put(MetadataKeyHelper.getGraphIDKey(graphName),
+                    Int64Value.of(graphId));
+        manager.flush();
+    }
+
+    private void persistVertexWithGraphId(int graphId) {
+        this.session.createTables(VERTEX_TABLE);
+        byte[] key = new byte[3];
+        Bits.putShort(key, 0, graphId);
+        key[2] = 1;
+
+        SessionOperator operator = this.session.sessionOp();
+        try {
+            operator.prepare();
+            operator.put(VERTEX_TABLE, key, new byte[]{1});
+            operator.commit();
+        } catch (RuntimeException e) {
+            operator.rollback();
+            throw e;
+        }
+    }
+
+    private void assertInvalidPersistedGraphId(String graphName, long graphId,
+                                               Runnable action) {
+        HgStoreException exception =
+                Assert.assertThrows(HgStoreException.class, action::run);
+        Assert.assertTrue(exception.getMessage().contains("Invalid graph ID"));
+        Assert.assertTrue(exception.getMessage().contains(String.valueOf(graphId)));
+        Assert.assertTrue(exception.getMessage().contains(graphName));
+    }
+
+    private void reopenDatabase() {
+        this.session.close();
+        this.session = null;
+        factory.releaseGraphDB(this.dbName);
+        this.session = factory.createGraphDB(this.dbPath.getAbsolutePath(),
+                                             this.dbName);
+        this.sessionBuilder = partId -> this.session.clone();
     }
 }

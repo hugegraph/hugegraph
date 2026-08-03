@@ -18,11 +18,14 @@
 package org.apache.hugegraph.core;
 
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.apache.hugegraph.backend.query.Aggregate;
 import org.apache.hugegraph.backend.query.Aggregate.AggregateFunc;
 import org.apache.hugegraph.backend.query.Query;
+import org.apache.hugegraph.backend.tx.GraphTransaction;
 import org.apache.hugegraph.exception.NoIndexException;
 import org.apache.hugegraph.schema.SchemaManager;
 import org.apache.hugegraph.testutil.Assert;
@@ -39,6 +42,7 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.util.HasContainer;
 import org.apache.tinkerpop.gremlin.structure.Edge;
 import org.apache.tinkerpop.gremlin.structure.T;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
+import org.apache.tinkerpop.gremlin.structure.util.CloseableIterator;
 import org.junit.Test;
 
 public class CountStrategyCoreTest extends BaseCoreTest {
@@ -322,6 +326,44 @@ public class CountStrategyCoreTest extends BaseCoreTest {
     }
 
     @Test
+    public void testUncommittedVertexCountClosesIteratorOnFailure() {
+        FailingCloseableIterator<Vertex> vertices =
+                new FailingCloseableIterator<>();
+        AtomicBoolean dirty = new AtomicBoolean(true);
+        GraphTransaction transaction =
+                this.newFailingCountTransaction(vertices, null, dirty);
+
+        try {
+            Query query = countQuery(HugeType.VERTEX);
+            Assert.assertThrows(IllegalStateException.class,
+                                () -> transaction.queryNumber(query));
+            Assert.assertTrue(vertices.closed());
+        } finally {
+            dirty.set(false);
+            transaction.close();
+        }
+    }
+
+    @Test
+    public void testUncommittedEdgeCountClosesIteratorOnFailure() {
+        FailingCloseableIterator<Edge> edges =
+                new FailingCloseableIterator<>();
+        AtomicBoolean dirty = new AtomicBoolean(true);
+        GraphTransaction transaction =
+                this.newFailingCountTransaction(null, edges, dirty);
+
+        try {
+            Query query = countQuery(HugeType.EDGE);
+            Assert.assertThrows(IllegalStateException.class,
+                                () -> transaction.queryNumber(query));
+            Assert.assertTrue(edges.closed());
+        } finally {
+            dirty.set(false);
+            transaction.close();
+        }
+    }
+
+    @Test
     public void testOptimizedEdgeCountIncludesUncommittedRecords() {
         this.initSchema();
         graph().schema().indexLabel("personByName")
@@ -337,6 +379,59 @@ public class CountStrategyCoreTest extends BaseCoreTest {
         long count = graph().traversal().E().hasLabel("knows").count().next();
 
         Assert.assertEquals(2L, count);
+    }
+
+    private static Query countQuery(HugeType type) {
+        Query query = new Query(type);
+        query.aggregate(new Aggregate(AggregateFunc.COUNT, null));
+        return query;
+    }
+
+    private GraphTransaction newFailingCountTransaction(
+            Iterator<Vertex> vertices, Iterator<Edge> edges,
+            AtomicBoolean dirty) {
+        return new GraphTransaction(params(), params().loadGraphStore()) {
+
+            @Override
+            public boolean hasUpdate() {
+                return dirty.get();
+            }
+
+            @Override
+            public Iterator<Vertex> queryVertices(Query query) {
+                return vertices;
+            }
+
+            @Override
+            public Iterator<Edge> queryEdges(Query query) {
+                return edges;
+            }
+        };
+    }
+
+    private static final class FailingCloseableIterator<T>
+            implements CloseableIterator<T> {
+
+        private boolean closed;
+
+        @Override
+        public boolean hasNext() {
+            throw new IllegalStateException("Injected iterator failure");
+        }
+
+        @Override
+        public T next() {
+            throw new IllegalStateException("Injected iterator failure");
+        }
+
+        @Override
+        public void close() {
+            this.closed = true;
+        }
+
+        public boolean closed() {
+            return this.closed;
+        }
     }
 
     @Test
