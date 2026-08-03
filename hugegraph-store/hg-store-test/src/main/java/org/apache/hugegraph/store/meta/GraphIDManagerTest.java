@@ -21,8 +21,10 @@ import static org.apache.hugegraph.store.constant.HugeServerTables.VERTEX_TABLE;
 
 import java.io.File;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -142,6 +144,59 @@ public class GraphIDManagerTest extends UnitTestBase {
         GraphIdManager restartedManager = this.newManager();
         Assert.assertEquals(0L, restartedManager.getGraphId("first"));
         Assert.assertEquals(1L, restartedManager.getGraphIdOrCreate("second"));
+    }
+
+    @Test
+    public void testSkipGraphIdMappingWithoutSlot() {
+        this.persistGraphId("existing", 0L);
+
+        Assert.assertEquals(1L,
+                            this.newManager().getGraphIdOrCreate("new"));
+    }
+
+    @Test
+    public void testUpdateGraphIdsRejectsPersistedCollisionBeforeWriting() {
+        this.persistGraphId("existing", 2L);
+        Map<String, Long> graphIds = new LinkedHashMap<>();
+        graphIds.put("graph-a", 1L);
+        graphIds.put("graph-b", 2L);
+
+        HgStoreException exception = Assert.assertThrows(
+                HgStoreException.class,
+                () -> this.newManager().updateGraphIds(graphIds));
+        Assert.assertTrue(exception.getMessage().contains("existing"));
+        Assert.assertTrue(exception.getMessage().contains("graph-b"));
+        Assert.assertTrue(exception.getMessage().contains("2"));
+        Assert.assertEquals(GRAPH_ID_LIMIT,
+                            this.newManager().getGraphId("graph-a"));
+        Assert.assertEquals(GRAPH_ID_LIMIT,
+                            this.newManager().getGraphId("graph-b"));
+    }
+
+    @Test
+    public void testUpdateGraphIdsPersistsMappingAndSlot() {
+        GraphIdManager manager = this.newManager();
+
+        manager.updateGraphIds(Collections.singletonMap("graph-a", 3L));
+
+        Assert.assertEquals(3L, this.newManager().getGraphId("graph-a"));
+        Int64Value slot = manager.get(
+                Int64Value.parser(),
+                manager.genCIDSlotKey(GraphIdManager.GRAPH_ID_PREFIX, 3L));
+        Assert.assertNotNull(slot);
+        Assert.assertEquals(3L, slot.getValue());
+    }
+
+    @Test
+    public void testUpdateGraphIdsAllowsIdempotentAssignment() {
+        GraphIdManager manager = this.newManager();
+        Map<String, Long> graphIds =
+                Collections.singletonMap("graph-a", 3L);
+
+        manager.updateGraphIds(graphIds);
+        manager.updateGraphIds(graphIds);
+
+        Assert.assertEquals(3L, this.newManager().getGraphId("graph-a"));
     }
 
     @Test

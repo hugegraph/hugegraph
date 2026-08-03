@@ -18,6 +18,7 @@
 package org.apache.hugegraph.store.node.controller;
 
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 import org.apache.hugegraph.store.util.HgStoreException;
@@ -43,5 +44,20 @@ public class FixGraphIdControllerTest {
             Assert.assertTrue(exception.getMessage().contains(String.valueOf(graphId)));
             Assert.assertTrue(exception.getMessage().contains(graphName));
         }
+    }
+
+    @Test
+    public void testUpdateGraphIdRejectsDuplicateIds() {
+        FixGraphIdController controller = new FixGraphIdController();
+        Map<String, Long> graphIds = new LinkedHashMap<>();
+        graphIds.put("graph-a", 5L);
+        graphIds.put("graph-b", 5L);
+
+        HgStoreException exception = Assert.assertThrows(
+                HgStoreException.class,
+                () -> controller.updateGraphId(0, graphIds));
+        Assert.assertTrue(exception.getMessage().contains("graph-a"));
+        Assert.assertTrue(exception.getMessage().contains("graph-b"));
+        Assert.assertTrue(exception.getMessage().contains("5"));
     }
 }

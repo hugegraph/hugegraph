@@ -20,12 +20,17 @@ package org.apache.hugegraph.store.meta;
 import static org.apache.hugegraph.store.constant.HugeServerTables.VERTEX_TABLE;
 
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
+import org.apache.hugegraph.rocksdb.access.RocksDBSession;
+import org.apache.hugegraph.rocksdb.access.SessionOperator;
 import org.apache.hugegraph.store.meta.base.DBSessionBuilder;
 import org.apache.hugegraph.store.meta.base.PartitionMetaStore;
 import org.apache.hugegraph.store.term.Bits;
@@ -33,6 +38,7 @@ import org.apache.hugegraph.store.util.Asserts;
 import org.apache.hugegraph.store.util.HgStoreException;
 
 import com.google.protobuf.Int64Value;
+import com.google.protobuf.InvalidProtocolBufferException;
 
 import lombok.extern.slf4j.Slf4j;
 
@@ -129,6 +135,101 @@ public class GraphIdManager extends PartitionMetaStore {
         return graphId;
     }
 
+    public static void checkGraphIds(Map<String, Long> graphIds,
+                                     int partitionId) {
+        Map<Long, String> graphNames = new HashMap<>();
+        graphIds.forEach((graphName, graphId) -> {
+            if (graphId == null) {
+                throw new HgStoreException(HgStoreException.EC_FAIL,
+                                           "Invalid null graph ID for graph '%s' " +
+                                           "in partition %s",
+                                           graphName, partitionId);
+            }
+            checkGraphId(graphName, graphId, partitionId);
+            String previous = graphNames.putIfAbsent(graphId, graphName);
+            if (previous != null && !previous.equals(graphName)) {
+                throw new HgStoreException(
+                        HgStoreException.EC_FAIL,
+                        "Graph ID %s is assigned to multiple graphs '%s' and '%s' " +
+                        "in partition %s",
+                        graphId, previous, graphName, partitionId);
+            }
+        });
+    }
+
+    public void updateGraphIds(Map<String, Long> graphIds) {
+        Map<String, Long> updates = new HashMap<>(graphIds);
+        checkGraphIds(updates, this.partitionId);
+        synchronized (graphIdLock) {
+            Map<String, Long> finalGraphIds = this.graphIds();
+            finalGraphIds.putAll(updates);
+            this.checkUniqueGraphIds(finalGraphIds);
+            this.writeGraphIds(updates);
+            this.graphIdCache.putAll(updates);
+        }
+    }
+
+    private Map<String, Long> graphIds() {
+        byte[] prefix = MetadataKeyHelper.getGraphIDKey("");
+        Map<String, Long> graphIds = new HashMap<>();
+        for (RocksDBSession.BackendColumn column : scan(prefix)) {
+            String graphName = new String(column.name, prefix.length,
+                                          column.name.length - prefix.length,
+                                          StandardCharsets.UTF_8);
+            try {
+                long graphId = Int64Value.parseFrom(column.value).getValue();
+                graphIds.put(graphName, graphId);
+            } catch (InvalidProtocolBufferException e) {
+                throw new HgStoreException(HgStoreException.EC_FAIL, e);
+            }
+        }
+        return graphIds;
+    }
+
+    private void checkUniqueGraphIds(Map<String, Long> graphIds) {
+        Map<Long, String> graphNames = new HashMap<>();
+        graphIds.forEach((graphName, graphId) -> {
+            // Ignore legacy invalid IDs here so this repair path can replace them.
+            if (graphId < 0L || graphId >= maxGraphID) {
+                return;
+            }
+            String previous = graphNames.putIfAbsent(graphId, graphName);
+            if (previous != null && !previous.equals(graphName)) {
+                throw new HgStoreException(
+                        HgStoreException.EC_FAIL,
+                        "Graph ID %s is assigned to multiple graphs '%s' and '%s' " +
+                        "in partition %s",
+                        graphId, previous, graphName, this.partitionId);
+            }
+        });
+    }
+
+    private void writeGraphIds(Map<String, Long> graphIds) {
+        try (RocksDBSession dbSession = getRocksDBSession()) {
+            SessionOperator operator = dbSession.sessionOp();
+            try {
+                operator.prepare();
+                // Publish mappings only after all IDs are reserved in the same batch.
+                for (Map.Entry<String, Long> entry : graphIds.entrySet()) {
+                    Int64Value value = Int64Value.of(entry.getValue());
+                    byte[] slotKey = genCIDSlotKey(GRAPH_ID_PREFIX,
+                                                  entry.getValue());
+                    operator.put(getCFName(), slotKey, value.toByteArray());
+                }
+                for (Map.Entry<String, Long> entry : graphIds.entrySet()) {
+                    Int64Value value = Int64Value.of(entry.getValue());
+                    byte[] graphIdKey =
+                            MetadataKeyHelper.getGraphIDKey(entry.getKey());
+                    operator.put(getCFName(), graphIdKey, value.toByteArray());
+                }
+                operator.commit();
+            } catch (RuntimeException e) {
+                operator.rollback();
+                throw e;
+            }
+        }
+    }
+
     /**
      * Release a graph id
      */
@@ -177,9 +278,12 @@ public class GraphIdManager extends PartitionMetaStore {
         synchronized (cidLock) {
             Int64Value value = get(Int64Value.parser(), cidNextKey);
             long start = Math.floorMod(value != null ? value.getValue() : 0L, max);
-            long current = this.findAvailableCId(key, start, max);
+            Set<Long> assignedGraphIds = this.assignedGraphIds(key);
+            long current = this.findAvailableCId(key, start, max,
+                                                 assignedGraphIds);
             if (current == -1L && start > 0L) {
-                current = this.findAvailableCId(key, 0L, start);
+                current = this.findAvailableCId(key, 0L, start,
+                                                assignedGraphIds);
             }
             if (current == -1L) {
                 return -1L;
@@ -194,18 +298,31 @@ public class GraphIdManager extends PartitionMetaStore {
         }
     }
 
-    private long findAvailableCId(String key, long start, long end) {
+    private long findAvailableCId(String key, long start, long end,
+                                  Set<Long> assignedGraphIds) {
         Set<Long> idSet = scan(Int64Value.parser(), genCIDSlotKey(key, start),
                                genCIDSlotKey(key, end))
                                .stream()
                                .map(Int64Value::getValue)
                                .collect(Collectors.toSet());
+        idSet.addAll(assignedGraphIds);
         for (long current = start; current < end; current++) {
             if (!idSet.contains(current) && checkCount(current)) {
                 return current;
             }
         }
         return -1L;
+    }
+
+    private Set<Long> assignedGraphIds(String key) {
+        if (!GRAPH_ID_PREFIX.equals(key)) {
+            return Collections.emptySet();
+        }
+        // A persisted mapping stays authoritative even if its slot is missing.
+        return scan(Int64Value.parser(), MetadataKeyHelper.getGraphIDKey(""))
+                .stream()
+                .map(Int64Value::getValue)
+                .collect(Collectors.toSet());
     }
 
     /**
