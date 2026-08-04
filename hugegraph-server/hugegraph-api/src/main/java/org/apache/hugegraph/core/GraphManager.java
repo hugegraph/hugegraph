@@ -1433,12 +1433,23 @@ public final class GraphManager {
         String graphName = spaceGraphName(graphSpace, name);
         this.graphs.put(graphName, graph);
 
-        /*
-         * Let gremlin server and rest server context add graph before the
-         * graph is published, so that a failed local binding can't leave the
-         * graph behind in meta for the other servers to converge on
-         */
         try {
+            if (init) {
+                String schema = propConfig.getString(
+                        CoreOptions.SCHEMA_INIT_TEMPLATE.name());
+                if (schema != null && !schema.isEmpty()) {
+                    String schemas = this.schemaTemplate(graphSpace,
+                                                         schema).schema();
+                    prepareSchema(graph, schemas);
+                }
+            }
+
+            /*
+             * Bind the graph only after schema initialization, but before
+             * publishing its config. READY therefore means the graph is fully
+             * initialized on this server, while a failed local bind can't
+             * leave metadata for other servers to converge on.
+             */
             this.notifyEvent(Events.GRAPH_CREATE, graph);
         } catch (Throwable e) {
             this.notifyEventLenient(Events.GRAPH_DROP, graph);
@@ -1461,16 +1472,6 @@ public final class GraphManager {
         }
         if (!grpcThread) {
             this.metaManager.updateGraphSpaceConfig(graphSpace, gs);
-        }
-
-        if (init) {
-            String schema = propConfig.getString(
-                    CoreOptions.SCHEMA_INIT_TEMPLATE.name());
-            if (schema == null || schema.isEmpty()) {
-                return graph;
-            }
-            String schemas = this.schemaTemplate(graphSpace, schema).schema();
-            prepareSchema(graph, schemas);
         }
         return graph;
     }
@@ -1610,9 +1611,30 @@ public final class GraphManager {
         try {
             return this.metaManager.getGraphStatus(graphSpace, graph);
         } catch (Throwable e) {
-            LOG.warn("Failed to get status of graph '{}-{}'",
-                     graphSpace, graph, e);
+            // Clients poll the status, keep the stack trace out of the log
+            LOG.warn("Failed to get status of graph '{}-{}': {}",
+                     graphSpace, graph, e.getMessage());
+            LOG.debug("Failed to get status of graph", e);
             return Collections.emptyMap();
+        }
+    }
+
+    /**
+     * Whether a graph is registered in the cluster metadata. Unlike listing
+     * the graphs of a graph space it reads a single key, it's on the path of
+     * an API clients poll
+     */
+    public boolean graphConfigExists(String graphSpace, String name) {
+        if (!this.isPDEnabled()) {
+            return false;
+        }
+        try {
+            return this.metaManager.getGraphConfig(graphSpace, name) != null;
+        } catch (Throwable e) {
+            LOG.warn("Failed to get the config of graph '{}-{}': {}",
+                     graphSpace, name, e.getMessage());
+            LOG.debug("Failed to get the config of graph", e);
+            return false;
         }
     }
 
@@ -1629,8 +1651,10 @@ public final class GraphManager {
         try {
             return this.serviceServerIds(graphSpace);
         } catch (Throwable e) {
-            LOG.warn("Failed to list the servers of graph space '{}'",
-                     graphSpace, e);
+            // Clients poll the status, keep the stack trace out of the log
+            LOG.warn("Failed to list the servers of graph space '{}': {}",
+                     graphSpace, e.getMessage());
+            LOG.debug("Failed to list the servers of graph space", e);
             return Collections.emptySet();
         }
     }
