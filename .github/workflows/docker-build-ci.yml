@@ -26,6 +26,7 @@ on:
     paths:
       - '**/Dockerfile*'
       - '.dockerignore'
+      - 'hugegraph-server/hugegraph-dist/docker/**'
       - 'hugegraph-server/hugegraph-dist/src/assembly/static/bin/util.sh'
 
 jobs:
@@ -52,6 +53,10 @@ jobs:
           HC=$(docker inspect --format='{{json .Config.Healthcheck}}' "$IMAGE_ID")
           echo "Healthcheck: $HC"
           [[ "$HC" != "null" ]] || { echo "ERROR: HEALTHCHECK missing in ${{ matrix.dockerfile }}"; exit 1; }
+
+      - name: Test server entrypoint property mapping
+        if: matrix.dockerfile == 'hugegraph-server/Dockerfile'
+        run: bash hugegraph-server/hugegraph-dist/docker/test/test-docker-entrypoint.sh
 
       # The startup preflight needs a socket-table tool, and the base image
       # ships none of its own.  Without one every start reports "unknown" and

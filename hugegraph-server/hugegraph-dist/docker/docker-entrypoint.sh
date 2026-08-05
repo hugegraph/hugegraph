@@ -20,6 +20,7 @@ set -euo pipefail
 DOCKER_FOLDER="./docker"
 INIT_FLAG_FILE="init_complete"
 GRAPH_CONF="./conf/graphs/hugegraph.properties"
+REST_SERVER_CONF="./conf/rest-server.properties"
 
 mkdir -p "${DOCKER_FOLDER}"
 
@@ -27,13 +28,15 @@ log() { echo "[hugegraph-server-entrypoint] $*"; }
 
 set_prop() {
     local key="$1" val="$2" file="$3"
-    local esc_key esc_val
+    local esc_key esc_val key_re
 
     esc_key=$(printf '%s' "$key" | sed -e 's/[][(){}.^$*+?|\\/]/\\&/g')
-    esc_val=$(printf '%s' "$val" | sed -e 's/[&|\\]/\\&/g')
+    esc_val=$(printf '%s' "$val" | sed -e 's/[&|\\~]/\\&/g')
+    key_re="^[[:space:]]*${esc_key}([[:space:]]*[:=]|[[:space:]]+|[[:space:]]*$)"
 
-    if grep -qE "^[[:space:]]*${esc_key}[[:space:]]*=" "${file}"; then
-        sed -ri "s|^([[:space:]]*${esc_key}[[:space:]]*=).*|\\1${esc_val}|" "${file}"
+    if grep -qE "${key_re}" "${file}"; then
+        sed -ri "0,/${key_re}/!{/${key_re}/d;}" "${file}"
+        sed -ri "0,/${key_re}/s~${key_re}.*~${key}=${esc_val}~" "${file}"
     else
         printf '%s=%s\n' "$key" "$val" >> "${file}"
     fi
@@ -55,13 +58,39 @@ migrate_env "PD_PEERS" "HG_SERVER_PD_PEERS"
 [[ -n "${HG_SERVER_BACKEND:-}"  ]] && set_prop "backend"  "${HG_SERVER_BACKEND}"  "${GRAPH_CONF}"
 [[ -n "${HG_SERVER_PD_PEERS:-}" ]] && set_prop "pd.peers" "${HG_SERVER_PD_PEERS}" "${GRAPH_CONF}"
 
+# Normalized once here and reused by the init-flag guard below. The accepted
+# spellings are the ones HugeConfig accepts, case-insensitive: commons-lang 2.x
+# BooleanUtils, reached through commons-configuration 1.x PropertyConverter.
+# That set excludes 0 and 1, which commons-lang3 would have taken. Anything
+# outside it is rejected now rather than touching the init flag for a value the
+# server is going to refuse anyway.
+INIT_STORE_ENABLED=$(printf '%s' "${HG_SERVER_INIT_STORE_ENABLED:-}" |
+                     tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')
+case "${INIT_STORE_ENABLED}" in
+    "" | y | t | yes | on | true | n | f | no | off | false) ;;
+    *) log "ERROR: invalid HG_SERVER_INIT_STORE_ENABLED" \
+           "'${HG_SERVER_INIT_STORE_ENABLED}'"
+       exit 1 ;;
+esac
+[[ -n "${INIT_STORE_ENABLED}" ]] && \
+    set_prop "init_store.enabled" "${INIT_STORE_ENABLED}" "${REST_SERVER_CONF}"
+
 # ── Build wait-storage env ─────────────────────────────────────────────
 WAIT_ENV=()
 [[ -n "${HG_SERVER_BACKEND:-}"  ]] && WAIT_ENV+=("hugegraph.backend=${HG_SERVER_BACKEND}")
 [[ -n "${HG_SERVER_PD_PEERS:-}" ]] && WAIT_ENV+=("hugegraph.pd.peers=${HG_SERVER_PD_PEERS}")
 
-# ── Init store (once) ─────────────────────────────────────────────────
-if [[ ! -f "${DOCKER_FOLDER}/${INIT_FLAG_FILE}" ]]; then
+# ── Init store ────────────────────────────────────────────────────────
+# init-store owns the marker: it skips re-initialization when the marker is
+# present and writes it only after it has actually initialized. Deciding here
+# would mean guessing from the environment variable, which says nothing about
+# a config mounted with the property already set. Absolute, so the in-Java
+# existence check agrees with the guard below no matter where init-store.sh
+# leaves its working directory.
+INIT_MARKER_PATH="$(cd "${DOCKER_FOLDER}" && pwd)/${INIT_FLAG_FILE}"
+export HG_SERVER_INIT_COMPLETE_MARKER="${INIT_MARKER_PATH}"
+
+if [[ ! -f "${INIT_MARKER_PATH}" ]]; then
     if (( ${#WAIT_ENV[@]} > 0 )); then
         env "${WAIT_ENV[@]}" ./bin/wait-storage.sh
     else
@@ -74,11 +103,25 @@ if [[ ! -f "${DOCKER_FOLDER}/${INIT_FLAG_FILE}" ]]; then
     else
         log "init hugegraph with auth mode"
         ./bin/enable-auth.sh
+        # init-store reads the password from stdin, and a disabled one returns
+        # before it gets there, so say plainly that PASSWORD is being dropped
+        case "${INIT_STORE_ENABLED}" in
+            n | f | no | off | false)
+                log "WARN: PASSWORD is ignored while init-store is disabled;" \
+                    "the admin is created on the PD startup path from" \
+                    "'auth.admin_pa', which defaults to the public value 'pa'" ;;
+        esac
         echo "${PASSWORD}" | ./bin/init-store.sh
     fi
-    touch "${DOCKER_FOLDER}/${INIT_FLAG_FILE}"
 else
-    log "HugeGraph initialization already done. Skipping re-init..."
+    log "HugeGraph initialization already done. Revalidating the config..."
+    # The marker skips re-initialization inside init-store, not init-store
+    # itself: a disabled one must pass its fail-closed check on every startup,
+    # because the marker may predate this configuration or this release and
+    # says nothing about whether the admin the current config relies on is
+    # reachable. An enabled one returns at the marker, before it touches the
+    # backend or reads stdin, so neither wait-storage nor PASSWORD is needed.
+    ./bin/init-store.sh
 fi
 
 ./bin/start-hugegraph.sh -j "${JAVA_OPTS:-}" -t 120
