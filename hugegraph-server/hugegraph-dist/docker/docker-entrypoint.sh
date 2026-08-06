@@ -90,6 +90,14 @@ migrate_env() {
 migrate_env "BACKEND"  "HG_SERVER_BACKEND"
 migrate_env "PD_PEERS" "HG_SERVER_PD_PEERS"
 
+if [[ -n "${HG_SERVER_AUTH_TOKEN_SECRET:-}" ]]; then
+    LC_ALL=C
+    if (( ${#HG_SERVER_AUTH_TOKEN_SECRET} < 32 )); then
+        log "ERROR: HG_SERVER_AUTH_TOKEN_SECRET must be at least 32 bytes"
+        exit 1
+    fi
+fi
+
 AUTH_TOKEN_SECRET_ENCODED=""
 if [[ -n "${PASSWORD:-}" && -z "${HG_SERVER_AUTH_TOKEN_SECRET:-}" ]]; then
     rest_secret=$(get_prop_encoded "auth.token_secret" "${REST_SERVER_CONF}")

@@ -260,7 +260,7 @@ Configuration is injected via environment variables. The old `docker/configs/app
 | `HG_SERVER_USE_PD` | No | — | `usePD` in `rest-server.properties` | Enables Server PD registration and discovery |
 | `HG_SERVER_REST_URL` | No | — | `restserver.url` | Address registered with PD and used by clients |
 | `HG_SERVER_MIN_FREE_MEMORY` | No | — | `restserver.min_free_memory` | Minimum free-memory guard in MB; local Compose uses `0` |
-| `HG_SERVER_AUTH_TOKEN_SECRET` | No | generated in auth mode | `auth.token_secret` | Shared JWT secret for REST and embedded Gremlin authentication |
+| `HG_SERVER_AUTH_TOKEN_SECRET` | No | generated in auth mode | `auth.token_secret` | Shared JWT secret for REST and embedded Gremlin authentication; explicit values must be at least 32 bytes |
 | `STORE_REST` | No | — | Used by `wait-partition.sh` | Store REST endpoint for partition verification (e.g. `store0:8520`) |
 | `PASSWORD` | No | — | Enables auth and sets `auth.admin_pa` | Initial administrator password; disabled init-store does not read it from stdin, but the entrypoint still applies it to the PD bootstrap path |
 | `HG_SERVER_INIT_STORE_ENABLED` | No | `true` | `init_store.enabled` in `rest-server.properties` | Set `false` in PD/HStore deployments so init-store skips local backend and admin initialization |
@@ -297,12 +297,59 @@ The single-node Compose files also accept these deployment-level overrides:
 | `HUBBLE_PULL_POLICY` | `always` (`missing` for dev) | Hubble pull policy |
 | `HUBBLE_PUBLISH_HOST` | `127.0.0.1` | Hubble host bind address; remote access requires an HTTPS reverse proxy |
 | `HUGEGRAPH_ADMIN_PASSWORD` | required (`docker/.env`) | Initial admin password; no public default is provided |
-| `HUGEGRAPH_AUTH_TOKEN_SECRET` | generated | JWT signing secret; set explicitly to preserve tokens across container recreation |
+| `HUGEGRAPH_AUTH_TOKEN_SECRET` | generated | JWT signing secret; explicit values must be at least 32 bytes |
 
 When authentication is enabled and no token secret is supplied, the Server
 entrypoint generates a random secret and writes it to both authentication
 configurations. The value is reused on container restart while the container
-filesystem is preserved.
+filesystem is preserved. To preserve tokens across container recreation,
+generate a compatible secret once and add it to the mode-600 `docker/.env`:
+
+```bash
+(
+  set -euo pipefail
+  cd docker
+  secret_pattern='^[[:space:]]*(export[[:space:]]+)?HUGEGRAPH_AUTH_TOKEN_SECRET[[:space:]]*='
+  secret_count="$(grep -Ec "${secret_pattern}" .env || true)"
+  case "${secret_count}" in
+    0)
+      command -v openssl >/dev/null 2>&1
+      token_secret="$(openssl rand -hex 32)"
+      LC_ALL=C
+      if (( ${#token_secret} != 64 )); then
+        echo "Failed to generate a 64-character token secret" >&2
+        exit 1
+      fi
+      printf "HUGEGRAPH_AUTH_TOKEN_SECRET='%s'\n" \
+        "${token_secret}" >> .env
+      unset token_secret
+      echo "Generated HUGEGRAPH_AUTH_TOKEN_SECRET"
+      ;;
+    1)
+      token_secret="$(
+        sed -nE \
+          "s/${secret_pattern}'([^']*)'[[:space:]]*$/\\2/p" .env
+      )"
+      LC_ALL=C
+      if (( ${#token_secret} < 32 )); then
+        echo "Existing token secret must use the documented single-quoted" \
+             "format and contain at least 32 bytes; .env was not changed" >&2
+        exit 1
+      fi
+      unset token_secret
+      echo "HUGEGRAPH_AUTH_TOKEN_SECRET already exists; reusing it"
+      ;;
+    *)
+      echo "Duplicate HUGEGRAPH_AUTH_TOKEN_SECRET entries; repair .env" >&2
+      exit 1
+      ;;
+  esac
+  chmod 600 .env
+)
+```
+
+The entrypoint rejects shorter explicit values before changing either Server
+configuration file.
 
 **Deprecated aliases** (still work but log a warning):
 
