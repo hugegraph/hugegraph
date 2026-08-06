@@ -124,10 +124,13 @@ jobs:
                   null) and
                 .services.hubble.depends_on.server.condition ==
                   "service_healthy" and
-                .services.hubble.healthcheck.test[1] ==
-                  "curl -fsS http://127.0.0.1:8088/actuator/health >/dev/null" and
+                (.services.hubble.healthcheck.test[1] |
+                  contains("http://127.0.0.1:8088/about") and
+                  contains("\"status\":200") and
+                  contains("\"name\":\"hugegraph-hubble\"")) and
                 any(.services.hubble.ports[];
-                    .target == 8088 and .published == "8088")
+                    .target == 8088 and .published == "8088" and
+                    .host_ip == "127.0.0.1")
               ' "$rendered" >/dev/null
             rm -f "$rendered"
           }

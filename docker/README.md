@@ -41,6 +41,8 @@ docker compose up -d
 - PD healthcheck endpoint: `/v1/health`
 - Hubble is available at `http://localhost:8088`; sign in as `admin` with the
   required `HUGEGRAPH_ADMIN_PASSWORD`
+- Hubble binds to host loopback by default. Set `HUBBLE_PUBLISH_HOST`
+  explicitly only behind an HTTPS reverse proxy and trusted network controls.
 - Hubble uses PD discovery and the Docker-network Server address
 - Server healthcheck endpoint: `/versions`
 
@@ -73,7 +75,7 @@ docker compose -f docker-compose.dev.yml up -d
 **Verify** (both options):
 ```bash
 curl http://localhost:8080/versions
-curl -fsS http://localhost:8088/actuator/health
+curl -fsS http://localhost:8088/about
 ```
 
 To validate local images without Compose replacing them with remote `latest`:
@@ -217,6 +219,7 @@ The single-node Compose files also accept these deployment-level overrides:
 | `HUGEGRAPH_SERVER_PULL_POLICY` | `always` (`build` for dev) | Server pull policy |
 | `HUBBLE_IMAGE` | `hugegraph/hubble:<version>` | Complete Hubble image reference |
 | `HUBBLE_PULL_POLICY` | `always` (`missing` for dev) | Hubble pull policy |
+| `HUBBLE_PUBLISH_HOST` | `127.0.0.1` | Hubble host bind address; remote access requires an HTTPS reverse proxy |
 | `HUGEGRAPH_ADMIN_PASSWORD` | required | Initial admin password; no public default is provided |
 | `HUGEGRAPH_AUTH_TOKEN_SECRET` | generated | JWT signing secret; set explicitly to preserve tokens across container recreation |
 
@@ -237,7 +240,8 @@ filesystem is preserved.
 ## Port Reference
 
 The table below reflects the published host ports in `docker-compose-3pd-3store-3server.yml`.
-The single-node Compose file publishes `8620`, `8520`, `8080`, and Hubble `8088`.
+The single-node Compose file publishes `8620`, `8520`, `8080`, and Hubble
+`8088`; Hubble defaults to host loopback.
 
 | Service | Container Port | Host Port | Protocol | Purpose |
 |---------|---------------|-----------|----------|---------|
@@ -270,7 +274,7 @@ The single-node Compose file publishes `8620`, `8520`, `8080`, and Hubble `8088`
 | PD | `GET /v1/health` | `200 OK` |
 | Store | `GET /v1/health` | `200 OK` |
 | Server | `GET /versions` | `200 OK` with version JSON |
-| Hubble | `GET /actuator/health` | healthy HTTP service |
+| Hubble | `GET /about` | `200` JSON with Hubble name and version |
 
 ---
 

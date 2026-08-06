@@ -120,11 +120,11 @@ services:
       server:
         condition: service_healthy
     ports:
-      - "8088:8088"
+      - "${HUBBLE_PUBLISH_HOST:-127.0.0.1}:8088:8088"
     volumes:
       - ./hugegraph-hubble.properties:/hubble/conf/hugegraph-hubble.properties:ro
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8088/actuator/health >/dev/null"]
+      test: ["CMD-SHELL", "body=$$(curl -fsS http://127.0.0.1:8088/about) && printf '%s' \"$$body\" | grep -q '\"status\":200' && printf '%s' \"$$body\" | grep -q '\"name\":\"hugegraph-hubble\"'"]
       interval: 10s
       timeout: 5s
       retries: 30
