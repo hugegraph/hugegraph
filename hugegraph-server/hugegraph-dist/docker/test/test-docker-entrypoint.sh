@@ -24,9 +24,9 @@ test_dir="$(mktemp -d)"
 trap 'rm -rf "${test_dir}"' EXIT
 
 eval "$(awk '
-    /^set_prop\(\) \{/ { capture = 1 }
+    /^encode_prop_value\(\) \{/ { capture = 1 }
     capture { print }
-    capture && /^\}$/ { exit }
+    capture && /^\}$/ && ++function_ends == 3 { exit }
 ' "${entrypoint}")"
 
 assert_replaced() {

@@ -28,7 +28,9 @@ Uses pre-built images from Docker Hub. Best for **end users** who want to run Hu
 
 ```bash
 cd docker
-HUGEGRAPH_VERSION=1.7.0 docker compose up -d
+HUGEGRAPH_VERSION=1.7.0 \
+HUGEGRAPH_ADMIN_PASSWORD='<choose-a-strong-password>' \
+docker compose up -d
 ```
 
 - Images: `hugegraph/pd:1.7.0`, `hugegraph/store:1.7.0`,
@@ -37,7 +39,8 @@ HUGEGRAPH_VERSION=1.7.0 docker compose up -d
 
 > **Note**: Use release tags (e.g., `1.7.0`) for stable deployments. The `latest` tag is intended for testing or development only.
 - PD healthcheck endpoint: `/v1/health`
-- Hubble is available at `http://localhost:8088`; the default login is `admin / pa`
+- Hubble is available at `http://localhost:8088`; sign in as `admin` with the
+  required `HUGEGRAPH_ADMIN_PASSWORD`
 - Hubble uses PD discovery and the Docker-network Server address
 - Server healthcheck endpoint: `/versions`
 
@@ -47,6 +50,7 @@ Builds images locally from source Dockerfiles. Best for **developers** who want 
 
 ```bash
 cd docker
+HUGEGRAPH_ADMIN_PASSWORD='<choose-a-strong-password>' \
 docker compose -f docker-compose.dev.yml up -d
 ```
 
@@ -69,7 +73,7 @@ docker compose -f docker-compose.dev.yml up -d
 **Verify** (both options):
 ```bash
 curl http://localhost:8080/versions
-curl http://localhost:8088/actuator/health
+curl -fsS http://localhost:8088/actuator/health
 ```
 
 To validate local images without Compose replacing them with remote `latest`:
@@ -174,12 +178,13 @@ Configuration is injected via environment variables. The old `docker/configs/app
 |----------|----------|---------|-----------------------------|-------------|
 | `HG_SERVER_BACKEND` | Yes | — | `backend` in `hugegraph.properties` | Storage backend (e.g. `hstore`) |
 | `HG_SERVER_PD_PEERS` | Yes | — | `pd.peers` | PD cluster addresses (e.g. `pd0:8686,pd1:8686,pd2:8686`) |
+| `HG_SERVER_CLUSTER` | No | — | `cluster` in `rest-server.properties` | PD discovery application name; single-node Compose uses `hg` to match Hubble |
 | `HG_SERVER_USE_PD` | No | — | `usePD` in `rest-server.properties` | Enables Server PD registration and discovery |
 | `HG_SERVER_REST_URL` | No | — | `restserver.url` | Address registered with PD and used by clients |
 | `HG_SERVER_MIN_FREE_MEMORY` | No | — | `restserver.min_free_memory` | Minimum free-memory guard in MB; local Compose uses `0` |
 | `HG_SERVER_AUTH_TOKEN_SECRET` | No | generated in auth mode | `auth.token_secret` | Shared JWT secret for REST and embedded Gremlin authentication |
 | `STORE_REST` | No | — | Used by `wait-partition.sh` | Store REST endpoint for partition verification (e.g. `store0:8520`) |
-| `PASSWORD` | No | — | Enables auth mode | Optional authentication password; ignored when `HG_SERVER_INIT_STORE_ENABLED` is `false` (see below) |
+| `PASSWORD` | No | — | Enables auth and sets `auth.admin_pa` | Initial administrator password; disabled init-store does not read it from stdin, but the entrypoint still applies it to the PD bootstrap path |
 | `HG_SERVER_INIT_STORE_ENABLED` | No | `true` | `init_store.enabled` in `rest-server.properties` | Set `false` in PD/HStore deployments so init-store skips local backend and admin initialization |
 
 > **The built-in authenticator with `HG_SERVER_INIT_STORE_ENABLED=false`
@@ -199,12 +204,10 @@ Configuration is injected via environment variables. The old `docker/configs/app
 > one performs the fail-closed check above first, so a marker left by an
 > earlier release or an earlier enabled run cannot bypass it.
 >
-> **`PASSWORD` does not reach that path.** init-store reads it from standard
-> input, and a disabled one returns before doing so. The admin is instead
-> created from `auth.admin_pa`, whose `pa` default is public, so init-store
-> refuses to skip unless it is explicitly set to a non-empty value in a mounted
-> `rest-server.properties`. It applies only when the account is first created,
-> so changing it later does not rotate an existing password.
+> The entrypoint maps **`PASSWORD` to `auth.admin_pa`** before init-store runs.
+> A disabled init-store does not read the password from standard input, but the
+> PD startup path uses the explicit `auth.admin_pa` value when it first creates
+> the administrator. Changing it later does not rotate an existing password.
 
 The single-node Compose files also accept these deployment-level overrides:
 
@@ -214,7 +217,7 @@ The single-node Compose files also accept these deployment-level overrides:
 | `HUGEGRAPH_SERVER_PULL_POLICY` | `always` (`build` for dev) | Server pull policy |
 | `HUBBLE_IMAGE` | `hugegraph/hubble:<version>` | Complete Hubble image reference |
 | `HUBBLE_PULL_POLICY` | `always` (`missing` for dev) | Hubble pull policy |
-| `HUGEGRAPH_ADMIN_PASSWORD` | `pa` | Initial local admin password |
+| `HUGEGRAPH_ADMIN_PASSWORD` | required | Initial admin password; no public default is provided |
 | `HUGEGRAPH_AUTH_TOKEN_SECRET` | generated | JWT signing secret; set explicitly to preserve tokens across container recreation |
 
 When authentication is enabled and no token secret is supplied, the Server

@@ -158,8 +158,13 @@ public class WsAndHttpBasicAuthHandlerTest {
     }
 
     @Test
-    public void testEmptyBearerTokenIsRejected() throws Exception {
-        assertUnauthorized("Bearer ");
+    public void testWhitespaceOnlyBearerTokenIsRejected() throws Exception {
+        assertUnauthorized("Bearer   ");
+    }
+
+    @Test
+    public void testBearerTokenWithWhitespaceIsRejected() throws Exception {
+        assertUnauthorized("Bearer token with-space");
     }
 
     @Test

@@ -26,20 +26,56 @@ mkdir -p "${DOCKER_FOLDER}"
 
 log() { echo "[hugegraph-server-entrypoint] $*"; }
 
-set_prop() {
-    local key="$1" val="$2" file="$3"
+encode_prop_value() {
+    local value="$1" encoded="" char
+    local i
+
+    LC_ALL=C
+    for ((i = 0; i < ${#value}; i++)); do
+        char="${value:i:1}"
+        case "${char}" in
+            "\\") encoded+="\\\\" ;;
+            " ") encoded+="\\ " ;;
+            $'\t') encoded+="\\t" ;;
+            $'\n') encoded+="\\n" ;;
+            $'\r') encoded+="\\r" ;;
+            $'\f') encoded+="\\f" ;;
+            *) encoded+="${char}" ;;
+        esac
+    done
+    printf '%s' "${encoded}"
+}
+
+set_prop_encoded() {
+    local key="$1" encoded_val="$2" file="$3"
     local esc_key esc_val key_re
 
     esc_key=$(printf '%s' "$key" | sed -e 's/[][(){}.^$*+?|\\/]/\\&/g')
-    esc_val=$(printf '%s' "$val" | sed -e 's/[&|\\~]/\\&/g')
+    esc_val=$(printf '%s' "$encoded_val" | sed -e 's/[&|\\~]/\\&/g')
     key_re="^[[:space:]]*${esc_key}([[:space:]]*[:=]|[[:space:]]+|[[:space:]]*$)"
 
     if grep -qE "${key_re}" "${file}"; then
         sed -ri "0,/${key_re}/!{/${key_re}/d;}" "${file}"
         sed -ri "0,/${key_re}/s~${key_re}.*~${key}=${esc_val}~" "${file}"
     else
-        printf '%s=%s\n' "$key" "$val" >> "${file}"
+        printf '%s=%s\n' "$key" "$encoded_val" >> "${file}"
     fi
+}
+
+set_prop() {
+    local key="$1" val="$2" file="$3"
+
+    set_prop_encoded "$key" "$(encode_prop_value "$val")" "$file"
+}
+
+get_prop_encoded() {
+    local key="$1" file="$2"
+    local esc_key
+
+    esc_key=$(printf '%s' "$key" | sed -e 's/[][(){}.^$*+?|\\/]/\\&/g')
+    sed -nE \
+        "s~^[[:space:]]*${esc_key}([[:space:]]*[:=][[:space:]]*|[[:space:]]+)(.*)$~\\2~p" \
+        "${file}" | head -n 1
 }
 
 migrate_env() {
@@ -54,13 +90,17 @@ migrate_env() {
 migrate_env "BACKEND"  "HG_SERVER_BACKEND"
 migrate_env "PD_PEERS" "HG_SERVER_PD_PEERS"
 
+AUTH_TOKEN_SECRET_ENCODED=""
 if [[ -n "${PASSWORD:-}" && -z "${HG_SERVER_AUTH_TOKEN_SECRET:-}" ]]; then
-    rest_secret=$(sed -n 's/^[[:space:]]*auth\.token_secret[[:space:]]*=//p' \
-        "${REST_SERVER_CONF}" | head -n 1)
-    graph_secret=$(sed -n 's/^[[:space:]]*auth\.token_secret[[:space:]]*=//p' \
-        "${GRAPH_CONF}" | head -n 1)
-    if [[ -n "${rest_secret}" && "${rest_secret}" == "${graph_secret}" ]]; then
-        HG_SERVER_AUTH_TOKEN_SECRET="${rest_secret}"
+    rest_secret=$(get_prop_encoded "auth.token_secret" "${REST_SERVER_CONF}")
+    graph_secret=$(get_prop_encoded "auth.token_secret" "${GRAPH_CONF}")
+    if [[ -n "${rest_secret}" ]]; then
+        AUTH_TOKEN_SECRET_ENCODED="${rest_secret}"
+        if [[ -n "${graph_secret}" && "${graph_secret}" != "${rest_secret}" ]]; then
+            log "WARN: authentication token secrets differ; using REST secret"
+        fi
+    elif [[ -n "${graph_secret}" ]]; then
+        AUTH_TOKEN_SECRET_ENCODED="${graph_secret}"
     else
         HG_SERVER_AUTH_TOKEN_SECRET=$(head -c 32 /dev/urandom | base64 | tr -d '\n')
         log "generated a shared authentication token secret"
@@ -74,6 +114,8 @@ fi
     set_prop "usePD" "${HG_SERVER_USE_PD}" "${REST_SERVER_CONF}"
 [[ -n "${HG_SERVER_PD_PEERS:-}" ]] && \
     set_prop "pd.peers" "${HG_SERVER_PD_PEERS}" "${REST_SERVER_CONF}"
+[[ -n "${HG_SERVER_CLUSTER:-}" ]] && \
+    set_prop "cluster" "${HG_SERVER_CLUSTER}" "${REST_SERVER_CONF}"
 [[ -n "${HG_SERVER_REST_URL:-}" ]] && set_prop "restserver.url" \
     "${HG_SERVER_REST_URL}" "${REST_SERVER_CONF}"
 [[ -n "${HG_SERVER_MIN_FREE_MEMORY:-}" ]] && set_prop "restserver.min_free_memory" \
@@ -82,6 +124,17 @@ if [[ -n "${HG_SERVER_AUTH_TOKEN_SECRET:-}" ]]; then
     set_prop "auth.token_secret" "${HG_SERVER_AUTH_TOKEN_SECRET}" \
         "${REST_SERVER_CONF}"
     set_prop "auth.token_secret" "${HG_SERVER_AUTH_TOKEN_SECRET}" "${GRAPH_CONF}"
+elif [[ -n "${AUTH_TOKEN_SECRET_ENCODED}" ]]; then
+    set_prop_encoded "auth.token_secret" "${AUTH_TOKEN_SECRET_ENCODED}" \
+        "${REST_SERVER_CONF}"
+    set_prop_encoded "auth.token_secret" "${AUTH_TOKEN_SECRET_ENCODED}" \
+        "${GRAPH_CONF}"
+fi
+if [[ -n "${PASSWORD:-}" ]]; then
+    set_prop "auth.admin_pa" "${PASSWORD}" "${REST_SERVER_CONF}"
+    # This script is idempotent and must run outside the initialization guard:
+    # an upgrade can preserve the marker from an unauthenticated deployment.
+    ./bin/enable-auth.sh
 fi
 
 # Normalized once here and reused by the init-flag guard below. The accepted
@@ -128,14 +181,13 @@ if [[ ! -f "${INIT_MARKER_PATH}" ]]; then
         ./bin/init-store.sh
     else
         log "init hugegraph with auth mode"
-        ./bin/enable-auth.sh
         # init-store reads the password from stdin, and a disabled one returns
         # before it gets there, so say plainly that PASSWORD is being dropped
         case "${INIT_STORE_ENABLED}" in
             n | f | no | off | false)
-                log "WARN: PASSWORD is ignored while init-store is disabled;" \
-                    "the admin is created on the PD startup path from" \
-                    "'auth.admin_pa', which defaults to the public value 'pa'" ;;
+                log "init-store does not read PASSWORD while disabled;" \
+                    "the entrypoint applies it through 'auth.admin_pa' for" \
+                    "the PD startup path" ;;
         esac
         echo "${PASSWORD}" | ./bin/init-store.sh
     fi
