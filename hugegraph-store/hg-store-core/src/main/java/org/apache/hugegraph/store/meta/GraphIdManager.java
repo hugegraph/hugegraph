@@ -162,9 +162,14 @@ public class GraphIdManager extends PartitionMetaStore {
         checkGraphIds(updates, this.partitionId);
         synchronized (graphIdLock) {
             Map<String, Long> finalGraphIds = this.graphIds();
+            Set<Long> graphIdsToRelease = updates.keySet().stream()
+                                                 .map(finalGraphIds::get)
+                                                 .filter(graphId -> graphId != null)
+                                                 .collect(Collectors.toSet());
             finalGraphIds.putAll(updates);
             this.checkUniqueGraphIds(finalGraphIds);
-            this.writeGraphIds(updates);
+            graphIdsToRelease.removeAll(finalGraphIds.values());
+            this.writeGraphIds(updates, graphIdsToRelease);
             this.graphIdCache.putAll(updates);
         }
     }
@@ -204,11 +209,17 @@ public class GraphIdManager extends PartitionMetaStore {
         });
     }
 
-    private void writeGraphIds(Map<String, Long> graphIds) {
+    private void writeGraphIds(Map<String, Long> graphIds,
+                               Set<Long> graphIdsToRelease) {
         try (RocksDBSession dbSession = getRocksDBSession()) {
             SessionOperator operator = dbSession.sessionOp();
             try {
                 operator.prepare();
+                // Release only previous slots no longer referenced after this repair.
+                for (Long graphId : graphIdsToRelease) {
+                    byte[] slotKey = genCIDSlotKey(GRAPH_ID_PREFIX, graphId);
+                    operator.delete(getCFName(), slotKey);
+                }
                 // Publish mappings only after all IDs are reserved in the same batch.
                 for (Map.Entry<String, Long> entry : graphIds.entrySet()) {
                     Int64Value value = Int64Value.of(entry.getValue());

@@ -200,6 +200,36 @@ public class GraphIDManagerTest extends UnitTestBase {
     }
 
     @Test
+    public void testReusePreviousGraphIdAfterRemapAndRelease() {
+        GraphIdManager manager = this.newManager();
+
+        manager.updateGraphIds(Collections.singletonMap("graph-a", 3L));
+        manager.updateGraphIds(Collections.singletonMap("graph-a", 4L));
+        Assert.assertEquals(4L, manager.releaseGraphId("graph-a"));
+        manager.put(MetadataKeyHelper.getCidKey(GraphIdManager.GRAPH_ID_PREFIX),
+                    Int64Value.of(3L));
+
+        Assert.assertEquals(3L,
+                            this.newManager().getGraphIdOrCreate("graph-b"));
+    }
+
+    @Test
+    public void testKeepPreviousGraphIdSlotWhenStillAssigned() {
+        GraphIdManager manager = this.newManager();
+        manager.updateGraphIds(Collections.singletonMap("graph-a", 3L));
+        this.persistGraphId("graph-b", 3L);
+
+        manager.updateGraphIds(Collections.singletonMap("graph-a", 4L));
+
+        Int64Value slot = manager.get(
+                Int64Value.parser(),
+                manager.genCIDSlotKey(GraphIdManager.GRAPH_ID_PREFIX, 3L));
+        Assert.assertNotNull(slot);
+        Assert.assertEquals(3L, slot.getValue());
+        Assert.assertEquals(3L, this.newManager().getGraphId("graph-b"));
+    }
+
+    @Test
     public void testRejectPersistedGraphIdsOutsideAllocatableDomain() {
         long[] invalidGraphIds = {-1L, GRAPH_ID_LIMIT, 65536L};
 
