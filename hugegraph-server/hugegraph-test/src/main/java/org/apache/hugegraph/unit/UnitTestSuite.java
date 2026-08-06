@@ -37,7 +37,7 @@ import org.apache.hugegraph.unit.cache.CacheTest;
 import org.apache.hugegraph.unit.cache.CachedGraphTransactionTest;
 import org.apache.hugegraph.unit.cache.CachedSchemaTransactionTest;
 import org.apache.hugegraph.unit.cache.RamTableTest;
-import org.apache.hugegraph.unit.cassandra.CassandraTest;
+import org.apache.hugegraph.unit.cmd.InitStoreConfigTest;
 import org.apache.hugegraph.unit.core.AnalyzerTest;
 import org.apache.hugegraph.unit.core.BackendMutationTest;
 import org.apache.hugegraph.unit.core.BackendStoreInfoTest;
@@ -46,6 +46,7 @@ import org.apache.hugegraph.unit.core.ConditionTest;
 import org.apache.hugegraph.unit.core.DataTypeTest;
 import org.apache.hugegraph.unit.core.DirectionsTest;
 import org.apache.hugegraph.unit.core.ExceptionTest;
+import org.apache.hugegraph.unit.core.GraphManagerAdminInitTest;
 import org.apache.hugegraph.unit.core.GraphManagerConfigTest;
 import org.apache.hugegraph.unit.core.LocksTableTest;
 import org.apache.hugegraph.unit.core.PageStateTest;
@@ -64,8 +65,6 @@ import org.apache.hugegraph.unit.id.EdgeIdTest;
 import org.apache.hugegraph.unit.id.IdTest;
 import org.apache.hugegraph.unit.id.IdUtilTest;
 import org.apache.hugegraph.unit.id.SplicingIdGeneratorTest;
-import org.apache.hugegraph.unit.mysql.MysqlUtilTest;
-import org.apache.hugegraph.unit.mysql.WhereBuilderTest;
 import org.apache.hugegraph.unit.rocksdb.RocksDBCountersTest;
 import org.apache.hugegraph.unit.rocksdb.RocksDBSessionTest;
 import org.apache.hugegraph.unit.rocksdb.RocksDBSessionsTest;
@@ -146,6 +145,7 @@ import org.junit.runners.Suite;
         SecurityManagerTest.class,
         RolePermissionTest.class,
         ExceptionTest.class,
+        GraphManagerAdminInitTest.class,
         GraphManagerConfigTest.class,
         BackendStoreInfoTest.class,
         TraversalUtilTest.class,
@@ -158,6 +158,9 @@ import org.junit.runners.Suite;
         HugeGraphAuthProxyTest.class,
         SchemaElementTest.class,
 
+        /* cmd */
+        InitStoreConfigTest.class,
+
         /* serializer */
         BytesBufferTest.class,
         SerializerFactoryTest.class,
@@ -168,13 +171,6 @@ import org.junit.runners.Suite;
         BinaryScatterSerializerTest.class,
         StoreSerializerTest.class,
         TextSerializerTest.class,
-
-        /* cassandra */
-        CassandraTest.class,
-
-        /* mysql */
-        MysqlUtilTest.class,
-        WhereBuilderTest.class,
 
         /* rocksdb */
         RocksDBSessionsTest.class,

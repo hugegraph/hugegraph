@@ -179,7 +179,32 @@ Configuration is injected via environment variables. The old `docker/configs/app
 | `HG_SERVER_MIN_FREE_MEMORY` | No | — | `restserver.min_free_memory` | Minimum free-memory guard in MB; local Compose uses `0` |
 | `HG_SERVER_AUTH_TOKEN_SECRET` | No | generated in auth mode | `auth.token_secret` | Shared JWT secret for REST and embedded Gremlin authentication |
 | `STORE_REST` | No | — | Used by `wait-partition.sh` | Store REST endpoint for partition verification (e.g. `store0:8520`) |
-| `PASSWORD` | No | — | Enables auth mode | Optional authentication password |
+| `PASSWORD` | No | — | Enables auth mode | Optional authentication password; ignored when `HG_SERVER_INIT_STORE_ENABLED` is `false` (see below) |
+| `HG_SERVER_INIT_STORE_ENABLED` | No | `true` | `init_store.enabled` in `rest-server.properties` | Set `false` in PD/HStore deployments so init-store skips local backend and admin initialization |
+
+> **The built-in authenticator with `HG_SERVER_INIT_STORE_ENABLED=false`
+> requires `usePD=true` and an HStore-backed `auth.graph_store`, unless
+> `auth.remote_url` delegates auth elsewhere.** With init-store skipped, the
+> server creates the built-in admin in PD metadata, and only an HStore auth
+> graph uses the PD-backed auth manager that can read that account. init-store
+> exits non-zero when the combination is unusable, rather than leaving a server
+> nobody can log in to. A custom `auth.authenticator` is exempt because it
+> manages its own identities.
+>
+> `docker/init_complete` is written by init-store itself, and only after it has
+> initialized. A skipped run therefore records nothing, whether it was disabled
+> by the variable or by the property in a mounted `rest-server.properties`, so a
+> later re-enable is still able to initialize. The marker only short-circuits
+> re-initialization: init-store runs on every container start, and a disabled
+> one performs the fail-closed check above first, so a marker left by an
+> earlier release or an earlier enabled run cannot bypass it.
+>
+> **`PASSWORD` does not reach that path.** init-store reads it from standard
+> input, and a disabled one returns before doing so. The admin is instead
+> created from `auth.admin_pa`, whose `pa` default is public, so init-store
+> refuses to skip unless it is explicitly set to a non-empty value in a mounted
+> `rest-server.properties`. It applies only when the account is first created,
+> so changing it later does not rotate an existing password.
 
 The single-node Compose files also accept these deployment-level overrides:
 

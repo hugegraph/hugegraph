@@ -37,6 +37,10 @@ cat > "${TEST_HOME}/bin/start-hugegraph.sh" <<'EOF'
 #!/usr/bin/env bash
 exit 0
 EOF
+cat > "${TEST_HOME}/bin/init-store.sh" <<'EOF'
+#!/usr/bin/env bash
+printf 'called\n' >> ./docker/init-store-calls
+EOF
 cat > "${TEST_HOME}/bin/wait-partition.sh" <<'EOF'
 #!/usr/bin/env bash
 exit 0
@@ -53,6 +57,7 @@ chmod +x "${TEST_HOME}/bin/"*.sh
     HG_SERVER_AUTH_TOKEN_SECRET=hugegraph-local-jwt-secret-change-me \
         bash ./docker-entrypoint.sh
 )
+[[ "$(wc -l < "${TEST_HOME}/docker/init-store-calls")" -eq 1 ]]
 
 grep -qx 'backend=hstore' "${TEST_HOME}/conf/graphs/hugegraph.properties"
 grep -qx 'pd.peers=pd:8686' "${TEST_HOME}/conf/graphs/hugegraph.properties"
@@ -86,5 +91,6 @@ graph_secret=$(sed -n 's/^auth\.token_secret=//p' \
 reused_secret=$(sed -n 's/^auth\.token_secret=//p' \
     "${TEST_HOME}/conf/rest-server.properties")
 [[ "${reused_secret}" == "${rest_secret}" ]]
+[[ "$(wc -l < "${TEST_HOME}/docker/init-store-calls")" -eq 3 ]]
 
 echo "PASS: Docker entrypoint configures HStore discovery and authentication"
