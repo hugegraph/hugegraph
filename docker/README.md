@@ -41,7 +41,6 @@ the required administrator password:
     fi
     install -m 600 /dev/null .env
     {
-      printf "HUGEGRAPH_VERSION='%s'\n" '1.7.0'
       printf "HUGEGRAPH_ADMIN_PASSWORD='%s'\n" "${admin_password}"
     } >> .env
     unset admin_password
@@ -66,19 +65,24 @@ committing them.
 ### Option A: Quick Start (pre-built images)
 
 Uses pre-built images from Docker Hub. Best for **end users** who want to run HugeGraph quickly.
+Set `HUGEGRAPH_VERSION` to the same published release for PD, Store, Server,
+and Hubble. The authenticated PD/Hubble integration is not present in `1.7.x`;
+if no later compatible release is available, use Option B.
 
 ```bash
 (
   cd docker
+  HUGEGRAPH_VERSION='<compatible-release-after-1.7.x>' \
   docker compose up -d
 )
 ```
 
-- Images: `hugegraph/pd:1.7.0`, `hugegraph/store:1.7.0`,
-  `hugegraph/server:1.7.0`, and `hugegraph/hubble:1.7.0`
+- Images: matching `hugegraph/pd`, `hugegraph/store`, `hugegraph/server`, and
+  `hugegraph/hubble` tags from the selected compatible release
 - `pull_policy: always` — always pulls the specified image tag
 
-> **Note**: Use release tags (e.g., `1.7.0`) for stable deployments. The `latest` tag is intended for testing or development only.
+> **Note**: Do not use `latest` to claim a reproducible deployment. Pin a
+> compatible release tag and keep it unchanged for later lifecycle commands.
 - PD healthcheck endpoint: `/v1/health`
 - Hubble is available at `http://localhost:8088`; sign in as `admin` with the
   required `HUGEGRAPH_ADMIN_PASSWORD`
@@ -90,10 +94,14 @@ Uses pre-built images from Docker Hub. Best for **end users** who want to run Hu
 ### Option B: Development Build (build from source)
 
 Builds images locally from source Dockerfiles. Best for **developers** who want to test local changes.
+Build the matching `hugegraph-toolchain` Hubble source as
+`local/hugegraph-hubble:dev` before starting this stack.
 
 ```bash
 (
   cd docker
+  HUBBLE_IMAGE=local/hugegraph-hubble:dev \
+  HUBBLE_PULL_POLICY=never \
   docker compose -f docker-compose.dev.yml up -d
 )
 ```
@@ -105,14 +113,26 @@ Builds images locally from source Dockerfiles. Best for **developers** who want 
 - PD healthcheck endpoint: `/v1/health`
 - Otherwise identical env vars and structure to the quickstart file
 
-Use the same directory and environment file for later lifecycle commands:
+Use the same release tag for Option A lifecycle commands:
 
 ```bash
 (
   cd docker
+  export HUGEGRAPH_VERSION='<same-compatible-release>'
   docker compose ps
   docker compose stop
   docker compose down
+)
+```
+
+Use the development Compose file for every Option B lifecycle command:
+
+```bash
+(
+  cd docker
+  docker compose -f docker-compose.dev.yml ps
+  docker compose -f docker-compose.dev.yml stop
+  docker compose -f docker-compose.dev.yml down
 )
 ```
 
@@ -123,7 +143,7 @@ Use the same directory and environment file for later lifecycle commands:
 | **Images** | Pull from Docker Hub | Build from source |
 | **Who it's for** | End users | Developers |
 | **Server pull_policy** | `always` | `build` |
-| **Hubble pull_policy** | `always` | `missing` |
+| **Hubble pull_policy** | `always` | `never` in the workflow above (`missing` in the Compose file by default) |
 
 **Verify** (both options):
 ```bash
