@@ -189,7 +189,7 @@ if [[ ! -f "${INIT_MARKER_PATH}" ]]; then
                     "the entrypoint applies it through 'auth.admin_pa' for" \
                     "the PD startup path" ;;
         esac
-        echo "${PASSWORD}" | ./bin/init-store.sh
+        printf '%s\n' "${PASSWORD}" | ./bin/init-store.sh
     fi
 else
     log "HugeGraph initialization already done. Revalidating the config..."

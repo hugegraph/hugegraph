@@ -10,10 +10,14 @@ on:
 
 jobs:
   wait-storage-shell-test:
+    permissions:
+      contents: read
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Run wait-storage.sh peer failover tests
         run: hugegraph-server/hugegraph-dist/src/assembly/travis/test-wait-storage.sh

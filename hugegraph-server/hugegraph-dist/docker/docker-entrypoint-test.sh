@@ -40,12 +40,19 @@ EOF
 cat > "${TEST_HOME}/bin/init-store.sh" <<'EOF'
 #!/usr/bin/env bash
 printf 'called\n' >> ./docker/init-store-calls
+if IFS= read -r password; then
+    printf '%s' "${password}" > ./docker/init-store-password
+fi
 EOF
 cat > "${TEST_HOME}/bin/enable-auth.sh" <<'EOF'
 #!/usr/bin/env bash
 printf 'called\n' >> ./docker/enable-auth-calls
 EOF
 cat > "${TEST_HOME}/bin/wait-partition.sh" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+cat > "${TEST_HOME}/bin/wait-storage.sh" <<'EOF'
 #!/usr/bin/env bash
 exit 0
 EOF
@@ -166,5 +173,12 @@ grep -Fqx 'auth.admin_pa=pa' \
 )
 grep -Fqx 'auth.admin_pa=Strong\\Pass\ 9!' \
     "${TEST_HOME}/conf/rest-server.properties"
+
+rm -f "${TEST_HOME}/docker/init_complete"
+(
+    cd "${TEST_HOME}"
+    PASSWORD=-n bash ./docker-entrypoint.sh
+)
+grep -Fqx -- '-n' "${TEST_HOME}/docker/init-store-password"
 
 echo "PASS: Docker entrypoint configures HStore discovery and authentication"
