@@ -12,6 +12,7 @@ This directory contains Docker Compose files for running HugeGraph:
 
 - **Docker Engine** 20.10+ (or Docker Desktop 4.x+)
 - **Docker Compose** v2 (included in Docker Desktop)
+- **OpenSSL CLI** (used to generate the initial administrator password)
 - **Memory**: Allocate at least **12 GB** to Docker Desktop (Settings → Resources → Memory). The 3-node cluster runs 9 JVM processes (3 PD + 3 Store + 3 Server) which are memory-intensive. Insufficient memory causes OOM kills that appear as silent Raft failures.
 
 > [!IMPORTANT]
@@ -22,15 +23,55 @@ This directory contains Docker Compose files for running HugeGraph:
 
 Two compose files run one PD, one Store, one Server, and one Hubble instance:
 
+Create a Compose environment file once so every lifecycle command can resolve
+the required administrator password:
+
+```bash
+(
+  set -eu
+  cd docker
+  if [ -e .env ]; then
+    echo "docker/.env already exists; reusing it"
+  else
+    command -v openssl >/dev/null 2>&1
+    admin_password="$(openssl rand -base64 12)"
+    if [ "${#admin_password}" -ne 16 ]; then
+      echo "Failed to generate a 16-character password" >&2
+      exit 1
+    fi
+    install -m 600 /dev/null .env
+    {
+      printf "HUGEGRAPH_VERSION='%s'\n" '1.7.0'
+      printf "HUGEGRAPH_ADMIN_PASSWORD='%s'\n" "${admin_password}"
+    } >> .env
+    unset admin_password
+  fi
+  chmod 600 .env
+  if ! env -u HUGEGRAPH_ADMIN_PASSWORD \
+       docker compose -f docker-compose.yml config --quiet ||
+     ! env -u HUGEGRAPH_ADMIN_PASSWORD \
+       docker compose -f docker-compose.dev.yml config --quiet; then
+    echo "docker/.env is incomplete; repair or move it, then retry" >&2
+    exit 1
+  fi
+)
+```
+
+Compose automatically reads `docker/.env` for `up`, `ps`, `stop`, and `down`.
+The generated password is a 16-character, Compose-safe random value. The file
+is excluded from Git and Docker build contexts; keep its permissions restricted
+and source production credentials from your secret manager instead of
+committing them.
+
 ### Option A: Quick Start (pre-built images)
 
 Uses pre-built images from Docker Hub. Best for **end users** who want to run HugeGraph quickly.
 
 ```bash
-cd docker
-HUGEGRAPH_VERSION=1.7.0 \
-HUGEGRAPH_ADMIN_PASSWORD='<choose-a-strong-password>' \
-docker compose up -d
+(
+  cd docker
+  docker compose up -d
+)
 ```
 
 - Images: `hugegraph/pd:1.7.0`, `hugegraph/store:1.7.0`,
@@ -51,9 +92,10 @@ docker compose up -d
 Builds images locally from source Dockerfiles. Best for **developers** who want to test local changes.
 
 ```bash
-cd docker
-HUGEGRAPH_ADMIN_PASSWORD='<choose-a-strong-password>' \
-docker compose -f docker-compose.dev.yml up -d
+(
+  cd docker
+  docker compose -f docker-compose.dev.yml up -d
+)
 ```
 
 - PD, Store, and Server images are built from this repository
@@ -62,6 +104,17 @@ docker compose -f docker-compose.dev.yml up -d
   Docker-local PD configuration
 - PD healthcheck endpoint: `/v1/health`
 - Otherwise identical env vars and structure to the quickstart file
+
+Use the same directory and environment file for later lifecycle commands:
+
+```bash
+(
+  cd docker
+  docker compose ps
+  docker compose stop
+  docker compose down
+)
+```
 
 ### Key Differences
 
@@ -81,11 +134,14 @@ curl -fsS http://localhost:8088/about
 To validate local images without Compose replacing them with remote `latest`:
 
 ```bash
-HUGEGRAPH_SERVER_IMAGE=local/hugegraph-server:test \
-HUGEGRAPH_SERVER_PULL_POLICY=never \
-HUBBLE_IMAGE=local/hugegraph-hubble:test \
-HUBBLE_PULL_POLICY=never \
-docker compose up -d --wait
+(
+  cd docker
+  HUGEGRAPH_SERVER_IMAGE=local/hugegraph-server:test \
+  HUGEGRAPH_SERVER_PULL_POLICY=never \
+  HUBBLE_IMAGE=local/hugegraph-hubble:test \
+  HUBBLE_PULL_POLICY=never \
+  docker compose up -d --wait
+)
 ```
 
 ---
@@ -220,7 +276,7 @@ The single-node Compose files also accept these deployment-level overrides:
 | `HUBBLE_IMAGE` | `hugegraph/hubble:<version>` | Complete Hubble image reference |
 | `HUBBLE_PULL_POLICY` | `always` (`missing` for dev) | Hubble pull policy |
 | `HUBBLE_PUBLISH_HOST` | `127.0.0.1` | Hubble host bind address; remote access requires an HTTPS reverse proxy |
-| `HUGEGRAPH_ADMIN_PASSWORD` | required | Initial admin password; no public default is provided |
+| `HUGEGRAPH_ADMIN_PASSWORD` | required (`docker/.env`) | Initial admin password; no public default is provided |
 | `HUGEGRAPH_AUTH_TOKEN_SECRET` | generated | JWT signing secret; set explicitly to preserve tokens across container recreation |
 
 When authentication is enabled and no token secret is supplied, the Server
