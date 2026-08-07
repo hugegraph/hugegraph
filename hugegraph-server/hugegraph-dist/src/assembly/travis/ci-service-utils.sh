@@ -153,6 +153,37 @@ function wait_for_http_status() {
     return 1
 }
 
+function process_is_running() {
+    local pid="$1"
+    local state
+
+    if [[ ! "${pid}" =~ ^[0-9]+$ ]]; then
+        return 1
+    fi
+
+    if ! kill -0 "${pid}" 2>/dev/null; then
+        return 1
+    fi
+
+    state="$(ps -o stat= -p "${pid}" 2>/dev/null | tr -d '[:space:]')" ||
+        state=""
+    [[ "${state}" != Z* ]]
+}
+
+function wait_for_process_exit() {
+    local pid="$1"
+    local timeout_seconds="${2:-10}"
+    local deadline=$((SECONDS + timeout_seconds))
+
+    while process_is_running "${pid}"; do
+        if (( SECONDS >= deadline )); then
+            return 1
+        fi
+        sleep 1
+    done
+    return 0
+}
+
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
     command="$1"
     shift || true

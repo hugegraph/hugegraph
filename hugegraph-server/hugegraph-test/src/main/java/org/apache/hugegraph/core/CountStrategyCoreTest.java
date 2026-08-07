@@ -18,13 +18,20 @@
 package org.apache.hugegraph.core;
 
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 
+import org.apache.hugegraph.backend.query.Aggregate;
+import org.apache.hugegraph.backend.query.Aggregate.AggregateFunc;
+import org.apache.hugegraph.backend.query.Query;
+import org.apache.hugegraph.backend.tx.GraphTransaction;
 import org.apache.hugegraph.exception.NoIndexException;
 import org.apache.hugegraph.schema.SchemaManager;
 import org.apache.hugegraph.testutil.Assert;
 import org.apache.hugegraph.traversal.optimize.HugeCountStep;
 import org.apache.hugegraph.traversal.optimize.HugeGraphStep;
+import org.apache.hugegraph.type.HugeType;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal;
@@ -35,6 +42,7 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.util.HasContainer;
 import org.apache.tinkerpop.gremlin.structure.Edge;
 import org.apache.tinkerpop.gremlin.structure.T;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
+import org.apache.tinkerpop.gremlin.structure.util.CloseableIterator;
 import org.junit.Test;
 
 public class CountStrategyCoreTest extends BaseCoreTest {
@@ -110,6 +118,15 @@ public class CountStrategyCoreTest extends BaseCoreTest {
             }
         }
         return false;
+    }
+
+    private static void assertUncommittedRangeUnsupported(
+            GraphTraversal<?, ?> traversal) {
+        Assert.assertThrows(IllegalArgumentException.class, traversal::next,
+                            e -> {
+                                Assert.assertContains("offset/limit", e.getMessage());
+                                Assert.assertContains("uncommitted records", e.getMessage());
+                            });
     }
 
     private void initTextRangeSchema(boolean withEdge) {
@@ -255,6 +272,200 @@ public class CountStrategyCoreTest extends BaseCoreTest {
     }
 
     @Test
+    public void testOptimizedGraphCountIncludesUncommittedRecords() {
+        this.initSchema();
+        graph().schema().indexLabel("personByName")
+               .onV("person").by("name").create();
+
+        graph().addVertex(T.label, "person", "name", "marko");
+
+        long count = graph().traversal().V()
+                            .hasLabel("person")
+                            .has("name", "marko")
+                            .count().next();
+
+        Assert.assertEquals(1L, count);
+    }
+
+    @Test
+    public void testVertexLimitCountRejectsUncommittedAddition() {
+        this.initSchema();
+        graph().addVertex(T.label, "person", "name", "marko");
+
+        assertUncommittedRangeUnsupported(
+                graph().traversal().V().limit(1L).count());
+    }
+
+    @Test
+    public void testVertexRangeCountRejectsUncommittedDeletion() {
+        this.initSchema();
+        graph().schema().indexLabel("personByName")
+               .onV("person").by("name").create();
+        this.initGraph();
+        Vertex marko = graph().traversal().V()
+                              .hasLabel("person")
+                              .has("name", "marko")
+                              .next();
+        marko.remove();
+
+        assertUncommittedRangeUnsupported(
+                graph().traversal().V().range(1L, 3L).count());
+    }
+
+    @Test
+    public void testQueryNumberKeepsOriginalAggregate() {
+        this.initSchema();
+        graph().addVertex(T.label, "person", "name", "marko");
+
+        Query query = new Query(HugeType.VERTEX);
+        Aggregate aggregate = new Aggregate(AggregateFunc.COUNT, null);
+        query.aggregate(aggregate);
+
+        Assert.assertEquals(1L, graph().queryNumber(query).longValue());
+        Assert.assertSame(aggregate, query.aggregate());
+    }
+
+    @Test
+    public void testUncommittedVertexCountClosesIteratorOnFailure() {
+        FailingCloseableIterator<Vertex> vertices =
+                new FailingCloseableIterator<>();
+        AtomicBoolean dirty = new AtomicBoolean(true);
+        GraphTransaction transaction =
+                this.newFailingCountTransaction(vertices, null, dirty);
+
+        try {
+            Query query = countQuery(HugeType.VERTEX);
+            Assert.assertThrows(IllegalStateException.class,
+                                () -> transaction.queryNumber(query));
+            Assert.assertTrue(vertices.closed());
+        } finally {
+            dirty.set(false);
+            transaction.close();
+        }
+    }
+
+    @Test
+    public void testUncommittedEdgeCountClosesIteratorOnFailure() {
+        FailingCloseableIterator<Edge> edges =
+                new FailingCloseableIterator<>();
+        AtomicBoolean dirty = new AtomicBoolean(true);
+        GraphTransaction transaction =
+                this.newFailingCountTransaction(null, edges, dirty);
+
+        try {
+            Query query = countQuery(HugeType.EDGE);
+            Assert.assertThrows(IllegalStateException.class,
+                                () -> transaction.queryNumber(query));
+            Assert.assertTrue(edges.closed());
+        } finally {
+            dirty.set(false);
+            transaction.close();
+        }
+    }
+
+    @Test
+    public void testOptimizedEdgeCountIncludesUncommittedRecords() {
+        this.initSchema();
+        graph().schema().indexLabel("personByName")
+               .onV("person").by("name").create();
+        this.initGraph();
+
+        Vertex josh = graph().traversal().V()
+                             .hasLabel("person").has("name", "josh").next();
+        Vertex marko = graph().traversal().V()
+                              .hasLabel("person").has("name", "marko").next();
+        josh.addEdge("knows", marko);
+
+        long count = graph().traversal().E().hasLabel("knows").count().next();
+
+        Assert.assertEquals(2L, count);
+    }
+
+    private static Query countQuery(HugeType type) {
+        Query query = new Query(type);
+        query.aggregate(new Aggregate(AggregateFunc.COUNT, null));
+        return query;
+    }
+
+    private GraphTransaction newFailingCountTransaction(
+            Iterator<Vertex> vertices, Iterator<Edge> edges,
+            AtomicBoolean dirty) {
+        return new GraphTransaction(params(), params().loadGraphStore()) {
+
+            @Override
+            public boolean hasUpdate() {
+                return dirty.get();
+            }
+
+            @Override
+            public Iterator<Vertex> queryVertices(Query query) {
+                return vertices;
+            }
+
+            @Override
+            public Iterator<Edge> queryEdges(Query query) {
+                return edges;
+            }
+        };
+    }
+
+    private static final class FailingCloseableIterator<T>
+            implements CloseableIterator<T> {
+
+        private boolean closed;
+
+        @Override
+        public boolean hasNext() {
+            throw new IllegalStateException("Injected iterator failure");
+        }
+
+        @Override
+        public T next() {
+            throw new IllegalStateException("Injected iterator failure");
+        }
+
+        @Override
+        public void close() {
+            this.closed = true;
+        }
+
+        public boolean closed() {
+            return this.closed;
+        }
+    }
+
+    @Test
+    public void testEdgeRangeCountRejectsUncommittedAddition() {
+        this.initSchema();
+        graph().schema().indexLabel("personByName")
+               .onV("person").by("name").create();
+        this.initGraph();
+        Vertex josh = graph().traversal().V()
+                             .hasLabel("person")
+                             .has("name", "josh")
+                             .next();
+        Vertex marko = graph().traversal().V()
+                              .hasLabel("person")
+                              .has("name", "marko")
+                              .next();
+        josh.addEdge("knows", marko);
+
+        assertUncommittedRangeUnsupported(
+                graph().traversal().E().range(1L, 3L).count());
+    }
+
+    @Test
+    public void testEdgeLimitCountRejectsUncommittedDeletion() {
+        this.initSchema();
+        this.initGraph();
+        Edge edge = graph().traversal().E().hasLabel("knows").next();
+        edge.remove();
+
+        assertUncommittedRangeUnsupported(
+                graph().traversal().E().limit(1L).count());
+    }
+
+    @Test
     public void testRepeatAfterTextRangeFilterWithEmptyResult() {
         this.initTextRangeSchema(true);
 
@@ -296,6 +507,33 @@ public class CountStrategyCoreTest extends BaseCoreTest {
 
         Assert.assertEquals(0L, direct);
         Assert.assertEquals(direct, viaMatch);
+    }
+
+    @Test
+    public void testTextRangeFilterExtractsIndexedGraphHasContainers() {
+        this.initTextRangeSchema(false);
+        graph().schema().indexLabel("vl1ByAge").onV("vl1")
+               .by("age").secondary().create();
+
+        graph().addVertex(T.label, "vl1", "vp4", "a", "age", 1);
+        graph().addVertex(T.label, "vl1", "vp4", "b", "age", 2);
+        commitTx();
+
+        GraphTraversal<Vertex, Long> traversal = graph().traversal().V()
+                                                        .hasLabel("vl1")
+                                                        .has("vp4", P.lt(""))
+                                                        .has("age", 1)
+                                                        .count();
+        HugeGraphStep<?, ?> graphStep = applyAndGetGraphStep(traversal);
+
+        Assert.assertEquals(2, graphStep.getHasContainers().size());
+        Assert.assertTrue(graphStep.getHasContainers().stream().anyMatch(
+                has -> T.label.getAccessor().equals(has.getKey())));
+        Assert.assertTrue(graphStep.getHasContainers().stream().anyMatch(
+                has -> "age".equals(has.getKey())));
+        Assert.assertTrue(hasRemainingHasStep(traversal, "vp4"));
+        Assert.assertFalse(hasRemainingHasStep(traversal, "age"));
+        Assert.assertEquals(0L, traversal.next().longValue());
     }
 
     @Test

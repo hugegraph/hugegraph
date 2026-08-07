@@ -30,6 +30,7 @@ import java.util.Set;
 
 import org.apache.commons.configuration2.Configuration;
 import org.apache.commons.configuration2.PropertiesConfiguration;
+import org.apache.commons.text.StringEscapeUtils;
 import org.apache.hugegraph.HugeGraph;
 import org.apache.hugegraph.config.CoreOptions;
 import org.apache.hugegraph.perf.PerfUtil.Watched;
@@ -542,7 +543,7 @@ public class TestGraphProvider extends AbstractGraphProvider {
         TestGraph testGraph = (TestGraph) graph;
 
         // Clear basic schema initiated in openTestGraph
-        testGraph.clearAll("");
+        testGraph.clearForLoad();
 
         if (testGraph.loadedGraph() == null) {
             testGraph.loadedGraph(REGULAR_LOAD);
@@ -594,6 +595,10 @@ public class TestGraphProvider extends AbstractGraphProvider {
 
     @Override
     public String convertId(Object id, Class<? extends Element> c) {
-        return id.toString();
+        if (id instanceof Number) {
+            return id.toString();
+        }
+        return String.format("\"%s\"", StringEscapeUtils.escapeJava(
+                id.toString()));
     }
 }

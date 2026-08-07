@@ -21,6 +21,7 @@ import org.apache.hugegraph.api.cypher.CypherClientTest;
 import org.apache.hugegraph.core.RoleElectionStateMachineTest;
 import org.apache.hugegraph.meta.EtcdMetaDriverTest;
 import org.apache.hugegraph.meta.MetaManagerSchemaCacheClearEventTest;
+import org.apache.hugegraph.tinkerpop.HugeGraphTestInfrastructureTest;
 import org.apache.hugegraph.traversal.optimize.TraversalUtilOptimizeTest;
 import org.apache.hugegraph.unit.api.filter.LoadDetectFilterTest;
 import org.apache.hugegraph.unit.api.filter.PathFilterTest;
@@ -36,6 +37,7 @@ import org.apache.hugegraph.unit.cassandra.CassandraTest;
 import org.apache.hugegraph.unit.config.GremlinConfigCompatibilityTest;
 import org.apache.hugegraph.unit.core.AnalyzerTest;
 import org.apache.hugegraph.unit.core.BackendMutationTest;
+import org.apache.hugegraph.unit.core.BackendProviderFactoryTest;
 import org.apache.hugegraph.unit.core.BackendStoreInfoTest;
 import org.apache.hugegraph.unit.core.ConditionQueryFlattenTest;
 import org.apache.hugegraph.unit.core.ConditionTest;
@@ -132,6 +134,7 @@ import org.junit.runners.Suite;
         RowLockTest.class,
         AnalyzerTest.class,
         BackendMutationTest.class,
+        BackendProviderFactoryTest.class,
         ConditionTest.class,
         GroovyScriptEngineCompatibilityTest.class,
         HugeFeaturesTest.class,
@@ -151,6 +154,7 @@ import org.junit.runners.Suite;
         RoleElectionStateMachineTest.class,
         HugeGraphAuthProxyTest.class,
         SchemaElementTest.class,
+        HugeGraphTestInfrastructureTest.class,
 
         /* serializer */
         BytesBufferTest.class,

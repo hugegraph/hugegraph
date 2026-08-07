@@ -20,8 +20,6 @@ package org.apache.hugegraph.ct.node;
 import static org.apache.hugegraph.ct.base.ClusterConstant.CT_PACKAGE_PATH;
 
 import java.io.File;
-import java.io.FileNotFoundException;
-import java.io.FileReader;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -147,18 +145,30 @@ public abstract class AbstractNodeWrapper implements BaseNodeWrapper {
 
     @Override
     public boolean isStarted() {
-        try (Scanner sc = new Scanner(new FileReader(getLogPath()))) {
+        if (!isAlive()) {
+            return false;
+        }
+
+        try (Scanner sc = new Scanner(Paths.get(getLogPath()),
+                                      StandardCharsets.UTF_8.name())) {
             while (sc.hasNextLine()) {
                 String line = sc.nextLine();
                 if (line.contains(startLine)) return true;
             }
-        } catch (FileNotFoundException ignored) {
+        } catch (IOException ignored) {
         }
         return false;
     }
 
     public void stop() {
         if (this.instance == null) {
+            return;
+        }
+        if (!this.instance.isAlive()) {
+            System.out.printf("[cluster-test] %s stopped unexpectedly: %s%n",
+                              getID(), processStatus());
+            dumpLog();
+            deleteDir();
             return;
         }
         this.instance.destroy();

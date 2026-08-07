@@ -57,7 +57,6 @@ import org.apache.hugegraph.util.Log;
 import org.apache.hugegraph.util.SafeDateUtil;
 import org.apache.tinkerpop.gremlin.process.traversal.Path;
 import org.apache.tinkerpop.gremlin.process.traversal.step.util.Tree;
-import org.apache.tinkerpop.gremlin.structure.Element;
 import org.apache.tinkerpop.gremlin.structure.io.graphson.GraphSONIo;
 import org.apache.tinkerpop.gremlin.structure.io.graphson.GraphSONTokens;
 import org.apache.tinkerpop.gremlin.structure.io.graphson.TinkerPopJacksonModule;
@@ -225,7 +224,9 @@ public class HugeGraphSONModule extends TinkerPopJacksonModule {
          */
         module.addSerializer(HugeVertex.class, new HugeVertexSerializer());
         module.addSerializer(HugeEdge.class, new HugeEdgeSerializer());
+    }
 
+    public static void registerTraversalSerializers(SimpleModule module) {
         module.addSerializer(Path.class, new PathSerializer());
         module.addSerializer(Tree.class, new TreeSerializer());
     }
@@ -886,9 +887,8 @@ public class HugeGraphSONModule extends TinkerPopJacksonModule {
         public void serialize(Tree tree, JsonGenerator jsonGenerator,
                               SerializerProvider provider) throws IOException {
             jsonGenerator.writeStartArray();
-            @SuppressWarnings("unchecked")
-            Set<Map.Entry<Element, Tree>> set = tree.entrySet();
-            for (Map.Entry<Element, Tree> entry : set) {
+            for (Object item : tree.entrySet()) {
+                Map.Entry<?, ?> entry = (Map.Entry<?, ?>) item;
                 jsonGenerator.writeStartObject();
                 jsonGenerator.writeObjectField(GraphSONTokens.KEY,
                                                entry.getKey());
