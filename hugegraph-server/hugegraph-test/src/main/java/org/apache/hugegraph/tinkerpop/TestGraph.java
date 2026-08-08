@@ -53,8 +53,7 @@ public class TestGraph implements Graph {
 
     public static final String DEFAULT_VL = "vertex";
 
-    public static final Set<String> TRUNCATE_BACKENDS =
-            ImmutableSet.of("rocksdb", "mysql");
+    public static final Set<String> TRUNCATE_BACKENDS = ImmutableSet.of("rocksdb");
 
     private static final String HSTORE_BACKEND = "hstore";
 
