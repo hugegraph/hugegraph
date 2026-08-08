@@ -308,7 +308,9 @@ jobs:
           startsWith(github.base_ref, 'release-') ||
           startsWith(github.base_ref, 'test-') ||
           github.base_ref == 'task/tinkerpop-3.7-upgrade' ||
-          github.head_ref == 'task/tinkerpop-3.7-upgrade'
+          github.head_ref == 'task/tinkerpop-3.7-upgrade' ||
+          github.base_ref == 'task/gsoc-phase2-java17' ||
+          github.head_ref == 'task/gsoc-phase2-java17'
         }}
 
     steps:

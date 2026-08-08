@@ -114,7 +114,6 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
-                <version>2.20</version>
                 <executions>
                     <execution>
                         <id>core-test</id>
@@ -174,7 +173,7 @@
                         <id>tinkerpop-process-test</id>
                         <configuration>
                             <!-- TinkerPop process ReadTest.Traversals.class need write/read disk -->
-                            <argLine>-Dbuild.dir=${project.build.directory}</argLine>
+                            <argLine>@{argLine} -Dbuild.dir=${project.build.directory}</argLine>
                             <testSourceDirectory>${basedir}/src/main/java/
                             </testSourceDirectory>
                             <testClassesDirectory>${basedir}/target/classes/
@@ -212,7 +211,6 @@
             <plugin>
                 <groupId>org.jacoco</groupId>
                 <artifactId>jacoco-maven-plugin</artifactId>
-                <version>0.8.8</version>
                 <configuration>
                     <excludes>
                         <exclude>org/apache/hugegraph/traversal/algorithm/*.class</exclude>
