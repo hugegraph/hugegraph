@@ -58,7 +58,8 @@ assert_surefire_arg_lines() {
     local expected="$2"
     local total
     local wired
-    read -r total wired < <(
+    local jacoco_wired
+    read -r total wired jacoco_wired < <(
         awk -v expected="$expected" '
             /<artifactId>maven-surefire-plugin<\/artifactId>/ {
                 in_surefire = 1
@@ -75,26 +76,31 @@ assert_surefire_arg_lines() {
                 if (index(arg_line, expected) != 0) {
                     wired++
                 }
+                if (index(arg_line, "@{argLine}") != 0) {
+                    jacoco_wired++
+                }
                 in_arg_line = 0
             }
             in_surefire && /<\/plugin>/ {
                 in_surefire = 0
             }
             END {
-                print total + 0, wired + 0
+                print total + 0, wired + 0, jacoco_wired + 0
             }
         ' "$pom"
     )
     if [[ "$total" -eq 0 || "$wired" -ne "$total" ]]; then
         fail "all Surefire argLine values must use jvm-module.options: $pom"
     fi
+    if [[ "$jacoco_wired" -ne "$total" ]]; then
+        fail "all Surefire argLine values must preserve @{argLine}: $pom"
+    fi
 }
 
 assert_no_inline_module_options() {
     local pattern
     local source_file
-    pattern="--add-exports([[:space:]]+|=)[\"']?java\\.base/"
-    pattern="${pattern}(jdk\.internal\.reflect|sun\.nio\.ch)=ALL-UNNAMED|"
+    pattern="--add-(exports|opens)([[:space:]]+|=)[\"']?java\\.base/|"
     pattern="${pattern}--add-modules([[:space:]]+|=)[\"']?jdk\.unsupported"
     for source_file in "$@"; do
         [[ -f "$source_file" ]] || fail "source consumer is missing: $source_file"
@@ -132,6 +138,9 @@ if [[ -n "$SOURCE_ROOT_INPUT" ]]; then
 "hugegraph-server.sh"
     INIT_STORE_SOURCE="${SERVER_DIST_SOURCE}/src/assembly/static/bin/init-store.sh"
     SUREFIRE_POM="${SOURCE_ROOT}/hugegraph-server/hugegraph-test/pom.xml"
+    TEST_JVM_MODULE_OPTIONS="${SOURCE_ROOT}/hugegraph-server/hugegraph-test/"\
+"conf/jvm-test-module.options"
+    COMMONS_POM="${SOURCE_ROOT}/hugegraph-commons/pom.xml"
     CLUSTER_WRAPPER="${CLUSTER_SOURCE}/node/ServerNodeWrapper.java"
     SERVER_DOCKERFILE="${SOURCE_ROOT}/hugegraph-server/Dockerfile"
     HSTORE_DOCKERFILE="${SOURCE_ROOT}/hugegraph-server/Dockerfile-hstore"
@@ -142,12 +151,23 @@ if [[ -n "$SOURCE_ROOT_INPUT" ]]; then
     assert_source_consumer "$INIT_STORE_SOURCE" '@"${JVM_MODULE_OPTIONS}"'
     assert_surefire_arg_lines "$SUREFIRE_POM" \
         '@${project.basedir}/../hugegraph-dist/src/assembly/static/conf/jvm-module.options'
+    [[ -f "$TEST_JVM_MODULE_OPTIONS" ]] || \
+        fail "JVM test module options file is missing: $TEST_JVM_MODULE_OPTIONS"
+    assert_argument \
+        "--add-opens=java.base/java.util.concurrent.atomic=ALL-UNNAMED" \
+        "$TEST_JVM_MODULE_OPTIONS"
+    assert_argument "--add-opens=java.base/java.lang=ALL-UNNAMED" \
+                    "$TEST_JVM_MODULE_OPTIONS"
+    assert_surefire_arg_lines "$SUREFIRE_POM" \
+        '@${project.basedir}/conf/jvm-test-module.options'
+    assert_surefire_arg_lines "$COMMONS_POM" \
+        '@${project.parent.basedir}/../hugegraph-server/hugegraph-test/conf/jvm-test-module.options'
     assert_source_consumer "$CLUSTER_WRAPPER" \
         '"@" + Paths.get(getNodePath(), CONF_DIR, JVM_MODULE_OPTIONS_FILE)'
     assert_no_inline_module_options \
         "$SERVER_LAUNCHER_SOURCE" "$INIT_STORE_SOURCE" "$SUREFIRE_POM" \
-        "$CLUSTER_WRAPPER" "$SERVER_DOCKERFILE" "$HSTORE_DOCKERFILE" \
-        "$SERVER_WORKFLOW" "$DOCKER_WORKFLOW"
+        "$COMMONS_POM" "$CLUSTER_WRAPPER" "$SERVER_DOCKERFILE" \
+        "$HSTORE_DOCKERFILE" "$SERVER_WORKFLOW" "$DOCKER_WORKFLOW"
 fi
 
 if [[ -n "${JAVA_HOME:-}" ]]; then

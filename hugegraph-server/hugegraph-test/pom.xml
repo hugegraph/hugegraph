@@ -115,7 +115,11 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
-                    <argLine>@{argLine} @${project.basedir}/../hugegraph-dist/src/assembly/static/conf/jvm-module.options</argLine>
+                    <argLine>
+                        @{argLine}
+                        @${project.basedir}/../hugegraph-dist/src/assembly/static/conf/jvm-module.options
+                        @${project.basedir}/conf/jvm-test-module.options
+                    </argLine>
                 </configuration>
                 <executions>
                     <execution>
@@ -133,7 +137,6 @@
                     <execution>
                         <id>unit-test</id>
                         <configuration>
-                            <argLine>@{argLine} @${project.basedir}/../hugegraph-dist/src/assembly/static/conf/jvm-module.options --add-opens=java.base/java.util=ALL-UNNAMED</argLine>
                             <testSourceDirectory>${basedir}/src/main/java/
                             </testSourceDirectory>
                             <testClassesDirectory>${basedir}/target/classes/
@@ -177,7 +180,12 @@
                         <id>tinkerpop-process-test</id>
                         <configuration>
                             <!-- TinkerPop process ReadTest.Traversals.class need write/read disk -->
-                            <argLine>@{argLine} @${project.basedir}/../hugegraph-dist/src/assembly/static/conf/jvm-module.options -Dbuild.dir=${project.build.directory}</argLine>
+                            <argLine>
+                                @{argLine}
+                                @${project.basedir}/../hugegraph-dist/src/assembly/static/conf/jvm-module.options
+                                @${project.basedir}/conf/jvm-test-module.options
+                                -Dbuild.dir=${project.build.directory}
+                            </argLine>
                             <testSourceDirectory>${basedir}/src/main/java/
                             </testSourceDirectory>
                             <testClassesDirectory>${basedir}/target/classes/

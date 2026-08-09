@@ -285,6 +285,10 @@
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
                     <skipTests>${skipCommonsTests}</skipTests>
+                    <argLine>
+                        @{argLine}
+                        @${project.parent.basedir}/../hugegraph-server/hugegraph-test/conf/jvm-test-module.options
+                    </argLine>
                 </configuration>
             </plugin>
         </plugins>
