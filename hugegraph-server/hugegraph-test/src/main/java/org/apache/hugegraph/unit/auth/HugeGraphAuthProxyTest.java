@@ -35,6 +35,7 @@ import org.apache.hugegraph.task.TaskManager;
 import org.apache.hugegraph.task.TaskScheduler;
 import org.apache.hugegraph.testutil.Assert;
 import org.apache.hugegraph.unit.BaseUnitTest;
+import org.apache.hugegraph.util.Reflection;
 import org.apache.logging.log4j.Level;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.core.Filter;
@@ -49,6 +50,30 @@ import org.junit.Test;
 import org.mockito.Mockito;
 
 public class HugeGraphAuthProxyTest extends BaseUnitTest {
+
+    @Test
+    public void testJdk17ReflectionFilters() {
+        Reflection.registerFieldsToFilter(ReflectionFilterTarget.class, "field");
+        Reflection.registerMethodsToFilter(ReflectionFilterTarget.class, "method");
+
+        Assert.assertThrows(NoSuchFieldException.class,
+                            () -> ReflectionFilterTarget.class.getDeclaredField("field"));
+        Assert.assertThrows(NoSuchMethodException.class,
+                            () -> ReflectionFilterTarget.class.getDeclaredMethod("method"));
+        Assert.assertThrows(IllegalArgumentException.class,
+                            () -> Reflection.registerFieldsToFilter(
+                                    ReflectionFilterTarget.class, "field"));
+    }
+
+    private static class ReflectionFilterTarget {
+
+        @SuppressWarnings("unused")
+        private String field;
+
+        @SuppressWarnings("unused")
+        private void method() {
+        }
+    }
 
     private static HugeGraphAuthProxy.Context setContext(
             HugeGraphAuthProxy.Context context) {

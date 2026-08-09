@@ -51,7 +51,7 @@ jobs:
       fail-fast: false
       matrix:
         BACKEND: [ memory, rocksdb, hbase ]
-        JAVA_VERSION: [ '11' ]
+        JAVA_VERSION: [ '17' ]
 
     steps:
       - name: Checkout
@@ -162,7 +162,8 @@ jobs:
           mvn package -Dmaven.test.skip=true -pl hugegraph-server/hugegraph-dist -am -ntp
           VERSION=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)
           SERVER_DIR=hugegraph-server/apache-hugegraph-server-$VERSION/
-          $TRAVIS_DIR/test-java-security-properties.sh $SERVER_DIR
+          $TRAVIS_DIR/test-java-security-properties.sh \
+            "$SERVER_DIR" "$GITHUB_WORKSPACE"
 
       - name: Check startup test prerequisites
         id: server-preflight
@@ -261,7 +262,7 @@ jobs:
       TRAVIS_DIR: hugegraph-server/hugegraph-dist/src/assembly/travis
       REPORT_DIR: target/site/jacoco
       BACKEND: rocksdb
-      JAVA_VERSION: '11'
+      JAVA_VERSION: '17'
       SERVER_JAVA_OPTIONS: ${{ matrix.server_java_options }}
 
     steps:
@@ -327,6 +328,8 @@ jobs:
           fi
 
   build-server-riscv64:
+    # Dragonwell has no maintained Java 17 RISC-V build yet. Keep this legacy
+    # platform signal visible, but do not use its Java 11 result as a gate.
     uses: ./.github/workflows/riscv64-ci.yml
     permissions:
       contents: read

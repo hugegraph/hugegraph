@@ -24,6 +24,7 @@ import static org.apache.hugegraph.ct.base.ClusterConstant.EXT_DIR;
 import static org.apache.hugegraph.ct.base.ClusterConstant.GREMLIN_DRIVER_SETTING_FILE;
 import static org.apache.hugegraph.ct.base.ClusterConstant.GREMLIN_SERVER_FILE;
 import static org.apache.hugegraph.ct.base.ClusterConstant.JAVA_CMD;
+import static org.apache.hugegraph.ct.base.ClusterConstant.JVM_MODULE_OPTIONS_FILE;
 import static org.apache.hugegraph.ct.base.ClusterConstant.LIB_DIR;
 import static org.apache.hugegraph.ct.base.ClusterConstant.LOG4J_FILE;
 import static org.apache.hugegraph.ct.base.ClusterConstant.LOCALHOST;
@@ -33,7 +34,7 @@ import static org.apache.hugegraph.ct.base.ClusterConstant.REMOTE_SETTING_FILE;
 import static org.apache.hugegraph.ct.base.ClusterConstant.SERVER_LIB_PATH;
 import static org.apache.hugegraph.ct.base.ClusterConstant.SERVER_PACKAGE_PATH;
 import static org.apache.hugegraph.ct.base.ClusterConstant.SERVER_TEMPLATE_PATH;
-import static org.apache.hugegraph.ct.base.ClusterConstant.isJava11OrHigher;
+import static org.apache.hugegraph.ct.base.ClusterConstant.isJava17OrHigher;
 import static org.apache.hugegraph.ct.base.EnvUtil.isPortOpen;
 
 import java.io.BufferedReader;
@@ -71,6 +72,7 @@ public class ServerNodeWrapper extends AbstractNodeWrapper {
         this.gremlinPort = gremlinPort;
         this.fileNames = new ArrayList<>(
                 List.of(LOG4J_FILE, GREMLIN_SERVER_FILE, GREMLIN_DRIVER_SETTING_FILE,
+                        JVM_MODULE_OPTIONS_FILE,
                         REMOTE_SETTING_FILE, REMOTE_OBJECTS_SETTING_FILE));
         this.workPath = SERVER_LIB_PATH;
         createNodeDir(Paths.get(SERVER_TEMPLATE_PATH), getNodePath() + CONF_DIR + File.separator);
@@ -134,8 +136,8 @@ public class ServerNodeWrapper extends AbstractNodeWrapper {
             File stdoutFile = new File(getLogPath());
             List<String> startCmd = new ArrayList<>();
             startCmd.add(JAVA_CMD);
-            if (!isJava11OrHigher()) {
-                LOG.error("Please make sure that the JDK is installed and the version >= 11");
+            if (!isJava17OrHigher()) {
+                LOG.error("Please make sure that the JDK is installed and the version >= 17");
                 return;
             }
 
@@ -147,9 +149,7 @@ public class ServerNodeWrapper extends AbstractNodeWrapper {
 
             startCmd.addAll(Arrays.asList(
                     "-Dname=HugeGraphServer" + this.index,
-                    "--add-exports=java.base/jdk.internal.reflect=ALL-UNNAMED",
-                    "--add-modules=jdk.unsupported",
-                    "--add-exports=java.base/sun.nio.ch=ALL-UNNAMED",
+                    "@" + Paths.get(getNodePath(), CONF_DIR, JVM_MODULE_OPTIONS_FILE),
                     "-cp", storeClassPath,
                     "org.apache.hugegraph.dist.HugeGraphServer",
                     "./conf/gremlin-server.yaml",

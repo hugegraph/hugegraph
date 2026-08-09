@@ -15,10 +15,10 @@ jobs:
     env:
       USE_STAGE: 'false'
     steps:
-      - name: Install JDK 11
+      - name: Install JDK 17
         uses: actions/setup-java@v3
         with:
-          java-version: '11'
+          java-version: '17'
           distribution: 'zulu'
 
       - name: Cache Maven packages
@@ -68,10 +68,10 @@ jobs:
       REPORT_DIR: target/site/jacoco
 
     steps:
-      - name: Install JDK 11
+      - name: Install JDK 17
         uses: actions/setup-java@v3
         with:
-          java-version: '11'
+          java-version: '17'
           distribution: 'zulu'
 
       - name: Cache Maven packages
@@ -177,10 +177,10 @@ jobs:
       REPORT_DIR: target/site/jacoco
 
     steps:
-      - name: Install JDK 11
+      - name: Install JDK 17
         uses: actions/setup-java@v3
         with:
-          java-version: '11'
+          java-version: '17'
           distribution: 'zulu'
 
       - name: Cache Maven packages
@@ -314,10 +314,10 @@ jobs:
         }}
 
     steps:
-      - name: Install JDK 11
+      - name: Install JDK 17
         uses: actions/setup-java@v3
         with:
-          java-version: '11'
+          java-version: '17'
           distribution: 'zulu'
 
       - name: Cache Maven packages
