@@ -70,9 +70,13 @@ public class HugeGraphAuthProxyTest extends BaseUnitTest {
     public void testJdk17ReflectionFilterFailureCause() {
         Throwable exception = Assert.assertThrows(
                 HugeException.class,
-                () -> Reflection.registerFieldsToFilter(null, "field"));
+                () -> Reflection.registerFieldsToFilter(
+                        ReflectionFailureTarget.class, (String) null));
 
         Assert.assertInstanceOf(NullPointerException.class, exception.getCause());
+    }
+
+    private static class ReflectionFailureTarget {
     }
 
     private static class ReflectionFilterTarget {
