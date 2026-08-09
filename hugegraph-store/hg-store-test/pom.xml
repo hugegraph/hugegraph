@@ -30,6 +30,7 @@
     <artifactId>hg-store-test</artifactId>
 
     <properties>
+        <surefire.failIfNoSpecifiedTests>true</surefire.failIfNoSpecifiedTests>
         <!--maven.test.skip>true</maven.test.skip-->
     </properties>
 

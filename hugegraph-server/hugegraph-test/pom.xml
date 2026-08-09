@@ -30,6 +30,7 @@
 
     <properties>
         <skip.dump>true</skip.dump>
+        <surefire.failIfNoSpecifiedTests>true</surefire.failIfNoSpecifiedTests>
     </properties>
 
     <dependencies>

@@ -72,8 +72,9 @@ public class Reflection {
             REGISTER_FILEDS_TO_FILTER_METHOD.invoke(REFLECTION_CLAZZ, containingClass,
                                                     toFilterSet(fieldNames));
         } catch (IllegalAccessException e) {
-            throw new HugeException("Failed to register class '%s' fields to filter: %s",
-                                    containingClass, Arrays.toString(fieldNames));
+            throw new HugeException(
+                    "Failed to register class '%s' fields to filter: %s",
+                    e, containingClass, Arrays.toString(fieldNames));
         } catch (InvocationTargetException e) {
             throwInvocationTargetException(e, containingClass, fieldNames, "fields");
         }
@@ -90,8 +91,9 @@ public class Reflection {
             REGISTER_METHODS_TO_FILTER_METHOD.invoke(REFLECTION_CLAZZ, containingClass,
                                                      toFilterSet(methodNames));
         } catch (IllegalAccessException e) {
-            throw new HugeException("Failed to register class '%s' methods to filter: %s",
-                                    containingClass, Arrays.toString(methodNames));
+            throw new HugeException(
+                    "Failed to register class '%s' methods to filter: %s",
+                    e, containingClass, Arrays.toString(methodNames));
         } catch (InvocationTargetException e) {
             throwInvocationTargetException(e, containingClass, methodNames, "methods");
         }
@@ -109,8 +111,10 @@ public class Reflection {
         if (cause instanceof IllegalArgumentException) {
             throw (IllegalArgumentException) cause;
         }
-        throw new HugeException("Failed to register class '%s' %s to filter: %s",
-                                containingClass, type, Arrays.toString(members));
+        Throwable failure = cause != null ? cause : exception;
+        throw new HugeException(
+                "Failed to register class '%s' %s to filter: %s",
+                failure, containingClass, type, Arrays.toString(members));
     }
 
     public static Class<?> loadClass(String clazz) {

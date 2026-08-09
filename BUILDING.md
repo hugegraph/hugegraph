@@ -3,8 +3,8 @@ Building HugeGraph
 
 Required:
 
-* Java 11
-* Maven 3.5+
+* Java 17+
+* Maven 3.6.3+
 
 To build without executing tests: `mvn clean package -Dmaven.test.skip=true`
 
@@ -38,4 +38,3 @@ To build without executing tests:
 To find the Java binary in your environment, run the appropriate command for your operating system:
 * Linux/macOS: `which java`
 * Windows: `for %i in (java.exe) do @echo. %~$PATH:i`
-

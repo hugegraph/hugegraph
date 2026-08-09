@@ -21,6 +21,7 @@ import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
 
+import org.apache.hugegraph.HugeException;
 import org.apache.hugegraph.HugeGraph;
 import org.apache.hugegraph.auth.AuthManager;
 import org.apache.hugegraph.auth.HugeAuthenticator;
@@ -63,6 +64,15 @@ public class HugeGraphAuthProxyTest extends BaseUnitTest {
         Assert.assertThrows(IllegalArgumentException.class,
                             () -> Reflection.registerFieldsToFilter(
                                     ReflectionFilterTarget.class, "field"));
+    }
+
+    @Test
+    public void testJdk17ReflectionFilterFailureCause() {
+        Throwable exception = Assert.assertThrows(
+                HugeException.class,
+                () -> Reflection.registerFieldsToFilter(null, "field"));
+
+        Assert.assertInstanceOf(NullPointerException.class, exception.getCause());
     }
 
     private static class ReflectionFilterTarget {
