@@ -22,6 +22,9 @@ jobs:
       - name: Run wait-storage.sh peer failover tests
         run: hugegraph-server/hugegraph-dist/src/assembly/travis/test-wait-storage.sh
 
+      - name: Run RISC-V Java runtime contract tests
+        run: hugegraph-server/hugegraph-dist/src/assembly/travis/test-riscv64-java-runtime.sh
+
   build-server:
     # TODO: we need test & replace it to ubuntu-24.04 or ubuntu-latest
     runs-on: ubuntu-22.04
@@ -328,8 +331,8 @@ jobs:
           fi
 
   build-server-riscv64:
-    # Dragonwell has no maintained Java 17 RISC-V build yet. Keep this legacy
-    # platform signal visible, but do not use its Java 11 result as a gate.
+    # Keep the emulated Java 17 RISC-V native-runtime signal visible while the
+    # platform lane stabilizes, but do not use it as a gate yet.
     uses: ./.github/workflows/riscv64-ci.yml
     permissions:
       contents: read

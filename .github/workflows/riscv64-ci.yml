@@ -35,6 +35,9 @@ env:
   TEMURIN_RISCV64_BASE_URL: >-
     https://github.com/adoptium/temurin17-binaries/releases/download
   TEMURIN_RISCV64_RELEASE: jdk-17.0.20%2B8
+  EXPECTED_JAVA_MAJOR: '17'
+  EXPECTED_RISCV64_JAVA_VERSION: '17.0.20'
+  EXPECTED_RISCV64_JAVA_VENDOR: Eclipse Adoptium
   RISCV64_CONTAINER: >-
     hugegraph-riscv64-ci-${{ github.run_id }}-${{ github.run_attempt }}
 
@@ -76,6 +79,9 @@ jobs:
           docker exec \
             --env TEMURIN_RISCV64_ARCHIVE="$TEMURIN_RISCV64_ARCHIVE" \
             --env TEMURIN_RISCV64_SHA256="$TEMURIN_RISCV64_SHA256" \
+            --env EXPECTED_JAVA_MAJOR="$EXPECTED_JAVA_MAJOR" \
+            --env EXPECTED_RISCV64_JAVA_VERSION="$EXPECTED_RISCV64_JAVA_VERSION" \
+            --env EXPECTED_RISCV64_JAVA_VENDOR="$EXPECTED_RISCV64_JAVA_VENDOR" \
             "$RISCV64_CONTAINER" bash -euo pipefail -c '
               test "$(uname -m)" = riscv64
               apt-get -q update
