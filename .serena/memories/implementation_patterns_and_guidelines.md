@@ -40,7 +40,8 @@
 
 ## Docker
 - Single-node: `docker/docker-compose.yml` (bridge network, pd+store+server)
-- Cluster: `docker/docker-compose-3pd-3store-3server.yml`
+- Cluster: `docker/docker-compose-3pd-3store-3server.yml` (external `hugegraph-net` network + `docker/.env` credentials)
+- Hubble add-on for the cluster: `docker/docker-compose-hubble.yml`
 - Container logs: stdout-based
 
 ## CI Pipelines

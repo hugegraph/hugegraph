@@ -155,9 +155,9 @@ raft:
 
 For detailed configuration options and production tuning, see [Configuration Guide](docs/configuration.md).
 
-#### Docker Bridge Network Example
+#### Docker Network Example
 
-When running PD in Docker with bridge networking (e.g., `docker/docker-compose-3pd-3store-3server.yml`), configuration is injected via environment variables instead of editing `application.yml` directly. Container hostnames are used instead of IP addresses:
+When running PD in Docker on a shared network (e.g., `docker/docker-compose-3pd-3store-3server.yml`, which joins the pre-created external `hugegraph-net` network), configuration is injected via environment variables instead of editing `application.yml` directly. Container hostnames are used instead of IP addresses:
 
 **pd0** container:
 ```bash

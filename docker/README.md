@@ -1,22 +1,27 @@
 # HugeGraph Docker Deployment
 
-This directory contains Docker Compose files for running HugeGraph:
+This directory contains Docker Compose files and their configuration for
+running HugeGraph:
 
 | File | Description |
 |------|-------------|
 | `docker-compose.yml` | PD, Store, Server, and Hubble using pre-built images |
 | `docker-compose.dev.yml` | PD, Store, and Server built from source, plus Hubble |
 | `docker-compose-3pd-3store-3server.yml` | 3-node distributed cluster (PD + Store + Server) |
+| `docker-compose-hubble.yml` | Hubble add-on for the 3-node cluster (attachable to a running cluster) |
+| `hugegraph-hubble.properties` | Hubble configuration mounted by the single-node files |
+| `hugegraph-hubble-3x3.properties` | Hubble configuration mounted by the add-on; edit when attaching to a cluster with different hostnames |
 
 ## Prerequisites
 
 - **Docker Engine** 20.10+ (or Docker Desktop 4.x+)
 - **Docker Compose** v2 (included in Docker Desktop)
 - **OpenSSL CLI** (used to generate the initial administrator password)
-- **Memory**: Allocate at least **12 GB** to Docker Desktop (Settings → Resources → Memory). The 3-node cluster runs 9 JVM processes (3 PD + 3 Store + 3 Server) which are memory-intensive. Insufficient memory causes OOM kills that appear as silent Raft failures.
+- **Memory**: Allocate at least **12 GB** to Docker Desktop (Settings → Resources → Memory). The 3-node cluster runs 9 JVM processes (3 PD + 3 Store + 3 Server) which are memory-intensive — plus a tenth container when the Hubble add-on is attached. Insufficient memory causes OOM kills that appear as silent Raft failures.
 
 > [!IMPORTANT]
 > The 12 GB minimum is for Docker Desktop. On Linux with native Docker, ensure the host has at least 12 GB of free memory.
+
 ---
 
 ## Single-Node Setup
@@ -168,13 +173,86 @@ To validate local images without Compose replacing them with remote `latest`:
 
 ## 3-Node Cluster Quickstart
 
+The cluster and the Hubble add-on share one named Docker network so Hubble
+can attach to a running cluster without touching it. Treat that network as a
+trust boundary: PD and Store expose unauthenticated control APIs on it (only
+the Server layer authenticates), and any container on the host can join it
+by declaring the well-known name. One-time setup: write the required
+credentials to a mode-600 `docker/.env` and create the network.
+The cluster file requires both credentials — the admin password enables
+authentication, and every Server replica must share one token secret so a
+token issued by any server validates on all of them. The `:?` guards fire
+on every Compose subcommand, including `down`.
+
+```bash
+(
+  set -eu
+  cd docker
+  command -v openssl >/dev/null 2>&1 || { echo "openssl not found" >&2; exit 1; }
+  [ -e .env ] || install -m 600 /dev/null .env
+  chmod 600 .env
+  # Keep appends on their own lines even if the file was hand-edited.
+  [ ! -s .env ] || [ -z "$(tail -c1 .env)" ] || printf '\n' >> .env
+  pat='^[[:space:]]*(export[[:space:]]+)?'
+  if ! grep -Eq "${pat}HUGEGRAPH_ADMIN_PASSWORD=" .env; then
+    admin_password="$(openssl rand -base64 12)"
+    printf "HUGEGRAPH_ADMIN_PASSWORD='%s'\n" "${admin_password}" >> .env
+    unset admin_password
+  fi
+  if ! grep -Eq "${pat}HUGEGRAPH_AUTH_TOKEN_SECRET=" .env; then
+    token_secret="$(openssl rand -hex 32)"
+    printf "HUGEGRAPH_AUTH_TOKEN_SECRET='%s'\n" "${token_secret}" >> .env
+    unset token_secret
+  fi
+  # The shared cluster network. To override the name, export
+  # HUGEGRAPH_NETWORK in this shell before running the block — a value
+  # in docker/.env is read by Compose, not by this script.
+  net="${HUGEGRAPH_NETWORK:-hugegraph-net}"
+  docker network inspect "${net}" >/dev/null 2>&1 ||
+    docker network create "${net}"
+  env -u HUGEGRAPH_ADMIN_PASSWORD -u HUGEGRAPH_AUTH_TOKEN_SECRET \
+    docker compose -f docker-compose-3pd-3store-3server.yml config --quiet
+)
+```
+
+Then start the cluster:
+
 ```bash
 cd docker
-HUGEGRAPH_VERSION=1.7.0 docker compose -f docker-compose-3pd-3store-3server.yml up -d
+docker compose -f docker-compose-3pd-3store-3server.yml up -d
 
-# To stop and remove all data volumes (clean restart)
+# To stop and remove all data volumes (clean restart).
+# The external hugegraph-net network is intentionally left in place.
+# If the Hubble add-on is running, see "Hubble for the 3-Node Cluster"
+# for the teardown that matches how it was started.
 docker compose -f docker-compose-3pd-3store-3server.yml down -v
 ```
+
+Pin a release by setting `HUGEGRAPH_VERSION` in `docker/.env` — the
+cluster, the Hubble add-on, and the single-node quickstart file all read
+it from there, so those versions cannot drift apart
+(`docker-compose.dev.yml` builds PD/Store/Server from source and defaults
+Hubble to `hugegraph/hubble:latest`; set `HUBBLE_IMAGE` to pin it).
+Unpinned, the images default to `latest`; note the authenticated PD/Hubble
+integration requires a release newer than `1.7.x`. Because the cluster
+files use `pull_policy: missing`, an already-pulled `latest` is never
+refreshed by `up -d` — pull explicitly or pin to pick up new releases.
+
+> [!NOTE]
+> Upgrading an existing 3-node deployment:
+> - Create `docker/.env` (block above) before running any Compose command
+>   against an older stack, `down` included.
+> - The cluster now joins the pre-created `hugegraph-net` network instead of
+>   a per-project bridge, so the first `up -d` recreates all nine containers.
+>   Named data volumes are unchanged and survive the move; the orphaned
+>   `hugegraph-3x3_hg-net` bridge can be removed with
+>   `docker network rm hugegraph-3x3_hg-net`.
+> - Authentication is now enabled: previously unauthenticated clients of the
+>   graph APIs on ports 8080–8082 will start receiving 401 responses and
+>   must supply the `admin` credential from `docker/.env` (`/versions` and
+>   `/openapi.json` stay open, so they cannot serve as an auth smoke test).
+>   On a cluster whose volumes predate authentication, verify you can sign
+>   in before decommissioning any existing access path.
 
 **Startup ordering** is enforced via `depends_on` with `condition: service_healthy`:
 
@@ -201,6 +279,110 @@ curl http://localhost:8620/v1/stores
 
 # List partitions
 curl http://localhost:8620/v1/partitions
+```
+
+---
+
+## Hubble for the 3-Node Cluster
+
+`docker-compose-hubble.yml` defines only the Hubble service. It joins the
+cluster's external network (`hugegraph-net` by default, override with
+`HUGEGRAPH_NETWORK`) and has no `depends_on` on cluster services, so
+starting, stopping, or upgrading Hubble never recreates or restarts PD,
+Store, or Server containers. Hubble reads the cluster topology from
+`hugegraph-hubble-3x3.properties`; adjust that file when attaching to a
+cluster with different hostnames.
+
+Sign in at `http://localhost:8088` as `admin` with the
+`HUGEGRAPH_ADMIN_PASSWORD` from `docker/.env`. Hubble binds to host
+loopback by default (`HUBBLE_PUBLISH_HOST`, same caveats as the
+single-node setup).
+
+The two flows below create Hubble in different Compose projects, so manage
+Hubble with the same flags you started it with: the attach flow always uses
+`-p hugegraph-hubble -f docker-compose-hubble.yml`, the combined flow always
+uses both `-f` flags. The explicit `-p` keeps the attach project independent
+of the directory name and of other Compose projects.
+
+Run one Hubble per host: the single-node stack and both add-on flows all
+publish `127.0.0.1:8088` and name their container `hg-hubble`. The two
+add-on flows are therefore mutually exclusive — starting one while the
+other's Hubble exists fails with a container-name conflict, so `down` the
+flow you are leaving before switching.
+
+### Attach to a running cluster
+
+With the 3-node cluster already up:
+
+```bash
+cd docker
+docker compose -p hugegraph-hubble -f docker-compose-hubble.yml up -d
+```
+
+Lifecycle commands in this flow operate on Hubble alone and leave the
+cluster and the external network in place:
+
+```bash
+cd docker
+docker compose -p hugegraph-hubble -f docker-compose-hubble.yml ps
+docker compose -p hugegraph-hubble -f docker-compose-hubble.yml down
+```
+
+To remove everything in this flow, take down Hubble first, then the cluster:
+
+```bash
+cd docker
+docker compose -p hugegraph-hubble -f docker-compose-hubble.yml down
+docker compose -f docker-compose-3pd-3store-3server.yml down -v
+```
+
+### Fresh cluster plus Hubble in one command
+
+After the one-time network and `docker/.env` setup from the quickstart:
+
+```bash
+cd docker
+docker compose -f docker-compose-3pd-3store-3server.yml \
+               -f docker-compose-hubble.yml up -d
+```
+
+Hubble has no startup dependency on the cluster, so it reports healthy while
+PD, Store, and Server are still forming the cluster; wait until every service
+shows healthy before signing in:
+
+```bash
+cd docker
+docker compose -f docker-compose-3pd-3store-3server.yml \
+               -f docker-compose-hubble.yml ps
+```
+
+In this flow Hubble belongs to the cluster project — use the same pair of
+`-f` flags for `ps`, `stop`, and `down`. The attach-flow `ps`/`stop`/`down`
+commands manage a different, empty project and do nothing here, and the
+cluster-only quickstart commands treat this Hubble as an orphan container
+(`--remove-orphans` would delete it) — always pass both `-f` flags.
+
+### Local Hubble image for development
+
+Build the Hubble image from `hugegraph-toolchain` source, then replace only
+the Hubble container. In the attach flow:
+
+```bash
+cd docker
+HUBBLE_IMAGE=local/hugegraph-hubble:dev \
+HUBBLE_PULL_POLICY=never \
+docker compose -p hugegraph-hubble -f docker-compose-hubble.yml up -d
+```
+
+If the stack was started with the combined command, replace only the
+`hubble` service under that project instead:
+
+```bash
+cd docker
+HUBBLE_IMAGE=local/hugegraph-hubble:dev \
+HUBBLE_PULL_POLICY=never \
+docker compose -f docker-compose-3pd-3store-3server.yml \
+               -f docker-compose-hubble.yml up -d --no-deps hubble
 ```
 
 ---
@@ -256,7 +438,7 @@ Configuration is injected via environment variables. The old `docker/configs/app
 |----------|----------|---------|-----------------------------|-------------|
 | `HG_SERVER_BACKEND` | Yes | — | `backend` in `hugegraph.properties` | Storage backend (e.g. `hstore`) |
 | `HG_SERVER_PD_PEERS` | Yes | — | `pd.peers` | PD cluster addresses (e.g. `pd0:8686,pd1:8686,pd2:8686`) |
-| `HG_SERVER_CLUSTER` | No | — | `cluster` in `rest-server.properties` | PD discovery application name; single-node Compose uses `hg` to match Hubble |
+| `HG_SERVER_CLUSTER` | No | — | `cluster` in `rest-server.properties` | PD discovery application name; both the single-node and 3-node Compose files use `hg` to match the Hubble configuration |
 | `HG_SERVER_USE_PD` | No | — | `usePD` in `rest-server.properties` | Enables Server PD registration and discovery |
 | `HG_SERVER_REST_URL` | No | — | `restserver.url` | Address registered with PD and used by clients |
 | `HG_SERVER_MIN_FREE_MEMORY` | No | — | `restserver.min_free_memory` | Minimum free-memory guard in MB; local Compose uses `0` |
@@ -287,17 +469,22 @@ Configuration is injected via environment variables. The old `docker/configs/app
 > PD startup path uses the explicit `auth.admin_pa` value when it first creates
 > the administrator. Changing it later does not rotate an existing password.
 
-The single-node Compose files also accept these deployment-level overrides:
+The Compose files also accept these deployment-level overrides; the
+"Used by" column names the files that read each variable (single = the
+single-node files, cluster = `docker-compose-3pd-3store-3server.yml`,
+add-on = `docker-compose-hubble.yml`):
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `HUGEGRAPH_SERVER_IMAGE` | `hugegraph/server:<version>` | Complete Server image reference |
-| `HUGEGRAPH_SERVER_PULL_POLICY` | `always` (`build` for dev) | Server pull policy |
-| `HUBBLE_IMAGE` | `hugegraph/hubble:<version>` | Complete Hubble image reference |
-| `HUBBLE_PULL_POLICY` | `always` (`missing` for dev) | Hubble pull policy |
-| `HUBBLE_PUBLISH_HOST` | `127.0.0.1` | Hubble host bind address; remote access requires an HTTPS reverse proxy |
-| `HUGEGRAPH_ADMIN_PASSWORD` | required (`docker/.env`) | Initial admin password; no public default is provided |
-| `HUGEGRAPH_AUTH_TOKEN_SECRET` | generated | JWT signing secret; explicit values must be at least 32 bytes |
+| Variable | Used by | Default | Description |
+|----------|---------|---------|-------------|
+| `HUGEGRAPH_VERSION` | single (quickstart), cluster, add-on | `latest` | Shared image tag for PD, Store, Server, and Hubble; pin it in `docker/.env` so these files resolve the same release. The dev file builds from source and defaults Hubble to `latest`; set `HUBBLE_IMAGE` to pin it |
+| `HUGEGRAPH_SERVER_IMAGE` | single | `hugegraph/server:<version>` | Complete Server image reference |
+| `HUGEGRAPH_SERVER_PULL_POLICY` | single | `always` (`build` for dev) | Server pull policy |
+| `HUBBLE_IMAGE` | single, add-on | `hugegraph/hubble:<version>` | Complete Hubble image reference |
+| `HUBBLE_PULL_POLICY` | single, add-on | `always` (`missing` for dev and the add-on) | Hubble pull policy |
+| `HUBBLE_PUBLISH_HOST` | single, add-on | `127.0.0.1` | Hubble host bind address; remote access requires an HTTPS reverse proxy |
+| `HUGEGRAPH_NETWORK` | cluster, add-on | `hugegraph-net` | Pre-created external Docker network shared by the 3-node cluster and the Hubble add-on; the single-node files use their own project bridge instead |
+| `HUGEGRAPH_ADMIN_PASSWORD` | single, cluster | required (`docker/.env`) | Initial admin password; no public default is provided |
+| `HUGEGRAPH_AUTH_TOKEN_SECRET` | single, cluster | generated (single); **required** (cluster) | JWT signing secret; explicit values must be at least 32 bytes. The cluster file requires it so all Server replicas validate each other's tokens |
 
 When authentication is enabled and no token secret is supplied, the Server
 entrypoint generates a random secret and writes it to both authentication
@@ -362,7 +549,16 @@ configuration file.
 
 ## Port Reference
 
-The table below reflects the published host ports in `docker-compose-3pd-3store-3server.yml`.
+The table below reflects the published host ports of the 3-node cluster
+(`docker-compose-3pd-3store-3server.yml`) and its Hubble add-on
+(`docker-compose-hubble.yml`).
+
+> [!IMPORTANT]
+> Cluster ports bind all host interfaces and bypass host firewalls under
+> Docker's port publishing; the PD and Store APIs among them are
+> unauthenticated. Do not run this file on an untrusted network. Hubble is
+> the exception and binds loopback only by default.
+
 The single-node Compose file publishes `8620`, `8520`, `8080`, and Hubble
 `8088`; Hubble defaults to host loopback.
 
@@ -387,6 +583,7 @@ The single-node Compose file publishes `8620`, `8520`, `8080`, and Hubble
 | server0 | 8080 | 8080 | HTTP | Graph API |
 | server1 | 8080 | 8081 | HTTP | Graph API |
 | server2 | 8080 | 8082 | HTTP | Graph API |
+| hubble | 8088 | 8088 | HTTP | Hubble UI; loopback-only by default (`HUBBLE_PUBLISH_HOST`) |
 
 ---
 
@@ -402,6 +599,19 @@ The single-node Compose file publishes `8620`, `8520`, `8080`, and Hubble
 ---
 
 ## Troubleshooting
+
+### `network hugegraph-net declared as external, but could not be found`
+
+**Symptom**: 3-node cluster or Hubble add-on commands that create
+containers (`up`, `run`, `create`) fail immediately with this error, with
+the resolved network name in the message. `config` and `ps` do not check
+the network, so they can succeed while `up` fails.
+
+**Cause**: The shared cluster network does not exist yet. It is declared
+`external`, so Compose never creates it on its own.
+
+**Fix**: `docker network create hugegraph-net` (or the name you set via
+`HUGEGRAPH_NETWORK`), then re-run the command.
 
 ### Containers Exiting or Restarting (OOM Kills)
 
@@ -445,6 +655,6 @@ docker stats --no-stream
 
 **Symptom**: Stores cannot connect to PD, or Server cannot connect to Store.
 
-**Cause**: Services are using `127.0.0.1` instead of container hostnames, or the `hg-net` bridge network is misconfigured.
+**Cause**: Services are using `127.0.0.1` instead of container hostnames, or containers are attached to different Docker networks (the cluster and the Hubble add-on must share the pre-created `hugegraph-net`).
 
 **Fix**: Ensure all `HG_*` env vars use container hostnames (`pd0`, `store0`, etc.), not `127.0.0.1` or `localhost`.

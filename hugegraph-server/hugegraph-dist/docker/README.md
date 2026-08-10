@@ -125,7 +125,10 @@ For a full distributed HugeGraph cluster with PD, Store, and Server, use the
 
 ```bash
 cd docker
-HUGEGRAPH_VERSION=1.7.0 docker compose -f docker-compose-3pd-3store-3server.yml up -d
+# One-time setup first: the shared hugegraph-net network and the required
+# credentials in docker/.env — see the 3-Node Cluster Quickstart in the
+# guide linked below.
+docker compose -f docker-compose-3pd-3store-3server.yml up -d
 ```
 
 See [docker/README.md](../../../docker/README.md) for the full setup guide,

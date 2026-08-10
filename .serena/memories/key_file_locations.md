@@ -17,7 +17,8 @@
 
 ## Docker
 - `docker/docker-compose.yml` — Single-node (bridge network, pd+store+server)
-- `docker/docker-compose-3pd-3store-3server.yml` — 3-node cluster
+- `docker/docker-compose-3pd-3store-3server.yml` — 3-node cluster (external `hugegraph-net` network, credentials required)
+- `docker/docker-compose-hubble.yml` — Hubble add-on for the 3-node cluster
 - `docker/docker-compose.dev.yml` — Dev mode
 
 ## PD Module
