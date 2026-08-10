@@ -56,6 +56,7 @@ import io.grpc.ManagedChannel;
 import io.grpc.MethodDescriptor;
 import io.grpc.stub.AbstractAsyncStub;
 import io.grpc.stub.AbstractBlockingStub;
+import io.grpc.stub.AbstractStub;
 
 /**
  * Verifies that Store address changes replace channels and cached stubs safely, and that the
@@ -64,6 +65,7 @@ import io.grpc.stub.AbstractBlockingStub;
 public class AbstractGrpcClientTest {
 
     private static final String MAINTENANCE_THREAD_PREFIX = "channel-maintenance";
+    private static final String RETIREMENT_THREAD_PREFIX = "channel-retirement";
     private static final AtomicInteger TARGET_SEQ = new AtomicInteger();
 
     private static String uniqueTarget(String prefix) {
@@ -103,7 +105,14 @@ public class AbstractGrpcClientTest {
     }
 
     private static void awaitCondition(String message, Condition condition) throws Exception {
-        for (int i = 0; i < 500; i++) {
+        awaitCondition(message, 5L, TimeUnit.SECONDS, condition);
+    }
+
+    private static void awaitCondition(String message, long timeout, TimeUnit unit,
+                                       Condition condition) throws Exception {
+        long start = System.nanoTime();
+        long timeoutNanos = unit.toNanos(timeout);
+        while (System.nanoTime() - start < timeoutNanos) {
             if (condition.isTrue()) {
                 return;
             }
@@ -219,6 +228,44 @@ public class AbstractGrpcClientTest {
     }
 
     @Test
+    public void testInitialRefreshRunsWhenNanoTimeIsNegative() throws Exception {
+        String target = uniqueTarget("negative-nano-time");
+        RecordingGrpcClient client = new RecordingGrpcClient();
+        client.currentNanoTime = -1L;
+        client.refreshIntervalNanos = 5L;
+
+        ManagedChannel[] initialChannels = client.getChannels(target);
+        awaitCondition("the initial refresh must settle", () -> refreshIsIdle(client, target));
+
+        assertEquals("a negative clock value must not suppress the initial refresh",
+                     1, client.resolutionCount.get());
+        assertTrue("the initial pool must remain healthy", allChannelsAreLive(initialChannels));
+    }
+
+    @Test
+    public void testRefreshDeadlineSurvivesNanoTimeWraparound() throws Exception {
+        String target = uniqueTarget("wrapped-nano-time");
+        RecordingGrpcClient client = new RecordingGrpcClient();
+        client.currentNanoTime = Long.MAX_VALUE - 2L;
+        client.refreshIntervalNanos = 5L;
+
+        client.getChannels(target);
+        awaitCondition("the initial refresh must settle", () -> refreshIsIdle(client, target));
+        assertEquals(1, client.resolutionCount.get());
+
+        client.currentNanoTime = Long.MAX_VALUE - 1L;
+        client.getChannels(target);
+        assertEquals("the wrapped deadline must not fire early", 1,
+                     client.resolutionCount.get());
+
+        client.currentNanoTime = Long.MIN_VALUE + 2L;
+        client.getChannels(target);
+        awaitCondition("the wrapped deadline must eventually fire",
+                       () -> client.resolutionCount.get() == 2 &&
+                             refreshIsIdle(client, target));
+    }
+
+    @Test
     public void testUnknownAddressPoolIsReplacedOnFirstSuccessfulResolution() throws Exception {
         String target = uniqueTarget("first-successful-resolution");
         RecordingGrpcClient client = new RecordingGrpcClient();
@@ -242,12 +289,19 @@ public class AbstractGrpcClientTest {
      * A refresh triggered by such a caller must therefore resolve somewhere else entirely.
      */
     @Test
-    public void testRefreshSucceedsWhenTheCallerThreadIsDeniedSocketAccess() throws Exception {
+    public void testRefreshSucceedsWhenCallerIsDeniedSocketAndThreadAccess() throws Exception {
         String target = uniqueTarget("denied-caller");
         HostCapturingGrpcClient client = new HostCapturingGrpcClient();
         client.checkSocketPermission = true;
+        client.activeCallsFinished = new CountDownLatch(1);
+        client.drainTimeoutNanos = 0L;
         ManagedChannel[] oldChannels = client.getChannels(target);
         assertNotNull(client.getBlockingStub(target));
+        awaitCondition("the initial refresh must settle before installing the security manager",
+                       () -> refreshIsIdle(client, target));
+        client.resolutionThreads.clear();
+        client.creationThreads.clear();
+        client.retirementThreads.clear();
 
         SecurityManager previous = System.getSecurityManager();
         System.setSecurityManager(new DenyingWorkerSecurityManager());
@@ -271,15 +325,178 @@ public class AbstractGrpcClientTest {
             assertTrue("a denied caller must not observe a security failure: " + failure.get(),
                        failure.get() == null);
             awaitCondition("the refresh must still publish a replacement pool",
-                           () -> client.getChannels(target) != oldChannels);
+                           () -> AbstractGrpcClient.channels.get(target) != oldChannels);
+            awaitCondition("forced retirement must finish on the maintenance executor",
+                           () -> fakeChannels(oldChannels).stream()
+                                                        .allMatch(FakeManagedChannel::isTerminated));
             assertFalse("the assertion below is vacuous unless something resolved",
                         client.resolutionThreads.isEmpty());
             assertTrue("every resolution must run on the channel maintenance thread",
                        client.resolutionThreads.stream()
                                                .allMatch(name -> name.startsWith(
                                                        MAINTENANCE_THREAD_PREFIX)));
+            assertEquals("the replacement must include every channel",
+                         AbstractGrpcClient.concurrency, client.creationThreads.size());
+            assertTrue("replacement construction must stay off the denied caller",
+                       client.creationThreads.stream().noneMatch(
+                               name -> name.startsWith("gremlin-server-exec")));
+            assertFalse("the retirement assertion must observe lifecycle work",
+                        client.retirementThreads.isEmpty());
+            assertTrue("graceful retirement must run on the maintenance thread",
+                       client.retirementThreads.stream().anyMatch(
+                               name -> name.startsWith(MAINTENANCE_THREAD_PREFIX)));
+            assertTrue("forced retirement must run on the retirement thread",
+                       client.retirementThreads.stream().anyMatch(
+                               name -> name.startsWith(RETIREMENT_THREAD_PREFIX)));
+            assertTrue("retirement must stay off the denied caller",
+                       client.retirementThreads.stream().noneMatch(
+                               name -> name.startsWith("gremlin-server-exec")));
         } finally {
+            client.activeCallsFinished.countDown();
             System.setSecurityManager(previous);
+        }
+    }
+
+    @Test
+    public void testResolutionFailureKeepsHealthyPoolAndAllowsRetry() throws Exception {
+        String target = uniqueTarget("resolution-failure");
+        RecordingGrpcClient client = new RecordingGrpcClient();
+        ManagedChannel[] healthyChannels = client.getChannels(target);
+        awaitCondition("the initial refresh must settle", () -> refreshIsIdle(client, target));
+
+        client.resolutionFailure = new IllegalStateException("injected resolution failure");
+        client.getChannels(target);
+        awaitCondition("the failed refresh must clear its single-flight entry",
+                       () -> refreshIsIdle(client, target));
+        assertSame("a resolution failure must preserve the published pool", healthyChannels,
+                   AbstractGrpcClient.channels.get(target));
+        assertTrue("a resolution failure must leave the published pool live",
+                   allChannelsAreLive(healthyChannels));
+
+        client.resolutionFailure = null;
+        client.resolvedTarget = "10.0.0.2";
+        ManagedChannel[] replacement = awaitPoolReplacement(client, target, healthyChannels);
+        assertTrue("a later successful refresh must replace the pool",
+                   allChannelsAreLive(replacement));
+    }
+
+    @Test
+    public void testRejectedRefreshSubmissionKeepsHealthyPoolAndAllowsRetry() throws Exception {
+        String target = uniqueTarget("refresh-submission-failure");
+        RecordingGrpcClient client = new RecordingGrpcClient();
+        ManagedChannel[] healthyChannels = client.getChannels(target);
+        awaitCondition("the initial refresh must settle", () -> refreshIsIdle(client, target));
+
+        client.rejectNextRefreshSubmission.set(true);
+        client.resolvedTarget = "10.0.0.2";
+        client.getChannels(target);
+        assertTrue("a rejected refresh must clear its single-flight entry",
+                   refreshIsIdle(client, target));
+        assertSame("a rejected refresh must preserve the published pool", healthyChannels,
+                   AbstractGrpcClient.channels.get(target));
+        assertTrue("a rejected refresh must leave the published pool live",
+                   allChannelsAreLive(healthyChannels));
+
+        ManagedChannel[] replacement = awaitPoolReplacement(client, target, healthyChannels);
+        assertTrue("a later refresh submission must still succeed",
+                   allChannelsAreLive(replacement));
+    }
+
+    @Test
+    public void testReplacementCreationFailureKeepsHealthyPoolAndAllowsRetry() throws Exception {
+        String target = uniqueTarget("replacement-creation-failure");
+        CreationControlGrpcClient client = new CreationControlGrpcClient();
+        ManagedChannel[] healthyChannels = client.getChannels(target);
+        awaitCondition("the initial refresh must settle", () -> refreshIsIdle(client, target));
+        int createdBeforeFailure = client.createdChannels.size();
+
+        client.failedAttempt = client.attempt.get() + 5;
+        client.resolvedTarget = "10.0.0.2";
+        client.getChannels(target);
+        awaitCondition("the failed replacement must clear its single-flight entry",
+                       () -> refreshIsIdle(client, target));
+
+        assertSame("a replacement failure must preserve the published pool", healthyChannels,
+                   AbstractGrpcClient.channels.get(target));
+        assertTrue("a replacement failure must leave the published pool live",
+                   allChannelsAreLive(healthyChannels));
+        List<ManagedChannel> partialChannels =
+                client.createdChannels.subList(createdBeforeFailure,
+                                               client.createdChannels.size());
+        assertEquals("all successful replacement tasks must converge before failure returns",
+                     AbstractGrpcClient.concurrency - 1, partialChannels.size());
+        assertTrue("every partial replacement channel must be force terminated",
+                   partialChannels.stream().allMatch(channel ->
+                           channel.isTerminated() &&
+                           ((FakeManagedChannel) channel).isForceShutdown()));
+
+        client.failedAttempt = -1;
+        ManagedChannel[] replacement = awaitPoolReplacement(client, target, healthyChannels);
+        assertTrue("a later replacement attempt must still succeed",
+                   allChannelsAreLive(replacement));
+    }
+
+    @Test
+    public void testRejectedChannelCreationSubmissionRetiresPartialPool() throws Exception {
+        String target = uniqueTarget("channel-submission-failure");
+        RecordingGrpcClient client = new RecordingGrpcClient();
+        ManagedChannel[] healthyChannels = client.getChannels(target);
+        awaitCondition("the initial refresh must settle", () -> refreshIsIdle(client, target));
+        int createdBeforeFailure = client.createdChannels.size();
+
+        client.rejectNextChannelSubmission.set(true);
+        client.resolvedTarget = "10.0.0.2";
+        client.getChannels(target);
+        awaitCondition("the failed replacement must clear its single-flight entry",
+                       () -> refreshIsIdle(client, target));
+
+        assertSame("a task-submission failure must preserve the published pool", healthyChannels,
+                   AbstractGrpcClient.channels.get(target));
+        List<ManagedChannel> partialChannels =
+                client.createdChannels.subList(createdBeforeFailure,
+                                               client.createdChannels.size());
+        assertEquals("one rejected task must not prevent the others from converging",
+                     AbstractGrpcClient.concurrency - 1, partialChannels.size());
+        assertTrue("partial channels must be retired after a task-submission failure",
+                   partialChannels.stream().allMatch(channel ->
+                           channel.isTerminated() &&
+                           ((FakeManagedChannel) channel).isForceShutdown()));
+
+        ManagedChannel[] replacement = awaitPoolReplacement(client, target, healthyChannels);
+        assertTrue("a later replacement attempt must still succeed",
+                   allChannelsAreLive(replacement));
+    }
+
+    @Test
+    public void testRejectedRetirementSchedulingKeepsReplacementAndAllowsRetry()
+            throws Exception {
+        String target = uniqueTarget("retirement-submission-failure");
+        RecordingGrpcClient client = new RecordingGrpcClient();
+        client.activeCallsFinished = new CountDownLatch(1);
+        ManagedChannel[] firstChannels = client.getChannels(target);
+        awaitCondition("the initial refresh must settle", () -> refreshIsIdle(client, target));
+
+        try {
+            client.rejectNextRetirementSubmission.set(true);
+            client.resolvedTarget = "10.0.0.2";
+            client.getChannels(target);
+            awaitCondition("the replacement must be published despite cleanup rejection",
+                           () -> AbstractGrpcClient.channels.get(target) != firstChannels);
+            awaitCondition("the cleanup rejection must clear its single-flight entry",
+                           () -> refreshIsIdle(client, target));
+            ManagedChannel[] secondChannels = AbstractGrpcClient.channels.get(target);
+            assertTrue("the replacement must remain live after cleanup rejection",
+                       allChannelsAreLive(secondChannels));
+            assertTrue("the unscheduled pool must be force terminated immediately",
+                       fakeChannels(firstChannels).stream().allMatch(channel ->
+                               channel.isTerminated() && channel.isForceShutdown()));
+
+            client.resolvedTarget = "10.0.0.3";
+            ManagedChannel[] thirdChannels = awaitPoolReplacement(client, target, secondChannels);
+            assertTrue("a later refresh must still replace the pool",
+                       allChannelsAreLive(thirdChannels));
+        } finally {
+            client.activeCallsFinished.countDown();
         }
     }
 
@@ -320,6 +537,66 @@ public class AbstractGrpcClientTest {
         } finally {
             releaseWorkers.countDown();
             client.activeCallsFinished.countDown();
+        }
+    }
+
+    @Test
+    public void testRetirementDeadlineSurvivesBlockedRefreshWorkers() throws Exception {
+        String retiringTarget = uniqueTarget("isolated-retirement");
+        String firstBlockedTarget = uniqueTarget("blocked-refresh");
+        String secondBlockedTarget = uniqueTarget("blocked-refresh");
+        RecordingGrpcClient retiringClient = new RecordingGrpcClient();
+        RecordingGrpcClient firstBlockedClient = new RecordingGrpcClient();
+        RecordingGrpcClient secondBlockedClient = new RecordingGrpcClient();
+        ManagedChannel[] firstBlockedChannels = firstBlockedClient.getChannels(firstBlockedTarget);
+        ManagedChannel[] secondBlockedChannels =
+                secondBlockedClient.getChannels(secondBlockedTarget);
+        awaitCondition("the first blocking client must initialize",
+                       () -> refreshIsIdle(firstBlockedClient, firstBlockedTarget));
+        awaitCondition("the second blocking client must initialize",
+                       () -> refreshIsIdle(secondBlockedClient, secondBlockedTarget));
+
+        retiringClient.activeCallsFinished = new CountDownLatch(1);
+        retiringClient.drainTimeoutNanos = TimeUnit.SECONDS.toNanos(2L);
+        ManagedChannel[] retiredChannels = retiringClient.getChannels(retiringTarget);
+        awaitCondition("the retiring client must initialize",
+                       () -> refreshIsIdle(retiringClient, retiringTarget));
+        retiringClient.resolvedTarget = "10.0.0.2";
+        ManagedChannel[] replacement =
+                awaitPoolReplacement(retiringClient, retiringTarget, retiredChannels);
+        awaitCondition("the replacement refresh must settle",
+                       () -> refreshIsIdle(retiringClient, retiringTarget));
+
+        firstBlockedClient.delayResolution = true;
+        firstBlockedClient.delayedResolutionTimeoutSeconds = 30L;
+        firstBlockedClient.resolvedTarget = "10.0.0.2";
+        secondBlockedClient.delayResolution = true;
+        secondBlockedClient.delayedResolutionTimeoutSeconds = 30L;
+        secondBlockedClient.resolvedTarget = "10.0.0.2";
+        try {
+            assertSame(firstBlockedChannels, firstBlockedClient.getChannels(firstBlockedTarget));
+            assertTrue("the first maintenance worker must block in resolution",
+                       firstBlockedClient.delayedResolutionStarted.await(5, TimeUnit.SECONDS));
+            assertSame(secondBlockedChannels, secondBlockedClient.getChannels(secondBlockedTarget));
+            assertTrue("the second maintenance worker must block in resolution",
+                       secondBlockedClient.delayedResolutionStarted.await(5, TimeUnit.SECONDS));
+            assertFalse("the drain deadline must still be pending after workers are blocked",
+                        fakeChannels(retiredChannels).stream()
+                                                     .anyMatch(FakeManagedChannel::isForceShutdown));
+
+            awaitCondition("blocked refresh workers must not delay forced retirement",
+                           4L, TimeUnit.SECONDS,
+                           () -> fakeChannels(retiredChannels).stream().allMatch(channel ->
+                                   channel.isTerminated() && channel.isForceShutdown()));
+            assertTrue("the replacement pool must remain live", allChannelsAreLive(replacement));
+        } finally {
+            firstBlockedClient.releaseDelayedResolution.countDown();
+            secondBlockedClient.releaseDelayedResolution.countDown();
+            retiringClient.activeCallsFinished.countDown();
+            awaitCondition("the first blocked refresh must settle",
+                           () -> refreshIsIdle(firstBlockedClient, firstBlockedTarget));
+            awaitCondition("the second blocked refresh must settle",
+                           () -> refreshIsIdle(secondBlockedClient, secondBlockedTarget));
         }
     }
 
@@ -624,11 +901,23 @@ public class AbstractGrpcClientTest {
         protected final AtomicInteger resolutionCount = new AtomicInteger();
         protected final List<String> resolutionThreads =
                 Collections.synchronizedList(new ArrayList<>());
+        protected final List<String> creationThreads =
+                Collections.synchronizedList(new ArrayList<>());
+        protected final List<String> retirementThreads =
+                Collections.synchronizedList(new ArrayList<>());
+        protected final List<ManagedChannel> createdChannels =
+                Collections.synchronizedList(new ArrayList<>());
+        protected final AtomicBoolean rejectNextRefreshSubmission = new AtomicBoolean();
+        protected final AtomicBoolean rejectNextChannelSubmission = new AtomicBoolean();
+        protected final AtomicBoolean rejectNextRetirementSubmission = new AtomicBoolean();
         protected final CountDownLatch delayedResolutionStarted = new CountDownLatch(1);
         protected final CountDownLatch releaseDelayedResolution = new CountDownLatch(1);
         protected volatile String resolvedTarget = "10.0.0.1";
         protected volatile long refreshIntervalNanos = 0L;
+        protected volatile Long currentNanoTime;
+        protected volatile RuntimeException resolutionFailure;
         protected volatile boolean delayResolution;
+        protected volatile long delayedResolutionTimeoutSeconds = 5L;
         /** Resolves through the real implementation instead of returning resolvedTarget. */
         protected volatile boolean useRealResolution;
         /** Null keeps the inherited drain deadline. */
@@ -646,6 +935,12 @@ public class AbstractGrpcClientTest {
         }
 
         @Override
+        protected long nanoTime() {
+            Long time = this.currentNanoTime;
+            return time == null ? super.nanoTime() : time;
+        }
+
+        @Override
         protected long channelDrainTimeoutNanos() {
             Long timeout = this.drainTimeoutNanos;
             return timeout == null ? super.channelDrainTimeoutNanos() : timeout;
@@ -653,19 +948,51 @@ public class AbstractGrpcClientTest {
 
         @Override
         protected ManagedChannel createChannel(String target) {
-            return new FakeManagedChannel(target + "#" + this.channelSeq.getAndIncrement(),
-                                          this.activeCallsFinished);
+            this.creationThreads.add(Thread.currentThread().getName());
+            ManagedChannel channel =
+                    new FakeManagedChannel(target + "#" + this.channelSeq.getAndIncrement(),
+                                           this.activeCallsFinished, this.retirementThreads);
+            this.createdChannels.add(channel);
+            return channel;
+        }
+
+        @Override
+        void submitChannelRefresh(Runnable task) {
+            if (this.rejectNextRefreshSubmission.compareAndSet(true, false)) {
+                throw new IllegalStateException("injected refresh submission failure");
+            }
+            super.submitChannelRefresh(task);
+        }
+
+        @Override
+        void submitChannelCreation(Runnable task) {
+            if (this.rejectNextChannelSubmission.compareAndSet(true, false)) {
+                throw new IllegalStateException("injected channel submission failure");
+            }
+            super.submitChannelCreation(task);
+        }
+
+        @Override
+        void scheduleChannelRetirement(Runnable task, long timeoutNanos) {
+            if (this.rejectNextRetirementSubmission.compareAndSet(true, false)) {
+                throw new IllegalStateException("injected retirement submission failure");
+            }
+            super.scheduleChannelRetirement(task, timeoutNanos);
         }
 
         @Override
         protected String resolveTarget(String target) {
             this.resolutionCount.incrementAndGet();
             this.resolutionThreads.add(Thread.currentThread().getName());
+            if (this.resolutionFailure != null) {
+                throw this.resolutionFailure;
+            }
             if (this.delayResolution) {
                 this.delayedResolutionStarted.countDown();
                 try {
                     assertTrue("the delayed resolution must be released",
-                               this.releaseDelayedResolution.await(5, TimeUnit.SECONDS));
+                               this.releaseDelayedResolution.await(
+                                       this.delayedResolutionTimeoutSeconds, TimeUnit.SECONDS));
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                     throw new AssertionError(e);
@@ -757,7 +1084,7 @@ public class AbstractGrpcClientTest {
         }
 
         @Override
-        public AbstractAsyncStub<?> getAsyncStub(ManagedChannel channel) {
+        protected AbstractStub<?> setStubOption(AbstractStub value) {
             if (this.stubSeq.incrementAndGet() == 1) {
                 this.stubBuildStarted.countDown();
                 try {
@@ -768,7 +1095,7 @@ public class AbstractGrpcClientTest {
                     throw new AssertionError(e);
                 }
             }
-            return super.getAsyncStub(channel);
+            return super.setStubOption(value);
         }
 
         @Override
@@ -871,17 +1198,24 @@ public class AbstractGrpcClientTest {
 
         private final String authority;
         private final CountDownLatch activeCallsFinished;
+        private final List<String> retirementThreads;
         private volatile boolean shutdown;
         private volatile boolean forceShutdown;
         private volatile boolean terminated;
 
         FakeManagedChannel(String authority) {
-            this(authority, null);
+            this(authority, null, null);
         }
 
         FakeManagedChannel(String authority, CountDownLatch activeCallsFinished) {
+            this(authority, activeCallsFinished, null);
+        }
+
+        FakeManagedChannel(String authority, CountDownLatch activeCallsFinished,
+                           List<String> retirementThreads) {
             this.authority = authority;
             this.activeCallsFinished = activeCallsFinished;
+            this.retirementThreads = retirementThreads;
         }
 
         @Override
@@ -897,6 +1231,9 @@ public class AbstractGrpcClientTest {
 
         @Override
         public ManagedChannel shutdown() {
+            if (this.retirementThreads != null) {
+                this.retirementThreads.add(Thread.currentThread().getName());
+            }
             this.shutdown = true;
             if (this.activeCallsFinished == null) {
                 this.terminated = true;
@@ -906,6 +1243,9 @@ public class AbstractGrpcClientTest {
 
         @Override
         public ManagedChannel shutdownNow() {
+            if (this.retirementThreads != null) {
+                this.retirementThreads.add(Thread.currentThread().getName());
+            }
             this.shutdown = true;
             this.forceShutdown = true;
             this.terminated = true;

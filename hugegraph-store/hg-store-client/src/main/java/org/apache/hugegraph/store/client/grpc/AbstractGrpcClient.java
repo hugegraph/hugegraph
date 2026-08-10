@@ -51,7 +51,9 @@ public abstract class AbstractGrpcClient {
 
     protected static Map<String, ManagedChannel[]> channels = new ConcurrentHashMap<>();
     private static final Map<String, String> resolvedTargets = new ConcurrentHashMap<>();
-    private static final Map<String, AtomicLong> nextResolutions = new ConcurrentHashMap<>();
+    // A null deadline is the explicit "never scheduled" state; every long is a valid clock value.
+    private static final Map<String, AtomicReference<Long>> nextResolutions =
+            new ConcurrentHashMap<>();
     private static final Map<String, CompletableFuture<Void>> refreshTasks =
             new ConcurrentHashMap<>();
     /*
@@ -62,6 +64,9 @@ public abstract class AbstractGrpcClient {
     private static final ScheduledThreadPoolExecutor CHANNEL_MAINTENANCE_EXECUTOR =
             new ScheduledThreadPoolExecutor(
                     2, ExecutorPool.newThreadFactory("channel-maintenance"));
+    private static final ScheduledThreadPoolExecutor CHANNEL_RETIREMENT_EXECUTOR =
+            new ScheduledThreadPoolExecutor(
+                    1, ExecutorPool.newThreadFactory("channel-retirement"));
     private static final long DEFAULT_CHANNEL_REFRESH_INTERVAL_NANOS =
             TimeUnit.SECONDS.toNanos(5L);
     private static final long DEFAULT_INITIAL_RESOLUTION_TIMEOUT_NANOS =
@@ -69,14 +74,20 @@ public abstract class AbstractGrpcClient {
     private static final String DNS_SCHEME = "dns:";
 
     static {
+        prestartExecutor(CHANNEL_MAINTENANCE_EXECUTOR, "channel maintenance");
+        prestartExecutor(CHANNEL_RETIREMENT_EXECUTOR, "channel retirement");
+    }
+
+    private static void prestartExecutor(ScheduledThreadPoolExecutor executor,
+                                         String executorName) {
         try {
-            // Create the maintenance threads eagerly, so no request thread ever creates one.
-            CHANNEL_MAINTENANCE_EXECUTOR.prestartAllCoreThreads();
+            // Create maintenance threads eagerly, so no request thread ever creates one.
+            executor.prestartAllCoreThreads();
         } catch (Throwable e) {
             // A denied prestart must not leave this class permanently uninitializable, but a
             // request thread has to create the thread instead, where it may be denied again.
-            log.warn("Failed to start the channel maintenance threads eagerly, " +
-                     "channel refresh may be delayed until a permitted thread submits one", e);
+            log.warn("Failed to start the {} threads eagerly; work may be delayed until a " +
+                     "permitted thread submits it", executorName, e);
         }
     }
 
@@ -99,7 +110,7 @@ public abstract class AbstractGrpcClient {
 
     }
 
-    protected ManagedChannel[] getChannels(String target) {
+    public ManagedChannel[] getChannels(String target) {
         CompletableFuture<Void> refresh = this.triggerChannelRefresh(target);
         ManagedChannel[] tc = channels.get(target);
         if (tc != null) {
@@ -154,18 +165,20 @@ public abstract class AbstractGrpcClient {
                             ManagedChannel channel = targetChannels[i];
                             value[i] = new HgPair<>(channel, stubFactory.apply(channel));
                         });
+                        S configuredStub = stubOption.apply(value[index].getValue());
                         if (channels.get(target) != targetChannels) {
                             continue;
                         }
                         stubCache.put(target, value);
-                        return stubOption.apply(value[index].getValue());
+                        return configuredStub;
                     }
                 }
             }
+            S configuredStub = stubOption.apply(pairs[index].getValue());
             if (channels.get(target) != targetChannels) {
                 continue;
             }
-            return stubOption.apply(pairs[index].getValue());
+            return configuredStub;
         }
     }
 
@@ -266,7 +279,7 @@ public abstract class AbstractGrpcClient {
         refresh.complete(null);
     }
 
-    private void submitChannelRefresh(Runnable task) {
+    void submitChannelRefresh(Runnable task) {
         CHANNEL_MAINTENANCE_EXECUTOR.execute(task);
     }
 
@@ -337,15 +350,20 @@ public abstract class AbstractGrpcClient {
     }
 
     private boolean shouldRefreshChannels(String target) {
-        AtomicLong nextResolution = nextResolutions.computeIfAbsent(target,
-                                                                    key -> new AtomicLong());
-        return System.nanoTime() - nextResolution.get() >= 0L;
+        AtomicReference<Long> nextResolution =
+                nextResolutions.computeIfAbsent(target, key -> new AtomicReference<>());
+        Long deadline = nextResolution.get();
+        return deadline == null || this.nanoTime() - deadline >= 0L;
     }
 
     private void postponeNextRefresh(String target) {
         long interval = Math.max(0L, this.channelRefreshIntervalNanos());
-        nextResolutions.computeIfAbsent(target, key -> new AtomicLong())
-                       .set(System.nanoTime() + interval);
+        nextResolutions.computeIfAbsent(target, key -> new AtomicReference<>())
+                       .set(this.nanoTime() + interval);
+    }
+
+    protected long nanoTime() {
+        return System.nanoTime();
     }
 
     protected long channelRefreshIntervalNanos() {
@@ -366,15 +384,20 @@ public abstract class AbstractGrpcClient {
         AtomicReference<RuntimeException> failure = new AtomicReference<>();
         for (int i = 0; i < concurrency; i++) {
             int fi = i;
-            executor.execute(() -> {
-                try {
-                    value[fi] = createChannel(target);
-                } catch (Exception e) {
-                    failure.compareAndSet(null, new RuntimeException(e));
-                } finally {
-                    latch.countDown();
-                }
-            });
+            try {
+                this.submitChannelCreation(() -> {
+                    try {
+                        value[fi] = createChannel(target);
+                    } catch (Exception e) {
+                        failure.compareAndSet(null, new RuntimeException(e));
+                    } finally {
+                        latch.countDown();
+                    }
+                });
+            } catch (RuntimeException e) {
+                failure.compareAndSet(null, e);
+                latch.countDown();
+            }
         }
 
         InterruptedException interruption = null;
@@ -399,15 +422,26 @@ public abstract class AbstractGrpcClient {
         return value;
     }
 
+    void submitChannelCreation(Runnable task) {
+        this.executor.execute(task);
+    }
+
     private void retireChannels(ManagedChannel[] retiredChannels) {
         Arrays.stream(retiredChannels)
               .filter(channel -> channel != null && !channel.isShutdown())
               .forEach(ManagedChannel::shutdown);
 
         long timeout = Math.max(0L, this.channelDrainTimeoutNanos());
-        CHANNEL_MAINTENANCE_EXECUTOR.schedule(
-                () -> forceTerminateChannels(retiredChannels), timeout,
-                TimeUnit.NANOSECONDS);
+        try {
+            this.scheduleChannelRetirement(() -> forceTerminateChannels(retiredChannels), timeout);
+        } catch (RuntimeException e) {
+            log.warn("Failed to schedule forced retirement, forcing channels immediately", e);
+            forceTerminateChannels(retiredChannels);
+        }
+    }
+
+    void scheduleChannelRetirement(Runnable task, long timeoutNanos) {
+        CHANNEL_RETIREMENT_EXECUTOR.schedule(task, timeoutNanos, TimeUnit.NANOSECONDS);
     }
 
     private void forceTerminateChannels(ManagedChannel[] retiredChannels) {
