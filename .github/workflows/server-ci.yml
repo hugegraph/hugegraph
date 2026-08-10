@@ -171,8 +171,10 @@ jobs:
             fi
 
             # The add-on alone must define Hubble and nothing else, join the
-            # shared external network, and need no credentials.
+            # shared external network with its default name, and need no
+            # credentials or overrides.
             env -u HUGEGRAPH_ADMIN_PASSWORD -u HUGEGRAPH_AUTH_TOKEN_SECRET \
+                -u HUGEGRAPH_NETWORK -u HUGEGRAPH_VERSION \
               docker compose -f "$addon" config --format json > "$rendered"
             jq -e '
                 (.services | keys) == ["hubble"] and
@@ -186,15 +188,24 @@ jobs:
 
             # The combined render carries the PD-registration and auth
             # settings on every server replica and keeps Hubble on loopback.
+            # Rendered with non-default HUGEGRAPH_NETWORK/HUGEGRAPH_VERSION so
+            # CI fails if any file stops honoring the overrides (the add-on
+            # render above covers the defaults).
             HUGEGRAPH_ADMIN_PASSWORD=ci-test-password \
             HUGEGRAPH_AUTH_TOKEN_SECRET=ci-test-secret \
+            HUGEGRAPH_NETWORK=ci-test-net \
+            HUGEGRAPH_VERSION=ci-test-tag \
               docker compose -f "$cluster" -f "$addon" \
                 config --format json > "$rendered"
             jq -e '
                 .name == "hugegraph-3x3" and
                 (.services | keys | length) == 10 and
                 .networks."hg-net".external == true and
-                .networks."hg-net".name == "hugegraph-net" and
+                .networks."hg-net".name == "ci-test-net" and
+                .services.pd0.image == "hugegraph/pd:ci-test-tag" and
+                .services.store0.image == "hugegraph/store:ci-test-tag" and
+                .services.server0.image == "hugegraph/server:ci-test-tag" and
+                .services.hubble.image == "hugegraph/hubble:ci-test-tag" and
                 .services.server0.environment.HG_SERVER_USE_PD == "true" and
                 .services.server0.environment.HG_SERVER_CLUSTER == "hg" and
                 .services.server0.environment.HG_SERVER_REST_URL ==
