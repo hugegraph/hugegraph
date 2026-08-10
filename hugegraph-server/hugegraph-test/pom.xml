@@ -30,7 +30,6 @@
 
     <properties>
         <skip.dump>true</skip.dump>
-        <surefire.failIfNoSpecifiedTests>true</surefire.failIfNoSpecifiedTests>
     </properties>
 
     <dependencies>
@@ -118,7 +117,7 @@
                 <configuration>
                     <argLine>
                         @{argLine}
-                        @${project.basedir}/../hugegraph-dist/src/assembly/static/conf/jvm-module.options
+                        @${project.basedir}/../hugegraph-dist/src/assembly/static/bin/jvm-module.options
                         @${project.basedir}/conf/jvm-test-module.options
                     </argLine>
                 </configuration>
@@ -126,6 +125,7 @@
                     <execution>
                         <id>core-test</id>
                         <configuration>
+                            <failIfNoSpecifiedTests>true</failIfNoSpecifiedTests>
                             <testSourceDirectory>${basedir}/src/main/java/
                             </testSourceDirectory>
                             <testClassesDirectory>${basedir}/target/classes/
@@ -138,6 +138,7 @@
                     <execution>
                         <id>unit-test</id>
                         <configuration>
+                            <failIfNoSpecifiedTests>true</failIfNoSpecifiedTests>
                             <testSourceDirectory>${basedir}/src/main/java/
                             </testSourceDirectory>
                             <testClassesDirectory>${basedir}/target/classes/
@@ -150,6 +151,7 @@
                     <execution>
                         <id>api-test</id>
                         <configuration>
+                            <failIfNoSpecifiedTests>true</failIfNoSpecifiedTests>
                             <!-- FIXME: HStore core guards and capability failures are tracked in
                                  https://github.com/apache/hugegraph/issues/3090.
                                  Keep backend scoped to API tests until the issue is resolved. -->
@@ -168,6 +170,7 @@
                     <execution>
                         <id>tinkerpop-structure-test</id>
                         <configuration>
+                            <failIfNoSpecifiedTests>true</failIfNoSpecifiedTests>
                             <testSourceDirectory>${basedir}/src/main/java/
                             </testSourceDirectory>
                             <testClassesDirectory>${basedir}/target/classes/
@@ -180,10 +183,11 @@
                     <execution>
                         <id>tinkerpop-process-test</id>
                         <configuration>
+                            <failIfNoSpecifiedTests>true</failIfNoSpecifiedTests>
                             <!-- TinkerPop process ReadTest.Traversals.class need write/read disk -->
                             <argLine>
                                 @{argLine}
-                                @${project.basedir}/../hugegraph-dist/src/assembly/static/conf/jvm-module.options
+                                @${project.basedir}/../hugegraph-dist/src/assembly/static/bin/jvm-module.options
                                 @${project.basedir}/conf/jvm-test-module.options
                                 -Dbuild.dir=${project.build.directory}
                             </argLine>

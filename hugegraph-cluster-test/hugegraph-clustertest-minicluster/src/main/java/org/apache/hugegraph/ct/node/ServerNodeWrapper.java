@@ -17,6 +17,7 @@
 
 package org.apache.hugegraph.ct.node;
 
+import static org.apache.hugegraph.ct.base.ClusterConstant.BIN_DIR;
 import static org.apache.hugegraph.ct.base.ClusterConstant.CONF_DIR;
 import static org.apache.hugegraph.ct.base.ClusterConstant.EMPTY_SAMPLE_GROOVY_FILE;
 import static org.apache.hugegraph.ct.base.ClusterConstant.EXAMPLE_GROOVY_FILE;
@@ -72,7 +73,6 @@ public class ServerNodeWrapper extends AbstractNodeWrapper {
         this.gremlinPort = gremlinPort;
         this.fileNames = new ArrayList<>(
                 List.of(LOG4J_FILE, GREMLIN_SERVER_FILE, GREMLIN_DRIVER_SETTING_FILE,
-                        JVM_MODULE_OPTIONS_FILE,
                         REMOTE_SETTING_FILE, REMOTE_OBJECTS_SETTING_FILE));
         this.workPath = SERVER_LIB_PATH;
         createNodeDir(Paths.get(SERVER_TEMPLATE_PATH), getNodePath() + CONF_DIR + File.separator);
@@ -149,7 +149,8 @@ public class ServerNodeWrapper extends AbstractNodeWrapper {
 
             startCmd.addAll(Arrays.asList(
                     "-Dname=HugeGraphServer" + this.index,
-                    "@" + Paths.get(getNodePath(), CONF_DIR, JVM_MODULE_OPTIONS_FILE),
+                    "@" + Paths.get(SERVER_PACKAGE_PATH, BIN_DIR,
+                                    JVM_MODULE_OPTIONS_FILE),
                     "-cp", storeClassPath,
                     "org.apache.hugegraph.dist.HugeGraphServer",
                     "./conf/gremlin-server.yaml",

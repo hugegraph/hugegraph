@@ -31,7 +31,6 @@
 
     <properties>
         <skip.dump>true</skip.dump>
-        <surefire.failIfNoSpecifiedTests>true</surefire.failIfNoSpecifiedTests>
         <!--maven.test.skip>true</maven.test.skip-->
         <powermock.version>2.0.0-RC.3</powermock.version>
     </properties>
@@ -201,6 +200,7 @@
                     <execution>
                         <id>pd-client-test</id>
                         <configuration>
+                            <failIfNoSpecifiedTests>true</failIfNoSpecifiedTests>
                             <testSourceDirectory>${basedir}/src/main/java/
                             </testSourceDirectory>
                             <testClassesDirectory>${basedir}/target/classes/
@@ -213,6 +213,7 @@
                     <execution>
                         <id>pd-core-test</id>
                         <configuration>
+                            <failIfNoSpecifiedTests>true</failIfNoSpecifiedTests>
                             <testSourceDirectory>${basedir}/src/main/java/
                             </testSourceDirectory>
                             <testClassesDirectory>${basedir}/target/classes/
@@ -225,6 +226,7 @@
                     <execution>
                         <id>pd-common-test</id>
                         <configuration>
+                            <failIfNoSpecifiedTests>true</failIfNoSpecifiedTests>
                             <testSourceDirectory>${basedir}/src/main/java/
                             </testSourceDirectory>
                             <testClassesDirectory>${basedir}/target/classes/
@@ -237,6 +239,7 @@
                     <execution>
                         <id>pd-rest-test</id>
                         <configuration>
+                            <failIfNoSpecifiedTests>true</failIfNoSpecifiedTests>
                             <testSourceDirectory>${basedir}/src/main/java/
                             </testSourceDirectory>
                             <testClassesDirectory>${basedir}/target/classes/

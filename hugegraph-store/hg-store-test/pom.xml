@@ -30,7 +30,6 @@
     <artifactId>hg-store-test</artifactId>
 
     <properties>
-        <surefire.failIfNoSpecifiedTests>true</surefire.failIfNoSpecifiedTests>
         <!--maven.test.skip>true</maven.test.skip-->
     </properties>
 
@@ -217,6 +216,7 @@
                     <execution>
                         <id>store-client-test</id>
                         <configuration>
+                            <failIfNoSpecifiedTests>true</failIfNoSpecifiedTests>
                             <testSourceDirectory>${basedir}/src/main/java/
                             </testSourceDirectory>
                             <testClassesDirectory>${basedir}/target/classes/
@@ -229,6 +229,7 @@
                     <execution>
                         <id>store-core-test</id>
                         <configuration>
+                            <failIfNoSpecifiedTests>true</failIfNoSpecifiedTests>
                             <testSourceDirectory>${basedir}/src/main/java/
                             </testSourceDirectory>
                             <testClassesDirectory>${basedir}/target/classes/
@@ -243,6 +244,7 @@
                     <execution>
                         <id>store-common-test</id>
                         <configuration>
+                            <failIfNoSpecifiedTests>true</failIfNoSpecifiedTests>
                             <testSourceDirectory>${basedir}/src/main/java/
                             </testSourceDirectory>
                             <testClassesDirectory>${basedir}/target/classes/
@@ -255,6 +257,7 @@
                     <execution>
                         <id>store-rocksdb-test</id>
                         <configuration>
+                            <failIfNoSpecifiedTests>true</failIfNoSpecifiedTests>
                             <testSourceDirectory>${basedir}/src/main/java/
                             </testSourceDirectory>
                             <testClassesDirectory>${basedir}/target/classes/
@@ -267,6 +270,7 @@
                     <execution>
                         <id>store-server-test</id>
                         <configuration>
+                            <failIfNoSpecifiedTests>true</failIfNoSpecifiedTests>
                             <testSourceDirectory>${basedir}/src/main/java/
                             </testSourceDirectory>
                             <testClassesDirectory>${basedir}/target/classes/
@@ -282,6 +286,7 @@
                     <execution>
                         <id>store-raftcore-test</id>
                         <configuration>
+                            <failIfNoSpecifiedTests>true</failIfNoSpecifiedTests>
                             <testSourceDirectory>${basedir}/src/main/java/
                             </testSourceDirectory>
                             <testClassesDirectory>${basedir}/target/classes/

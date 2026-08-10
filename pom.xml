@@ -95,9 +95,9 @@
         <maven.compiler.release>17</maven.compiler.release>
         <maven.compiler.plugin.version>3.15.0</maven.compiler.plugin.version>
         <maven.surefire.plugin.version>3.5.6</maven.surefire.plugin.version>
-        <!-- -Dtest also reaches upstream modules selected by -am. Leaf test
-             modules override this, while selected reactor tests verify their
-             expected Surefire reports. -->
+        <!-- -Dtest also reaches upstream modules selected by -am. Named leaf
+             test executions override this, while selected reactor tests verify
+             their expected Surefire reports. -->
         <surefire.failIfNoSpecifiedTests>false</surefire.failIfNoSpecifiedTests>
         <jacoco.maven.plugin.version>0.8.15</jacoco.maven.plugin.version>
         <maven.enforcer.plugin.version>3.6.2</maven.enforcer.plugin.version>

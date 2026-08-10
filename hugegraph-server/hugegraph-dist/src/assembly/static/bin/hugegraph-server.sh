@@ -68,7 +68,7 @@ MIN_JAVA_VERSION=17
 # is a fatal VM initialization error there and System.setSecurityManager() always
 # throws, so HugeSecurityManager cannot be installed on newer runtimes.
 MAX_SECURITY_JAVA_VERSION=23
-JVM_MODULE_OPTIONS="${CONF}/jvm-module.options"
+JVM_MODULE_OPTIONS="${BIN}/jvm-module.options"
 
 # Add the slf4j-log4j12 binding
 CP=$(find -L $LIB -name 'log4j-slf4j-impl*.jar' | sort | tr '\n' ':')

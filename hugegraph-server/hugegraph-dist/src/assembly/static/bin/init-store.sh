@@ -30,7 +30,7 @@ TOP="$(cd "${BIN}"/../ && pwd)"
 CONF="$TOP/conf"
 LIB="$TOP/lib"
 PLUGINS="$TOP/plugins"
-JVM_MODULE_OPTIONS="${CONF}/jvm-module.options"
+JVM_MODULE_OPTIONS="${BIN}/jvm-module.options"
 
 . "${BIN}"/util.sh
 

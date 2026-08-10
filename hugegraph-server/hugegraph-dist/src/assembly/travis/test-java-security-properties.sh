@@ -23,7 +23,7 @@ SERVER_ROOT=$(cd "$SERVER_ROOT_INPUT" && pwd)
 SERVER_SCRIPT="${SERVER_ROOT}/bin/hugegraph-server.sh"
 CONF="${SERVER_ROOT}/conf"
 SECURITY_PROPERTIES="${CONF}/java-security.properties"
-JVM_MODULE_OPTIONS="${CONF}/jvm-module.options"
+JVM_MODULE_OPTIONS="${SERVER_ROOT}/bin/jvm-module.options"
 
 fail() {
     echo "FAIL: $1" >&2
@@ -146,11 +146,17 @@ if [[ -n "$SOURCE_ROOT_INPUT" ]]; then
     HSTORE_DOCKERFILE="${SOURCE_ROOT}/hugegraph-server/Dockerfile-hstore"
     SERVER_WORKFLOW="${SOURCE_ROOT}/.github/workflows/server-ci.yml"
     DOCKER_WORKFLOW="${SOURCE_ROOT}/.github/workflows/docker-build-ci.yml"
+    UPGRADE_CONTRACT_SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/"\
+"test-java17-upgrade-contracts.sh"
+
+    [[ -x "$UPGRADE_CONTRACT_SCRIPT" ]] || \
+        fail "Java 17 upgrade contract script is missing: $UPGRADE_CONTRACT_SCRIPT"
+    "$UPGRADE_CONTRACT_SCRIPT" "$SERVER_ROOT" "$SOURCE_ROOT"
 
     assert_source_consumer "$SERVER_LAUNCHER_SOURCE" '@"${JVM_MODULE_OPTIONS}"'
     assert_source_consumer "$INIT_STORE_SOURCE" '@"${JVM_MODULE_OPTIONS}"'
     assert_surefire_arg_lines "$SUREFIRE_POM" \
-        '@${project.basedir}/../hugegraph-dist/src/assembly/static/conf/jvm-module.options'
+        '@${project.basedir}/../hugegraph-dist/src/assembly/static/bin/jvm-module.options'
     [[ -f "$TEST_JVM_MODULE_OPTIONS" ]] || \
         fail "JVM test module options file is missing: $TEST_JVM_MODULE_OPTIONS"
     assert_argument \
@@ -163,7 +169,7 @@ if [[ -n "$SOURCE_ROOT_INPUT" ]]; then
     assert_surefire_arg_lines "$COMMONS_POM" \
         '@${project.parent.basedir}/../hugegraph-server/hugegraph-test/conf/jvm-test-module.options'
     assert_source_consumer "$CLUSTER_WRAPPER" \
-        '"@" + Paths.get(getNodePath(), CONF_DIR, JVM_MODULE_OPTIONS_FILE)'
+        '"@" + Paths.get(SERVER_PACKAGE_PATH, BIN_DIR,'
     assert_no_inline_module_options \
         "$SERVER_LAUNCHER_SOURCE" "$INIT_STORE_SOURCE" "$SUREFIRE_POM" \
         "$COMMONS_POM" "$CLUSTER_WRAPPER" "$SERVER_DOCKERFILE" \

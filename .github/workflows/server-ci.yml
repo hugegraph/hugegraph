@@ -168,6 +168,32 @@ jobs:
           $TRAVIS_DIR/test-java-security-properties.sh \
             "$SERVER_DIR" "$GITHUB_WORKSPACE"
 
+      - name: Verify Surefire single-class routing
+        if: ${{ env.BACKEND == 'rocksdb' }}
+        run: |
+          SUREFIRE_DIR=hugegraph-server/hugegraph-test/target/surefire-reports
+          REPORT="$SUREFIRE_DIR/TEST-org.apache.hugegraph.unit.auth.HugeGraphAuthProxyTest.xml"
+          rm -f "$REPORT"
+          mvn test -pl hugegraph-server/hugegraph-test -am \
+            -P unit-test -Dtest=HugeGraphAuthProxyTest -ntp
+          test -s "$REPORT" || {
+            echo "::error::Server single-class test produced no report"
+            exit 1
+          }
+          NEGATIVE_LOG=$(mktemp)
+          trap 'rm -f "$NEGATIVE_LOG"' EXIT
+          if mvn test -pl hugegraph-server/hugegraph-test -am \
+            -P unit-test -Dtest=NoSuchJava17ContractTest -ntp \
+            >"$NEGATIVE_LOG" 2>&1; then
+            cat "$NEGATIVE_LOG"
+            echo "::error::Surefire accepted a missing Server test class"
+            exit 1
+          fi
+          cat "$NEGATIVE_LOG"
+          grep -Fq 'No tests matching pattern "NoSuchJava17ContractTest"' \
+            "$NEGATIVE_LOG"
+          grep -Fq '(unit-test) @ hugegraph-test' "$NEGATIVE_LOG"
+
       - name: Check startup test prerequisites
         id: server-preflight
         if: ${{ env.BACKEND == 'rocksdb' }}
