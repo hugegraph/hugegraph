@@ -23,6 +23,7 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 import java.lang.reflect.Field;
 import java.net.InetAddress;
@@ -608,7 +609,7 @@ public class AbstractGrpcClientTest {
 
         try {
             client.getChannels(target);
-            assertTrue("channel creation must propagate the injected failure", false);
+            fail("channel creation must propagate the injected failure");
         } catch (RuntimeException ignored) {
             // Expected.
         }
@@ -860,6 +861,45 @@ public class AbstractGrpcClientTest {
     }
 
     @Test
+    public void testInjectedQueryV2ChannelBypassesRefreshRetirement() throws Exception {
+        String target = uniqueTarget("query-v2-injected-channel");
+        FakeManagedChannel injected = new FakeManagedChannel(target);
+        InjectedChannelQueryV2Client client = new InjectedChannelQueryV2Client();
+        QueryV2Client.setTestChannel(injected);
+
+        try {
+            QueryServiceGrpc.QueryServiceStub stub = client.getQueryServiceStub(target);
+            assertSame("the QueryV2 stub must use the injected channel", injected,
+                       stub.getChannel());
+
+            /*
+             * Without the injected-channel resolution guard, the delayed resolution lands after
+             * the first pool is published, rebuilds that pool with the same injected channel,
+             * and retires the channel that the replacement still references.
+             */
+            client.releaseResolution.countDown();
+            awaitCondition("the injected-channel refresh must settle",
+                           () -> refreshIsIdle(client, target));
+            assertFalse("refresh must not retire an injected channel", injected.isShutdown());
+            assertSame("the cached stub must retain the live injected channel", injected,
+                       client.getQueryServiceStub(target).getChannel());
+        } finally {
+            client.releaseResolution.countDown();
+            QueryV2Client.setTestChannel(null);
+        }
+    }
+
+    @Test
+    public void testQueryV2WithoutInjectedChannelUsesDnsResolution() {
+        QueryV2Client.setTestChannel(null);
+        ResolvingQueryV2Client client = new ResolvingQueryV2Client();
+
+        assertEquals("10.0.0.1,10.0.0.2",
+                     client.resolve("store.example.com:8500"));
+        assertEquals("store.example.com", client.capturedHost);
+    }
+
+    @Test
     public void testResolveTargetSupportsDnsUriAndBracketedIpv6Targets() {
         HostCapturingGrpcClient client = new HostCapturingGrpcClient();
         assertEquals("10.0.0.1", client.resolveTarget("store.example.com:8500"));
@@ -877,6 +917,15 @@ public class AbstractGrpcClientTest {
 
         assertEquals("10.0.0.1", client.resolveTarget("[2001:db8::1]:8500"));
         assertEquals("2001:db8::1", client.capturedHost);
+    }
+
+    @Test
+    public void testResolveTargetSortsAndDeduplicatesAddressSet() {
+        HostCapturingGrpcClient client = new HostCapturingGrpcClient();
+        client.resolvedAddresses = new String[]{"10.0.0.2", "10.0.0.1", "10.0.0.2"};
+
+        assertEquals("10.0.0.1,10.0.0.2",
+                     client.resolveTarget("store.example.com:8500"));
     }
 
     @Test
@@ -1019,8 +1068,6 @@ public class AbstractGrpcClientTest {
         private final AtomicInteger attempt = new AtomicInteger();
         private final CountDownLatch creationStarted =
                 new CountDownLatch(AbstractGrpcClient.concurrency);
-        private final List<ManagedChannel> createdChannels =
-                Collections.synchronizedList(new ArrayList<>());
         /** Negative never fails. */
         private volatile int failedAttempt = -1;
         /** Null creates channels without delay. */
@@ -1109,6 +1156,40 @@ public class AbstractGrpcClientTest {
         }
     }
 
+    private static class InjectedChannelQueryV2Client extends QueryV2Client {
+
+        private final CountDownLatch releaseResolution = new CountDownLatch(1);
+
+        @Override
+        protected InetAddress[] resolveHost(String host) throws UnknownHostException {
+            try {
+                assertTrue("the injected-channel resolution must be released",
+                           this.releaseResolution.await(5, TimeUnit.SECONDS));
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new AssertionError(e);
+            }
+            return new InetAddress[]{InetAddress.getByName("10.0.0.1")};
+        }
+    }
+
+    private static class ResolvingQueryV2Client extends QueryV2Client {
+
+        private volatile String capturedHost;
+
+        private String resolve(String target) {
+            return super.resolveTarget(target);
+        }
+
+        @Override
+        protected InetAddress[] resolveHost(String host) throws UnknownHostException {
+            this.capturedHost = host;
+            return new InetAddress[]{InetAddress.getByName("10.0.0.2"),
+                                     InetAddress.getByName("10.0.0.1"),
+                                     InetAddress.getByName("10.0.0.2")};
+        }
+    }
+
     /**
      * Resolves through the inherited implementation, optionally reproducing the security check
      * that InetAddress.getAllByName() performs on whichever thread resolution runs on.
@@ -1118,6 +1199,7 @@ public class AbstractGrpcClientTest {
         private final AtomicInteger hostResolutionCount = new AtomicInteger();
         private volatile String capturedHost;
         private volatile String resolvedAddress = "10.0.0.1";
+        private volatile String[] resolvedAddresses;
         private volatile boolean checkSocketPermission;
 
         HostCapturingGrpcClient() {
@@ -1132,7 +1214,15 @@ public class AbstractGrpcClientTest {
             }
             this.hostResolutionCount.incrementAndGet();
             this.capturedHost = host;
-            return new InetAddress[]{InetAddress.getByName(this.resolvedAddress)};
+            String[] addresses = this.resolvedAddresses;
+            if (addresses == null) {
+                return new InetAddress[]{InetAddress.getByName(this.resolvedAddress)};
+            }
+            InetAddress[] resolved = new InetAddress[addresses.length];
+            for (int i = 0; i < addresses.length; i++) {
+                resolved[i] = InetAddress.getByName(addresses[i]);
+            }
+            return resolved;
         }
     }
 
@@ -1141,8 +1231,8 @@ public class AbstractGrpcClientTest {
      * stack: the two checks this fix is about, opening sockets and creating threads. Everything
      * else stays permitted so the test JVM keeps working, including restoring the previous
      * manager. Keys on the thread name alone, where HugeSecurityManager also requires a Gremlin
-     * script engine frame on the stack. Relies on System.setSecurityManager, which is a no-op
-     * from JDK 18 and removed in JDK 24; this module builds and runs on Java 11.
+     * script engine frame on the stack. Relies on System.setSecurityManager, whose dynamic use is
+     * restricted from JDK 18 and permanently disabled from JDK 24; this test runs on Java 11.
      */
     private static class DenyingWorkerSecurityManager extends SecurityManager {
 

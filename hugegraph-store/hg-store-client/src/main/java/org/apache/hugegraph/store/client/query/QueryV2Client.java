@@ -53,6 +53,12 @@ public class QueryV2Client extends AbstractGrpcClient {
     }
 
     @Override
+    protected String resolveTarget(String target) {
+        // A directly injected test channel has no DNS lifecycle to refresh.
+        return channel == null ? super.resolveTarget(target) : "";
+    }
+
+    @Override
     protected ManagedChannel createChannel(String target) {
         return channel == null ? ManagedChannelBuilder.forTarget(target).usePlaintext().build() :
                channel;

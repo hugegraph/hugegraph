@@ -511,6 +511,7 @@ public abstract class AbstractGrpcClient {
         try {
             return Arrays.stream(this.resolveHost(host))
                          .map(InetAddress::getHostAddress)
+                         .distinct()
                          .sorted()
                          .collect(Collectors.joining(","));
         } catch (UnknownHostException ignored) {
