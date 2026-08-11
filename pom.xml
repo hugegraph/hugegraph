@@ -92,8 +92,16 @@
         <snakeyaml.version>1.28</snakeyaml.version>
         <lombok.version>1.18.30</lombok.version>
         <release.name>hugegraph</release.name>
-        <maven.compiler.source>11</maven.compiler.source>
-        <maven.compiler.target>11</maven.compiler.target>
+        <maven.compiler.release>17</maven.compiler.release>
+        <maven.compiler.plugin.version>3.15.0</maven.compiler.plugin.version>
+        <maven.surefire.plugin.version>3.5.6</maven.surefire.plugin.version>
+        <!-- -Dtest also reaches upstream modules selected by -am. Named leaf
+             test executions override this, while selected reactor tests verify
+             their expected Surefire reports. -->
+        <surefire.failIfNoSpecifiedTests>false</surefire.failIfNoSpecifiedTests>
+        <jacoco.maven.plugin.version>0.8.15</jacoco.maven.plugin.version>
+        <maven.enforcer.plugin.version>3.6.2</maven.enforcer.plugin.version>
+        <argLine />
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <shell-executable>bash</shell-executable>
         <toolchain.vision>1.5.0</toolchain.vision>
@@ -239,35 +247,13 @@
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-enforcer-plugin</artifactId>
-                    <executions>
-                        <execution>
-                            <id>enforce-version</id>
-                            <goals>
-                                <goal>enforce</goal>
-                            </goals>
-                            <!-- no need to execute in child POMs -->
-                            <inherited>false</inherited>
-                            <configuration>
-                                <rules>
-                                    <!-- TODO: uncomment for checking dependency conflicts -->
-                                    <!-- <DependencyConvergence/> -->
-                                    <requireJavaVersion>
-                                        <version>[11,)</version>
-                                    </requireJavaVersion>
-                                    <requireMavenVersion>
-                                        <version>[3.5.0,)</version>
-                                    </requireMavenVersion>
-                                </rules>
-                            </configuration>
-                        </execution>
-                    </executions>
+                    <version>${maven.enforcer.plugin.version}</version>
                 </plugin>
                 <plugin>
                     <artifactId>maven-compiler-plugin</artifactId>
-                    <version>3.1</version>
+                    <version>${maven.compiler.plugin.version}</version>
                     <configuration>
-                        <source>${maven.compiler.source}</source>
-                        <target>${maven.compiler.target}</target>
+                        <release>${maven.compiler.release}</release>
                         <compilerArguments>
                             <Xmaxerrs>500</Xmaxerrs>
                         </compilerArguments>
@@ -275,6 +261,21 @@
                             <arg>-Xlint:unchecked</arg>
                         </compilerArgs>
                     </configuration>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-surefire-plugin</artifactId>
+                    <version>${maven.surefire.plugin.version}</version>
+                    <configuration>
+                        <failIfNoSpecifiedTests>
+                            ${surefire.failIfNoSpecifiedTests}
+                        </failIfNoSpecifiedTests>
+                    </configuration>
+                </plugin>
+                <plugin>
+                    <groupId>org.jacoco</groupId>
+                    <artifactId>jacoco-maven-plugin</artifactId>
+                    <version>${jacoco.maven.plugin.version}</version>
                 </plugin>
                 <plugin>
                     <artifactId>maven-remote-resources-plugin</artifactId>
@@ -288,6 +289,30 @@
         </pluginManagement>
 
         <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-enforcer-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>enforce-version</id>
+                        <goals>
+                            <goal>enforce</goal>
+                        </goals>
+                        <configuration>
+                            <rules>
+                                <!-- TODO: uncomment for checking dependency conflicts -->
+                                <!-- <DependencyConvergence/> -->
+                                <requireJavaVersion>
+                                    <version>[17,)</version>
+                                </requireJavaVersion>
+                                <requireMavenVersion>
+                                    <version>[3.6.3,)</version>
+                                </requireMavenVersion>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
             <plugin>
                 <groupId>org.apache.rat</groupId>
                 <artifactId>apache-rat-plugin</artifactId>

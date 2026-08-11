@@ -22,6 +22,9 @@ jobs:
       - name: Run wait-storage.sh peer failover tests
         run: hugegraph-server/hugegraph-dist/src/assembly/travis/test-wait-storage.sh
 
+      - name: Run RISC-V Java runtime contract tests
+        run: hugegraph-server/hugegraph-dist/src/assembly/travis/test-riscv64-java-runtime.sh
+
   build-server:
     # TODO: we need test & replace it to ubuntu-24.04 or ubuntu-latest
     runs-on: ubuntu-22.04
@@ -41,7 +44,9 @@ jobs:
           startsWith(github.head_ref, 'release-') ||
           startsWith(github.head_ref, 'test-') ||
           github.base_ref == 'task/tinkerpop-3.7-upgrade' ||
-          github.head_ref == 'task/tinkerpop-3.7-upgrade'
+          github.head_ref == 'task/tinkerpop-3.7-upgrade' ||
+          github.base_ref == 'task/gsoc-phase2-java17' ||
+          github.head_ref == 'task/gsoc-phase2-java17'
         }}
       RAFT_MODE: ${{ startsWith(github.ref_name, 'raft-') || startsWith(github.head_ref, 'raft-') }}
 
@@ -49,7 +54,7 @@ jobs:
       fail-fast: false
       matrix:
         BACKEND: [ memory, rocksdb, hbase ]
-        JAVA_VERSION: [ '11' ]
+        JAVA_VERSION: [ '17' ]
 
     steps:
       - name: Checkout
@@ -160,7 +165,34 @@ jobs:
           mvn package -Dmaven.test.skip=true -pl hugegraph-server/hugegraph-dist -am -ntp
           VERSION=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)
           SERVER_DIR=hugegraph-server/apache-hugegraph-server-$VERSION/
-          $TRAVIS_DIR/test-java-security-properties.sh $SERVER_DIR
+          $TRAVIS_DIR/test-java-security-properties.sh \
+            "$SERVER_DIR" "$GITHUB_WORKSPACE"
+
+      - name: Verify Surefire single-class routing
+        if: ${{ env.BACKEND == 'rocksdb' }}
+        run: |
+          SUREFIRE_DIR=hugegraph-server/hugegraph-test/target/surefire-reports
+          REPORT="$SUREFIRE_DIR/TEST-org.apache.hugegraph.unit.auth.HugeGraphAuthProxyTest.xml"
+          rm -f "$REPORT"
+          mvn test -pl hugegraph-server/hugegraph-test -am \
+            -P unit-test -Dtest=HugeGraphAuthProxyTest -ntp
+          test -s "$REPORT" || {
+            echo "::error::Server single-class test produced no report"
+            exit 1
+          }
+          NEGATIVE_LOG=$(mktemp)
+          trap 'rm -f "$NEGATIVE_LOG"' EXIT
+          if mvn test -pl hugegraph-server/hugegraph-test -am \
+            -P unit-test -Dtest=NoSuchJava17ContractTest -ntp \
+            >"$NEGATIVE_LOG" 2>&1; then
+            cat "$NEGATIVE_LOG"
+            echo "::error::Surefire accepted a missing Server test class"
+            exit 1
+          fi
+          cat "$NEGATIVE_LOG"
+          grep -Fq 'No tests matching pattern "NoSuchJava17ContractTest"' \
+            "$NEGATIVE_LOG"
+          grep -Fq '(unit-test) @ hugegraph-test' "$NEGATIVE_LOG"
 
       - name: Check startup test prerequisites
         id: server-preflight
@@ -259,7 +291,7 @@ jobs:
       TRAVIS_DIR: hugegraph-server/hugegraph-dist/src/assembly/travis
       REPORT_DIR: target/site/jacoco
       BACKEND: rocksdb
-      JAVA_VERSION: '11'
+      JAVA_VERSION: '17'
       SERVER_JAVA_OPTIONS: ${{ matrix.server_java_options }}
 
     steps:
@@ -325,6 +357,8 @@ jobs:
           fi
 
   build-server-riscv64:
+    # Keep the emulated Java 17 RISC-V native-runtime signal visible while the
+    # platform lane stabilizes, but do not use it as a gate yet.
     uses: ./.github/workflows/riscv64-ci.yml
     permissions:
       contents: read

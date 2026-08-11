@@ -15,10 +15,10 @@ jobs:
     env:
       USE_STAGE: 'false'
     steps:
-      - name: Install JDK 11
+      - name: Install JDK 17
         uses: actions/setup-java@v3
         with:
-          java-version: '11'
+          java-version: '17'
           distribution: 'zulu'
 
       - name: Cache Maven packages
@@ -68,10 +68,10 @@ jobs:
       REPORT_DIR: target/site/jacoco
 
     steps:
-      - name: Install JDK 11
+      - name: Install JDK 17
         uses: actions/setup-java@v3
         with:
-          java-version: '11'
+          java-version: '17'
           distribution: 'zulu'
 
       - name: Cache Maven packages
@@ -99,6 +99,31 @@ jobs:
       - name: Run core test
         run: |
           mvn test -pl hugegraph-pd/hg-pd-test -am -P pd-core-test
+
+      - name: Verify Surefire single-class routing
+        run: |
+          SUREFIRE_DIR=hugegraph-pd/hg-pd-test/target/surefire-reports
+          REPORT="$SUREFIRE_DIR/TEST-org.apache.hugegraph.pd.core.PDConfigTest.xml"
+          rm -f "$REPORT"
+          mvn test -pl hugegraph-pd/hg-pd-test -am \
+            -P pd-core-test -Dtest=PDConfigTest -ntp
+          test -s "$REPORT" || {
+            echo "::error::PD single-class test produced no report"
+            exit 1
+          }
+          NEGATIVE_LOG=$(mktemp)
+          trap 'rm -f "$NEGATIVE_LOG"' EXIT
+          if mvn test -pl hugegraph-pd/hg-pd-test -am \
+            -P pd-core-test -Dtest=NoSuchJava17ContractTest -ntp \
+            >"$NEGATIVE_LOG" 2>&1; then
+            cat "$NEGATIVE_LOG"
+            echo "::error::Surefire accepted a missing PD test class"
+            exit 1
+          fi
+          cat "$NEGATIVE_LOG"
+          grep -Fq 'No tests matching pattern "NoSuchJava17ContractTest"' \
+            "$NEGATIVE_LOG"
+          grep -Fq '(pd-core-test) @ hg-pd-test' "$NEGATIVE_LOG"
 
       # The above tests do not require starting a PD instance.
 
@@ -177,10 +202,10 @@ jobs:
       REPORT_DIR: target/site/jacoco
 
     steps:
-      - name: Install JDK 11
+      - name: Install JDK 17
         uses: actions/setup-java@v3
         with:
-          java-version: '11'
+          java-version: '17'
           distribution: 'zulu'
 
       - name: Cache Maven packages
@@ -205,6 +230,31 @@ jobs:
         # todo remove --fail-at-end after test
         run: |
           mvn clean package -U -Dmaven.javadoc.skip=true -Dmaven.test.skip=true -ntp --fail-at-end
+
+      - name: Verify Surefire single-class routing
+        run: |
+          SUREFIRE_DIR=hugegraph-store/hg-store-test/target/surefire-reports
+          REPORT="$SUREFIRE_DIR/TEST-org.apache.hugegraph.store.raftcore.ZeroByteStringHelperTest.xml"
+          rm -f "$REPORT"
+          mvn test -pl hugegraph-store/hg-store-test -am \
+            -P store-raftcore-test -Dtest=ZeroByteStringHelperTest -ntp
+          test -s "$REPORT" || {
+            echo "::error::Store single-class test produced no report"
+            exit 1
+          }
+          NEGATIVE_LOG=$(mktemp)
+          trap 'rm -f "$NEGATIVE_LOG"' EXIT
+          if mvn test -pl hugegraph-store/hg-store-test -am \
+            -P store-raftcore-test -Dtest=NoSuchJava17ContractTest -ntp \
+            >"$NEGATIVE_LOG" 2>&1; then
+            cat "$NEGATIVE_LOG"
+            echo "::error::Surefire accepted a missing Store test class"
+            exit 1
+          fi
+          cat "$NEGATIVE_LOG"
+          grep -Fq 'No tests matching pattern "NoSuchJava17ContractTest"' \
+            "$NEGATIVE_LOG"
+          grep -Fq '(store-raftcore-test) @ hg-store-test' "$NEGATIVE_LOG"
 
       - name: Check startup test prerequisites (Store)
         id: store-preflight
@@ -308,14 +358,16 @@ jobs:
           startsWith(github.base_ref, 'release-') ||
           startsWith(github.base_ref, 'test-') ||
           github.base_ref == 'task/tinkerpop-3.7-upgrade' ||
-          github.head_ref == 'task/tinkerpop-3.7-upgrade'
+          github.head_ref == 'task/tinkerpop-3.7-upgrade' ||
+          github.base_ref == 'task/gsoc-phase2-java17' ||
+          github.head_ref == 'task/gsoc-phase2-java17'
         }}
 
     steps:
-      - name: Install JDK 11
+      - name: Install JDK 17
         uses: actions/setup-java@v3
         with:
-          java-version: '11'
+          java-version: '17'
           distribution: 'zulu'
 
       - name: Cache Maven packages
