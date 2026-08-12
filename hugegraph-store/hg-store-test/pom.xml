@@ -236,6 +236,7 @@
                             </testClassesDirectory>
                             <includes>
                                 <include>**/CoreSuiteTest.java</include>
+                                <include>**/BatchGraphIsolationTest.java</include>
                             </includes>
                         </configuration>
                     </execution>
