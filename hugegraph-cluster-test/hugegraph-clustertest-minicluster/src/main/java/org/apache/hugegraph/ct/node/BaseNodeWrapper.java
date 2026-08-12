@@ -36,4 +36,12 @@ public interface BaseNodeWrapper {
     void updateConfigPath(String ConfigPath);
 
     boolean isStarted();
+
+    boolean waitForReady(long timeoutMs);
+
+    int getIndex();
+
+    void setLightweight(boolean lightweight);
+
+    boolean isLightweight();
 }

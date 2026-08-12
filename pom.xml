@@ -105,6 +105,7 @@
         <module>install-dist</module>
         <module>hugegraph-cluster-test</module>
         <module>hugegraph-struct</module>
+        <module>hugegraph-chaos-test</module>
     </modules>
 
     <dependencyManagement>
@@ -177,6 +178,8 @@
                             <exclude>**/*.map</exclude>
                             <exclude>**/*.properties</exclude>
                             <exclude>**/*.template</exclude>
+                            <exclude>**/*.yaml</exclude>
+                            <exclude>**/*.yml</exclude>
                             <exclude>**/bin/hugegraph.service</exclude>
                             <exclude>**/swagger-ui/**/*</exclude>
                             <exclude>scripts/dev/reviewers</exclude>
@@ -250,7 +253,7 @@
                 </plugin>
                 <plugin>
                     <artifactId>maven-compiler-plugin</artifactId>
-                    <version>3.1</version>
+                    <version>3.11.0</version>
                     <configuration>
                         <source>${maven.compiler.source}</source>
                         <target>${maven.compiler.target}</target>

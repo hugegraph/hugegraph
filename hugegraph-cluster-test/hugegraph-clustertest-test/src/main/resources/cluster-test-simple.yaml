@@ -1,0 +1,9 @@
+pd: 1
+store: 1
+server: 1
+timeoutMs: 360000
+graphName: hugegraphapi
+backend: hstore
+serializer: binary
+mode: simple
+lightweight: false

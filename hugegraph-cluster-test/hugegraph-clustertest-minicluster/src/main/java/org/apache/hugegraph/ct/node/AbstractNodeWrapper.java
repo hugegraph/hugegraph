@@ -25,7 +25,6 @@ import java.io.FileReader;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
-import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
@@ -56,6 +55,7 @@ public abstract class AbstractNodeWrapper implements BaseNodeWrapper {
     protected int index;
     protected List<String> fileNames;
     protected String startLine;
+    protected boolean lightweight = false;
 
     public AbstractNodeWrapper() {
         this.clusterIndex = 1;
@@ -75,12 +75,8 @@ public abstract class AbstractNodeWrapper implements BaseNodeWrapper {
      */
     public void createNodeDir(Path sourcePath, String destDir) {
         try {
-            try {
-                if (!new File(destDir).exists()) {
-                    FileUtils.createParentDirectories(new File(destDir));
-                }
-            } catch (NoSuchFileException fileException) {
-                // Ignored
+            if (!new File(destDir).exists()) {
+                FileUtils.createParentDirectories(new File(destDir));
             }
             // To avoid following symbolic links
             try (Stream<Path> stream = Files.walk(sourcePath)) {
@@ -112,12 +108,14 @@ public abstract class AbstractNodeWrapper implements BaseNodeWrapper {
         try {
             PathUtils.deleteDirectory(Paths.get(getNodePath()));
         } catch (IOException ex) {
+            LOG.warn("Failed to delete node dir, will retry: {}", ex.getMessage());
             try {
                 TimeUnit.SECONDS.sleep(1);
+                PathUtils.deleteDirectory(Paths.get(getNodePath()));
+            } catch (IOException retryEx) {
+                LOG.error("Failed to delete node dir after retry", retryEx);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
-                LOG.error("Fail to delete node file", e);
-                throw new AssertionError("Delete node dir failed. " + e);
             }
         }
     }
@@ -147,6 +145,42 @@ public abstract class AbstractNodeWrapper implements BaseNodeWrapper {
 
     @Override
     public boolean isStarted() {
+        return logLineDetected();
+    }
+
+    @Override
+    public boolean waitForReady(long timeoutMs) {
+        long deadline = System.currentTimeMillis() + timeoutMs;
+        while (System.currentTimeMillis() < deadline) {
+            if (logLineDetected()) {
+                return true;
+            }
+            try {
+                Thread.sleep(ClusterConstant.HEALTH_POLL_INTERVAL_MS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return false;
+            }
+        }
+        return false;
+    }
+
+    @Override
+    public int getIndex() {
+        return this.index;
+    }
+
+    @Override
+    public void setLightweight(boolean lightweight) {
+        this.lightweight = lightweight;
+    }
+
+    @Override
+    public boolean isLightweight() {
+        return this.lightweight;
+    }
+
+    protected boolean logLineDetected() {
         try (Scanner sc = new Scanner(new FileReader(getLogPath()))) {
             while (sc.hasNextLine()) {
                 String line = sc.nextLine();
@@ -157,6 +191,7 @@ public abstract class AbstractNodeWrapper implements BaseNodeWrapper {
         return false;
     }
 
+    @Override
     public void stop() {
         if (this.instance == null) {
             return;
@@ -173,8 +208,9 @@ public abstract class AbstractNodeWrapper implements BaseNodeWrapper {
         deleteDir();
     }
 
+    @Override
     public boolean isAlive() {
-        return this.instance.isAlive();
+        return this.instance != null && this.instance.isAlive();
     }
 
     protected ProcessBuilder runCmd(List<String> startCmd, File stdoutFile) throws IOException {

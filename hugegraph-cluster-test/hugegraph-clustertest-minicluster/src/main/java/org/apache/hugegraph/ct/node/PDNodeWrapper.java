@@ -33,7 +33,11 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
+import org.apache.hugegraph.ct.config.PDConfig;
+
 public class PDNodeWrapper extends AbstractNodeWrapper {
+
+    private PDConfig pdConfig;
 
     public PDNodeWrapper() {
         super();
@@ -68,17 +72,30 @@ public class PDNodeWrapper extends AbstractNodeWrapper {
             }
 
             String pdNodeJarPath = getFileInDir(workPath, PD_JAR_PREFIX);
-            startCmd.addAll(Arrays.asList(
-                    "-Dname=HugeGraphPD" + this.index,
-                    "-Xms512m",
-                    "-Xmx4g",
-                    "-XX:+HeapDumpOnOutOfMemoryError",
-                    "-XX:HeapDumpPath=" + configPath + "logs",
-                    "-Dlog4j.configurationFile=" + configPath + File.separator +
-                    CONF_DIR + File.separator + "log4j2.xml",
-                    "-Dspring.config.location=" + configPath + CONF_DIR + File.separator +
-                    "application.yml",
-                    "-jar", pdNodeJarPath));
+            if (lightweight) {
+                startCmd.addAll(Arrays.asList(
+                        "-Dname=HugeGraphPD" + this.index,
+                        "-Xms128m",
+                        "-Xmx256m",
+                        "-XX:+UseSerialGC",
+                        "-Dlog4j.configurationFile=" + configPath + File.separator +
+                        CONF_DIR + File.separator + "log4j2.xml",
+                        "-Dspring.config.location=" + configPath + CONF_DIR + File.separator +
+                        "application.yml",
+                        "-jar", pdNodeJarPath));
+            } else {
+                startCmd.addAll(Arrays.asList(
+                        "-Dname=HugeGraphPD" + this.index,
+                        "-Xms512m",
+                        "-Xmx4g",
+                        "-XX:+HeapDumpOnOutOfMemoryError",
+                        "-XX:HeapDumpPath=" + configPath + "logs",
+                        "-Dlog4j.configurationFile=" + configPath + File.separator +
+                        CONF_DIR + File.separator + "log4j2.xml",
+                        "-Dspring.config.location=" + configPath + CONF_DIR + File.separator +
+                        "application.yml",
+                        "-jar", pdNodeJarPath));
+            }
             ProcessBuilder processBuilder = runCmd(startCmd, stdoutFile);
             this.instance = processBuilder.start();
         } catch (IOException ex) {
@@ -89,5 +106,9 @@ public class PDNodeWrapper extends AbstractNodeWrapper {
     @Override
     public String getID() {
         return "PD" + this.index;
+    }
+
+    public void bindConfig(PDConfig config) {
+        this.pdConfig = config;
     }
 }

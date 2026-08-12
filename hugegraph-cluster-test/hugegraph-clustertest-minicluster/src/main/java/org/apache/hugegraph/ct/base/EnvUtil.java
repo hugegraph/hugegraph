@@ -44,7 +44,7 @@ public class EnvUtil {
             return port;
         } catch (IOException e) {
             LOG.error("Failed to get available ports", e);
-            return -1;
+            throw new RuntimeException("Failed to get available port", e);
         }
     }
 

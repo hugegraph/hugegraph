@@ -20,6 +20,7 @@ package org.apache.hugegraph.ct.env;
 import java.util.List;
 
 import org.apache.hugegraph.ct.config.ClusterConfig;
+import org.apache.hugegraph.ct.node.BaseNodeWrapper;
 
 public interface BaseEnv {
 
@@ -39,6 +40,8 @@ public interface BaseEnv {
 
     List<String> getStoreRestAddrs();
 
+    List<String> getStoreGrpcAddrs();
+
     List<String> getServerRestAddrs();
 
     List<String> getPDNodeDir();
@@ -46,4 +49,28 @@ public interface BaseEnv {
     List<String> getStoreNodeDir();
 
     List<String> getServerNodeDir();
+
+    int addPDNode();
+
+    int addStoreNode();
+
+    int addServerNode();
+
+    void removePDNode(int index);
+
+    void removeStoreNode(int index);
+
+    void removeServerNode(int index);
+
+    int getAlivePDNodeCount();
+
+    int getAliveStoreNodeCount();
+
+    int getAliveServerNodeCount();
+
+    List<? extends BaseNodeWrapper> getPDNodeWrappers();
+
+    List<? extends BaseNodeWrapper> getStoreNodeWrappers();
+
+    List<? extends BaseNodeWrapper> getServerNodeWrappers();
 }

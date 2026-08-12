@@ -1,0 +1,26 @@
+scenario:
+  name: "pod-kill"
+  description: "Pod kill test on Kubernetes"
+
+target:
+  env: KUBERNETES
+  kubernetes:
+    namespace: "default"
+    labelSelector: "app=hugegraph"
+
+steps:
+  - name: "kill-pod"
+    type: FAULT
+    action:
+      type: pod_kill
+      target: "hugegraph-server-0"
+      recovery: manual
+
+  - name: "wait-after-kill"
+    type: WAIT
+    duration: 10s
+
+report:
+  format: [html, json]
+  outputDir: "target/chaos-reports"
+  includeLogs: true

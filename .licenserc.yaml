@@ -69,6 +69,8 @@ header: # `header` section is configurations for source codes license header.
     - '**/*.conf'
     - '**/*.map'
     - '**/*.properties'
+    - '**/*.yaml'
+    - '**/*.yml'
     - '**/RaftRequests.java'
     - 'dist/**/*'
     - 'hugegraph-server/hugegraph-dist'

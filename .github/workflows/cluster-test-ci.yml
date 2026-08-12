@@ -7,14 +7,29 @@ on:
       - 'release-*'
       - 'test-*'
   pull_request:
+  workflow_dispatch:
+    inputs:
+      extreme_test:
+        description: 'Run extreme hybrid test (10 mini stores)'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
 
 jobs:
   cluster-test:
     runs-on: ubuntu-latest
     env:
-      USE_STAGE: 'false' # Whether to include the stage repository.
+      USE_STAGE: 'false'
 
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 5
+
       - name: Install JDK 11
         uses: actions/setup-java@v3
         with:
@@ -28,11 +43,6 @@ jobs:
           key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
           restore-keys: ${{ runner.os }}-m2
 
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 5
-
       - name: use staged maven repo settings
         if: ${{ env.USE_STAGE == 'true' }}
         run: |
@@ -43,10 +53,30 @@ jobs:
         run: |
           mvn clean package -U -Dmaven.javadoc.skip=true -Dmaven.test.skip=true -ntp
 
-      - name: Run simple cluster test
+      - name: Run cluster test (simple 1+1+1)
         run: |
-          mvn test -pl hugegraph-cluster-test/hugegraph-clustertest-test -am -P simple-cluster-test
+          mvn test -pl hugegraph-cluster-test/hugegraph-clustertest-test -am -P cluster-test -Dcluster.config=cluster-test-simple.yaml -DfailIfNoTests=false
 
-      - name: Run multi cluster test
+      - name: Run cluster test (multi 3+3+3)
         run: |
-          mvn test -pl hugegraph-cluster-test/hugegraph-clustertest-test -am -P multi-cluster-test
+          mvn test -pl hugegraph-cluster-test/hugegraph-clustertest-test -am -P cluster-test -Dcluster.config=cluster-test-multi.yaml -DfailIfNoTests=false
+
+      - name: Run cluster test (hybrid 1+1+2mini+1)
+        run: |
+          mvn test -pl hugegraph-cluster-test/hugegraph-clustertest-test -am -P cluster-test -Dcluster.config=cluster-test-hybrid.yaml -DfailIfNoTests=false
+
+      - name: Run cluster test (extreme 3+2+10mini+3)
+        if: ${{ github.event.inputs.extreme_test == 'true' }}
+        run: |
+          mvn test -pl hugegraph-cluster-test/hugegraph-clustertest-test -am -P cluster-test -Dcluster.config=cluster-test-extreme.yaml -DfailIfNoTests=false
+
+      - name: Upload cluster test logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cluster-test-logs
+          path: |
+            hugegraph-cluster-test/apache-hugegraph-ct-*/logs/
+            hugegraph-cluster-test/apache-hugegraph-ct-*/**/logs/
+          retention-days: 5
+          if-no-files-found: ignore

@@ -91,7 +91,7 @@ public class ClusterConfig {
     public List<String> getPDRestAddrs() {
         List<String> addrs = new ArrayList<>();
         for (PDConfig pdConfig : pdConfigs) {
-            addrs.add(pdConfig.getRaftAddress());
+            addrs.add("127.0.0.1" + ":" + pdConfig.getRestPort());
         }
         return addrs;
     }
@@ -126,5 +126,92 @@ public class ClusterConfig {
             addrs.add("127.0.0.1" + ":" + serverConfig.getRestPort());
         }
         return addrs;
+    }
+
+    public PDConfig addPDConfig() {
+        PDConfig pdConfig = new PDConfig();
+        pdConfig.setStoreCount(storeConfigs.size());
+        pdConfigs.add(pdConfig);
+        pdGrpcList.add(pdConfig.getGrpcAddress());
+        pdRaftList.add(pdConfig.getRaftAddress());
+        for (PDConfig pc : pdConfigs) {
+            pc.setRaftPeerList(pdRaftList);
+            pc.setStoreGrpcList(storeGrpcList);
+        }
+        for (StoreConfig sc : storeConfigs) {
+            sc.setPDServerList(pdGrpcList);
+        }
+        return pdConfig;
+    }
+
+    public void removePDConfig(int index) {
+        if (index < 0 || index >= pdConfigs.size()) {
+            throw new IllegalArgumentException("Invalid PD config index: " + index);
+        }
+        PDConfig removed = pdConfigs.remove(index);
+        pdGrpcList.remove(removed.getGrpcAddress());
+        pdRaftList.remove(removed.getRaftAddress());
+        for (PDConfig pc : pdConfigs) {
+            pc.setRaftPeerList(pdRaftList);
+            pc.setStoreGrpcList(storeGrpcList);
+        }
+        for (StoreConfig sc : storeConfigs) {
+            sc.setPDServerList(pdGrpcList);
+        }
+    }
+
+    public StoreConfig addStoreConfig() {
+        StoreConfig storeConfig = new StoreConfig();
+        storeConfig.setPDServerList(pdGrpcList);
+        storeConfigs.add(storeConfig);
+        storeGrpcList.add(storeConfig.getGrpcAddress());
+        for (PDConfig pc : pdConfigs) {
+            pc.setStoreGrpcList(storeGrpcList);
+            pc.setStoreCount(storeConfigs.size());
+        }
+        return storeConfig;
+    }
+
+    public void removeStoreConfig(int index) {
+        if (index < 0 || index >= storeConfigs.size()) {
+            throw new IllegalArgumentException("Invalid Store config index: " + index);
+        }
+        StoreConfig removed = storeConfigs.remove(index);
+        storeGrpcList.remove(removed.getGrpcAddress());
+        for (PDConfig pc : pdConfigs) {
+            pc.setStoreGrpcList(storeGrpcList);
+            pc.setStoreCount(storeConfigs.size());
+        }
+    }
+
+    public ServerConfig addServerConfig() {
+        ServerConfig serverConfig = new ServerConfig();
+        serverConfigs.add(serverConfig);
+        GraphConfig graphConfig = new GraphConfig();
+        graphConfig.setPDPeersList(pdGrpcList);
+        graphConfigs.add(graphConfig);
+        return serverConfig;
+    }
+
+    public void removeServerConfig(int index) {
+        if (index < 0 || index >= serverConfigs.size()) {
+            throw new IllegalArgumentException("Invalid Server config index: " + index);
+        }
+        serverConfigs.remove(index);
+        if (index < graphConfigs.size()) {
+            graphConfigs.remove(index);
+        }
+    }
+
+    public int getPDConfigCount() {
+        return pdConfigs.size();
+    }
+
+    public int getStoreConfigCount() {
+        return storeConfigs.size();
+    }
+
+    public int getServerConfigCount() {
+        return serverConfigs.size();
     }
 }

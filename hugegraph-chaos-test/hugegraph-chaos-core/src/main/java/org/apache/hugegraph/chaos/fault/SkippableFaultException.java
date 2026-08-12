@@ -15,19 +15,15 @@
  * limitations under the License.
  */
 
-package org.apache.hugegraph.SimpleClusterTest;
+package org.apache.hugegraph.chaos.fault;
 
-import org.junit.runner.RunWith;
-import org.junit.runners.Suite;
+public class SkippableFaultException extends Exception {
 
-import lombok.extern.slf4j.Slf4j;
+    public SkippableFaultException(String message) {
+        super(message);
+    }
 
-@RunWith(Suite.class)
-@Suite.SuiteClasses({
-        SimpleClusterDeployTest.class,
-        SimpleClusterFileTest.class,
-})
-@Slf4j
-public class SimpleClusterSuiteTest {
-
+    public SkippableFaultException(String message, Throwable cause) {
+        super(message, cause);
+    }
 }

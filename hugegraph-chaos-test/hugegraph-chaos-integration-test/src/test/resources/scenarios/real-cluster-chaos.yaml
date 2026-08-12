@@ -1,0 +1,80 @@
+scenario:
+  name: "real-cluster-chaos"
+  description: "Chaos test against real 3PD+3Store+1Server HugeGraph cluster"
+
+target:
+  env: LOCAL
+  local:
+    clusterConfig: "none"
+
+steps:
+  - name: "verify-cluster-healthy"
+    type: FAULT
+    action:
+      type: cpu_stress
+      target: "localhost"
+      duration: 3s
+      recovery: auto
+      params:
+        cores: 1
+
+  - name: "wait-after-verify"
+    type: WAIT
+    duration: 3s
+
+  - name: "stress-pd-cpu"
+    type: FAULT
+    action:
+      type: cpu_stress
+      target: "localhost"
+      duration: 5s
+      recovery: auto
+      params:
+        cores: 1
+
+  - name: "wait-after-pd-stress"
+    type: WAIT
+    duration: 3s
+
+  - name: "stress-store-memory"
+    type: FAULT
+    action:
+      type: memory_stress
+      target: "localhost"
+      duration: 5s
+      recovery: auto
+      params:
+        size: 128M
+
+  - name: "wait-after-store-stress"
+    type: WAIT
+    duration: 3s
+
+  - name: "stress-server-io"
+    type: FAULT
+    action:
+      type: io_stress
+      target: "localhost"
+      duration: 5s
+      recovery: auto
+
+  - name: "wait-after-io-stress"
+    type: WAIT
+    duration: 3s
+
+  - name: "stress-disk"
+    type: FAULT
+    action:
+      type: disk_stress
+      target: "localhost"
+      duration: 5s
+      recovery: auto
+
+  - name: "wait-after-disk-stress"
+    type: WAIT
+    duration: 3s
+
+report:
+  format: [html, json, markdown]
+  outputDir: "target/chaos-reports"
+  includeLogs: true

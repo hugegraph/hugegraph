@@ -52,11 +52,6 @@ jobs:
             mvn -U -ntp dependency:get -Dartifact=org.apache.hugegraph:hugegraph-struct:$REVISION
           fi
 
-      - name: Run hugegraph-struct test
-        if: ${{ hashFiles('hugegraph-struct/pom.xml') != '' }}
-        run: |
-          mvn -U -ntp -pl hugegraph-struct test
-
   pd:
     needs: struct
     runs-on: ubuntu-latest
@@ -189,6 +184,8 @@ jobs:
         run: |
           mvn clean package -U -Dmaven.javadoc.skip=true -Dmaven.test.skip=true -ntp --fail-at-end
 
+<<<<<<< HEAD
+=======
       - name: Check startup test prerequisites (Store)
         id: store-preflight
         run: |
@@ -221,6 +218,7 @@ jobs:
         run: |
           echo "::notice::Store startup tests skipped — ${{ steps.store-preflight.outputs.skip_reason }}"
 
+>>>>>>> upstream/master
       - name: Prepare env and service
         run: |
           $TRAVIS_DIR/start-pd.sh

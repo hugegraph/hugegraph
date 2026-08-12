@@ -1,0 +1,11 @@
+pd: 3
+store: 100
+server: 3
+timeoutMs: 600000
+graphName: hugegraphapi
+backend: hstore
+serializer: binary
+mode: hybrid
+realStore: 3
+miniStore: 97
+lightweight: false

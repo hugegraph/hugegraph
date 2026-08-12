@@ -15,34 +15,10 @@
  * limitations under the License.
  */
 
-package org.apache.hugegraph.SimpleClusterTest;
+package org.apache.hugegraph.chaos.model;
 
-import java.io.File;
+public enum TargetEnv {
 
-import org.junit.Assert;
-import org.junit.Test;
-
-public class SimpleClusterFileTest extends BaseSimpleTest {
-
-    @Test
-    public void checkPDNodeDir() {
-        for (String nodeDir : env.getPDNodeDir()) {
-            Assert.assertTrue(new File(nodeDir).isDirectory());
-        }
-    }
-
-    @Test
-    public void checkStoreNodeDir() {
-        for (String nodeDir : env.getStoreNodeDir()) {
-            Assert.assertTrue(new File(nodeDir).isDirectory());
-        }
-    }
-
-    @Test
-    public void checkServerNodeDir() {
-        for (String nodeDir : env.getServerNodeDir()) {
-            Assert.assertTrue(new File(nodeDir).isDirectory());
-        }
-    }
-
+    LOCAL,
+    KUBERNETES
 }

@@ -15,19 +15,15 @@
  * limitations under the License.
  */
 
-package org.apache.hugegraph.MultiClusterTest;
+package org.apache.hugegraph.chaos.fault;
 
-import org.junit.runner.RunWith;
-import org.junit.runners.Suite;
+import org.apache.hugegraph.chaos.model.Step;
 
-import lombok.extern.slf4j.Slf4j;
+public interface FaultInjector {
 
-@RunWith(Suite.class)
-@Suite.SuiteClasses({
-        MultiClusterDeployTest.class,
-        MultiClusterFileTest.class,
-})
-@Slf4j
-public class MultiClusterSuiteTest {
+    void inject(Step.StepAction action) throws Exception;
 
+    void recover(Step.StepAction action) throws Exception;
+
+    void healAll();
 }

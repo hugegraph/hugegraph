@@ -1,0 +1,30 @@
+scenario:
+  name: "network-delay"
+  description: "Network delay test on Kubernetes"
+
+target:
+  env: KUBERNETES
+  kubernetes:
+    namespace: "default"
+    labelSelector: "app=hugegraph"
+
+steps:
+  - name: "inject-network-delay"
+    type: FAULT
+    action:
+      type: network_delay
+      target: "hugegraph-server-0"
+      duration: 30s
+      recovery: auto
+      params:
+        latency: 200
+        jitter: 50
+
+  - name: "wait-after-delay"
+    type: WAIT
+    duration: 5s
+
+report:
+  format: [html, json]
+  outputDir: "target/chaos-reports"
+  includeLogs: true

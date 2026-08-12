@@ -1,0 +1,42 @@
+scenario:
+  name: "local-stress-test"
+  description: "Validate CPU and memory stress injection without network dependency"
+
+target:
+  env: LOCAL
+  local:
+    clusterConfig: "none"
+
+steps:
+  - name: "inject-cpu-stress"
+    type: FAULT
+    action:
+      type: cpu_stress
+      target: "localhost"
+      duration: 5s
+      recovery: auto
+      params:
+        cores: 1
+
+  - name: "wait-after-cpu"
+    type: WAIT
+    duration: 2s
+
+  - name: "inject-memory-stress"
+    type: FAULT
+    action:
+      type: memory_stress
+      target: "localhost"
+      duration: 5s
+      recovery: auto
+      params:
+        size: 128M
+
+  - name: "wait-after-memory"
+    type: WAIT
+    duration: 2s
+
+report:
+  format: [html, json]
+  outputDir: "target/chaos-reports"
+  includeLogs: true

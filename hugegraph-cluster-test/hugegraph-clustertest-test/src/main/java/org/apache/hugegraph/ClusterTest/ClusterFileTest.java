@@ -15,14 +15,14 @@
  * limitations under the License.
  */
 
-package org.apache.hugegraph.MultiClusterTest;
+package org.apache.hugegraph.ClusterTest;
 
 import java.io.File;
 
 import org.junit.Assert;
 import org.junit.Test;
 
-public class MultiClusterFileTest extends BaseMultiClusterTest {
+public class ClusterFileTest extends BaseClusterTest {
 
     @Test
     public void checkPDNodeDir() {

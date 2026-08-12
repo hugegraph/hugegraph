@@ -1,0 +1,28 @@
+scenario:
+  name: "cpu-stress"
+  description: "CPU stress test with HugeGraph cluster"
+
+target:
+  env: LOCAL
+  local:
+    clusterConfig: "none"
+
+steps:
+  - name: "inject-cpu-stress"
+    type: FAULT
+    action:
+      type: cpu_stress
+      target: "localhost"
+      duration: 10s
+      recovery: auto
+      params:
+        cores: 2
+
+  - name: "wait-after-stress"
+    type: WAIT
+    duration: 3s
+
+report:
+  format: [html, json]
+  outputDir: "target/chaos-reports"
+  includeLogs: true

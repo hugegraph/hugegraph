@@ -55,6 +55,15 @@ public class ClusterConstant {
     public static final String EXAMPLE_GROOVY_FILE = "scripts/example.groovy";
     public static final String LOCALHOST = "127.0.0.1";
 
+    public static volatile long NODE_START_TIMEOUT_MS = 300_000L;
+    public static volatile long CLUSTER_START_TIMEOUT_MS = 600_000L;
+    public static final long HEALTH_POLL_INTERVAL_MS = 500L;
+
+    public static void applyTimeoutFromConfig(long timeoutMs) {
+        NODE_START_TIMEOUT_MS = timeoutMs;
+        CLUSTER_START_TIMEOUT_MS = timeoutMs * 2;
+    }
+
     public static final String JAVA_CMD =
             System.getProperty("java.home") + File.separator + BIN_DIR + File.separator +
             (SystemUtils.IS_OS_WINDOWS ? "java.exe" : "java");
@@ -131,5 +140,17 @@ public class ClusterConstant {
         }
 
         return userDir; // Return current dir if not matched
+    }
+
+    private static long parseLong(String key, long defaultValue) {
+        String value = System.getProperty(key);
+        if (value == null || value.isEmpty()) {
+            return defaultValue;
+        }
+        try {
+            return Long.parseLong(value);
+        } catch (NumberFormatException e) {
+            return defaultValue;
+        }
     }
 }

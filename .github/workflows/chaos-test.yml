@@ -1,0 +1,248 @@
+name: "Chaos Test"
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'Target environment'
+        required: true
+        default: 'local'
+        type: choice
+        options:
+          - local
+          - kubernetes
+      scenario:
+        description: 'Scenario file'
+        required: true
+        default: 'scenarios/real-cluster-chaos.yaml'
+        type: choice
+        options:
+          - scenarios/real-cluster-chaos.yaml
+          - scenarios/local-stress-test.yaml
+          - scenarios/local-framework-validation.yaml
+          - scenarios/cpu-stress.yaml
+          - scenarios/network-delay.yaml
+          - scenarios/pod-kill.yaml
+      report_format:
+        description: 'Report format (comma-separated: html,json,markdown)'
+        required: false
+        default: 'html,json,markdown'
+        type: string
+      pd_count:
+        description: 'Number of PD nodes'
+        required: false
+        default: '3'
+        type: string
+      store_count:
+        description: 'Number of Store nodes'
+        required: false
+        default: '3'
+        type: string
+      server_count:
+        description: 'Number of Server nodes'
+        required: false
+        default: '3'
+        type: string
+
+jobs:
+  chaos-test:
+    runs-on: ubuntu-22.04
+    env:
+      USE_STAGE: 'false'
+      TRAVIS_DIR: hugegraph-server/hugegraph-dist/src/assembly/travis
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install JDK 11
+        uses: actions/setup-java@v4
+        with:
+          java-version: '11'
+          distribution: 'zulu'
+
+      - name: Cache Maven packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+          restore-keys: ${{ runner.os }}-m2
+
+      - name: Use staged maven repo settings
+        if: ${{ env.USE_STAGE == 'true' }}
+        run: |
+          cp $HOME/.m2/settings.xml /tmp/settings.xml || true
+          mv -vf .github/configs/settings.xml $HOME/.m2/settings.xml
+
+      - name: Show system resources
+        if: ${{ github.event.inputs.target == 'local' }}
+        run: |
+          echo "=== System resources ==="
+          echo "CPU cores: $(nproc)"
+          echo "Memory: $(free -h | head -2 | tail -1 | awk '{print $2}')"
+          echo "Swap: $(swapon --show 2>/dev/null | tail -n +2 | awk '{print $1, $3}' | head -1 || echo 'none')"
+          echo "Disk: $(df -h / | tail -1 | awk '{print $4}') available"
+
+      - name: Install stress-ng and iproute2
+        if: ${{ github.event.inputs.target == 'local' }}
+        run: sudo apt-get update && sudo apt-get install -y stress-ng iproute2
+
+      - name: Build or fetch hugegraph-struct
+        run: |
+          REVISION=$(mvn -q -DforceStdout help:evaluate -Dexpression=revision -f pom.xml)
+          if [ -f hugegraph-struct/pom.xml ]; then
+            echo "[INFO] Found hugegraph-struct source, building from source"
+            mvn -U -ntp -DskipTests -pl hugegraph-struct -am install
+          else
+            echo "[INFO] hugegraph-struct source not found, fetching artifact $REVISION"
+            mvn -U -ntp dependency:get -Dartifact=org.apache.hugegraph:hugegraph-struct:$REVISION
+          fi
+
+      - name: Build project
+        run: |
+          mvn clean package -U -Dmaven.javadoc.skip=true -Dmaven.test.skip=true -ntp --fail-at-end
+
+      - name: Start HugeGraph cluster
+        if: ${{ github.event.inputs.target == 'local' }}
+        run: |
+          bash hugegraph-chaos-test/scripts/start-cluster.sh \
+            ${{ github.event.inputs.pd_count }} \
+            ${{ github.event.inputs.store_count }} \
+            ${{ github.event.inputs.server_count }}
+
+      - name: Verify HugeGraph cluster
+        if: ${{ github.event.inputs.target == 'local' }}
+        run: |
+          if [ -f cluster-ports.txt ]; then
+            source cluster-ports.txt
+          fi
+
+          echo "=== Checking PD nodes ==="
+          PD_COUNT=${{ github.event.inputs.pd_count }}
+          for i in $(seq 0 $((PD_COUNT - 1))); do
+            VAR="PD_REST_${i}"
+            PORT="${!VAR:-$((8620 + i))}"
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+              http://localhost:$PORT/actuator/health 2>/dev/null || echo "000")
+            echo "PD node $i on port $PORT: HTTP $STATUS"
+            if [ "$STATUS" = "000" ]; then
+              echo "ERROR: PD node $i is not responding"
+              exit 1
+            fi
+          done
+
+          echo "=== Checking Store nodes ==="
+          STORE_COUNT=${{ github.event.inputs.store_count }}
+          for i in $(seq 0 $((STORE_COUNT - 1))); do
+            VAR="STORE_REST_${i}"
+            PORT="${!VAR:-$((8520 + i))}"
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+              http://localhost:$PORT/actuator/health 2>/dev/null || echo "000")
+            echo "Store node $i on port $PORT: HTTP $STATUS"
+            if [ "$STATUS" = "000" ]; then
+              echo "ERROR: Store node $i is not responding"
+              exit 1
+            fi
+          done
+
+          echo "=== Checking Server nodes ==="
+          SERVER_COUNT=${{ github.event.inputs.server_count }}
+          for i in $(seq 0 $((SERVER_COUNT - 1))); do
+            VAR="SERVER_REST_${i}"
+            PORT="${!VAR:-$((8080 + i))}"
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+              http://localhost:$PORT/graphs 2>/dev/null || echo "000")
+            echo "Server node $i on port $PORT: HTTP $STATUS"
+            if [ "$STATUS" = "000" ]; then
+              echo "ERROR: Server node $i is not responding"
+              exit 1
+            fi
+          done
+
+          echo "=== Java processes ==="
+          jps -l 2>/dev/null || ps aux | grep -i hugegraph | grep -v grep
+
+          echo "=== Memory after cluster start ==="
+          free -h
+
+      - name: Run chaos test
+        run: |
+          SCENARIO_FILE="hugegraph-chaos-test/hugegraph-chaos-integration-test/src/test/resources/${{ github.event.inputs.scenario }}"
+          java -Dchaos.config="$SCENARIO_FILE" \
+               -Dchaos.target=${{ github.event.inputs.target }} \
+               -Dchaos.report.format=${{ github.event.inputs.report_format }} \
+               -jar hugegraph-chaos-test/hugegraph-chaos-core/target/hugegraph-chaos-core-*.jar
+
+      - name: Show chaos report
+        if: always()
+        run: |
+          echo "=== JSON Report ==="
+          cat target/chaos-reports/report.json 2>/dev/null || echo "No JSON report found at target/chaos-reports/"
+          echo ""
+          echo "=== Markdown Report ==="
+          cat target/chaos-reports/report.md 2>/dev/null || echo "No Markdown report found"
+          echo ""
+          echo "=== Report files ==="
+          find . -name "report.*" -path "*/chaos-reports/*" 2>/dev/null
+
+      - name: Collect cluster diagnostics on failure
+        if: failure() && github.event.inputs.target == 'local'
+        run: |
+          echo "=== Java processes ==="
+          jps -l 2>/dev/null || true
+          echo ""
+          echo "=== Memory state ==="
+          free -h
+          echo ""
+          echo "=== PD logs ==="
+          for d in hugegraph-pd/apache-hugegraph-pd-*_*; do
+            if [ -d "$d" ]; then
+              echo "--- $d ---"
+              tail -30 "$d/logs/hugegraph-pd.log" 2>/dev/null || true
+            fi
+          done
+          echo ""
+          echo "=== Store logs ==="
+          for d in hugegraph-store/apache-hugegraph-store-*_*; do
+            if [ -d "$d" ]; then
+              echo "--- $d ---"
+              tail -30 "$d/logs/hugegraph-store.log" 2>/dev/null || true
+            fi
+          done
+          echo ""
+          echo "=== Server logs ==="
+          for d in hugegraph-server/apache-hugegraph-server-*_*; do
+            if [ -d "$d" ]; then
+              echo "--- $d ---"
+              tail -30 "$d/logs/hugegraph-server.log" 2>/dev/null || true
+            fi
+          done
+
+      - name: Stop HugeGraph cluster
+        if: always() && github.event.inputs.target == 'local'
+        run: |
+          bash hugegraph-chaos-test/scripts/stop-cluster.sh || true
+
+      - name: Upload chaos report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chaos-report-${{ github.run_id }}
+          path: |
+            target/chaos-reports/
+            hugegraph-chaos-test/target/chaos-reports/
+            hugegraph-chaos-test/hugegraph-chaos-core/target/chaos-reports/
+          retention-days: 7
+          if-no-files-found: ignore
+
+      - name: Upload cluster logs
+        if: failure() && github.event.inputs.target == 'local'
+        uses: actions/upload-artifact@v4
+        with:
+          name: cluster-logs-${{ github.run_id }}
+          path: |
+            hugegraph-pd/apache-hugegraph-pd-*/logs/
+            hugegraph-store/apache-hugegraph-store-*/logs/
+            hugegraph-server/apache-hugegraph-server-*/logs/
+          retention-days: 5
+          if-no-files-found: ignore

@@ -19,14 +19,15 @@ package org.apache.hugegraph.ct.env;
 
 import org.apache.hugegraph.ct.base.EnvType;
 import org.apache.hugegraph.ct.base.HGTestLogger;
+import org.apache.hugegraph.ct.config.ClusterTestConfig;
 import org.slf4j.Logger;
 
 public class EnvFactory {
 
     private static final Logger LOG = HGTestLogger.ENV_LOG;
-    private static BaseEnv env;
+    private static volatile BaseEnv env;
 
-    public static BaseEnv getEnv() {
+    public static synchronized BaseEnv getEnv() {
         if (env == null) {
             EnvType envType = EnvType.getSystemEnvType();
             switch (envType) {
@@ -37,10 +38,35 @@ public class EnvFactory {
                     env = new MultiNodeEnv();
                     break;
                 default:
-                    LOG.error("No such env type: {}", envType);
+                    throw new IllegalArgumentException("Unknown env type: " + envType);
             }
         }
         return env;
+    }
+
+    public static BaseEnv getEnv(int pdCnt, int storeCnt, int serverCnt) {
+        if (pdCnt == 1 && storeCnt == 1 && serverCnt == 1) {
+            return new SimpleEnv();
+        }
+        return new DynamicEnv(pdCnt, storeCnt, serverCnt);
+    }
+
+    public static BaseEnv getEnv(ClusterTestConfig config) {
+        switch (config.getMode()) {
+            case "simple":
+                return new SimpleEnv();
+            case "hybrid":
+                return new HybridEnv(config.getPd(), config.getRealStore(),
+                                     config.getMiniStore(), config.getServer());
+            case "multi":
+                return EnvFactory.getEnv(config.getPd(),
+                                         config.getEffectiveStoreCount(),
+                                         config.getServer());
+            default:
+                return EnvFactory.getEnv(config.getPd(),
+                                         config.getEffectiveStoreCount(),
+                                         config.getServer());
+        }
     }
 
 }

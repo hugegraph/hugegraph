@@ -1,0 +1,82 @@
+scenario:
+  name: "multi-node-cluster-chaos"
+  description: "Chaos test simulating multi-node cluster fault injection (3PD+3Store+3Server)"
+
+target:
+  env: LOCAL
+  local:
+    clusterConfig: "none"
+
+steps:
+  - name: "stress-pd-node-0-cpu"
+    type: FAULT
+    action:
+      type: cpu_stress
+      target: "pd-node-0"
+      duration: 5s
+      recovery: auto
+      params:
+        cores: 1
+
+  - name: "wait-after-pd-cpu"
+    type: WAIT
+    duration: 2s
+
+  - name: "stress-store-node-0-memory"
+    type: FAULT
+    action:
+      type: memory_stress
+      target: "store-node-0"
+      duration: 5s
+      recovery: auto
+      params:
+        size: 128M
+
+  - name: "wait-after-store-memory"
+    type: WAIT
+    duration: 2s
+
+  - name: "stress-server-node-0-cpu"
+    type: FAULT
+    action:
+      type: cpu_stress
+      target: "server-node-0"
+      duration: 5s
+      recovery: auto
+      params:
+        cores: 1
+
+  - name: "wait-after-server-cpu"
+    type: WAIT
+    duration: 2s
+
+  - name: "network-delay-pd-node-2"
+    type: FAULT
+    action:
+      type: network_delay
+      target: "pd-node-2"
+      duration: 5s
+      recovery: auto
+      params:
+        latency: 100
+        jitter: 20
+
+  - name: "wait-after-network-delay"
+    type: WAIT
+    duration: 2s
+
+  - name: "kill-server-node-2"
+    type: FAULT
+    action:
+      type: process_kill
+      target: "nonexistent-test-process"
+      recovery: manual
+
+  - name: "wait-after-kill"
+    type: WAIT
+    duration: 2s
+
+report:
+  format: [html, json, markdown]
+  outputDir: "target/chaos-reports"
+  includeLogs: true

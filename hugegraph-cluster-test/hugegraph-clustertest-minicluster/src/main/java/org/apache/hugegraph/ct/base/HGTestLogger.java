@@ -20,13 +20,10 @@ package org.apache.hugegraph.ct.base;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import lombok.extern.slf4j.Slf4j;
-
-@Slf4j
 public class HGTestLogger {
 
-    public static Logger UTIL_LOG = LoggerFactory.getLogger(HGTestLogger.class);
-    public static Logger ENV_LOG = LoggerFactory.getLogger(HGTestLogger.class);
-    public static Logger CONFIG_LOG = LoggerFactory.getLogger(HGTestLogger.class);
-    public static Logger NODE_LOG = LoggerFactory.getLogger(HGTestLogger.class);
+    public static Logger UTIL_LOG = LoggerFactory.getLogger("org.apache.hugegraph.ct.util");
+    public static Logger ENV_LOG = LoggerFactory.getLogger("org.apache.hugegraph.ct.env");
+    public static Logger CONFIG_LOG = LoggerFactory.getLogger("org.apache.hugegraph.ct.config");
+    public static Logger NODE_LOG = LoggerFactory.getLogger("org.apache.hugegraph.ct.node");
 }

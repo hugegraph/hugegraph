@@ -18,9 +18,15 @@
 package org.apache.hugegraph.ct.env;
 
 import static org.apache.hugegraph.ct.base.ClusterConstant.CONF_DIR;
+import static org.apache.hugegraph.ct.base.ClusterConstant.NODE_START_TIMEOUT_MS;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.apache.hugegraph.ct.base.HGTestLogger;
 import org.apache.hugegraph.ct.config.ClusterConfig;
@@ -28,15 +34,14 @@ import org.apache.hugegraph.ct.config.GraphConfig;
 import org.apache.hugegraph.ct.config.PDConfig;
 import org.apache.hugegraph.ct.config.ServerConfig;
 import org.apache.hugegraph.ct.config.StoreConfig;
+import org.apache.hugegraph.ct.node.BaseNodeWrapper;
 import org.apache.hugegraph.ct.node.PDNodeWrapper;
 import org.apache.hugegraph.ct.node.ServerNodeWrapper;
 import org.apache.hugegraph.ct.node.StoreNodeWrapper;
 import org.slf4j.Logger;
 
 import lombok.Setter;
-import lombok.extern.slf4j.Slf4j;
 
-@Slf4j
 public abstract class AbstractEnv implements BaseEnv {
 
     private static final Logger LOG = HGTestLogger.ENV_LOG;
@@ -45,6 +50,10 @@ public abstract class AbstractEnv implements BaseEnv {
     protected List<PDNodeWrapper> pdNodeWrappers;
     protected List<ServerNodeWrapper> serverNodeWrappers;
     protected List<StoreNodeWrapper> storeNodeWrappers;
+    protected final AtomicInteger nextPdIndex = new AtomicInteger(0);
+    protected final AtomicInteger nextStoreIndex = new AtomicInteger(0);
+    protected final AtomicInteger nextServerIndex = new AtomicInteger(0);
+
     @Setter
     protected int cluster_id = 0;
 
@@ -55,12 +64,16 @@ public abstract class AbstractEnv implements BaseEnv {
     }
 
     protected void init(int pdCnt, int storeCnt, int serverCnt) {
+        this.nextPdIndex.set(pdCnt);
+        this.nextStoreIndex.set(storeCnt);
+        this.nextServerIndex.set(serverCnt);
         this.clusterConfig = new ClusterConfig(pdCnt, storeCnt, serverCnt);
         for (int i = 0; i < pdCnt; i++) {
             PDNodeWrapper pdNodeWrapper = new PDNodeWrapper(cluster_id, i);
             PDConfig pdConfig = clusterConfig.getPDConfig(i);
             pdNodeWrappers.add(pdNodeWrapper);
             pdConfig.writeConfig(pdNodeWrapper.getNodePath() + CONF_DIR);
+            pdNodeWrapper.bindConfig(pdConfig);
         }
 
         for (int i = 0; i < storeCnt; i++) {
@@ -68,6 +81,7 @@ public abstract class AbstractEnv implements BaseEnv {
             StoreConfig storeConfig = clusterConfig.getStoreConfig(i);
             storeNodeWrappers.add(storeNodeWrapper);
             storeConfig.writeConfig(storeNodeWrapper.getNodePath() + CONF_DIR);
+            storeNodeWrapper.bindConfig(storeConfig);
         }
 
         for (int i = 0; i < serverCnt; i++) {
@@ -83,42 +97,78 @@ public abstract class AbstractEnv implements BaseEnv {
             }
             serverConfig.writeConfig(serverNodeWrapper.getNodePath() + CONF_DIR);
             graphConfig.writeConfig(serverNodeWrapper.getNodePath() + CONF_DIR);
+            serverNodeWrapper.bindConfig(serverConfig);
         }
     }
 
+    @Override
     public void startCluster() {
-        for (PDNodeWrapper pdNodeWrapper : pdNodeWrappers) {
-            pdNodeWrapper.start();
-            while (!pdNodeWrapper.isStarted()) {
+        startNodesParallel(pdNodeWrappers);
+        startNodesParallel(storeNodeWrappers);
+        startNodesParallel(serverNodeWrappers);
+    }
+
+    protected <T extends BaseNodeWrapper> void startNodesParallel(List<T> nodes) {
+        if (nodes.isEmpty()) {
+            return;
+        }
+
+        int threadCount = Math.min(nodes.size(), Runtime.getRuntime().availableProcessors());
+        ExecutorService executor = Executors.newFixedThreadPool(threadCount);
+
+        try {
+            List<Future<?>> startFutures = new ArrayList<>();
+            for (T node : nodes) {
+                startFutures.add(executor.submit(node::start));
+            }
+            for (int i = 0; i < startFutures.size(); i++) {
                 try {
-                    Thread.sleep(1000);
-                } catch (InterruptedException e) {
-                    throw new RuntimeException(e);
+                    startFutures.get(i).get();
+                } catch (Exception e) {
+                    for (int j = 0; j < i; j++) {
+                        try { nodes.get(j).stop(); } catch (Exception ignored) {}
+                    }
+                    throw new RuntimeException("Failed to start node " + nodes.get(i).getID(), e);
                 }
             }
-        }
-        for (StoreNodeWrapper storeNodeWrapper : storeNodeWrappers) {
-            storeNodeWrapper.start();
-            while (!storeNodeWrapper.isStarted()) {
+
+            List<Future<Boolean>> readyFutures = new ArrayList<>();
+            for (T node : nodes) {
+                readyFutures.add(executor.submit(
+                    () -> node.waitForReady(NODE_START_TIMEOUT_MS)));
+            }
+            for (int i = 0; i < readyFutures.size(); i++) {
                 try {
-                    Thread.sleep(1000);
-                } catch (InterruptedException e) {
-                    throw new RuntimeException(e);
+                    if (!readyFutures.get(i).get()) {
+                        for (T node : nodes) {
+                            try { node.stop(); } catch (Exception ignored) {}
+                        }
+                        throw new RuntimeException(
+                            "Node " + nodes.get(i).getID() +
+                            " failed to start within " + NODE_START_TIMEOUT_MS + "ms");
+                    }
+                } catch (Exception e) {
+                    for (T node : nodes) {
+                        try { node.stop(); } catch (Exception ignored) {}
+                    }
+                    throw new RuntimeException(
+                        "Failed to wait for node " + nodes.get(i).getID(), e);
                 }
             }
-        }
-        for (ServerNodeWrapper serverNodeWrapper : serverNodeWrappers) {
-            serverNodeWrapper.start();
-            while (!serverNodeWrapper.isStarted()) {
-                try {
-                    Thread.sleep(1000);
-                } catch (InterruptedException e) {
-                    throw new RuntimeException(e);
+        } finally {
+            executor.shutdown();
+            try {
+                if (!executor.awaitTermination(NODE_START_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
+                    executor.shutdownNow();
                 }
+            } catch (InterruptedException e) {
+                executor.shutdownNow();
+                Thread.currentThread().interrupt();
             }
         }
     }
 
+    @Override
     public void stopCluster() {
         for (ServerNodeWrapper serverNodeWrapper : serverNodeWrappers) {
             serverNodeWrapper.stop();
@@ -177,6 +227,149 @@ public abstract class AbstractEnv implements BaseEnv {
             nodeDirs.add(serverNodeWrapper.getNodePath());
         }
         return nodeDirs;
+    }
+
+    @Override
+    public int addPDNode() {
+        int newIndex = nextPdIndex.getAndIncrement();
+        PDConfig pdConfig = clusterConfig.addPDConfig();
+        PDNodeWrapper pdNode = new PDNodeWrapper(cluster_id, newIndex);
+        pdConfig.writeConfig(pdNode.getNodePath() + CONF_DIR);
+        pdNode.bindConfig(pdConfig);
+        pdNodeWrappers.add(pdNode);
+        pdNode.start();
+        if (!pdNode.waitForReady(NODE_START_TIMEOUT_MS)) {
+            throw new RuntimeException("New PD node " + newIndex + " failed to start");
+        }
+        return newIndex;
+    }
+
+    @Override
+    public int addStoreNode() {
+        int newIndex = nextStoreIndex.getAndIncrement();
+        StoreConfig storeConfig = clusterConfig.addStoreConfig();
+        StoreNodeWrapper storeNode = new StoreNodeWrapper(cluster_id, newIndex);
+        storeConfig.writeConfig(storeNode.getNodePath() + CONF_DIR);
+        storeNode.bindConfig(storeConfig);
+        storeNodeWrappers.add(storeNode);
+        storeNode.start();
+        if (!storeNode.waitForReady(NODE_START_TIMEOUT_MS)) {
+            throw new RuntimeException("New Store node " + newIndex + " failed to start");
+        }
+        return newIndex;
+    }
+
+    @Override
+    public int addServerNode() {
+        int newIndex = nextServerIndex.getAndIncrement();
+        ServerConfig serverConfig = clusterConfig.addServerConfig();
+        GraphConfig graphConfig = clusterConfig.getGraphConfig(
+            clusterConfig.getServerConfigCount() - 1);
+        ServerNodeWrapper serverNode = new ServerNodeWrapper(cluster_id, newIndex);
+        serverConfig.setServerID(serverNode.getID());
+        serverConfig.setRole("worker");
+        serverConfig.writeConfig(serverNode.getNodePath() + CONF_DIR);
+        graphConfig.writeConfig(serverNode.getNodePath() + CONF_DIR);
+        serverNode.bindConfig(serverConfig);
+        serverNodeWrappers.add(serverNode);
+        serverNode.start();
+        if (!serverNode.waitForReady(NODE_START_TIMEOUT_MS)) {
+            throw new RuntimeException("New Server node " + newIndex + " failed to start");
+        }
+        return newIndex;
+    }
+
+    @Override
+    public void removePDNode(int index) {
+        int listPos = -1;
+        for (int i = 0; i < pdNodeWrappers.size(); i++) {
+            if (pdNodeWrappers.get(i).getIndex() == index) {
+                listPos = i;
+                break;
+            }
+        }
+        if (listPos < 0) {
+            throw new IllegalArgumentException("PD node with index " + index + " not found");
+        }
+        if (pdNodeWrappers.size() <= 1) {
+            throw new IllegalStateException("Cannot remove the last PD node");
+        }
+        PDNodeWrapper target = pdNodeWrappers.get(listPos);
+        target.stop();
+        pdNodeWrappers.remove(listPos);
+        clusterConfig.removePDConfig(listPos);
+    }
+
+    @Override
+    public void removeStoreNode(int index) {
+        int listPos = -1;
+        for (int i = 0; i < storeNodeWrappers.size(); i++) {
+            if (storeNodeWrappers.get(i).getIndex() == index) {
+                listPos = i;
+                break;
+            }
+        }
+        if (listPos < 0) {
+            throw new IllegalArgumentException("Store node with index " + index + " not found");
+        }
+        if (storeNodeWrappers.size() <= 1) {
+            throw new IllegalStateException("Cannot remove the last Store node");
+        }
+        StoreNodeWrapper target = storeNodeWrappers.get(listPos);
+        target.stop();
+        storeNodeWrappers.remove(listPos);
+        clusterConfig.removeStoreConfig(listPos);
+    }
+
+    @Override
+    public void removeServerNode(int index) {
+        int listPos = -1;
+        for (int i = 0; i < serverNodeWrappers.size(); i++) {
+            if (serverNodeWrappers.get(i).getIndex() == index) {
+                listPos = i;
+                break;
+            }
+        }
+        if (listPos < 0) {
+            throw new IllegalArgumentException("Server node with index " + index + " not found");
+        }
+        if (serverNodeWrappers.size() <= 1) {
+            throw new IllegalStateException("Cannot remove the last Server node");
+        }
+        ServerNodeWrapper target = serverNodeWrappers.get(listPos);
+        target.stop();
+        serverNodeWrappers.remove(listPos);
+        clusterConfig.removeServerConfig(listPos);
+    }
+
+    @Override
+    public int getAlivePDNodeCount() {
+        return (int) pdNodeWrappers.stream().filter(BaseNodeWrapper::isAlive).count();
+    }
+
+    @Override
+    public int getAliveStoreNodeCount() {
+        return (int) storeNodeWrappers.stream().filter(BaseNodeWrapper::isAlive).count();
+    }
+
+    @Override
+    public int getAliveServerNodeCount() {
+        return (int) serverNodeWrappers.stream().filter(BaseNodeWrapper::isAlive).count();
+    }
+
+    @Override
+    public List<? extends BaseNodeWrapper> getPDNodeWrappers() {
+        return pdNodeWrappers;
+    }
+
+    @Override
+    public List<? extends BaseNodeWrapper> getStoreNodeWrappers() {
+        return storeNodeWrappers;
+    }
+
+    @Override
+    public List<? extends BaseNodeWrapper> getServerNodeWrappers() {
+        return serverNodeWrappers;
     }
 
 }

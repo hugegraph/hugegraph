@@ -25,6 +25,7 @@ import static org.apache.hugegraph.ct.base.ClusterConstant.GREMLIN_DRIVER_SETTIN
 import static org.apache.hugegraph.ct.base.ClusterConstant.GREMLIN_SERVER_FILE;
 import static org.apache.hugegraph.ct.base.ClusterConstant.JAVA_CMD;
 import static org.apache.hugegraph.ct.base.ClusterConstant.LIB_DIR;
+import static org.apache.hugegraph.ct.base.ClusterConstant.LOCALHOST;
 import static org.apache.hugegraph.ct.base.ClusterConstant.LOG4J_FILE;
 import static org.apache.hugegraph.ct.base.ClusterConstant.PLUGINS_DIR;
 import static org.apache.hugegraph.ct.base.ClusterConstant.REMOTE_OBJECTS_SETTING_FILE;
@@ -46,8 +47,13 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
+import org.apache.hugegraph.ct.base.HGTestLogger;
+import org.apache.hugegraph.ct.config.ServerConfig;
+import org.slf4j.Logger;
+
 public class ServerNodeWrapper extends AbstractNodeWrapper {
 
+    private static final Logger STATIC_LOG = HGTestLogger.NODE_LOG;
     private static List<String> hgJars = loadHgJarsOnce();
     public ServerNodeWrapper(int clusterIndex, int index) {
         super(clusterIndex, index);
@@ -93,14 +99,19 @@ public class ServerNodeWrapper extends AbstractNodeWrapper {
 
     private static List<String> loadHgJarsOnce(){
         ArrayList<String> jars = new ArrayList<>();
-        try (InputStream is = ServerNodeWrapper.class.getResourceAsStream("/jar.txt");
-             BufferedReader reader = new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8))) {
+        InputStream is = ServerNodeWrapper.class.getResourceAsStream("/jar.txt");
+        if (is == null) {
+            STATIC_LOG.warn("jar.txt not found on classpath, hugegraph jars will not be ordered");
+            return Collections.unmodifiableList(jars);
+        }
+        try (is; BufferedReader reader = new BufferedReader(
+                new InputStreamReader(is, StandardCharsets.UTF_8))) {
             String line;
             while ((line = reader.readLine()) != null) {
                 jars.add(line);
             }
         } catch (IOException e) {
-            e.printStackTrace();
+            STATIC_LOG.error("Failed to load jar.txt", e);
         }
         return Collections.unmodifiableList(jars);
     }
@@ -122,15 +133,30 @@ public class ServerNodeWrapper extends AbstractNodeWrapper {
             addJarsToClasspath(new File(workPath + PLUGINS_DIR), classpath);
             String storeClassPath = String.join(":", classpath);
 
-            startCmd.addAll(Arrays.asList(
-                    "-Dname=HugeGraphServer" + this.index,
-                    "--add-exports=java.base/jdk.internal.reflect=ALL-UNNAMED",
-                    "--add-modules=jdk.unsupported",
-                    "--add-exports=java.base/sun.nio.ch=ALL-UNNAMED",
-                    "-cp", storeClassPath,
-                    "org.apache.hugegraph.dist.HugeGraphServer",
-                    "./conf/gremlin-server.yaml",
-                    "./conf/rest-server.properties"));
+            if (lightweight) {
+                startCmd.addAll(Arrays.asList(
+                        "-Dname=HugeGraphServer" + this.index,
+                        "-Xms64m",
+                        "-Xmx128m",
+                        "-XX:+UseSerialGC",
+                        "--add-exports=java.base/jdk.internal.reflect=ALL-UNNAMED",
+                        "--add-modules=jdk.unsupported",
+                        "--add-exports=java.base/sun.nio.ch=ALL-UNNAMED",
+                        "-cp", storeClassPath,
+                        "org.apache.hugegraph.dist.HugeGraphServer",
+                        "./conf/gremlin-server.yaml",
+                        "./conf/rest-server.properties"));
+            } else {
+                startCmd.addAll(Arrays.asList(
+                        "-Dname=HugeGraphServer" + this.index,
+                        "--add-exports=java.base/jdk.internal.reflect=ALL-UNNAMED",
+                        "--add-modules=jdk.unsupported",
+                        "--add-exports=java.base/sun.nio.ch=ALL-UNNAMED",
+                        "-cp", storeClassPath,
+                        "org.apache.hugegraph.dist.HugeGraphServer",
+                        "./conf/gremlin-server.yaml",
+                        "./conf/rest-server.properties"));
+            }
             ProcessBuilder processBuilder = runCmd(startCmd, stdoutFile);
             this.instance = processBuilder.start();
         } catch (IOException ex) {
@@ -141,5 +167,9 @@ public class ServerNodeWrapper extends AbstractNodeWrapper {
     @Override
     public String getID() {
         return "Server" + this.index;
+    }
+
+    public void bindConfig(ServerConfig config) {
+        // No-op: config binding kept for API compatibility
     }
 }

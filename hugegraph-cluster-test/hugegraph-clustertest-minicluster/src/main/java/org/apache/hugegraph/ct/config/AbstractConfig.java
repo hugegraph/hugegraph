@@ -59,12 +59,12 @@ public abstract class AbstractConfig {
                 Files.createDirectories(destPath.getParent());
             }
         } catch (IOException e) {
-            LOG.error("Failed to create dir", e);
+            throw new RuntimeException("Failed to create config dir: " + destPath.getParent(), e);
         }
         try (FileWriter writer = new FileWriter(String.valueOf(destPath))) {
             writer.write(this.config);
         } catch (IOException e) {
-            LOG.error("Failed to write in file", e);
+            throw new RuntimeException("Failed to write config file: " + destPath, e);
         }
     }
 
