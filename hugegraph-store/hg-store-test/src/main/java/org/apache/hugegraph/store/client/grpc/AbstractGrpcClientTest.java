@@ -602,6 +602,48 @@ public class AbstractGrpcClientTest {
     }
 
     @Test
+    public void testBlockedResolutionsDoNotStarveAnotherTarget() throws Exception {
+        String firstTarget = uniqueTarget("isolated-refresh");
+        String secondTarget = uniqueTarget("isolated-refresh");
+        String thirdTarget = uniqueTarget("isolated-refresh");
+        RecordingGrpcClient first = new RecordingGrpcClient();
+        RecordingGrpcClient second = new RecordingGrpcClient();
+        RecordingGrpcClient third = new RecordingGrpcClient();
+        ManagedChannel[] firstChannels = first.getChannels(firstTarget);
+        ManagedChannel[] secondChannels = second.getChannels(secondTarget);
+        ManagedChannel[] thirdChannels = third.getChannels(thirdTarget);
+        awaitCondition("initial refreshes must settle", () -> refreshIsIdle(first, firstTarget) &&
+                                                             refreshIsIdle(second, secondTarget) &&
+                                                             refreshIsIdle(third, thirdTarget));
+
+        first.delayResolution = true;
+        second.delayResolution = true;
+        first.delayedResolutionTimeoutSeconds = 30L;
+        second.delayedResolutionTimeoutSeconds = 30L;
+        first.resolvedTarget = "10.0.0.2";
+        second.resolvedTarget = "10.0.0.2";
+        third.resolvedTarget = "10.0.0.2";
+        try {
+            assertSame(firstChannels, first.getChannels(firstTarget));
+            assertTrue(first.delayedResolutionStarted.await(5, TimeUnit.SECONDS));
+            assertSame(secondChannels, second.getChannels(secondTarget));
+            assertTrue(second.delayedResolutionStarted.await(5, TimeUnit.SECONDS));
+
+            ManagedChannel[] replacement = awaitPoolReplacement(third, thirdTarget, thirdChannels);
+            assertNotSame("the third target must refresh while two lookups are blocked",
+                          thirdChannels, replacement);
+            assertTrue("the third target replacement must remain live",
+                       allChannelsAreLive(replacement));
+        } finally {
+            first.releaseDelayedResolution.countDown();
+            second.releaseDelayedResolution.countDown();
+            awaitCondition("blocked refreshes must settle",
+                           () -> refreshIsIdle(first, firstTarget) &&
+                                 refreshIsIdle(second, secondTarget));
+        }
+    }
+
+    @Test
     public void testPartialChannelsAreRetiredAfterMixedCreationFailure() {
         String target = uniqueTarget("partial-creation-failure");
         CreationControlGrpcClient client = new CreationControlGrpcClient();

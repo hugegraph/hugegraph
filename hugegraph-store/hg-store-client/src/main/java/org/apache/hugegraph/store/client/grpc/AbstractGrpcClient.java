@@ -34,6 +34,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 import org.apache.hugegraph.store.client.util.ExecutorPool;
 import org.apache.hugegraph.store.client.util.HgStoreClientConfig;
@@ -56,6 +57,8 @@ public abstract class AbstractGrpcClient {
             new ConcurrentHashMap<>();
     private static final Map<String, CompletableFuture<Void>> refreshTasks =
             new ConcurrentHashMap<>();
+    private static final Map<String, ReentrantReadWriteLock> channelLocks =
+            new ConcurrentHashMap<>();
     /*
      * Refresh runs here rather than on a request thread: a caller of getChannels() may hold a
      * Gremlin worker stack, which HugeSecurityManager denies socket access to. Creating the very
@@ -63,7 +66,7 @@ public abstract class AbstractGrpcClient {
      */
     private static final ScheduledThreadPoolExecutor CHANNEL_MAINTENANCE_EXECUTOR =
             new ScheduledThreadPoolExecutor(
-                    2, ExecutorPool.newThreadFactory("channel-maintenance"));
+                    64, ExecutorPool.newThreadFactory("channel-maintenance"));
     private static final ScheduledThreadPoolExecutor CHANNEL_RETIREMENT_EXECUTOR =
             new ScheduledThreadPoolExecutor(
                     1, ExecutorPool.newThreadFactory("channel-retirement"));
@@ -156,30 +159,45 @@ public abstract class AbstractGrpcClient {
             ManagedChannel[] targetChannels = this.getChannels(target);
             HgPair<ManagedChannel, S>[] pairs = stubCache.get(target);
             int index = nextStubIndex();
+            S configuredStub;
+            HgPair<ManagedChannel, S>[] value = null;
             if (!usesChannels(pairs, targetChannels)) {
                 synchronized (stubCache) {
                     pairs = stubCache.get(target);
                     if (!usesChannels(pairs, targetChannels)) {
-                        HgPair<ManagedChannel, S>[] value = new HgPair[concurrency];
+                        final HgPair<ManagedChannel, S>[] newValue = new HgPair[concurrency];
                         IntStream.range(0, concurrency).forEach(i -> {
                             ManagedChannel channel = targetChannels[i];
-                            value[i] = new HgPair<>(channel, stubFactory.apply(channel));
+                            newValue[i] = new HgPair<>(channel, stubFactory.apply(channel));
                         });
-                        S configuredStub = stubOption.apply(value[index].getValue());
-                        if (channels.get(target) != targetChannels) {
-                            continue;
-                        }
-                        stubCache.put(target, value);
-                        return configuredStub;
+                        value = newValue;
+                        configuredStub = stubOption.apply(newValue[index].getValue());
+                    } else {
+                        configuredStub = stubOption.apply(pairs[index].getValue());
                     }
                 }
+            } else {
+                configuredStub = stubOption.apply(pairs[index].getValue());
             }
-            S configuredStub = stubOption.apply(pairs[index].getValue());
-            if (channels.get(target) != targetChannels) {
-                continue;
+
+            ReentrantReadWriteLock.ReadLock readLock = channelLock(target).readLock();
+            readLock.lock();
+            try {
+                if (channels.get(target) != targetChannels) {
+                    continue;
+                }
+                if (value != null) {
+                    stubCache.put(target, value);
+                }
+                return configuredStub;
+            } finally {
+                readLock.unlock();
             }
-            return configuredStub;
         }
+    }
+
+    private static ReentrantReadWriteLock channelLock(String target) {
+        return channelLocks.computeIfAbsent(target, key -> new ReentrantReadWriteLock());
     }
 
     private static int nextStubIndex() {
@@ -333,20 +351,25 @@ public abstract class AbstractGrpcClient {
             return;
         }
 
-        boolean replaced = false;
-        synchronized (channels) {
-            if (channels.get(target) == staleChannels) {
-                channels.put(target, replacementChannels);
-                resolvedTargets.put(target, resolvedTarget);
-                replaced = true;
+        ReentrantReadWriteLock.WriteLock writeLock = channelLock(target).writeLock();
+        writeLock.lock();
+        try {
+            boolean replaced = false;
+            synchronized (channels) {
+                if (channels.get(target) == staleChannels) {
+                    channels.put(target, replacementChannels);
+                    resolvedTargets.put(target, resolvedTarget);
+                    replaced = true;
+                }
             }
+            if (replaced) {
+                log.info("Replaced the channel pool of target {}, address changed from {} to {}",
+                         target, previousTarget, resolvedTarget);
+            }
+            this.retireChannels(replaced ? staleChannels : replacementChannels);
+        } finally {
+            writeLock.unlock();
         }
-        if (replaced) {
-            log.info("Replaced the channel pool of target {}, address changed from {} to {}",
-                     target, previousTarget, resolvedTarget);
-        }
-
-        this.retireChannels(replaced ? staleChannels : replacementChannels);
     }
 
     private boolean shouldRefreshChannels(String target) {
