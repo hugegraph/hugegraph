@@ -359,6 +359,41 @@ public class AbstractGrpcClientTest {
     }
 
     @Test
+    public void testColdTargetCreationStaysOffDeniedCaller() throws Exception {
+        String target = uniqueTarget("denied-cold-caller");
+        HostCapturingGrpcClient client = new HostCapturingGrpcClient();
+        client.checkSocketPermission = true;
+
+        SecurityManager previous = System.getSecurityManager();
+        System.setSecurityManager(new DenyingWorkerSecurityManager());
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        AtomicReference<AbstractBlockingStub> stub = new AtomicReference<>();
+        try {
+            Thread worker = new Thread(() -> {
+                try {
+                    stub.set(client.getBlockingStub(target));
+                } catch (Throwable e) {
+                    failure.set(e);
+                }
+            }, "gremlin-server-exec-cold");
+            worker.start();
+            worker.join(TimeUnit.SECONDS.toMillis(10L));
+
+            assertFalse("the denied cold caller must finish", worker.isAlive());
+            assertNotNull("the denied cold caller must receive a stub", stub.get());
+            assertTrue("the denied cold caller must not fail: " + failure.get(),
+                       failure.get() == null);
+            assertEquals("the first pool must include every channel",
+                         AbstractGrpcClient.concurrency, client.creationThreads.size());
+            assertTrue("cold creation must stay off the denied caller",
+                       client.creationThreads.stream().noneMatch(
+                               name -> name.startsWith("gremlin-server-exec")));
+        } finally {
+            System.setSecurityManager(previous);
+        }
+    }
+
+    @Test
     public void testResolutionFailureKeepsHealthyPoolAndAllowsRetry() throws Exception {
         String target = uniqueTarget("resolution-failure");
         RecordingGrpcClient client = new RecordingGrpcClient();
@@ -935,9 +970,14 @@ public class AbstractGrpcClientTest {
     public void testQueryV2WithoutInjectedChannelUsesDnsResolution() {
         QueryV2Client.setTestChannel(null);
         ResolvingQueryV2Client client = new ResolvingQueryV2Client();
+        String target = "store.example.com:8500";
 
-        assertEquals("10.0.0.1,10.0.0.2",
-                     client.resolve("store.example.com:8500"));
+        QueryServiceGrpc.QueryServiceStub stub = client.getQueryServiceStub(target);
+        ManagedChannel[] currentChannels = AbstractGrpcClient.channels.get(target);
+        assertNotNull("the public QueryV2 path must publish a channel pool", currentChannels);
+        assertTrue("the QueryV2 stub must use the current live pool",
+                   belongsToPool(stub.getChannel(), currentChannels) &&
+                   !((ManagedChannel) stub.getChannel()).isShutdown());
         assertEquals("store.example.com", client.capturedHost);
     }
 
@@ -1217,10 +1257,12 @@ public class AbstractGrpcClientTest {
 
     private static class ResolvingQueryV2Client extends QueryV2Client {
 
+        private final AtomicInteger channelSeq = new AtomicInteger();
         private volatile String capturedHost;
 
-        private String resolve(String target) {
-            return super.resolveTarget(target);
+        @Override
+        protected ManagedChannel createChannel(String target) {
+            return new FakeManagedChannel(target + "#" + this.channelSeq.getAndIncrement());
         }
 
         @Override
