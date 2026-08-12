@@ -26,6 +26,7 @@ import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
@@ -128,7 +129,38 @@ public abstract class AbstractGrpcClient {
         this.awaitInitialResolution(refresh);
         synchronized (channels) {
             if ((tc = channels.get(target)) == null) {
-                channels.put(target, tc = this.createChannels(target));
+                CompletableFuture<ManagedChannel[]> creation = new CompletableFuture<>();
+                try {
+                    this.submitChannelRefresh(() -> {
+                        try {
+                            creation.complete(this.createChannels(target));
+                        } catch (Throwable e) {
+                            creation.completeExceptionally(e);
+                        }
+                    });
+                    InterruptedException interruption = null;
+                    for (;;) {
+                        try {
+                            tc = creation.get();
+                            break;
+                        } catch (InterruptedException e) {
+                            interruption = e;
+                        } catch (ExecutionException e) {
+                            Throwable cause = e.getCause();
+                            throw cause instanceof RuntimeException ? (RuntimeException) cause :
+                                  new RuntimeException(cause);
+                        }
+                    }
+                    if (interruption != null) {
+                        forceTerminateChannels(tc);
+                        Thread.currentThread().interrupt();
+                        throw new RuntimeException(interruption);
+                    }
+                } catch (Throwable e) {
+                    throw e instanceof RuntimeException ? (RuntimeException) e :
+                          new RuntimeException(e);
+                }
+                channels.put(target, tc);
             }
         }
         return tc;
@@ -487,8 +519,11 @@ public abstract class AbstractGrpcClient {
         }
 
         String endpoint = target;
-        if (target.regionMatches(true, 0, DNS_SCHEME, 0, DNS_SCHEME.length())) {
+        if (target.startsWith(DNS_SCHEME)) {
             endpoint = target.substring(DNS_SCHEME.length());
+            if (!endpoint.startsWith("/")) {
+                return "";
+            }
             while (endpoint.startsWith("/")) {
                 endpoint = endpoint.substring(1);
             }

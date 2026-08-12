@@ -950,9 +950,9 @@ public class AbstractGrpcClientTest {
         assertEquals("10.0.0.1", client.resolveTarget("dns:///store.example.com:8500"));
         assertEquals("store.example.com", client.capturedHost);
 
-        // The scheme-only spelling is a legal gRPC dns target too.
-        assertEquals("10.0.0.1", client.resolveTarget("dns:store.example.com:8500"));
-        assertEquals("store.example.com", client.capturedHost);
+        // gRPC 1.39 requires a slash-prefixed URI path for dns targets.
+        assertEquals("", client.resolveTarget("dns:store.example.com:8500"));
+        assertEquals("", client.resolveTarget("DNS:///store.example.com:8500"));
 
         assertEquals("10.0.0.1", client.resolveTarget("dns://8.8.8.8/store.example.com:8500"));
         assertEquals("store.example.com", client.capturedHost);
