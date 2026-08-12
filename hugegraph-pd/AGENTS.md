@@ -11,7 +11,7 @@ HugeGraph PD (Placement Driver) is a meta server for distributed HugeGraph deplo
 - Metadata coordination using Raft consensus
 
 **Technology Stack**:
-- Java 17+ (required)
+- Java 17 (currently supported release; required)
 - Apache Maven 3.6.3+
 - gRPC + Protocol Buffers for RPC communication
 - JRaft (Ant Design's Raft implementation) for consensus

@@ -54,6 +54,51 @@ if value is None or (value.text or "").strip() != "false":
 PY
 }
 
+assert_supported_java_contract() {
+    local pom="$1"
+
+    python3 - "$pom" <<'PY'
+import sys
+import xml.etree.ElementTree as ET
+
+pom = sys.argv[1]
+namespace = {"m": "http://maven.apache.org/POM/4.0.0"}
+root = ET.parse(pom).getroot()
+properties = root.find("m:properties", namespace)
+if properties is None:
+    raise SystemExit("{}: Maven properties are missing".format(pom))
+
+release = properties.find("m:maven.compiler.release", namespace)
+if release is None or (release.text or "").strip() != "17":
+    raise SystemExit("{}: compiler release must remain 17".format(pom))
+
+supported_range = properties.find("m:java.supported.version.range", namespace)
+if supported_range is None or (supported_range.text or "").strip() != "[17,18)":
+    raise SystemExit("{}: supported JDK range must be [17,18)".format(pom))
+
+expected_reference = "${java.supported.version.range}"
+actual_references = []
+for plugin in root.findall("m:build/m:plugins/m:plugin", namespace):
+    artifact_id = plugin.find("m:artifactId", namespace)
+    if artifact_id is None or artifact_id.text != "maven-enforcer-plugin":
+        continue
+    for rule in plugin.findall(
+        "m:executions/m:execution/m:configuration/m:rules/m:requireJavaVersion",
+        namespace,
+    ):
+        version = rule.find("m:version", namespace)
+        if version is not None:
+            actual_references.append((version.text or "").strip())
+
+if actual_references != [expected_reference]:
+    raise SystemExit(
+        "{}: requireJavaVersion must consume {} exactly once; found {}".format(
+            pom, expected_reference, actual_references
+        )
+    )
+PY
+}
+
 assert_surefire_execution_scope() {
     local pom="$1"
     shift
@@ -104,6 +149,7 @@ if missing:
 PY
 }
 
+assert_supported_java_contract "${SOURCE_ROOT}/pom.xml"
 assert_default_test_is_tolerant "${SOURCE_ROOT}/pom.xml"
 assert_surefire_execution_scope \
     "${SOURCE_ROOT}/hugegraph-server/hugegraph-test/pom.xml" \

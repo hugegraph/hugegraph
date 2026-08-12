@@ -176,8 +176,12 @@ curl -X POST http://localhost:8080/gremlin \
 
 ### Prerequisites
 
-- **Java 17+** (required)
+- **Java 17** (required and currently the only supported Java release)
 - **Maven 3.6.3+** (for building from source)
+
+The launch scripts reject Java versions older than 17. That minimum-version
+check does not qualify later Java releases; use Java 17 unless another release
+is explicitly listed as supported.
 
 ### Option 1: Docker (Fastest)
 
@@ -327,7 +331,7 @@ For detailed architecture and development guidance, see [AGENTS.md](AGENTS.md).
    - Review the [Architecture Diagram](#architecture) above
 
 2. **Set Up Your Environment**
-   - Install Java 17+ and Maven 3.6.3+
+   - Install Java 17 and Maven 3.6.3+
    - Follow [BUILDING.md](BUILDING.md) for build instructions
    - Configure your IDE to use `.editorconfig` for code style and `style/checkstyle.xml` for Checkstyle rules
 
