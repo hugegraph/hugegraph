@@ -68,6 +68,9 @@ public abstract class AbstractGrpcClient {
     private static final ScheduledThreadPoolExecutor CHANNEL_MAINTENANCE_EXECUTOR =
             new ScheduledThreadPoolExecutor(
                     64, ExecutorPool.newThreadFactory("channel-maintenance"));
+    private static final ScheduledThreadPoolExecutor CHANNEL_INITIALIZATION_EXECUTOR =
+            new ScheduledThreadPoolExecutor(
+                    64, ExecutorPool.newThreadFactory("channel-initialization"));
     private static final ScheduledThreadPoolExecutor CHANNEL_RETIREMENT_EXECUTOR =
             new ScheduledThreadPoolExecutor(
                     1, ExecutorPool.newThreadFactory("channel-retirement"));
@@ -79,6 +82,7 @@ public abstract class AbstractGrpcClient {
 
     static {
         prestartExecutor(CHANNEL_MAINTENANCE_EXECUTOR, "channel maintenance");
+        prestartExecutor(CHANNEL_INITIALIZATION_EXECUTOR, "channel initialization");
         prestartExecutor(CHANNEL_RETIREMENT_EXECUTOR, "channel retirement");
     }
 
@@ -131,7 +135,7 @@ public abstract class AbstractGrpcClient {
             if ((tc = channels.get(target)) == null) {
                 CompletableFuture<ManagedChannel[]> creation = new CompletableFuture<>();
                 try {
-                    this.submitChannelRefresh(() -> {
+                    this.submitChannelInitialization(() -> {
                         try {
                             creation.complete(this.createChannels(target));
                         } catch (Throwable e) {
@@ -331,6 +335,10 @@ public abstract class AbstractGrpcClient {
 
     void submitChannelRefresh(Runnable task) {
         CHANNEL_MAINTENANCE_EXECUTOR.execute(task);
+    }
+
+    void submitChannelInitialization(Runnable task) {
+        CHANNEL_INITIALIZATION_EXECUTOR.execute(task);
     }
 
     private void awaitInitialResolution(CompletableFuture<Void> refresh) {
