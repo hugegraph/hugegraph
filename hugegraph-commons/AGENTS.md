@@ -71,7 +71,7 @@ This is a Maven multi-module project with 2 main modules:
 
 ### Prerequisites
 ```bash
-# Verify Java version (17+ required)
+# Verify Java version (Java 17 required)
 java -version
 
 # Verify Maven version (3.6.3+ required)

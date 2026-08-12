@@ -18,10 +18,10 @@ This document provides comprehensive guidance for developing, testing, and contr
 
 Ensure you have the following tools installed:
 
-| Tool | Minimum Version | Recommended | Purpose |
+| Tool | Version Requirement | Recommended | Purpose |
 |------|----------------|-------------|---------|
-| **JDK** | 17 | 17 LTS | Java runtime and compilation |
-| **Maven** | 3.6.3 | 3.8+ | Build tool and dependency management |
+| **JDK** | 17 (only supported release) | 17 LTS | Java runtime and compilation |
+| **Maven** | 3.6.3+ | 3.8+ | Build tool and dependency management |
 | **Git** | 2.0+ | Latest | Version control |
 | **IDE** | N/A | IntelliJ IDEA | Development environment |
 
@@ -30,7 +30,7 @@ Ensure you have the following tools installed:
 ```bash
 # Check Java version
 java -version
-# Expected: openjdk version "17.0.x" or later
+# Expected: openjdk version "17.0.x"
 
 # Check Maven version
 mvn -version

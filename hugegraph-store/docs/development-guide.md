@@ -18,7 +18,7 @@ Comprehensive guide for developing, testing, and contributing to HugeGraph Store
 ### Prerequisites
 
 **Required**:
-- Java: 17 or higher (OpenJDK or Oracle JDK)
+- Java: 17 (currently the only supported release; OpenJDK or Oracle JDK)
 - Maven: 3.6.3 or higher
 - Git: Latest version
 - IDE: IntelliJ IDEA (recommended) or Eclipse

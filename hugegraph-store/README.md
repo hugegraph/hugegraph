@@ -87,7 +87,7 @@ For detailed architecture, Raft consensus mechanisms, and partition management, 
 
 ### Prerequisites
 
-- **Java**: 17 or higher
+- **Java**: 17 (currently the only supported release)
 - **Maven**: 3.6.3 or higher
 - **HugeGraph PD Cluster**: Store requires a running PD cluster for metadata coordination (see [PD README](../hugegraph-pd/README.md))
 - **Disk Space**: At least 10GB per Store node for data and Raft logs
