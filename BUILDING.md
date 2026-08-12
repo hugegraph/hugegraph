@@ -3,8 +3,12 @@ Building HugeGraph
 
 Required:
 
-* Java 17+
+* Java 17 (currently the only supported Java release)
 * Maven 3.6.3+
+
+The launch scripts enforce Java 17 as the minimum runtime. This check does not
+qualify later Java releases; build HugeGraph with Java 17 unless another
+release is explicitly listed as supported.
 
 To build without executing tests: `mvn clean package -Dmaven.test.skip=true`
 

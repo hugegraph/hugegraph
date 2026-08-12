@@ -93,6 +93,9 @@
         <lombok.version>1.18.30</lombok.version>
         <release.name>hugegraph</release.name>
         <maven.compiler.release>17</maven.compiler.release>
+        <!-- Java 17 is the only qualified build/runtime release. Expand this
+             range only after CI qualifies another JDK release. -->
+        <java.supported.version.range>[17,18)</java.supported.version.range>
         <maven.compiler.plugin.version>3.15.0</maven.compiler.plugin.version>
         <maven.surefire.plugin.version>3.5.6</maven.surefire.plugin.version>
         <!-- -Dtest also reaches upstream modules selected by -am. Named leaf
@@ -303,7 +306,7 @@
                                 <!-- TODO: uncomment for checking dependency conflicts -->
                                 <!-- <DependencyConvergence/> -->
                                 <requireJavaVersion>
-                                    <version>[17,)</version>
+                                    <version>${java.supported.version.range}</version>
                                 </requireJavaVersion>
                                 <requireMavenVersion>
                                     <version>[3.6.3,)</version>

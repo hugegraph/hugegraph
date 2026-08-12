@@ -23,7 +23,7 @@ HugeGraph Store is a distributed storage backend for HugeGraph that provides hig
 - **Storage Engine**: RocksDB 7.7.3 (optimized for graph workloads)
 - **Consensus Protocol**: Apache JRaft (Ant Financial's Raft implementation)
 - **RPC Framework**: gRPC + Protocol Buffers
-- **Deployment**: Java 17+, Docker/Kubernetes support
+- **Deployment**: Java 17 (currently supported release), Docker/Kubernetes support
 
 ### When to Use HugeGraph Store
 

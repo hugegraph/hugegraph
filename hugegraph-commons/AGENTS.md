@@ -7,7 +7,7 @@ This file provides guidance to an AI coding tool when working with code in this 
 hugegraph-commons is a shared utility module for Apache HugeGraph and its peripheral components. It provides core infrastructure components (locks, config, events, iterators, REST client, RPC framework) to simplify development across the HugeGraph ecosystem.
 
 **Technology Stack**:
-- Java 17+ (compiler release: 17)
+- Java 17 (currently supported release; compiler release: 17)
 - Apache Maven 3.6.3+
 - Apache Commons Configuration2 for config management
 - OkHttp 4.10.0 for REST client (hugegraph-common)

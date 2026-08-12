@@ -20,4 +20,4 @@ Sources → hugegraph-loader → hugegraph-server → Hubble / Computer / AI
 - Queries: Gremlin (TinkerPop 3.7.6), OpenCypher, REST API + Swagger UI
 - Storage: RocksDB (default), HStore (distributed)
 
-## Version: Server 1.7.0, TinkerPop 3.7.6, Java 17+
+## Version: Server 1.7.0, TinkerPop 3.7.6, Java 17

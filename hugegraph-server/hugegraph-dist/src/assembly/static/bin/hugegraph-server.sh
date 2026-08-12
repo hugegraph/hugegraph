@@ -144,7 +144,7 @@ case "$GC_OPTION" in
                                       -XX:G1RSetUpdatingPauseTimePercent=5"
         ;;
     zgc|ZGC)
-        echo "Using ZGC as the default garbage collector (Only support Java 17+)"
+        echo "Using ZGC as the default garbage collector (requires Java 17 or later)"
         JAVA_OPTIONS="${JAVA_OPTIONS} -XX:+UseZGC -XX:+UnlockExperimentalVMOptions \
                                       -XX:ConcGCThreads=2 -XX:ParallelGCThreads=6 \
                                       -XX:ZCollectionInterval=120 -XX:ZAllocationSpikeTolerance=5 \
