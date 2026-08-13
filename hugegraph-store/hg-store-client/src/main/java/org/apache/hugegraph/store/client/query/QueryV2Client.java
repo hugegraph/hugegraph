@@ -48,7 +48,7 @@ public class QueryV2Client extends AbstractGrpcClient {
     }
 
     public static void setTestChannel(ManagedChannel directChannel) {
-        channels.clear();
+        closeAllChannels();
         channel = directChannel;
     }
 

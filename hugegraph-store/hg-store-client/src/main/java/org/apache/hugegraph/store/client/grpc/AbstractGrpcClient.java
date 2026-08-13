@@ -22,16 +22,21 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.UnknownHostException;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.Map;
+import java.util.Set;
+import java.util.WeakHashMap;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.BooleanSupplier;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -49,7 +54,7 @@ import io.grpc.stub.AbstractStub;
 import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
-public abstract class AbstractGrpcClient {
+public abstract class AbstractGrpcClient implements AutoCloseable {
 
     protected static Map<String, ManagedChannel[]> channels = new ConcurrentHashMap<>();
     private static final Map<String, String> resolvedTargets = new ConcurrentHashMap<>();
@@ -60,17 +65,18 @@ public abstract class AbstractGrpcClient {
             new ConcurrentHashMap<>();
     private static final Map<String, ReentrantReadWriteLock> channelLocks =
             new ConcurrentHashMap<>();
+    private static final Map<AbstractGrpcClient, Boolean> clients =
+            Collections.synchronizedMap(new WeakHashMap<>());
     /*
-     * Refresh runs here rather than on a request thread: a caller of getChannels() may hold a
-     * Gremlin worker stack, which HugeSecurityManager denies socket access to. Creating the very
-     * first pool for a target is still done by the caller, so that path stays exposed.
+     * DNS refresh and first-pool creation run on prestarted threads because a caller of
+     * getChannels() may hold a Gremlin worker stack that HugeSecurityManager restricts.
      */
     private static final ScheduledThreadPoolExecutor CHANNEL_MAINTENANCE_EXECUTOR =
             new ScheduledThreadPoolExecutor(
-                    64, ExecutorPool.newThreadFactory("channel-maintenance"));
+                    4, ExecutorPool.newThreadFactory("channel-maintenance"));
     private static final ScheduledThreadPoolExecutor CHANNEL_INITIALIZATION_EXECUTOR =
             new ScheduledThreadPoolExecutor(
-                    64, ExecutorPool.newThreadFactory("channel-initialization"));
+                    4, ExecutorPool.newThreadFactory("channel-initialization"));
     private static final ScheduledThreadPoolExecutor CHANNEL_RETIREMENT_EXECUTOR =
             new ScheduledThreadPoolExecutor(
                     1, ExecutorPool.newThreadFactory("channel-retirement"));
@@ -108,18 +114,25 @@ public abstract class AbstractGrpcClient {
             new ConcurrentHashMap<>();
     private final Map<String, HgPair<ManagedChannel, AbstractAsyncStub>[]> asyncStubs =
             new ConcurrentHashMap<>();
+    private final Set<String> targets = ConcurrentHashMap.newKeySet();
     private final ThreadPoolExecutor executor;
+    private volatile boolean closed;
 
     {
         executor = ExecutorPool.createExecutor("common", 60, concurrency, concurrency);
     }
 
     public AbstractGrpcClient() {
-
+        clients.put(this, Boolean.TRUE);
     }
 
     public ManagedChannel[] getChannels(String target) {
-        CompletableFuture<Void> refresh = this.triggerChannelRefresh(target);
+        return this.getChannels(target, () -> true);
+    }
+
+    private ManagedChannel[] getChannels(String target, BooleanSupplier targetAvailable) {
+        CompletableFuture<Void> refresh =
+                this.registerTargetAndTriggerRefresh(target, targetAvailable);
         ManagedChannel[] tc = channels.get(target);
         if (tc != null) {
             return tc;
@@ -131,7 +144,12 @@ public abstract class AbstractGrpcClient {
          * avoids that in the common case; if the wait expires the rebuild still happens.
          */
         this.awaitInitialResolution(refresh);
-        synchronized (channels) {
+        ReentrantReadWriteLock targetLock = acquireTargetWriteLock(target);
+        try {
+            if (this.closed || !this.targets.contains(target) ||
+                !targetAvailable.getAsBoolean()) {
+                throw new IllegalStateException("The gRPC target is closed");
+            }
             if ((tc = channels.get(target)) == null) {
                 CompletableFuture<ManagedChannel[]> creation = new CompletableFuture<>();
                 try {
@@ -150,9 +168,10 @@ public abstract class AbstractGrpcClient {
                         } catch (InterruptedException e) {
                             interruption = e;
                         } catch (ExecutionException e) {
-                            Throwable cause = e.getCause();
-                            throw cause instanceof RuntimeException ? (RuntimeException) cause :
-                                  new RuntimeException(cause);
+                            if (interruption != null) {
+                                Thread.currentThread().interrupt();
+                            }
+                            throw propagate(e.getCause());
                         }
                     }
                     if (interruption != null) {
@@ -161,11 +180,12 @@ public abstract class AbstractGrpcClient {
                         throw new RuntimeException(interruption);
                     }
                 } catch (Throwable e) {
-                    throw e instanceof RuntimeException ? (RuntimeException) e :
-                          new RuntimeException(e);
+                    throw propagate(e);
                 }
                 channels.put(target, tc);
             }
+        } finally {
+            targetLock.writeLock().unlock();
         }
         return tc;
     }
@@ -173,8 +193,14 @@ public abstract class AbstractGrpcClient {
     public abstract AbstractBlockingStub getBlockingStub(ManagedChannel channel);
 
     public AbstractBlockingStub getBlockingStub(String target) {
+        return this.getBlockingStub(target, () -> true);
+    }
+
+    protected AbstractBlockingStub getBlockingStub(String target,
+                                                   BooleanSupplier targetAvailable) {
         return this.acquireStub(target, this.blockingStubs, this::getBlockingStub,
-                                stub -> (AbstractBlockingStub) this.setBlockingStubOption(stub));
+                                stub -> (AbstractBlockingStub) this.setBlockingStubOption(stub),
+                                targetAvailable);
     }
 
     /**
@@ -183,16 +209,17 @@ public abstract class AbstractGrpcClient {
      * the last check; a refresh landing immediately afterwards can still retire that pool, so
      * callers are not shielded from an in-flight replacement.
      *
-     * <p>The pool check needs no lock: the pool is published before the previous one is retired,
-     * so reading the current pool from the map is enough to know retirement has not started.
+     * <p>The final pool check and cache publication happen under the target's read lock, so a
+     * replacement cannot publish a new pool and retire the previous one in between them.
      */
     @SuppressWarnings("unchecked")
     private <S> S acquireStub(String target,
                               Map<String, HgPair<ManagedChannel, S>[]> stubCache,
                               Function<ManagedChannel, S> stubFactory,
-                              Function<S, S> stubOption) {
+                              Function<S, S> stubOption,
+                              BooleanSupplier targetAvailable) {
         while (true) {
-            ManagedChannel[] targetChannels = this.getChannels(target);
+            ManagedChannel[] targetChannels = this.getChannels(target, targetAvailable);
             HgPair<ManagedChannel, S>[] pairs = stubCache.get(target);
             int index = nextStubIndex();
             S configuredStub;
@@ -216,8 +243,7 @@ public abstract class AbstractGrpcClient {
                 configuredStub = stubOption.apply(pairs[index].getValue());
             }
 
-            ReentrantReadWriteLock.ReadLock readLock = channelLock(target).readLock();
-            readLock.lock();
+            ReentrantReadWriteLock targetLock = acquireTargetReadLock(target);
             try {
                 if (channels.get(target) != targetChannels) {
                     continue;
@@ -227,13 +253,59 @@ public abstract class AbstractGrpcClient {
                 }
                 return configuredStub;
             } finally {
-                readLock.unlock();
+                targetLock.readLock().unlock();
             }
         }
     }
 
     private static ReentrantReadWriteLock channelLock(String target) {
         return channelLocks.computeIfAbsent(target, key -> new ReentrantReadWriteLock());
+    }
+
+    private static ReentrantReadWriteLock acquireTargetReadLock(String target) {
+        while (true) {
+            ReentrantReadWriteLock lock = channelLock(target);
+            lock.readLock().lock();
+            if (channelLocks.get(target) == lock) {
+                return lock;
+            }
+            lock.readLock().unlock();
+        }
+    }
+
+    private static ReentrantReadWriteLock acquireTargetWriteLock(String target) {
+        while (true) {
+            ReentrantReadWriteLock lock = channelLock(target);
+            lock.writeLock().lock();
+            if (channelLocks.get(target) == lock) {
+                return lock;
+            }
+            lock.writeLock().unlock();
+        }
+    }
+
+    private static RuntimeException propagate(Throwable cause) {
+        if (cause instanceof Error) {
+            throw (Error) cause;
+        }
+        return cause instanceof RuntimeException ? (RuntimeException) cause :
+               new RuntimeException(cause);
+    }
+
+    private CompletableFuture<Void> registerTargetAndTriggerRefresh(
+            String target, BooleanSupplier targetAvailable) {
+        ReentrantReadWriteLock lock = acquireTargetReadLock(target);
+        try {
+            synchronized (clients) {
+                if (this.closed || !targetAvailable.getAsBoolean()) {
+                    throw new IllegalStateException("The gRPC client is closed");
+                }
+                this.targets.add(target);
+            }
+            return this.triggerChannelRefresh(target);
+        } finally {
+            lock.readLock().unlock();
+        }
     }
 
     private static int nextStubIndex() {
@@ -257,8 +329,14 @@ public abstract class AbstractGrpcClient {
     }
 
     public AbstractAsyncStub getAsyncStub(String target) {
+        return this.getAsyncStub(target, () -> true);
+    }
+
+    protected AbstractAsyncStub getAsyncStub(String target,
+                                             BooleanSupplier targetAvailable) {
         return this.acquireStub(target, this.asyncStubs, this::getAsyncStub,
-                                stub -> (AbstractAsyncStub) this.setStubOption(stub));
+                                stub -> (AbstractAsyncStub) this.setStubOption(stub),
+                                targetAvailable);
     }
 
     protected AbstractStub setStubOption(AbstractStub value) {
@@ -306,7 +384,7 @@ public abstract class AbstractGrpcClient {
         try {
             this.submitChannelRefresh(() -> {
                 try {
-                    this.refreshChannelsIfAddressChanged(target);
+                    this.refreshChannelsIfAddressChanged(target, refresh);
                 } catch (Throwable e) {
                     // The executor discards what a task throws, so report it here.
                     log.warn("Failed to refresh channels of target {}", target, e);
@@ -328,8 +406,9 @@ public abstract class AbstractGrpcClient {
          * than failing can outlast its own interval, which would let every later call queue
          * another lookup behind it.
          */
-        this.postponeNextRefresh(target);
-        refreshTasks.remove(target, refresh);
+        if (refreshTasks.remove(target, refresh)) {
+            this.postponeNextRefresh(target);
+        }
         refresh.complete(null);
     }
 
@@ -361,9 +440,10 @@ public abstract class AbstractGrpcClient {
      * the target's pool when its resolved address set has changed, publishing the replacement
      * before retiring the previous pool.
      */
-    private void refreshChannelsIfAddressChanged(String target) {
+    private void refreshChannelsIfAddressChanged(String target,
+                                                  CompletableFuture<Void> refresh) {
         String resolvedTarget = this.resolveTarget(target);
-        if (resolvedTarget.isEmpty()) {
+        if (resolvedTarget.isEmpty() || refreshTasks.get(target) != refresh) {
             return;
         }
 
@@ -377,7 +457,14 @@ public abstract class AbstractGrpcClient {
              * Nothing to replace yet. Recording the address here is what lets the common path
              * build its first pool already knowing the address, instead of rebuilding it.
              */
-            resolvedTargets.put(target, resolvedTarget);
+            ReentrantReadWriteLock targetLock = acquireTargetWriteLock(target);
+            try {
+                if (refreshTasks.get(target) == refresh && channels.get(target) == null) {
+                    resolvedTargets.put(target, resolvedTarget);
+                }
+            } finally {
+                targetLock.writeLock().unlock();
+            }
             return;
         }
 
@@ -391,12 +478,12 @@ public abstract class AbstractGrpcClient {
             return;
         }
 
-        ReentrantReadWriteLock.WriteLock writeLock = channelLock(target).writeLock();
-        writeLock.lock();
+        ReentrantReadWriteLock targetLock = acquireTargetWriteLock(target);
         try {
             boolean replaced = false;
             synchronized (channels) {
-                if (channels.get(target) == staleChannels) {
+                if (refreshTasks.get(target) == refresh &&
+                    channels.get(target) == staleChannels) {
                     channels.put(target, replacementChannels);
                     resolvedTargets.put(target, resolvedTarget);
                     replaced = true;
@@ -408,7 +495,7 @@ public abstract class AbstractGrpcClient {
             }
             this.retireChannels(replaced ? staleChannels : replacementChannels);
         } finally {
-            writeLock.unlock();
+            targetLock.writeLock().unlock();
         }
     }
 
@@ -444,20 +531,20 @@ public abstract class AbstractGrpcClient {
     private ManagedChannel[] createChannels(String target) {
         ManagedChannel[] value = new ManagedChannel[concurrency];
         CountDownLatch latch = new CountDownLatch(concurrency);
-        AtomicReference<RuntimeException> failure = new AtomicReference<>();
+        AtomicReference<Throwable> failure = new AtomicReference<>();
         for (int i = 0; i < concurrency; i++) {
             int fi = i;
             try {
                 this.submitChannelCreation(() -> {
                     try {
                         value[fi] = createChannel(target);
-                    } catch (Exception e) {
-                        failure.compareAndSet(null, new RuntimeException(e));
+                    } catch (Throwable e) {
+                        failure.compareAndSet(null, e);
                     } finally {
                         latch.countDown();
                     }
                 });
-            } catch (RuntimeException e) {
+            } catch (Throwable e) {
                 failure.compareAndSet(null, e);
                 latch.countDown();
             }
@@ -475,18 +562,113 @@ public abstract class AbstractGrpcClient {
         if (failure.get() != null || interruption != null) {
             forceTerminateChannels(value);
         }
+        if (failure.get() == null && Arrays.stream(value).anyMatch(channel -> channel == null)) {
+            failure.set(new IllegalStateException("Channel creation returned a null channel"));
+            forceTerminateChannels(value);
+        }
         if (interruption != null) {
             Thread.currentThread().interrupt();
             throw new RuntimeException(interruption);
         }
         if (failure.get() != null) {
-            throw failure.get();
+            Throwable cause = failure.get();
+            if (cause instanceof Error) {
+                throw (Error) cause;
+            }
+            throw propagate(cause);
         }
         return value;
     }
 
+    @Override
+    public void close() {
+        String[] ownedTargets;
+        synchronized (clients) {
+            this.closed = true;
+            ownedTargets = this.targets.toArray(new String[0]);
+        }
+        for (String target : ownedTargets) {
+            ReentrantReadWriteLock lock = acquireTargetWriteLock(target);
+            try {
+                synchronized (clients) {
+                    this.targets.remove(target);
+                    this.blockingStubs.remove(target);
+                    this.asyncStubs.remove(target);
+                    if (!isTargetInUse(target)) {
+                        closeChannelLocked(target, lock);
+                    }
+                }
+            } finally {
+                lock.writeLock().unlock();
+            }
+        }
+        clients.remove(this);
+        synchronized (this.executor) {
+            this.executor.shutdown();
+        }
+    }
+
+    protected static void closeAllChannels() {
+        Set<String> targets = ConcurrentHashMap.newKeySet();
+        synchronized (clients) {
+            targets.addAll(channels.keySet());
+            targets.addAll(resolvedTargets.keySet());
+            targets.addAll(nextResolutions.keySet());
+            targets.addAll(refreshTasks.keySet());
+            targets.addAll(channelLocks.keySet());
+            for (AbstractGrpcClient client : clients.keySet()) {
+                targets.addAll(client.targets);
+                client.targets.clear();
+                client.blockingStubs.clear();
+                client.asyncStubs.clear();
+            }
+        }
+        for (String target : targets) {
+            closeChannel(target);
+        }
+    }
+
+    private static boolean isTargetInUse(String target) {
+        return clients.keySet().stream().anyMatch(client -> client.targets.contains(target));
+    }
+
+    public static void closeChannel(String target) {
+        ReentrantReadWriteLock lock = acquireTargetWriteLock(target);
+        try {
+            closeChannelLocked(target, lock);
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    private static void closeChannelLocked(String target, ReentrantReadWriteLock lock) {
+        CompletableFuture<Void> refresh = refreshTasks.remove(target);
+        if (refresh != null) {
+            refresh.complete(null);
+        }
+        ManagedChannel[] retiredChannels = channels.remove(target);
+        resolvedTargets.remove(target);
+        nextResolutions.remove(target);
+        synchronized (clients) {
+            for (AbstractGrpcClient client : clients.keySet()) {
+                client.targets.remove(target);
+                client.blockingStubs.remove(target);
+                client.asyncStubs.remove(target);
+            }
+        }
+        if (retiredChannels != null) {
+            forceTerminateChannels(retiredChannels);
+        }
+        channelLocks.remove(target, lock);
+    }
+
     void submitChannelCreation(Runnable task) {
-        this.executor.execute(task);
+        synchronized (this.executor) {
+            if (this.executor.isShutdown()) {
+                throw new RejectedExecutionException("The gRPC client is closed");
+            }
+            this.executor.execute(task);
+        }
     }
 
     private void retireChannels(ManagedChannel[] retiredChannels) {
@@ -507,7 +689,7 @@ public abstract class AbstractGrpcClient {
         CHANNEL_RETIREMENT_EXECUTOR.schedule(task, timeoutNanos, TimeUnit.NANOSECONDS);
     }
 
-    private void forceTerminateChannels(ManagedChannel[] retiredChannels) {
+    private static void forceTerminateChannels(ManagedChannel[] retiredChannels) {
         for (ManagedChannel channel : retiredChannels) {
             if (channel != null && !channel.isTerminated()) {
                 channel.shutdownNow();
@@ -517,9 +699,9 @@ public abstract class AbstractGrpcClient {
 
     /**
      * Extracts the host that a gRPC target resolves through, covering the plain {@code host:port}
-     * form and the {@code dns:} scheme in both its {@code dns:host:port} and
-     * {@code dns://authority/host:port} spellings. Any other resolver scheme returns an empty
-     * host, leaving that target to gRPC instead of monitoring the wrong endpoint.
+     * form and slash-prefixed {@code dns:///host:port} and
+     * {@code dns://authority/host:port} spellings. The opaque {@code dns:host:port} spelling and
+     * any other resolver scheme return an empty host, leaving that target to gRPC.
      */
     private static String targetHost(String target) {
         if (target == null || target.isEmpty()) {

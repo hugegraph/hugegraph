@@ -58,8 +58,8 @@ class GrpcStoreSessionClient extends AbstractGrpcClient {
     }
 
     private HgStoreSessionBlockingStub getBlockingStub(HgStoreNodeSession nodeSession) {
-        return (HgStoreSessionBlockingStub) getBlockingStub(
-                nodeSession.getStoreNode().getAddress());
+        GrpcStoreNodeImpl node = (GrpcStoreNodeImpl) nodeSession.getStoreNode();
+        return (HgStoreSessionBlockingStub) getBlockingStub(node.getAddress(), node::isCurrent);
     }
 
     FeedbackRes doGet(HgStoreNodeSession nodeSession, String table, HgOwnerKey ownerKey) {

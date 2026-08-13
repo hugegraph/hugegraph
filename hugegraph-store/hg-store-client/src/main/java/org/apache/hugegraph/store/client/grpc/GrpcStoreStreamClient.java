@@ -44,7 +44,8 @@ import lombok.extern.slf4j.Slf4j;
 public class GrpcStoreStreamClient extends AbstractGrpcClient {
 
     public HgStoreStreamStub getStub(HgStoreNodeSession nodeSession) {
-        return (HgStoreStreamStub) getAsyncStub(nodeSession.getStoreNode().getAddress());
+        GrpcStoreNodeImpl node = (GrpcStoreNodeImpl) nodeSession.getStoreNode();
+        return (HgStoreStreamStub) getAsyncStub(node.getAddress(), node::isCurrent);
     }
 
     @Override
@@ -53,7 +54,8 @@ public class GrpcStoreStreamClient extends AbstractGrpcClient {
     }
 
     private HgStoreStreamBlockingStub getBlockingStub(HgStoreNodeSession nodeSession) {
-        return (HgStoreStreamBlockingStub) getBlockingStub(nodeSession.getStoreNode().getAddress());
+        GrpcStoreNodeImpl node = (GrpcStoreNodeImpl) nodeSession.getStoreNode();
+        return (HgStoreStreamBlockingStub) getBlockingStub(node.getAddress(), node::isCurrent);
     }
 
     @Override

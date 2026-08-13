@@ -106,5 +106,6 @@ public class GrpcStoreStateClient extends AbstractGrpcClient implements Closeabl
             }
         }
         channels.clear();
+        super.close();
     }
 }

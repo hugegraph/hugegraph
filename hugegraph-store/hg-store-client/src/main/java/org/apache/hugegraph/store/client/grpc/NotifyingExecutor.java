@@ -245,7 +245,8 @@ final class NotifyingExecutor {
             nodeManager.notifying(
                     this.graphName,
                     HgStoreNotice.of(this.nodeSession.getStoreNode().getNodeId(), status,
-                                     t.getMessage())
+                                     t.getMessage()),
+                    this.nodeSession.getStoreNode()
             );
         };
     }

@@ -21,6 +21,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNotSame;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
@@ -38,6 +39,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -45,7 +47,12 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
+import org.apache.hugegraph.store.HgStoreSession;
+import org.apache.hugegraph.store.client.HgStoreNode;
+import org.apache.hugegraph.store.client.HgStoreNodeManager;
+import org.apache.hugegraph.store.client.HgStoreNotice;
 import org.apache.hugegraph.store.client.query.QueryV2Client;
+import org.apache.hugegraph.store.client.type.HgNodeStatus;
 import org.apache.hugegraph.store.grpc.query.QueryServiceGrpc;
 import org.apache.hugegraph.store.term.HgPair;
 import org.junit.Test;
@@ -164,6 +171,26 @@ public class AbstractGrpcClientTest {
         Field field = AbstractGrpcClient.class.getDeclaredField("executor");
         field.setAccessible(true);
         return (ThreadPoolExecutor) field.get(client);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<String, ?> staticMap(String fieldName) throws Exception {
+        Field field = AbstractGrpcClient.class.getDeclaredField(fieldName);
+        field.setAccessible(true);
+        return (Map<String, ?>) field.get(null);
+    }
+
+    private static int executorCorePoolSize(String fieldName) throws Exception {
+        Field field = AbstractGrpcClient.class.getDeclaredField(fieldName);
+        field.setAccessible(true);
+        return ((ScheduledThreadPoolExecutor) field.get(null)).getCorePoolSize();
+    }
+
+    @Test
+    public void testTrustedExecutorsHaveBoundedEagerFootprint() throws Exception {
+        assertEquals(4, executorCorePoolSize("CHANNEL_MAINTENANCE_EXECUTOR"));
+        assertEquals(4, executorCorePoolSize("CHANNEL_INITIALIZATION_EXECUTOR"));
+        assertEquals(1, executorCorePoolSize("CHANNEL_RETIREMENT_EXECUTOR"));
     }
 
     @Test
@@ -679,6 +706,37 @@ public class AbstractGrpcClientTest {
     }
 
     @Test
+    public void testBlockedColdInitializationDoesNotStarveAnotherTarget() throws Exception {
+        String blockedTarget = uniqueTarget("blocked-cold");
+        String healthyTarget = uniqueTarget("healthy-cold");
+        CreationControlGrpcClient blocked = new CreationControlGrpcClient();
+        RecordingGrpcClient healthy = new RecordingGrpcClient();
+        blocked.releaseCreation = new CountDownLatch(1);
+        AtomicReference<Throwable> blockedFailure = new AtomicReference<>();
+        Thread caller = new Thread(() -> {
+            try {
+                blocked.getChannels(blockedTarget);
+            } catch (Throwable e) {
+                blockedFailure.set(e);
+            }
+        });
+
+        caller.start();
+        assertTrue("the blocked target must start channel creation",
+                   blocked.creationStarted.await(5, TimeUnit.SECONDS));
+        try {
+            assertNotNull("another cold target must initialize independently",
+                          healthy.getChannels(healthyTarget));
+        } finally {
+            blocked.releaseCreation.countDown();
+        }
+        caller.join(TimeUnit.SECONDS.toMillis(5L));
+        assertFalse("the blocked cold caller must finish", caller.isAlive());
+        assertTrue("the blocked cold caller must not fail: " + blockedFailure.get(),
+                   blockedFailure.get() == null);
+    }
+
+    @Test
     public void testPartialChannelsAreRetiredAfterMixedCreationFailure() {
         String target = uniqueTarget("partial-creation-failure");
         CreationControlGrpcClient client = new CreationControlGrpcClient();
@@ -697,6 +755,178 @@ public class AbstractGrpcClientTest {
                    client.createdChannels.stream().allMatch(channel ->
                            channel.isTerminated() &&
                            ((FakeManagedChannel) channel).isForceShutdown()));
+    }
+
+    @Test
+    public void testErrorDuringCreationCannotPublishPartialPool() {
+        String target = uniqueTarget("creation-error");
+        CreationControlGrpcClient client = new CreationControlGrpcClient();
+        client.errorAttempt = 5;
+
+        AssertionError creationError = null;
+        try {
+            client.getChannels(target);
+        } catch (AssertionError e) {
+            creationError = e;
+        }
+        assertNotNull("channel creation must propagate the injected error", creationError);
+        assertEquals("injected channel creation error", creationError.getMessage());
+
+        assertFalse("a partial pool must never be published",
+                    AbstractGrpcClient.channels.containsKey(target));
+        assertEquals("all sibling creation tasks must converge",
+                     AbstractGrpcClient.concurrency - 1, client.createdChannels.size());
+        assertTrue("every sibling channel must be force terminated",
+                   client.createdChannels.stream().allMatch(channel ->
+                           channel.isTerminated() &&
+                           ((FakeManagedChannel) channel).isForceShutdown()));
+    }
+
+    @Test
+    public void testCloseRemovesTargetStateAndBlocksLateRefreshPublication() throws Exception {
+        String target = uniqueTarget("close-state");
+        RecordingGrpcClient client = new RecordingGrpcClient();
+        ManagedChannel[] published = client.getChannels(target);
+        assertNotNull(client.getBlockingStub(target));
+        assertNotNull(client.getAsyncStub(target));
+        awaitCondition("the initial refresh must settle", () -> refreshIsIdle(client, target));
+
+        client.delayResolution = true;
+        client.delayedResolutionTimeoutSeconds = 30L;
+        client.resolvedTarget = "10.0.0.2";
+        client.getChannels(target);
+        assertTrue(client.delayedResolutionStarted.await(5, TimeUnit.SECONDS));
+        client.close();
+        client.releaseDelayedResolution.countDown();
+
+        awaitCondition("the closed target refresh must settle", () -> refreshIsIdle(client,
+                                                                                     target));
+        assertFalse(AbstractGrpcClient.channels.containsKey(target));
+        assertFalse(staticMap("resolvedTargets").containsKey(target));
+        assertFalse(staticMap("nextResolutions").containsKey(target));
+        assertFalse(staticMap("channelLocks").containsKey(target));
+        assertTrue(channelCreationExecutor(client).isShutdown());
+        assertTrue("closing must terminate every published channel",
+                   fakeChannels(published).stream().allMatch(FakeManagedChannel::isTerminated));
+        try {
+            client.getChannels(target);
+            fail("a closed client must reject new targets");
+        } catch (IllegalStateException ignored) {
+            // Expected.
+        }
+    }
+
+    @Test
+    public void testTerminalNodeNoticeEvictsTargetState() throws Exception {
+        String target = uniqueTarget("terminal-node");
+        long nodeId = TARGET_SEQ.incrementAndGet();
+        RecordingGrpcClient client = new RecordingGrpcClient();
+        HgStoreNodeManager manager = HgStoreNodeManager.getInstance();
+        HgStoreNode node = new HgStoreNode() {
+            @Override
+            public Long getNodeId() {
+                return nodeId;
+            }
+
+            @Override
+            public String getAddress() {
+                return target;
+            }
+
+            @Override
+            public HgStoreSession openSession(String graphName) {
+                return null;
+            }
+        };
+
+        manager.addNode("terminal-node-test", node);
+        ManagedChannel[] published = client.getChannels(target);
+        awaitCondition("the initial refresh must settle", () -> refreshIsIdle(client, target));
+        manager.notifying("terminal-node-test",
+                          HgStoreNotice.of(nodeId, HgNodeStatus.NOT_WORK), node);
+
+        assertNull(manager.getStoreNode(nodeId));
+        assertFalse(AbstractGrpcClient.channels.containsKey(target));
+        assertFalse(staticMap("resolvedTargets").containsKey(target));
+        assertFalse(staticMap("nextResolutions").containsKey(target));
+        assertFalse(staticMap("channelLocks").containsKey(target));
+        assertTrue(fakeChannels(published).stream().allMatch(FakeManagedChannel::isTerminated));
+        try {
+            client.getBlockingStub(target, () -> manager.isCurrentNode(node));
+            fail("a stale node must not recreate target state");
+        } catch (IllegalStateException ignored) {
+            // Expected.
+        }
+        assertFalse(AbstractGrpcClient.channels.containsKey(target));
+        assertFalse(staticMap("nextResolutions").containsKey(target));
+    }
+
+    @Test
+    public void testStaleNodeNoticePreservesSameAddressReplacement() throws Exception {
+        String target = uniqueTarget("replacement-node");
+        long nodeId = TARGET_SEQ.incrementAndGet();
+        RecordingGrpcClient client = new RecordingGrpcClient();
+        HgStoreNodeManager manager = HgStoreNodeManager.getInstance();
+        HgStoreNode staleNode = new GrpcStoreNodeImpl(manager, null, null)
+                                .setNodeId(nodeId).setAddress(target);
+        HgStoreNode replacementNode = new GrpcStoreNodeImpl(manager, null, null)
+                                      .setNodeId(nodeId).setAddress(target);
+
+        manager.addNode("replacement-node-test", staleNode);
+        manager.addNode("replacement-node-test", replacementNode);
+        ManagedChannel[] published = client.getChannels(target);
+        awaitCondition("the initial refresh must settle", () -> refreshIsIdle(client, target));
+        manager.notifying("replacement-node-test",
+                          HgStoreNotice.of(nodeId, HgNodeStatus.NOT_WORK), staleNode);
+        manager.notifying("replacement-node-test",
+                          HgStoreNotice.of(nodeId, HgNodeStatus.NOT_WORK), staleNode);
+
+        assertSame(replacementNode, manager.getStoreNode(nodeId));
+        assertTrue(manager.getStoreNodes("replacement-node-test")
+                          .stream().anyMatch(node -> node == replacementNode));
+        assertSame(published, AbstractGrpcClient.channels.get(target));
+        assertTrue(allChannelsAreLive(published));
+    }
+
+    private static HgStoreNode testNode(long nodeId, String address) {
+        return new HgStoreNode() {
+            @Override
+            public Long getNodeId() {
+                return nodeId;
+            }
+
+            @Override
+            public String getAddress() {
+                return address;
+            }
+
+            @Override
+            public HgStoreSession openSession(String graphName) {
+                return null;
+            }
+        };
+    }
+
+    @Test
+    public void testCloseDuringReplacementCreationCannotStrandRefresh() throws Exception {
+        String target = uniqueTarget("close-creation");
+        CreationControlGrpcClient client = new CreationControlGrpcClient();
+        client.getChannels(target);
+        awaitCondition("the initial refresh must settle", () -> refreshIsIdle(client, target));
+
+        client.creationStarted = new CountDownLatch(AbstractGrpcClient.concurrency);
+        client.releaseCreation = new CountDownLatch(1);
+        client.resolvedTarget = "10.0.0.2";
+        client.getChannels(target);
+        assertTrue("replacement channel creation must start",
+                   client.creationStarted.await(5, TimeUnit.SECONDS));
+        client.close();
+        client.releaseCreation.countDown();
+
+        awaitCondition("closing must not strand the replacement refresh",
+                       () -> refreshIsIdle(client, target));
+        assertFalse(AbstractGrpcClient.channels.containsKey(target));
+        assertTrue(channelCreationExecutor(client).isShutdown());
     }
 
     @Test
@@ -738,6 +968,36 @@ public class AbstractGrpcClientTest {
                    client.createdChannels.stream().allMatch(channel ->
                            channel.isTerminated() &&
                            ((FakeManagedChannel) channel).isForceShutdown()));
+    }
+
+    @Test
+    public void testInterruptedCreationFailureRestoresInterruptStatus() throws Exception {
+        String target = uniqueTarget("interrupted-creation-failure");
+        CreationControlGrpcClient client = new CreationControlGrpcClient();
+        client.failedAttempt = 5;
+        client.releaseCreation = new CountDownLatch(1);
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        AtomicBoolean interrupted = new AtomicBoolean();
+        Thread caller = new Thread(() -> {
+            try {
+                client.getChannels(target);
+            } catch (Throwable e) {
+                failure.set(e);
+                interrupted.set(Thread.currentThread().isInterrupted());
+            }
+        });
+
+        caller.start();
+        assertTrue("all channel creation tasks must start",
+                   client.creationStarted.await(5, TimeUnit.SECONDS));
+        caller.interrupt();
+        client.releaseCreation.countDown();
+        caller.join(TimeUnit.SECONDS.toMillis(5L));
+
+        assertFalse("the interrupted creation call must finish", caller.isAlive());
+        assertTrue("the creation failure must be propagated",
+                   failure.get() instanceof IllegalStateException);
+        assertTrue("the caller interrupt status must be restored", interrupted.get());
     }
 
     @Test
@@ -1148,10 +1408,12 @@ public class AbstractGrpcClientTest {
     private static class CreationControlGrpcClient extends RecordingGrpcClient {
 
         private final AtomicInteger attempt = new AtomicInteger();
-        private final CountDownLatch creationStarted =
+        private volatile CountDownLatch creationStarted =
                 new CountDownLatch(AbstractGrpcClient.concurrency);
         /** Negative never fails. */
         private volatile int failedAttempt = -1;
+        /** Negative never throws an Error. */
+        private volatile int errorAttempt = -1;
         /** Null creates channels without delay. */
         private volatile CountDownLatch releaseCreation;
 
@@ -1161,6 +1423,9 @@ public class AbstractGrpcClientTest {
             this.creationStarted.countDown();
             if (current == this.failedAttempt) {
                 throw new IllegalStateException("injected channel creation failure");
+            }
+            if (current == this.errorAttempt) {
+                throw new AssertionError("injected channel creation error");
             }
             CountDownLatch release = this.releaseCreation;
             if (release != null) {

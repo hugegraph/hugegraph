@@ -26,6 +26,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 import javax.annotation.concurrent.ThreadSafe;
 
+import org.apache.hugegraph.store.client.grpc.AbstractGrpcClient;
 import org.apache.hugegraph.store.client.grpc.GrpcStoreNodeBuilder;
 import org.apache.hugegraph.store.client.type.HgNodeStatus;
 import org.apache.hugegraph.store.client.type.HgStoreClientException;
@@ -97,6 +98,10 @@ public final class HgStoreNodeManager {
         return this.nodeIdMap.get(nodeId);
     }
 
+    public boolean isCurrentNode(HgStoreNode node) {
+        return node != null && this.nodeIdMap.get(node.getNodeId()) == node;
+    }
+
     /**
      * Apply a HgStoreNode instance with graph-name and node-id.
      * <b>CAUTION:</b>
@@ -150,7 +155,6 @@ public final class HgStoreNodeManager {
      * @throws HgStoreClientException
      */
     public Integer notifying(String graphName, HgStoreNotice notice) {
-
         if (this.nodeNotifier != null) {
 
             synchronized (Thread.currentThread()) {
@@ -168,6 +172,41 @@ public final class HgStoreNodeManager {
         }
 
         return null;
+    }
+
+    public Integer notifying(String graphName, HgStoreNotice notice,
+                             HgStoreNode expectedNode) {
+        if (notice.getNodeStatus() == HgNodeStatus.NOT_ONLINE ||
+            notice.getNodeStatus() == HgNodeStatus.NOT_WORK) {
+            this.evictNode(expectedNode);
+        }
+        return this.notifying(graphName, notice);
+    }
+
+    private void evictNode(HgStoreNode expectedNode) {
+        boolean removeFromGraphs = false;
+        synchronized (this.nodeIdMap) {
+            HgStoreNode currentNode = this.nodeIdMap.get(expectedNode.getNodeId());
+            if (currentNode == expectedNode) {
+                this.nodeIdMap.remove(expectedNode.getNodeId(), expectedNode);
+                this.addressMap.remove(expectedNode.getAddress(), expectedNode);
+                AbstractGrpcClient.closeChannel(expectedNode.getAddress());
+                removeFromGraphs = true;
+            } else if (currentNode == null ||
+                       !currentNode.getAddress().equals(expectedNode.getAddress())) {
+                AbstractGrpcClient.closeChannel(expectedNode.getAddress());
+                removeFromGraphs = true;
+            } else {
+                removeFromGraphs = true;
+            }
+        }
+        if (removeFromGraphs) {
+            synchronized (this.graphNodesMap) {
+                for (List<HgStoreNode> nodes : this.graphNodesMap.values()) {
+                    nodes.removeIf(node -> node == expectedNode);
+                }
+            }
+        }
     }
 
     /**
