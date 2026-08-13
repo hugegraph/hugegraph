@@ -83,10 +83,11 @@ A fresh install seeds PD with a partition shard count of 3 when
 default of 1. The seed applies at first bootstrap only; see Partition
 Sharding below.
 
-This first chart is version `0.1.0`. While the contribution is a draft, its
-component image tags and `appVersion` track `latest` with pull policy `Always`.
-Before stable publication, pin all three component tags and `appVersion` to the
-next HugeGraph release and switch the component pull policies to
+This first chart is version `0.1.0`. On this test branch, PD, Store, and
+Server default to `hugegraph/*:local` with `pullPolicy: Never`. Hubble still
+tracks `hugegraph/hubble:latest` with `Always` (source is in
+`hugegraph-toolchain`). Before stable publication, pin all component tags and
+`appVersion` to the next HugeGraph release and switch pull policies to
 `IfNotPresent`.
 
 Verify the release:
@@ -99,13 +100,86 @@ helm test hugegraph --namespace hugegraph
 
 | File | Purpose |
 |---|---|
-| `values.yaml` | Default 3+3+3 topology with preferred anti-affinity, so it schedules on clusters of any node count |
-| `values-single.yaml` | Single-node 1+1+1 example |
+| `values.yaml` | Default 3+3+3 topology with preferred anti-affinity. PD, Store, and Server use `hugegraph/*:local` with `pullPolicy: Never`. Hubble still pulls `hugegraph/hubble:latest` |
+| `values-single.yaml` | Single-node 1+1+1 Kind/minikube preset (same local image pin as `values.yaml`) |
 | `values-cluster.yaml` | Production 3+3+3 starting point with JVM/resources, PD/Store PDBs, and required anti-affinity for PD and Store; Hubble stays opt-in because the preset does not enable authentication |
 
 `values-cluster.yaml` is a production starting point, not a capacity
 guarantee. Recalculate capacity for the graph size, traffic, failure budget,
 node topology, and storage class before production use.
+
+### Local images (Kind / minikube)
+
+PD, Store, and Server do not pull from Docker Hub. Build those three images
+from this repository, load them into the cluster, then install. Hubble source
+lives in `hugegraph-toolchain`, so it still pulls `hugegraph/hubble:latest`.
+Current Hubble images need `server.auth`; create the admin Secret before
+install (see Authentication below).
+
+```bash
+# Kind
+kind create cluster --name hg
+
+docker build -f hugegraph-pd/Dockerfile -t hugegraph/pd:local .
+docker build -f hugegraph-store/Dockerfile -t hugegraph/store:local .
+docker build -f hugegraph-server/Dockerfile-hstore -t hugegraph/server:local .
+
+kind load docker-image hugegraph/pd:local hugegraph/store:local \
+  hugegraph/server:local --name hg
+
+# minikube: minikube image load hugegraph/pd:local \
+#   hugegraph/store:local hugegraph/server:local
+
+kubectl create namespace hugegraph
+kubectl -n hugegraph create secret generic hugegraph-admin \
+  --from-literal=password='CHANGE_ME'
+
+helm install hugegraph ./helm/hugegraph \
+  --namespace hugegraph \
+  -f helm/hugegraph/values-single.yaml \
+  --set server.auth.enabled=true \
+  --set server.auth.existingSecret=hugegraph-admin \
+  --set hubble.enabled=true \
+  --set hubble.mode=pd
+```
+
+Server uses `Dockerfile-hstore` so the image default backend is HStore. Skip
+`kind load` / `minikube image load` and the Pods fail with `ErrImageNeverPull`.
+Do not reuse Docker Hub `hugegraph/*:latest` under the `local` tag.
+
+#### Authentication (local / auth-enabled install)
+
+The chart does not create the admin Secret and does not take a password in
+values. You create the Secret yourself, then point the release at it. That
+keeps the password out of Helm values, release history, and git.
+
+Steps:
+
+1. Create the namespace (if it does not exist).
+2. Create a Secret whose name you will pass as `server.auth.existingSecret`.
+   The Secret must contain the key `password` (no newlines, carriage returns,
+   or backslashes).
+3. Install or upgrade with `server.auth.enabled=true` and
+   `server.auth.existingSecret` set to that Secret name.
+4. Log in to Hubble or the REST API as `admin` with that password.
+
+```bash
+kubectl create namespace hugegraph
+kubectl -n hugegraph create secret generic hugegraph-admin \
+  --from-literal=password='CHANGE_ME'
+
+helm install hugegraph ./helm/hugegraph \
+  --namespace hugegraph \
+  -f helm/hugegraph/values-single.yaml \
+  --set server.auth.enabled=true \
+  --set server.auth.existingSecret=hugegraph-admin \
+  --set hubble.enabled=true \
+  --set hubble.mode=pd
+```
+
+The Secret sets `auth.admin_pa` only when the admin account is first created.
+Changing the Secret later does not rotate an existing cluster password. With
+authentication disabled, leave `server.auth.existingSecret` empty.
 
 ## Upgrading the Chart
 

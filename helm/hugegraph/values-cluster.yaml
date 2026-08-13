@@ -21,6 +21,10 @@
 
 pd:
   replicas: 3
+  image:
+    repository: hugegraph/pd
+    tag: local
+    pullPolicy: Never
   javaOpts: >-
     -Xms256m -Xmx512m
     -XX:MaxMetaspaceSize=256m
@@ -43,6 +47,10 @@ pd:
 
 store:
   replicas: 3
+  image:
+    repository: hugegraph/store
+    tag: local
+    pullPolicy: Never
   javaOpts: >-
     -Xms512m -Xmx1024m
     -XX:MaxMetaspaceSize=256m
@@ -72,6 +80,10 @@ store:
 
 server:
   replicas: 3
+  image:
+    repository: hugegraph/server
+    tag: local
+    pullPolicy: Never
   javaOpts: >-
     -Xms512m -Xmx1024m
     -XX:MaxMetaspaceSize=256m
