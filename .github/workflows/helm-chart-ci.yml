@@ -55,6 +55,26 @@ jobs:
             # shellcheck disable=SC2086 # $preset intentionally splits into flags
             helm template ci helm/hugegraph $preset > /dev/null
           done
+          # The default contract enables Server auth and Hubble and creates
+          # the auth Secret automatically.
+          helm template ci helm/hugegraph > /tmp/helm-default.yaml
+          grep -qF 'app.kubernetes.io/component: hubble' /tmp/helm-default.yaml
+          grep -qF 'kind: Secret' /tmp/helm-default.yaml
+          grep -qF 'helm.sh/resource-policy: keep' /tmp/helm-default.yaml
+          grep -qF 'name: PASSWORD' /tmp/helm-default.yaml
+          # An explicitly supplied Secret takes precedence over auto-creation.
+          helm template ci helm/hugegraph \
+            --set server.auth.autoGenerateSecret=true \
+            --set server.auth.existingSecret=ci-auth > /tmp/helm-existing-secret.yaml
+          grep -qF 'name: "ci-auth"' /tmp/helm-existing-secret.yaml
+          if grep -qF 'helm.sh/resource-policy: keep' /tmp/helm-existing-secret.yaml; then
+            echo "existingSecret must suppress the generated auth Secret" >&2
+            exit 1
+          fi
+          # Keep the pre-authentication deployment mode available explicitly.
+          helm template ci helm/hugegraph \
+            --set server.auth.enabled=false \
+            --set hubble.enabled=false > /dev/null
           # Positive coverage for every hubble wrapper branch: pd mode with
           # auth, direct mode with a custom port, and a TLS-less ingress with
           # the explicit opt-in.
@@ -64,6 +84,7 @@ jobs:
             --set server.auth.existingSecret=ci-auth > /dev/null
           helm template ci helm/hugegraph \
             --set hubble.enabled=true \
+            --set server.auth.enabled=false \
             --set hubble.allowWithoutServerAuth=true \
             --set hubble.mode=direct \
             --set hubble.port=9090 \
@@ -104,9 +125,12 @@ jobs:
             --set server.resources.requests.cpu=100m \
             --set server.pdb.enabled=true \
             --set server.pdb.minAvailable=2
-          must_fail --set server.auth.enabled=true
-          must_fail --set hubble.enabled=true
-          A=(--set hubble.enabled=true --set hubble.allowWithoutServerAuth=true)
+          A=(
+            --set server.auth.enabled=false
+            --set hubble.enabled=true
+            --set hubble.allowWithoutServerAuth=true
+          )
+          must_fail --set server.auth.enabled=true --set server.auth.autoGenerateSecret=false
           must_fail "${A[@]}" --set hubble.port=0
           must_fail "${A[@]}" \
             --set hubble.persistence.enabled=true \
@@ -156,6 +180,7 @@ jobs:
           done
           helm template ci helm/hugegraph \
             --set hubble.enabled=true \
+            --set server.auth.enabled=false \
             --set hubble.allowWithoutServerAuth=true \
             --set hubble.mode=direct \
             --set hubble.port=9090 \
@@ -165,7 +190,6 @@ jobs:
             | /tmp/kubeconform -strict -summary -kubernetes-version 1.23.0
           helm template ci helm/hugegraph \
             --set hubble.enabled=true \
-            --set server.auth.enabled=true \
             --set server.auth.existingSecret=ci-auth \
             | /tmp/kubeconform -strict -summary -kubernetes-version 1.23.0
           helm template ci helm/hugegraph \

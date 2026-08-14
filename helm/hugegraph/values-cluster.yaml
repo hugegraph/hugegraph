@@ -15,7 +15,7 @@
 # limitations under the License.
 #
 
-# Production starting point: 3 Server + 3 PD + 3 Store.
+# Production starting point: 3 Server + 3 PD + 3 Store + 1 Hubble.
 # Size this profile again for the real graph, traffic, and failure budget.
 # Usage: helm install hg ./helm/hugegraph -f values-cluster.yaml
 
@@ -99,20 +99,20 @@ server:
   hpa:
     enabled: false
 
-# The optional Hubble UI is not enabled here: this preset does not enable
-# server authentication, and current Hubble images cannot complete their
-# login against an auth-less cluster. Enable it together with server.auth,
-# starting from:
-#
-# hubble:
-#   enabled: true
-#   persistence:
-#     enabled: true
-#     size: 1Gi
-#   resources:
-#     requests:
-#       cpu: 250m
-#       memory: 768Mi
-#     limits:
-#       cpu: "1"
-#       memory: 1536Mi
+  auth:
+    enabled: true
+    autoGenerateSecret: true
+
+hubble:
+  enabled: true
+  mode: pd
+  persistence:
+    enabled: true
+    size: 1Gi
+  resources:
+    requests:
+      cpu: 250m
+      memory: 768Mi
+    limits:
+      cpu: "1"
+      memory: 1536Mi

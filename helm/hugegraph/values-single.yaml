@@ -17,7 +17,7 @@
 
 # Convenience preset: single-node / local kind-minikube development.
 # PD, Store, and Server use images you built from this tree (tag "local"),
-# never Docker Hub. Hubble still pulls hugegraph/hubble:latest (toolchain).
+# never Docker Hub. Hubble uses the prepared hugegraph/hubble image.
 #
 # From the repo root, then helm install -f values-single.yaml:
 #   docker build -f hugegraph-pd/Dockerfile -t hugegraph/pd:local .
@@ -60,3 +60,10 @@ server:
     pullPolicy: Never
   hpa:
     enabled: false
+  auth:
+    enabled: true
+    autoGenerateSecret: true
+
+hubble:
+  enabled: true
+  mode: pd

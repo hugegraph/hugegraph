@@ -244,10 +244,12 @@ server:
   # HG_SERVER_SKIP_INIT and no init Job.
   initStoreEnabled: false
   auth:
-    enabled: false
+    enabled: true
+    autoGenerateSecret: true
     # Secret must contain key "password" (no newlines). Applied as
     # auth.admin_pa when the admin account is first created; changing the
-    # Secret later does not rotate an existing cluster's password.
+    # Secret later does not rotate an existing cluster's password. When empty,
+    # the chart creates a kept release-admin Secret.
     existingSecret: ""
   service:
     type: ClusterIP
@@ -282,10 +284,11 @@ server:
       failureThreshold: 3
       timeoutSeconds: 5
 
-# Optional Hubble UI. Serves plain HTTP; keep it on a ClusterIP Service or
-# behind an HTTPS-terminating Ingress, never directly on an untrusted network.
+# Hubble UI is enabled by default. It serves plain HTTP; keep it on a ClusterIP
+# Service or behind an HTTPS-terminating Ingress, never directly on an untrusted
+# network.
 hubble:
-  enabled: false
+  enabled: true
   # pd: discover the cluster through PD (enables the cluster operations view).
   # direct: talk to the Server client Service only, without PD discovery.
   # Current Hubble images require server.auth to be enabled: the UI login
