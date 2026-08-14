@@ -36,41 +36,18 @@ Hubble PVC when persistence is enabled.
 
 ### 2. Make images available to Kubernetes
 
-The chart does not build images. No additional build step is needed when the
-images are already published in a registry accessible by every node. The
-development defaults use `hugegraph/{pd,store,server}:local` with
-`pullPolicy: Never`, so a remote cluster normally needs a small image override
-file that points to your registry:
+The chart does not build images. The default values pull the published images
+from Docker Hub, so no local build or image-loading step is needed:
 
-```yaml
-pd:
-  image:
-    repository: registry.example.com/hugegraph/pd
-    tag: "YOUR_TAG"
-    pullPolicy: IfNotPresent
-store:
-  image:
-    repository: registry.example.com/hugegraph/store
-    tag: "YOUR_TAG"
-    pullPolicy: IfNotPresent
-server:
-  image:
-    repository: registry.example.com/hugegraph/server
-    tag: "YOUR_TAG"
-    pullPolicy: IfNotPresent
-hubble:
-  image:
-    repository: registry.example.com/hugegraph/hubble
-    tag: "YOUR_TAG"
-    pullPolicy: IfNotPresent
-```
+| Component | Default image | Pull policy |
+|---|---|---|
+| PD | `hugegraph/pd:helm-dev` | `IfNotPresent` |
+| Store | `hugegraph/store:helm-dev` | `IfNotPresent` |
+| Server | `hugegraph/server:helm-dev` | `IfNotPresent` |
+| Hubble | `hugegraph/hubble:latest` | `Always` |
 
-Save this as `hugegraph-images.yaml` and replace the example registry and tag
-with the images available in your environment.
-
-If the exact `hugegraph/*:local` images are already loaded on every node, this
-override is not needed. Otherwise, install with the image file after the
-cluster preset as shown below.
+If your cluster uses a private registry, override the image repository, tag,
+and pull policy in a values file before installing.
 
 ### 3. Configure authentication
 
@@ -108,13 +85,10 @@ helm upgrade --install hugegraph ./helm/hugegraph \
   --namespace hugegraph \
   --create-namespace \
   -f ./helm/hugegraph/values-cluster.yaml \
-  -f ./hugegraph-images.yaml \
   --wait --timeout 15m
 ```
 
-Omit `-f ./hugegraph-images.yaml` only when the chart's default image names are
-already available on every node. For a smaller development deployment, replace
-`values-cluster.yaml` with
+For a smaller development deployment, replace `values-cluster.yaml` with
 `values-single.yaml`. It deploys 1 PD + 1 Store + 1 Server + 1 Hubble.
 
 ### 5. Test and connect
@@ -139,7 +113,7 @@ Open <http://127.0.0.1:8088> and sign in as `admin`. The Server API is at
 | Area | Values | Cluster preset |
 |---|---|---|
 | Replicas | `pd.replicas`, `store.replicas`, `server.replicas` | `3`, `3`, `3` |
-| Images | `*.image.repository`, `*.image.tag`, `*.image.pullPolicy` | local PD/Store/Server, Hubble `latest` |
+| Images | `*.image.repository`, `*.image.tag`, `*.image.pullPolicy` | Docker Hub PD/Store/Server `helm-dev`, Hubble `latest` |
 | Resources | `pd.resources`, `store.resources`, `server.resources`, `hubble.resources` | Explicit requests and limits |
 | Storage | `pd.storage.*`, `store.storage.*`, `hubble.persistence.*` | `10Gi`, `50Gi`, `1Gi` PVC |
 | Authentication | `server.auth.enabled`, `server.auth.existingSecret`, `server.auth.autoGenerateSecret` | `true`, empty, `true` |
@@ -231,12 +205,12 @@ A fresh install seeds PD with a partition shard count of 3 when
 default of 1. The seed applies at first bootstrap only; see Partition
 Sharding below.
 
-This first chart is version `0.1.0`. On this test branch, PD, Store, and
-Server default to `hugegraph/*:local` with `pullPolicy: Never`. Hubble still
-tracks `hugegraph/hubble:latest` with `Always` (source is in
-`hugegraph-toolchain`). Before stable publication, pin all component tags and
-`appVersion` to the next HugeGraph release and switch pull policies to
-`IfNotPresent`.
+This first chart is version `0.1.0`. On this development branch, PD, Store,
+and Server default to Docker Hub images tagged `helm-dev` with
+`pullPolicy: IfNotPresent`. Hubble still tracks
+`hugegraph/hubble:latest` with `Always` (source is in `hugegraph-toolchain`).
+Before stable publication, pin all component tags and `appVersion` to the next
+HugeGraph release.
 
 Verify the release:
 
@@ -261,11 +235,12 @@ node topology, and storage class before production use.
 The following section is only for users who do not already have a Kubernetes
 cluster. If you already have one, follow Quick Start and skip this section.
 
-PD, Store, and Server do not pull from Docker Hub. Build those three images
-from this repository, load them into the cluster, then install. Hubble source
-lives in `hugegraph-toolchain`, so it still pulls `hugegraph/hubble:latest`.
-Current Hubble images need `server.auth`. The Quick Start generates the admin
-Secret when no existing Secret is supplied and reuses an existing Secret first.
+The normal chart defaults pull PD, Store, and Server from Docker Hub. To test
+local PD, Store, and Server builds instead, build those three images, load them
+into the cluster, and override their tags and pull policies during install.
+Hubble still pulls `hugegraph/hubble:latest`. Current Hubble images need
+`server.auth`. The Quick Start generates the admin Secret when no existing
+Secret is supplied and reuses an existing Secret first.
 
 ```bash
 # Kind
@@ -284,7 +259,10 @@ kind load docker-image hugegraph/pd:local hugegraph/store:local \
 helm upgrade --install hugegraph ./helm/hugegraph \
   --namespace hugegraph \
   --create-namespace \
-  -f helm/hugegraph/values-single.yaml
+  -f helm/hugegraph/values-single.yaml \
+  --set pd.image.tag=local --set pd.image.pullPolicy=Never \
+  --set store.image.tag=local --set store.image.pullPolicy=Never \
+  --set server.image.tag=local --set server.image.pullPolicy=Never
 ```
 
 Server uses `Dockerfile-hstore` so the image default backend is HStore. Skip

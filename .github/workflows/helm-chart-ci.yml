@@ -62,6 +62,12 @@ jobs:
           grep -qF 'kind: Secret' /tmp/helm-default.yaml
           grep -qF 'helm.sh/resource-policy: keep' /tmp/helm-default.yaml
           grep -qF 'name: PASSWORD' /tmp/helm-default.yaml
+          grep -qF 'image: "hugegraph/pd:helm-dev"' /tmp/helm-default.yaml
+          grep -qF 'image: "hugegraph/store:helm-dev"' /tmp/helm-default.yaml
+          grep -qF 'image: "hugegraph/server:helm-dev"' /tmp/helm-default.yaml
+          grep -qF 'image: "hugegraph/hubble:latest"' /tmp/helm-default.yaml
+          grep -qF 'imagePullPolicy: IfNotPresent' /tmp/helm-default.yaml
+          grep -qF 'imagePullPolicy: Always' /tmp/helm-default.yaml
           # An explicitly supplied Secret takes precedence over auto-creation.
           helm template ci helm/hugegraph \
             --set server.auth.autoGenerateSecret=true \

@@ -27,9 +27,8 @@ pd:
   replicas: 3
   image:
     repository: hugegraph/pd
-    # Test-branch pin: images built from this tree, not Docker Hub.
-    tag: local
-    pullPolicy: Never
+    tag: helm-dev
+    pullPolicy: IfNotPresent
   # Empty preserves the image entrypoint's automatic JVM sizing. The chart
   # renders its partition settings below as -D system properties ahead of
   # this value, so flags placed here win on conflict.
@@ -118,9 +117,8 @@ store:
   replicas: 3
   image:
     repository: hugegraph/store
-    # Test-branch pin: images built from this tree, not Docker Hub.
-    tag: local
-    pullPolicy: Never
+    tag: helm-dev
+    pullPolicy: IfNotPresent
   # Empty preserves the image entrypoint's automatic JVM sizing.
   javaOpts: ""
   ports:
@@ -188,9 +186,8 @@ server:
   replicas: 3
   image:
     repository: hugegraph/server
-    # Test-branch pin: images built from this tree, not Docker Hub.
-    tag: local
-    pullPolicy: Never
+    tag: helm-dev
+    pullPolicy: IfNotPresent
   # Empty preserves the image entrypoint's automatic JVM sizing.
   javaOpts: ""
   port: 8080

@@ -15,16 +15,8 @@
 # limitations under the License.
 #
 
-# Convenience preset: single-node / local kind-minikube development.
-# PD, Store, and Server use images you built from this tree (tag "local"),
-# never Docker Hub. Hubble uses the prepared hugegraph/hubble image.
-#
-# From the repo root, then helm install -f values-single.yaml:
-#   docker build -f hugegraph-pd/Dockerfile -t hugegraph/pd:local .
-#   docker build -f hugegraph-store/Dockerfile -t hugegraph/store:local .
-#   docker build -f hugegraph-server/Dockerfile-hstore -t hugegraph/server:local .
-#   kind load docker-image hugegraph/pd:local hugegraph/store:local \
-#     hugegraph/server:local --name hg
+# Convenience preset: single-node development.
+# PD, Store, and Server pull the published Docker Hub images by default.
 #
 # Usage: helm install hg ./helm/hugegraph -f values-single.yaml
 
@@ -32,8 +24,8 @@ pd:
   replicas: 1
   image:
     repository: hugegraph/pd
-    tag: local
-    pullPolicy: Never
+    tag: helm-dev
+    pullPolicy: IfNotPresent
   antiAffinity: disabled
   pdb:
     enabled: false
@@ -44,8 +36,8 @@ store:
   replicas: 1
   image:
     repository: hugegraph/store
-    tag: local
-    pullPolicy: Never
+    tag: helm-dev
+    pullPolicy: IfNotPresent
   antiAffinity: disabled
   pdb:
     enabled: false
@@ -56,8 +48,8 @@ server:
   replicas: 1
   image:
     repository: hugegraph/server
-    tag: local
-    pullPolicy: Never
+    tag: helm-dev
+    pullPolicy: IfNotPresent
   hpa:
     enabled: false
   auth:
