@@ -61,10 +61,6 @@ class GrpcStoreNodeImpl implements HgStoreNode {
         return this;
     }
 
-    boolean isCurrent() {
-        return this.nodeManager.isCurrentNode(this);
-    }
-
     @Override
     public HgStoreSession openSession(String graphName) {
         return new GrpcStoreNodeSessionImpl(this, graphName, this.nodeManager, this.sessionClient,
