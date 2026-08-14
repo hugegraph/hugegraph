@@ -276,6 +276,11 @@ spec:
                 secretKeyRef:
                   name: {{ include "hugegraph.server.authSecretName" . | quote }}
                   key: password
+            - name: HG_SERVER_AUTH_TOKEN_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "hugegraph.server.authTokenSecretName" . | quote }}
+                  key: {{ include "hugegraph.server.authTokenSecretKey" . | quote }}
             {{- end }}
           startupProbe:
             httpGet:

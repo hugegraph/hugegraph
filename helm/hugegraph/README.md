@@ -116,7 +116,7 @@ Open <http://127.0.0.1:8088> and sign in as `admin`. The Server API is at
 | Images | `*.image.repository`, `*.image.tag`, `*.image.pullPolicy` | Docker Hub PD/Store/Server `helm-dev`, Hubble `latest` |
 | Resources | `pd.resources`, `store.resources`, `server.resources`, `hubble.resources` | Explicit requests and limits |
 | Storage | `pd.storage.*`, `store.storage.*`, `hubble.persistence.*` | `10Gi`, `50Gi`, `1Gi` PVC |
-| Authentication | `server.auth.enabled`, `server.auth.existingSecret`, `server.auth.autoGenerateSecret` | `true`, empty, `true` |
+| Authentication | `server.auth.enabled`, `server.auth.existingSecret`, `server.auth.autoGenerateSecret`, `server.auth.tokenSecret` | `true`, empty, `true`, chart-managed |
 | Hubble | `hubble.enabled`, `hubble.mode`, `hubble.port` | `true`, `pd`, `8088` |
 
 `values-cluster.yaml` is a starting point, not a capacity guarantee. Recalculate
@@ -483,6 +483,8 @@ default values.
 | `server.auth.enabled` | Enable admin authentication | `true` |
 | `server.auth.autoGenerateSecret` | Create and keep a random release-admin Secret when `existingSecret` is empty | `true` |
 | `server.auth.existingSecret` | Use a pre-created Secret instead; it must contain key `password` and takes priority | `""` |
+| `server.auth.tokenSecret.existingSecret` | BYO Secret for the JWT signing key (`auth.token_secret`); empty creates a kept release-auth-token Secret | `""` |
+| `server.auth.tokenSecret.key` | Key inside the JWT signing Secret | `token_secret` |
 | `server.ingress.enabled` | Create an Ingress for the Server Service | `false` |
 | `server.ingress.className` | IngressClass name | `""` |
 | `server.ingress.annotations` | Ingress annotations (cert-manager, nginx, ALB) | `{}` |
@@ -878,6 +880,10 @@ independently of the release name.
 - The auth Secret sets the admin password only at first creation via
   `auth.admin_pa`; the chart cannot rotate an existing cluster's admin
   password.
+- With authentication enabled, every Server replica must share one JWT
+  signing key. The chart injects `HG_SERVER_AUTH_TOKEN_SECRET` from
+  `server.auth.tokenSecret` (chart-managed by default) so Hubble login
+  stays stable behind a multi-replica Service.
 - Hubble is single-replica, serves plain HTTP, requires `server.auth` to be
   enabled for its login to complete, and keeps UI connection metadata,
   including any graph credentials entered in the UI, in an embedded H2
