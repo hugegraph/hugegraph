@@ -370,8 +370,8 @@ default values.
 |---|---|---|
 | `pd.replicas` | PD StatefulSet replicas. Maximum `99` | `3` |
 | `pd.image.repository` | PD image repository | `hugegraph/pd` |
-| `pd.image.tag` | PD image tag. Tracks the development image until the next release is pinned | `latest` |
-| `pd.image.pullPolicy` | PD image pull policy | `Always` |
+| `pd.image.tag` | PD image tag. Tracks the development image until the next release is pinned | `helm-dev` |
+| `pd.image.pullPolicy` | PD image pull policy | `IfNotPresent` |
 | `pd.javaOpts` | Extra JVM flags, rendered after the chart-derived `-D` properties below so an explicit duplicate here wins. The image's automatic heap sizing is preserved unless heap flags are set | `""` |
 | `pd.partition.defaultShardCount` | Shard replicas per partition, seeded into PD's persisted config at first bootstrap only; inert on an initialized cluster (see Partition Sharding). Empty derives 3 when `store.replicas` is at least 3, else 1. An explicit value must be odd and must not exceed `store.replicas` | `""` |
 | `pd.partition.storeMaxShardCount` | Maximum shards per Store, seeded at first bootstrap only. Also fixes the initial partition count, `store.replicas x storeMaxShardCount / shardCount` (see Partition Sharding). Empty preserves the image default of `12` | `""` |
@@ -412,8 +412,8 @@ default values.
 |---|---|---|
 | `store.replicas` | Store StatefulSet replicas. Maximum `99` | `3` |
 | `store.image.repository` | Store image repository | `hugegraph/store` |
-| `store.image.tag` | Store image tag. Tracks the development image until the next release is pinned | `latest` |
-| `store.image.pullPolicy` | Store image pull policy | `Always` |
+| `store.image.tag` | Store image tag. Tracks the development image until the next release is pinned | `helm-dev` |
+| `store.image.pullPolicy` | Store image pull policy | `IfNotPresent` |
 | `store.javaOpts` | Empty preserves the image's automatic JVM sizing | `""` |
 | `store.ports.grpc` | Store gRPC port | `8500` |
 | `store.ports.raft` | Store Raft port | `8510` |
@@ -451,8 +451,8 @@ default values.
 |---|---|---|
 | `server.replicas` | Server Deployment replicas. Ignored when `server.hpa.enabled` | `3` |
 | `server.image.repository` | Server image repository | `hugegraph/server` |
-| `server.image.tag` | Server image tag. Tracks the development image until the next release is pinned | `latest` |
-| `server.image.pullPolicy` | Server image pull policy | `Always` |
+| `server.image.tag` | Server image tag. Tracks the development image until the next release is pinned | `helm-dev` |
+| `server.image.pullPolicy` | Server image pull policy | `IfNotPresent` |
 | `server.javaOpts` | Empty preserves the image's automatic JVM sizing | `""` |
 | `server.port` | Server REST port, container port, and Service port | `8080` |
 | `server.backend` | Storage backend | `hstore` |
