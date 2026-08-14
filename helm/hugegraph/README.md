@@ -4,39 +4,75 @@
 
 ## Quick Start
 
-The beginner-friendly default is 3 PD + 3 Store + 3 Server + 1 Hubble. Hubble
-is a single-replica UI. The `values-cluster.yaml` preset enables authentication,
-PD discovery, and Hubble persistence; `values-single.yaml` provides the same
-defaults for a smaller local cluster.
+The beginner-friendly default is 3 PD + 3 Store + 3 Server + 1 Hubble on an
+existing Kubernetes cluster. Hubble is a single-replica UI. The
+`values-cluster.yaml` preset enables authentication, PD discovery, and Hubble
+persistence; `values-single.yaml` provides the same defaults for a smaller
+development cluster.
 
 ### Prerequisites
 
 - Helm 3 and Kubernetes 1.23+
-- Docker and Kind, or minikube
+- `kubectl` configured for the target cluster
 - A default StorageClass, or explicit PD and Store `storageClassName` values
 - Enough memory for 10 processes in the default topology
+- PD, Store, Server, and Hubble images available to every Kubernetes node
 
-### 1. Prepare images and Kind
+### 1. Check the cluster
 
-Build the PD, Store, and Server images locally, then load them into Kind.
-Hubble uses the prepared `hugegraph/hubble:latest` image by default.
+Confirm that `kubectl` points to the cluster where HugeGraph should run and
+that it can provision persistent volumes:
 
 ```bash
-kind create cluster --name hugegraph
-
-docker build -f hugegraph-pd/Dockerfile -t hugegraph/pd:local .
-docker build -f hugegraph-store/Dockerfile -t hugegraph/store:local .
-docker build -f hugegraph-server/Dockerfile-hstore -t hugegraph/server:local .
-
-kind load docker-image hugegraph/pd:local hugegraph/store:local \
-  hugegraph/server:local --name hugegraph
+kubectl config current-context
+kubectl get nodes
+kubectl get storageclass
 ```
 
-The presets use `pullPolicy: Never` for these local images. If they are not
-loaded into Kind, Pods fail with `ErrImageNeverPull`. For minikube, replace the
-last command with `minikube image load`.
+If there is no default StorageClass, set `pd.storage.storageClassName`,
+`store.storage.storageClassName`, and `hubble.persistence.storageClassName` in
+your values file. The default topology needs 3 PD PVCs, 3 Store PVCs, and 1
+Hubble PVC when persistence is enabled.
 
-### 2. Configure authentication
+### 2. Make images available to Kubernetes
+
+The chart does not build images. No additional build step is needed when the
+images are already published in a registry accessible by every node. The
+development defaults use `hugegraph/{pd,store,server}:local` with
+`pullPolicy: Never`, so a remote cluster normally needs a small image override
+file that points to your registry:
+
+```yaml
+pd:
+  image:
+    repository: registry.example.com/hugegraph/pd
+    tag: "YOUR_TAG"
+    pullPolicy: IfNotPresent
+store:
+  image:
+    repository: registry.example.com/hugegraph/store
+    tag: "YOUR_TAG"
+    pullPolicy: IfNotPresent
+server:
+  image:
+    repository: registry.example.com/hugegraph/server
+    tag: "YOUR_TAG"
+    pullPolicy: IfNotPresent
+hubble:
+  image:
+    repository: registry.example.com/hugegraph/hubble
+    tag: "YOUR_TAG"
+    pullPolicy: IfNotPresent
+```
+
+Save this as `hugegraph-images.yaml` and replace the example registry and tag
+with the images available in your environment.
+
+If the exact `hugegraph/*:local` images are already loaded on every node, this
+override is not needed. Otherwise, install with the image file after the
+cluster preset as shown below.
+
+### 3. Configure authentication
 
 Authentication and Hubble are enabled by default. When
 `server.auth.existingSecret` is empty, the chart creates a random password in
@@ -62,22 +98,26 @@ kubectl -n hugegraph create secret generic my-hugegraph-admin \
 ```
 
 Add `--set-string server.auth.existingSecret=my-hugegraph-admin` to the
-install command in step 3. The Secret must contain a `password` key without
+install command in step 4. The Secret must contain a `password` key without
 newlines, carriage returns, backslashes, or leading whitespace.
 
-### 3. Install 3+3+3+1
+### 4. Install 3+3+3+1
 
 ```bash
 helm upgrade --install hugegraph ./helm/hugegraph \
   --namespace hugegraph \
+  --create-namespace \
   -f ./helm/hugegraph/values-cluster.yaml \
+  -f ./hugegraph-images.yaml \
   --wait --timeout 15m
 ```
 
-For a smaller local deployment, replace `values-cluster.yaml` with
+Omit `-f ./hugegraph-images.yaml` only when the chart's default image names are
+already available on every node. For a smaller development deployment, replace
+`values-cluster.yaml` with
 `values-single.yaml`. It deploys 1 PD + 1 Store + 1 Server + 1 Hubble.
 
-### 4. Test and connect
+### 5. Test and connect
 
 ```bash
 helm test hugegraph --namespace hugegraph
@@ -173,10 +213,10 @@ so operators do not have to:
 helm install hugegraph ./helm/hugegraph --namespace hugegraph --create-namespace
 ```
 
-This deploys the default 3 PD + 3 Store + 3 Server + 1 Hubble topology. It
-generates the admin Secret automatically; use `values-cluster.yaml` to add
-production-oriented JVM/resource settings, PDBs, anti-affinity, and Hubble
-persistence.
+This deploys the default 3 PD + 3 Store + 3 Server + 1 Hubble topology on the
+current Kubernetes context. It generates the admin Secret automatically; use
+`values-cluster.yaml` to add production-oriented JVM/resource settings, PDBs,
+anti-affinity, and Hubble persistence.
 
 The default anti-affinity for `pd`, `store`, and `server` is `preferred`
 (Server always was; Hubble has no anti-affinity knob because it is
@@ -209,14 +249,17 @@ helm test hugegraph --namespace hugegraph
 | File | Purpose |
 |---|---|
 | `values.yaml` | Default 3+3+3+1 topology with preferred anti-affinity, authentication, automatic admin Secret, and Hubble in `pd` mode |
-| `values-single.yaml` | Single-node 1+1+1+1 Kind/minikube preset with the same authentication and Hubble defaults |
+| `values-single.yaml` | Single-node 1+1+1+1 development preset with the same authentication and Hubble defaults |
 | `values-cluster.yaml` | Production 3+3+3+1 starting point with JVM/resources, PD/Store PDBs, required anti-affinity, authentication, and Hubble persistence |
 
 `values-cluster.yaml` is a production starting point, not a capacity
 guarantee. Recalculate capacity for the graph size, traffic, failure budget,
 node topology, and storage class before production use.
 
-### Local images (Kind / minikube)
+### Optional local Kubernetes environments (Kind / minikube)
+
+The following section is only for users who do not already have a Kubernetes
+cluster. If you already have one, follow Quick Start and skip this section.
 
 PD, Store, and Server do not pull from Docker Hub. Build those three images
 from this repository, load them into the cluster, then install. Hubble source
@@ -238,7 +281,7 @@ kind load docker-image hugegraph/pd:local hugegraph/store:local \
 # minikube: minikube image load hugegraph/pd:local \
 #   hugegraph/store:local hugegraph/server:local
 
-helm install hugegraph ./helm/hugegraph \
+helm upgrade --install hugegraph ./helm/hugegraph \
   --namespace hugegraph \
   --create-namespace \
   -f helm/hugegraph/values-single.yaml
