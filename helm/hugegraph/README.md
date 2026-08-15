@@ -52,10 +52,11 @@ and pull policy in a values file before installing.
 ### 3. Configure authentication
 
 Authentication and Hubble are enabled by default. When
-`server.auth.existingSecret` is empty, the chart creates a random password in
-`hugegraph-admin` and keeps that Secret across uninstall. The password is
-stable across Helm upgrades and is not printed by the install notes; users who
-can read the Kubernetes Secret or Helm release can still retrieve it.
+`server.auth.admin.existingSecret` and `server.auth.admin.password` are empty,
+the chart creates a random password in `hugegraph-admin` and keeps that Secret
+across uninstall. The password is stable across Helm upgrades and is not
+printed by the install notes; users who can read the Kubernetes Secret or Helm
+release can still retrieve it.
 
 View the generated password after installation:
 
@@ -65,8 +66,8 @@ kubectl -n hugegraph get secret hugegraph-admin \
 ```
 
 Keep the output private. For a custom Secret, create it before installation
-and set `server.auth.existingSecret`; it always takes priority and the chart
-does not overwrite or manage that Secret:
+and set `server.auth.admin.existingSecret`; it always takes priority and the
+chart does not overwrite or manage that Secret:
 
 ```bash
 kubectl create namespace hugegraph --dry-run=client -o yaml | kubectl apply -f -
@@ -74,9 +75,14 @@ kubectl -n hugegraph create secret generic my-hugegraph-admin \
   --from-literal=password='CHANGE_ME'
 ```
 
-Add `--set-string server.auth.existingSecret=my-hugegraph-admin` to the
+Add `--set-string server.auth.admin.existingSecret=my-hugegraph-admin` to the
 install command in step 4. The Secret must contain a `password` key without
-newlines, carriage returns, backslashes, or leading whitespace.
+newlines, carriage returns, backslashes, or leading whitespace. Alternatively,
+set `server.auth.admin.password` for an inline value (prefer a Secret in
+shared clusters).
+
+The JWT signing key uses the same shape under `server.auth.token`
+(`value` / `existingSecret` / `autoGenerate`).
 
 ### 4. Install 3+3+3+1
 
@@ -116,7 +122,7 @@ Open <http://127.0.0.1:8088> and sign in as `admin`. The Server API is at
 | Images | `*.image.repository`, `*.image.tag`, `*.image.pullPolicy` | Docker Hub PD/Store/Server `helm-dev`, Hubble `latest` |
 | Resources | `pd.resources`, `store.resources`, `server.resources`, `hubble.resources` | Explicit requests and limits |
 | Storage | `pd.storage.*`, `store.storage.*`, `hubble.persistence.*` | `10Gi`, `50Gi`, `1Gi` PVC |
-| Authentication | `server.auth.enabled`, `server.auth.existingSecret`, `server.auth.autoGenerateSecret`, `server.auth.tokenSecret` | `true`, empty, `true`, chart-managed |
+| Authentication | `server.auth.enabled`, `server.auth.admin.*`, `server.auth.token.*` | `true`, chart-managed admin + JWT |
 | Hubble | `hubble.enabled`, `hubble.mode`, `hubble.port` | `true`, `pd`, `8088` |
 
 `values-cluster.yaml` is a starting point, not a capacity guarantee. Recalculate
@@ -271,18 +277,19 @@ Do not reuse Docker Hub `hugegraph/*:latest` under the `local` tag.
 
 #### Authentication (local / auth-enabled install)
 
-The Quick Start generates `hugegraph-admin` when no existing Secret is
-available. Set `server.auth.existingSecret` to use a custom Secret instead;
-the chart never overwrites or manages that Secret. The generated Secret is
-kept by Helm so a later install of the same release reuses the same password.
+The Quick Start generates `hugegraph-admin` when no admin password or existing
+Secret is available. Set `server.auth.admin.existingSecret` to use a custom
+Secret instead; the chart never overwrites or manages that Secret. The
+generated Secret is kept by Helm so a later install of the same release reuses
+the same password.
 
 Steps:
 
-1. Create a Secret whose name you will pass as `server.auth.existingSecret`.
-   The Secret must contain the key `password` (no newlines, carriage returns,
-   or backslashes).
-2. Install or upgrade with `server.auth.existingSecret` set to that Secret
-   name. `server.auth.enabled` remains `true`.
+1. Create a Secret whose name you will pass as
+   `server.auth.admin.existingSecret`. The Secret must contain the key
+   `password` (no newlines, carriage returns, or backslashes).
+2. Install or upgrade with `server.auth.admin.existingSecret` set to that
+   Secret name. `server.auth.enabled` remains `true`.
 3. Log in to Hubble or the REST API as `admin` with that password.
 
 ```bash
@@ -293,12 +300,13 @@ helm install hugegraph ./helm/hugegraph \
   --namespace hugegraph \
   --create-namespace \
   -f helm/hugegraph/values-single.yaml \
-  --set-string server.auth.existingSecret=my-hugegraph-admin
+  --set-string server.auth.admin.existingSecret=my-hugegraph-admin
 ```
 
 The Secret sets `auth.admin_pa` only when the admin account is first created.
 Changing the Secret later does not rotate an existing cluster password. With
-authentication disabled, leave `server.auth.existingSecret` empty.
+authentication disabled, leave `server.auth.admin.existingSecret` and
+`server.auth.admin.password` empty.
 
 ## Upgrading the Chart
 
@@ -481,10 +489,14 @@ default values.
 | `server.restServer.batchMaxWriteThreads` | Empty preserves the image default | `""` |
 | `server.initStoreEnabled` | Must remain `false` for distributed HStore | `false` |
 | `server.auth.enabled` | Enable admin authentication | `true` |
-| `server.auth.autoGenerateSecret` | Create and keep a random release-admin Secret when `existingSecret` is empty | `true` |
-| `server.auth.existingSecret` | Use a pre-created Secret instead; it must contain key `password` and takes priority | `""` |
-| `server.auth.tokenSecret.existingSecret` | BYO Secret for the JWT signing key (`auth.token_secret`); empty creates a kept release-auth-token Secret | `""` |
-| `server.auth.tokenSecret.key` | Key inside the JWT signing Secret | `token_secret` |
+| `server.auth.admin.password` | Optional inline admin password; prefer a Secret in shared clusters | `""` |
+| `server.auth.admin.existingSecret` | Pre-created Secret name (key defaults to `password`); takes priority | `""` |
+| `server.auth.admin.key` | Key inside the admin password Secret | `password` |
+| `server.auth.admin.autoGenerate` | Create and keep a random release-admin Secret when password and existingSecret are empty | `true` |
+| `server.auth.token.value` | Optional inline JWT signing key; prefer a Secret in shared clusters | `""` |
+| `server.auth.token.existingSecret` | Pre-created Secret for the JWT signing key (`auth.token_secret`) | `""` |
+| `server.auth.token.key` | Key inside the JWT signing Secret | `token_secret` |
+| `server.auth.token.autoGenerate` | Create and keep a random release-auth-token Secret when value and existingSecret are empty | `true` |
 | `server.ingress.enabled` | Create an Ingress for the Server Service | `false` |
 | `server.ingress.className` | IngressClass name | `""` |
 | `server.ingress.annotations` | Ingress annotations (cert-manager, nginx, ALB) | `{}` |
@@ -542,7 +554,7 @@ write the volume.
 behind a login that authenticates against the cluster; with Server
 authentication disabled the login cannot complete. The chart enables both
 authentication and Hubble by default, generates the admin credential when no
-`existingSecret` is supplied, and refuses to render Hubble without auth unless
+`admin.existingSecret` or `admin.password` is supplied, and refuses to render Hubble without auth unless
 `hubble.allowWithoutServerAuth=true` explicitly overrides it for images whose
 login does not need cluster authentication.
 
@@ -590,12 +602,15 @@ before anything reaches the cluster:
 
 - Unknown keys and wrong types are rejected.
 - `server.initStoreEnabled` must remain `false` for a distributed deployment.
-- With authentication enabled, either `server.auth.existingSecret` must name a
-  Secret containing a `password` key, or `server.auth.autoGenerateSecret` must
-  be true. With authentication disabled `existingSecret` must be empty, so a
-  configured but inactive Secret reference cannot be overlooked. A missing
-  Secret fails when Kubernetes configures the container; an empty `password`
-  fails in the Server startup wrapper.
+- With authentication enabled, either `server.auth.admin.existingSecret` must
+  name a Secret containing the configured key (default `password`), or
+  `server.auth.admin.password` must be set, or `server.auth.admin.autoGenerate`
+  must be true. The same shape applies to `server.auth.token` (`existingSecret`
+  / `value` / `autoGenerate`). With authentication disabled,
+  `admin.existingSecret`, `admin.password`, `token.existingSecret`, and
+  `token.value` must be empty, so a configured but inactive Secret reference
+  cannot be overlooked. A missing Secret fails when Kubernetes configures the
+  container; an empty `password` fails in the Server startup wrapper.
 - `server.hpa.minReplicas` must not exceed `maxReplicas`, and enabling
   utilization-based HPA requires a strictly positive
   `server.resources.requests.cpu`.
@@ -882,7 +897,7 @@ independently of the release name.
   password.
 - With authentication enabled, every Server replica must share one JWT
   signing key. The chart injects `HG_SERVER_AUTH_TOKEN_SECRET` from
-  `server.auth.tokenSecret` (chart-managed by default) so Hubble login
+  `server.auth.token` (chart-managed by default) so Hubble login
   stays stable behind a multi-replica Service.
 - Hubble is single-replica, serves plain HTTP, requires `server.auth` to be
   enabled for its login to complete, and keeps UI connection metadata,

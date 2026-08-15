@@ -54,7 +54,10 @@ server:
     enabled: false
   auth:
     enabled: true
-    autoGenerateSecret: true
+    admin:
+      autoGenerate: true
+    token:
+      autoGenerate: true
 
 hubble:
   enabled: true

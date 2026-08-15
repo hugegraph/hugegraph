@@ -68,15 +68,18 @@ jobs:
           grep -qF 'image: "hugegraph/hubble:latest"' /tmp/helm-default.yaml
           grep -qF 'imagePullPolicy: IfNotPresent' /tmp/helm-default.yaml
           grep -qF 'imagePullPolicy: Always' /tmp/helm-default.yaml
-          # An explicitly supplied Secret takes precedence over auto-creation.
+          # An explicitly supplied admin Secret takes precedence over auto-creation.
           helm template ci helm/hugegraph \
-            --set server.auth.autoGenerateSecret=true \
-            --set server.auth.existingSecret=ci-auth > /tmp/helm-existing-secret.yaml
+            --set server.auth.admin.autoGenerate=true \
+            --set server.auth.admin.existingSecret=ci-auth > /tmp/helm-existing-secret.yaml
           grep -qF 'name: "ci-auth"' /tmp/helm-existing-secret.yaml
-          if grep -qF 'helm.sh/resource-policy: keep' /tmp/helm-existing-secret.yaml; then
-            echo "existingSecret must suppress the generated auth Secret" >&2
+          if grep -qE 'name: ci-admin($|[[:space:]])' /tmp/helm-existing-secret.yaml; then
+            echo "admin.existingSecret must suppress the generated admin Secret" >&2
             exit 1
           fi
+          # JWT token Secret is still chart-managed when token.existingSecret is empty.
+          grep -qF 'name: ci-auth-token' /tmp/helm-existing-secret.yaml
+          grep -qF 'helm.sh/resource-policy: keep' /tmp/helm-existing-secret.yaml
           # Keep the pre-authentication deployment mode available explicitly.
           helm template ci helm/hugegraph \
             --set server.auth.enabled=false \
@@ -87,7 +90,7 @@ jobs:
           helm template ci helm/hugegraph \
             --set hubble.enabled=true \
             --set server.auth.enabled=true \
-            --set server.auth.existingSecret=ci-auth > /dev/null
+            --set server.auth.admin.existingSecret=ci-auth > /dev/null
           helm template ci helm/hugegraph \
             --set hubble.enabled=true \
             --set server.auth.enabled=false \
@@ -136,7 +139,7 @@ jobs:
             --set hubble.enabled=true
             --set hubble.allowWithoutServerAuth=true
           )
-          must_fail --set server.auth.enabled=true --set server.auth.autoGenerateSecret=false
+          must_fail --set server.auth.enabled=true --set server.auth.admin.autoGenerate=false --set server.auth.token.autoGenerate=false
           must_fail "${A[@]}" --set hubble.port=0
           must_fail "${A[@]}" \
             --set hubble.persistence.enabled=true \
@@ -196,7 +199,7 @@ jobs:
             | /tmp/kubeconform -strict -summary -kubernetes-version 1.23.0
           helm template ci helm/hugegraph \
             --set hubble.enabled=true \
-            --set server.auth.existingSecret=ci-auth \
+            --set server.auth.admin.existingSecret=ci-auth \
             | /tmp/kubeconform -strict -summary -kubernetes-version 1.23.0
           helm template ci helm/hugegraph \
             --set pd.partition.defaultShardCount=3 \
