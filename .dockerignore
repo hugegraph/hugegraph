@@ -24,6 +24,7 @@
 apache-hugegraph-*/
 **/*.tar
 **/*.tar.gz
+**/*.tgz
 **/*.zip
 **/*.war
 
