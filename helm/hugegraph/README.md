@@ -217,7 +217,7 @@ A fresh install seeds PD with a partition shard count of 3 when
 default of 1. The seed applies at first bootstrap only; see Partition
 Sharding below.
 
-This first chart is version `0.1.0`. On this development branch, PD, Store,
+This first chart is version `0.1.1`. On this development branch, PD, Store,
 and Server default to Docker Hub images tagged `helm-dev` with
 `pullPolicy: IfNotPresent`. Hubble still tracks
 `hugegraph/hubble:latest` with `Always` (source is in `hugegraph-toolchain`).
