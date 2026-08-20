@@ -23,11 +23,13 @@ import java.util.Set;
 import org.apache.hugegraph.HugeGraph;
 import org.apache.hugegraph.backend.id.Id;
 import org.apache.hugegraph.backend.id.IdGenerator;
+import org.apache.hugegraph.backend.query.Condition;
 import org.apache.hugegraph.exception.NotFoundException;
 import org.apache.hugegraph.schema.IndexLabel;
 import org.apache.hugegraph.schema.PropertyKey;
 import org.apache.hugegraph.schema.VertexLabel;
 import org.apache.hugegraph.testutil.Assert;
+import org.apache.hugegraph.type.HugeType;
 import org.apache.hugegraph.type.define.DataType;
 import org.apache.hugegraph.type.define.IndexType;
 import org.apache.hugegraph.type.define.SchemaStatus;
@@ -133,6 +135,19 @@ public class TraversalUtilOptimizeTest {
 
         Assert.assertTrue(TraversalUtil.canExtractHasContainer(
                 graph, new HasContainer("age", P.eq(1))));
+    }
+
+    @Test
+    public void testConvertNegatedComparePredicate() {
+        HugeGraph graph = Mockito.mock(HugeGraph.class);
+        PropertyKey age = propertyKey(1L, "age", DataType.INT);
+        Mockito.when(graph.propertyKey("age")).thenReturn(age);
+
+        Condition condition = TraversalUtil.convHas2Condition(
+                new HasContainer("age", P.not(P.lte(10))),
+                HugeType.VERTEX, graph);
+
+        Assert.assertEquals(Condition.gt(age.id(), 10), condition);
     }
 
     @Test

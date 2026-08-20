@@ -56,6 +56,7 @@ import org.apache.hugegraph.util.E;
 import org.apache.hugegraph.util.JsonUtil;
 import org.apache.tinkerpop.gremlin.process.traversal.Compare;
 import org.apache.tinkerpop.gremlin.process.traversal.Contains;
+import org.apache.tinkerpop.gremlin.process.traversal.NotP;
 import org.apache.tinkerpop.gremlin.process.traversal.Order;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.PBiPredicate;
@@ -1083,6 +1084,8 @@ public final class TraversalUtil {
         Condition condition;
         if (keyForContainsKeyOrValue(has.getKey())) {
             condition = convContains2Relation(graph, has);
+        } else if (p instanceof NotP) {
+            condition = convNot(graph, type, has);
         } else if (bp instanceof Compare) {
             condition = convCompare2Relation(graph, type, has);
         } else if (bp instanceof Condition.RelationType) {
@@ -1098,6 +1101,79 @@ public final class TraversalUtil {
             throw newUnsupportedPredicate(p);
         }
         return condition;
+    }
+
+    private static Condition convNot(HugeGraph graph,
+                                     HugeType type,
+                                     HasContainer has) {
+        P<?> predicate = has.getPredicate();
+        assert predicate instanceof NotP;
+
+        HasContainer inner = new HasContainer(has.getKey(),
+                                              predicate.negate());
+        Condition condition = convHas2Condition(inner, type, graph);
+        return negateCondition(predicate, condition);
+    }
+
+    private static Condition negateCondition(P<?> predicate,
+                                             Condition condition) {
+        switch (condition.type()) {
+            case RELATION:
+                return negateRelation(predicate,
+                                      (Condition.Relation) condition);
+            case AND:
+                Condition.And and = (Condition.And) condition;
+                return Condition.or(negateCondition(predicate, and.left()),
+                                    negateCondition(predicate, and.right()));
+            case OR:
+                Condition.Or or = (Condition.Or) condition;
+                return Condition.and(negateCondition(predicate, or.left()),
+                                     negateCondition(predicate, or.right()));
+            case NOT:
+                return ((Condition.Not) condition).condition();
+            default:
+                throw newUnsupportedPredicate(predicate);
+        }
+    }
+
+    private static Condition.Relation negateRelation(
+            P<?> predicate, Condition.Relation relation) {
+        Condition.RelationType type;
+        switch (relation.relation()) {
+            case EQ:
+                type = Condition.RelationType.NEQ;
+                break;
+            case NEQ:
+                type = Condition.RelationType.EQ;
+                break;
+            case GT:
+                type = Condition.RelationType.LTE;
+                break;
+            case GTE:
+                type = Condition.RelationType.LT;
+                break;
+            case LT:
+                type = Condition.RelationType.GTE;
+                break;
+            case LTE:
+                type = Condition.RelationType.GT;
+                break;
+            case IN:
+                type = Condition.RelationType.NOT_IN;
+                break;
+            case NOT_IN:
+                type = Condition.RelationType.IN;
+                break;
+            default:
+                throw newUnsupportedPredicate(predicate);
+        }
+
+        if (relation.isSysprop()) {
+            return new Condition.SyspropRelation((HugeKeys) relation.key(),
+                                                 type, relation.value());
+        }
+        return new Condition.UserpropRelation((Id) relation.key(),
+                                              type, relation.value());
     }
 
     public static Condition convAnd(HugeGraph graph,
