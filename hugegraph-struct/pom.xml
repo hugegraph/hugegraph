@@ -32,7 +32,7 @@
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <guava.version>25.1-jre</guava.version>
-        <tinkerpop.version>3.7.6</tinkerpop.version>
+        <tinkerpop.version>3.8.1</tinkerpop.version>
     </properties>
 
     <dependencies>

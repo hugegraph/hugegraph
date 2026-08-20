@@ -85,7 +85,7 @@ public class GremlinConfigCompatibilityTest extends BaseUnitTest {
     private static final Pattern GUICE_DEPENDENCY = Pattern.compile(
             "<dependency>\\s*<groupId>com\\.google\\.inject</groupId>" +
             "(.*?)</dependency>", Pattern.DOTALL);
-    private static final String SUPPORTED_TINKERPOP_VERSION = "3.7.6";
+    private static final String SUPPORTED_TINKERPOP_VERSION = "3.8.1";
     /* Must match the guice.version property of the TinkerPop parent pom
      * (gremlin-test declares guice as a provided dependency, so HugeGraph
      * must supply the version TinkerPop itself was built against). */

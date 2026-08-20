@@ -28,10 +28,10 @@ public final class HugeGraphScenarioCountPlugin
         implements ConcurrentEventListener {
 
     /*
-     * This is the exact number selected by TAGS and NAMES for TinkerPop 3.7.6.
+     * This is the exact number selected by TAGS and NAMES for TinkerPop 3.8.1.
      * Update it together with an intentional filter or TinkerPop change.
      */
-    private static final int EXPECTED_SCENARIOS = 345;
+    private static final int EXPECTED_SCENARIOS = 361;
 
     private final AtomicInteger scenarioCount = new AtomicInteger();
 

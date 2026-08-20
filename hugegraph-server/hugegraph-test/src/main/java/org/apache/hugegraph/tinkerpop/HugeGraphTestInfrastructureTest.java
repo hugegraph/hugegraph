@@ -50,18 +50,26 @@ public class HugeGraphTestInfrastructureTest {
 
     @Test
     public void testExactScenarioCount() {
-        HugeGraphScenarioCountPlugin.assertScenariosExecuted(345);
+        HugeGraphScenarioCountPlugin.assertScenariosExecuted(361);
 
         Assert.assertThrows(AssertionError.class, () -> {
-            HugeGraphScenarioCountPlugin.assertScenariosExecuted(344);
+            HugeGraphScenarioCountPlugin.assertScenariosExecuted(360);
         }, e -> {
-            Assert.assertContains("expected exactly 345", e.getMessage());
+            Assert.assertContains("expected exactly 361", e.getMessage());
         });
         Assert.assertThrows(AssertionError.class, () -> {
-            HugeGraphScenarioCountPlugin.assertScenariosExecuted(346);
+            HugeGraphScenarioCountPlugin.assertScenariosExecuted(362);
         }, e -> {
-            Assert.assertContains("expected exactly 345", e.getMessage());
+            Assert.assertContains("expected exactly 361", e.getMessage());
         });
+    }
+
+    @Test
+    public void testScenarioNameFilterExcludesUnsupportedLimitMerge() {
+        Assert.assertFalse("g_V_limitX1X_mergeEXnullvarX"
+                           .matches(HugeGraphFeatureTest.NAMES));
+        Assert.assertTrue("g_mergeEXnullvarX"
+                          .matches(HugeGraphFeatureTest.NAMES));
     }
 
     @Test

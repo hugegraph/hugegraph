@@ -25,9 +25,10 @@ import org.apache.tinkerpop.gremlin.GraphProvider;
 import org.apache.tinkerpop.gremlin.process.traversal.CoreTraversalTest;
 import org.apache.tinkerpop.gremlin.process.traversal.TraversalEngine;
 import org.apache.tinkerpop.gremlin.process.traversal.TraversalInterruptionTest;
+import org.apache.tinkerpop.gremlin.process.traversal.step.ComparabilitySemanticsTest;
 import org.apache.tinkerpop.gremlin.process.traversal.step.ComplexTest;
+import org.apache.tinkerpop.gremlin.process.traversal.step.LambdaStepTest;
 import org.apache.tinkerpop.gremlin.process.traversal.step.OrderabilityTest;
-import org.apache.tinkerpop.gremlin.process.traversal.step.TernaryBooleanLogicsTest;
 import org.apache.tinkerpop.gremlin.process.traversal.step.branch.BranchTest;
 import org.apache.tinkerpop.gremlin.process.traversal.step.branch.ChooseTest;
 import org.apache.tinkerpop.gremlin.process.traversal.step.branch.LocalTest;
@@ -86,7 +87,6 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.sideEffect.InjectTest
 import org.apache.tinkerpop.gremlin.process.traversal.step.sideEffect.SackTest;
 import org.apache.tinkerpop.gremlin.process.traversal.step.sideEffect.SideEffectCapTest;
 import org.apache.tinkerpop.gremlin.process.traversal.step.sideEffect.SideEffectTest;
-import org.apache.tinkerpop.gremlin.process.traversal.step.sideEffect.StoreTest;
 import org.apache.tinkerpop.gremlin.process.traversal.step.sideEffect.SubgraphTest;
 import org.apache.tinkerpop.gremlin.process.traversal.step.sideEffect.TreeTest;
 import org.apache.tinkerpop.gremlin.process.traversal.strategy.decoration.ElementIdStrategyProcessTest;
@@ -111,11 +111,13 @@ public class ProcessBasicSuite extends AbstractGremlinSuite {
 
     /**
      * This list of tests in the suite that will be executed
-     * as part of this suite. It is synchronized with TinkerPop 3.7.6's
+     * as part of this suite. It is synchronized with TinkerPop 3.8.1's
      * official ProcessStandardSuite; HugeGraphWriteTest
      * intentionally replaces WriteTest.Traversals.
      */
     private static final Class<?>[] ALL_TESTS = new Class<?>[]{
+            LambdaStepTest.Traversals.class,
+
             // branch
             BranchTest.Traversals.class,
             ChooseTest.Traversals.class,
@@ -184,7 +186,6 @@ public class ProcessBasicSuite extends AbstractGremlinSuite {
             SackTest.Traversals.class,
             SideEffectCapTest.Traversals.class,
             SideEffectTest.Traversals.class,
-            StoreTest.Traversals.class,
             SubgraphTest.Traversals.class,
             TreeTest.Traversals.class,
 
@@ -210,7 +211,7 @@ public class ProcessBasicSuite extends AbstractGremlinSuite {
 
             // semantics
             OrderabilityTest.Traversals.class,
-            TernaryBooleanLogicsTest.class
+            ComparabilitySemanticsTest.class
     };
 
     /**
@@ -218,6 +219,8 @@ public class ProcessBasicSuite extends AbstractGremlinSuite {
      * Gremlin flavors should implement to be compliant with Gremlin.
      */
     private static final Class<?>[] TESTS_TO_ENFORCE = new Class<?>[]{
+            LambdaStepTest.class,
+
             // branch
             BranchTest.class,
             ChooseTest.class,
@@ -278,7 +281,6 @@ public class ProcessBasicSuite extends AbstractGremlinSuite {
             SackTest.class,
             SideEffectCapTest.class,
             SideEffectTest.class,
-            StoreTest.class,
             SubgraphTest.class,
             TreeTest.class
     };

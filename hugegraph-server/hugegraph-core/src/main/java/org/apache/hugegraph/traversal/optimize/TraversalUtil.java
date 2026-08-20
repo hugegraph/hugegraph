@@ -178,7 +178,8 @@ public final class TraversalUtil {
         while (step instanceof HasStep || step instanceof NoOpBarrierStep) {
             Step<?, ?> nextStep = step.getNextStep();
             if (step instanceof HasStep) {
-                HasContainerHolder holder = (HasContainerHolder) step;
+                HasContainerHolder<?, ?> holder =
+                        (HasContainerHolder<?, ?>) step;
                 boolean connectiveLabelStep =
                         removeConnectiveLabelStep(step);
                 /*
@@ -329,7 +330,7 @@ public final class TraversalUtil {
     }
 
     private static boolean hasLabelAfterUnusablePredicate(HugeGraphStep<?, ?> step,
-                                                          HasContainerHolder holder) {
+                                                          HasContainerHolder<?, ?> holder) {
         HugeGraph graph = tryGetGraph(step);
         boolean seenUnusablePredicate = false;
         for (HasContainer has : holder.getHasContainers()) {
@@ -345,7 +346,7 @@ public final class TraversalUtil {
     }
 
     private static boolean hasUnsupportedLabelContainer(
-            HasContainerHolder holder) {
+            HasContainerHolder<?, ?> holder) {
         for (HasContainer has : holder.getHasContainers()) {
             if (isLabelContainer(has) && !isPositiveLabelContainer(has)) {
                 return true;
@@ -367,7 +368,7 @@ public final class TraversalUtil {
     }
 
     private static List<HasContainer> extractLabelHasContainers(
-            HugeGraphStep<?, ?> step, HasContainerHolder holder) {
+            HugeGraphStep<?, ?> step, HasContainerHolder<?, ?> holder) {
         List<HasContainer> extracted = new ArrayList<>();
         for (HasContainer has : holder.getHasContainers()) {
             if (!isPositiveLabelContainer(has)) {
@@ -405,7 +406,7 @@ public final class TraversalUtil {
     }
 
     private static boolean hasMatchIndexSensitivePredicate(
-            HasContainerHolder holder) {
+            HasContainerHolder<?, ?> holder) {
         for (HasContainer has : holder.getHasContainers()) {
             if (hasMatchIndexSensitivePredicate(has)) {
                 return true;
@@ -415,7 +416,7 @@ public final class TraversalUtil {
     }
 
     private static boolean hasUnusableMatchPredicate(HugeGraphStep<?, ?> step,
-                                                     HasContainerHolder holder) {
+                                                     HasContainerHolder<?, ?> holder) {
         HugeGraph graph = tryGetGraph(step);
         for (HasContainer has : holder.getHasContainers()) {
             if (!hasMatchIndexSensitivePredicate(has)) {
@@ -429,7 +430,7 @@ public final class TraversalUtil {
     }
 
     private static List<HasContainer> extractUsableHasContainers(
-            HugeGraphStep<?, ?> step, HasContainerHolder holder) {
+            HugeGraphStep<?, ?> step, HasContainerHolder<?, ?> holder) {
         List<HasContainer> extracted = new ArrayList<>();
         HugeGraph graph = tryGetGraph(step);
         for (HasContainer has : holder.getHasContainers()) {
@@ -628,7 +629,8 @@ public final class TraversalUtil {
             Step<?, ?> nextStep = step.getNextStep();
             if (step instanceof HasStep) {
                 removeConnectiveLabelStep(step);
-                HasContainerHolder holder = (HasContainerHolder) step;
+                HasContainerHolder<?, ?> holder =
+                        (HasContainerHolder<?, ?>) step;
                 if (extractHasContainers(newStep, holder)) {
                     TraversalHelper.copyLabels(step, step.getPreviousStep(), false);
                     traversal.removeStep(step);
@@ -639,7 +641,7 @@ public final class TraversalUtil {
     }
 
     private static boolean extractHasContainers(HugeGraphStep<?, ?> newStep,
-                                                HasContainerHolder holder) {
+                                                HasContainerHolder<?, ?> holder) {
         HugeGraph graph = TraversalUtil.tryGetGraph(newStep);
         if (canExtractHasContainers(graph, holder)) {
             for (HasContainer has : holder.getHasContainers()) {
@@ -674,7 +676,7 @@ public final class TraversalUtil {
     }
 
     private static boolean extractHasContainers(HugeVertexStep<?> newStep,
-                                                HasContainerHolder holder) {
+                                                HasContainerHolder<?, ?> holder) {
         HugeGraph graph = TraversalUtil.tryGetGraph(newStep);
         if (canExtractHasContainers(graph, holder)) {
             for (HasContainer has : holder.getHasContainers()) {
@@ -701,7 +703,7 @@ public final class TraversalUtil {
     }
 
     private static boolean canExtractHasContainers(HugeGraph graph,
-                                                   HasContainerHolder holder) {
+                                                   HasContainerHolder<?, ?> holder) {
         for (HasContainer has : holder.getHasContainers()) {
             if (!canExtractHasContainer(graph, has)) {
                 return false;
@@ -711,7 +713,7 @@ public final class TraversalUtil {
     }
 
     private static boolean canPartiallyExtractWithLocalTextPropertyPredicates(
-            HugeGraph graph, HasContainerHolder holder) {
+            HugeGraph graph, HasContainerHolder<?, ?> holder) {
         boolean seenLocalTextPropertyPredicate = false;
         for (HasContainer has : holder.getHasContainers()) {
             if (canExtractHasContainer(graph, has)) {
@@ -743,7 +745,7 @@ public final class TraversalUtil {
 
     private static boolean hasUsablePartialIndex(HugeGraph graph,
                                                  HugeGraphStep<?, ?> step,
-                                                 HasContainerHolder holder,
+                                                 HasContainerHolder<?, ?> holder,
                                                  HasContainer has) {
         if (graph == null || hasNonIndexablePredicate(has)) {
             return false;
@@ -785,7 +787,7 @@ public final class TraversalUtil {
 
     private static Collection<SchemaLabel> partialQuerySchemaLabels(
             HugeGraph graph, HugeGraphStep<?, ?> step,
-            HasContainerHolder holder) {
+            HasContainerHolder<?, ?> holder) {
         List<Object> labels = new ArrayList<>();
         collectPositiveLabelValues(step, labels);
         collectPositiveLabelValues(holder, labels);
@@ -826,7 +828,7 @@ public final class TraversalUtil {
     }
 
     private static void collectPositiveLabelValues(
-            HasContainerHolder holder, List<Object> labels) {
+            HasContainerHolder<?, ?> holder, List<Object> labels) {
         for (HasContainer has : holder.getHasContainers()) {
             if (isPositiveLabelContainer(has)) {
                 addPositiveLabelValues(has, labels);
@@ -867,7 +869,8 @@ public final class TraversalUtil {
         return false;
     }
 
-    private static void removeExtractedHasContainers(HasContainerHolder holder,
+    private static void removeExtractedHasContainers(
+            HasContainerHolder<?, ?> holder,
                                                      List<HasContainer> extracted) {
         for (HasContainer has : extracted) {
             holder.removeHasContainer(has);
@@ -1417,7 +1420,7 @@ public final class TraversalUtil {
     }
 
     public static void convHasStep(HugeGraph graph, HasStep<?> step) {
-        HasContainerHolder holder = step;
+        HasContainerHolder<?, ?> holder = step;
         for (HasContainer has : holder.getHasContainers()) {
             convPredicateValue(graph, has);
         }

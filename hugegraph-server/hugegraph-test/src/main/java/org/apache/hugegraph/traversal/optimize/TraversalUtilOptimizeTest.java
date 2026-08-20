@@ -557,7 +557,8 @@ public class TraversalUtilOptimizeTest {
         TraversalHelper.replaceStep((Step) origin, (Step) newStep, traversal);
     }
 
-    private static boolean hasContainer(HasContainerHolder step, String key) {
+    private static boolean hasContainer(HasContainerHolder<?, ?> step,
+                                        String key) {
         for (HasContainer has : step.getHasContainers()) {
             if (key.equals(has.getKey())) {
                 return true;
