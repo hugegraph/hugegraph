@@ -47,7 +47,11 @@ bin/enable-auth.sh                            # Enable auth
 ## Docker
 ```bash
 cd docker && docker compose up -d                                          # Single-node (bridge network)
-cd docker && docker compose -f docker-compose-3pd-3store-3server.yml up -d # Cluster
+# Cluster: needs one-time setup first (hugegraph-net network + docker/.env
+# credentials) — see docker/README.md "3-Node Cluster Quickstart"
+cd docker && docker compose -f docker-compose-3pd-3store-3server.yml up -d
+# Hubble add-on for a running cluster
+cd docker && docker compose -p hugegraph-hubble -f docker-compose-hubble.yml up -d
 ```
 
 ## Distributed Build (BETA)

@@ -119,9 +119,9 @@ raft:
   peers-list: 192.168.1.10:8610,192.168.1.11:8610,192.168.1.12:8610
 ```
 
-### Docker Bridge Network Deployment
+### Docker Network Deployment
 
-When deploying PD in Docker with bridge networking (e.g., `docker/docker-compose-3pd-3store-3server.yml`), container hostnames are used instead of IP addresses. Configuration is injected via `HG_PD_*` environment variables:
+When deploying PD in Docker on a shared network (e.g., `docker/docker-compose-3pd-3store-3server.yml`, which joins the pre-created external `hugegraph-net` network), container hostnames are used instead of IP addresses. Configuration is injected via `HG_PD_*` environment variables:
 
 ```yaml
 # pd0 — set via HG_PD_RAFT_ADDRESS and HG_PD_RAFT_PEERS_LIST env vars

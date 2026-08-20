@@ -138,6 +138,107 @@ jobs:
           check_compose docker/docker-compose.yml always always
           check_compose docker/docker-compose.dev.yml build missing
 
+          check_cluster_compose() {
+            local cluster="docker/docker-compose-3pd-3store-3server.yml"
+            local addon="docker/docker-compose-hubble.yml"
+            local rendered
+            rendered="$(mktemp)"
+
+            # Both cluster credentials are required and may not be empty.
+            if HUGEGRAPH_AUTH_TOKEN_SECRET=ci-test-secret \
+                 env -u HUGEGRAPH_ADMIN_PASSWORD \
+                 docker compose -f "$cluster" config -q >/dev/null 2>&1; then
+              echo "$cluster accepted an unset admin password" >&2
+              return 1
+            fi
+            if HUGEGRAPH_ADMIN_PASSWORD= \
+                 HUGEGRAPH_AUTH_TOKEN_SECRET=ci-test-secret \
+                 docker compose -f "$cluster" config -q >/dev/null 2>&1; then
+              echo "$cluster accepted an empty admin password" >&2
+              return 1
+            fi
+            if HUGEGRAPH_ADMIN_PASSWORD=ci-test-password \
+                 env -u HUGEGRAPH_AUTH_TOKEN_SECRET \
+                 docker compose -f "$cluster" config -q >/dev/null 2>&1; then
+              echo "$cluster accepted an unset token secret" >&2
+              return 1
+            fi
+            if HUGEGRAPH_ADMIN_PASSWORD=ci-test-password \
+                 HUGEGRAPH_AUTH_TOKEN_SECRET= \
+                 docker compose -f "$cluster" config -q >/dev/null 2>&1; then
+              echo "$cluster accepted an empty token secret" >&2
+              return 1
+            fi
+
+            # The add-on alone must define Hubble and nothing else, join the
+            # shared external network with its default name, and need no
+            # credentials or overrides.
+            env -u HUGEGRAPH_ADMIN_PASSWORD -u HUGEGRAPH_AUTH_TOKEN_SECRET \
+                -u HUGEGRAPH_NETWORK -u HUGEGRAPH_VERSION \
+              docker compose -f "$addon" config --format json > "$rendered"
+            jq -e '
+                (.services | keys) == ["hubble"] and
+                .networks."hg-net".external == true and
+                .networks."hg-net".name == "hugegraph-net" and
+                (.services.hubble | has("depends_on") | not) and
+                any(.services.hubble.volumes[];
+                    .target == "/hubble/conf/hugegraph-hubble.properties" and
+                    (.source | endswith("hugegraph-hubble-3x3.properties")))
+              ' "$rendered" >/dev/null
+
+            # The combined render carries the PD-registration and auth
+            # settings on every server replica and keeps Hubble on loopback.
+            # Rendered with non-default HUGEGRAPH_NETWORK/HUGEGRAPH_VERSION so
+            # CI fails if any file stops honoring the overrides (the add-on
+            # render above covers the defaults).
+            HUGEGRAPH_ADMIN_PASSWORD=ci-test-password \
+            HUGEGRAPH_AUTH_TOKEN_SECRET=ci-test-secret \
+            HUGEGRAPH_NETWORK=ci-test-net \
+            HUGEGRAPH_VERSION=ci-test-tag \
+              docker compose -f "$cluster" -f "$addon" \
+                config --format json > "$rendered"
+            jq -e '
+                .name == "hugegraph-3x3" and
+                (.services | keys | length) == 10 and
+                .networks."hg-net".external == true and
+                .networks."hg-net".name == "ci-test-net" and
+                .services.pd0.image == "hugegraph/pd:ci-test-tag" and
+                .services.store0.image == "hugegraph/store:ci-test-tag" and
+                .services.server0.image == "hugegraph/server:ci-test-tag" and
+                .services.hubble.image == "hugegraph/hubble:ci-test-tag" and
+                .services.server0.environment.HG_SERVER_USE_PD == "true" and
+                .services.server0.environment.HG_SERVER_CLUSTER == "hg" and
+                .services.server0.environment.HG_SERVER_REST_URL ==
+                  "http://server0:8080" and
+                .services.server1.environment.HG_SERVER_REST_URL ==
+                  "http://server1:8080" and
+                .services.server1.environment.HG_SERVER_AUTH_TOKEN_SECRET ==
+                  "ci-test-secret" and
+                .services.server2.environment.HG_SERVER_REST_URL ==
+                  "http://server2:8080" and
+                .services.server2.environment.HG_SERVER_AUTH_TOKEN_SECRET ==
+                  "ci-test-secret" and
+                .services.server0.environment.HG_SERVER_INIT_STORE_ENABLED ==
+                  "false" and
+                .services.server0.environment.PASSWORD ==
+                  "ci-test-password" and
+                .services.server0.environment.HG_SERVER_AUTH_TOKEN_SECRET ==
+                  "ci-test-secret" and
+                (.services.hubble | has("depends_on") | not) and
+                .services.hubble.pull_policy == "missing" and
+                (.services.hubble.healthcheck.test[1] |
+                  contains("http://127.0.0.1:8088/about") and
+                  contains("\"status\":200") and
+                  contains("\"name\":\"hugegraph-hubble\"")) and
+                any(.services.hubble.ports[];
+                    .target == 8088 and .published == "8088" and
+                    .host_ip == "127.0.0.1")
+              ' "$rendered" >/dev/null
+            rm -f "$rendered"
+          }
+
+          check_cluster_compose
+
       - name: Run check_port unit tests
         if: ${{ env.BACKEND == 'rocksdb' }}
         run: |

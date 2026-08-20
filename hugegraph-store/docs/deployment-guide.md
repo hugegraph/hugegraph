@@ -678,10 +678,13 @@ For a production-like 3-node distributed deployment, use the compose file at `do
 
 ```bash
 cd docker
-HUGEGRAPH_VERSION=1.7.0 docker compose -f docker-compose-3pd-3store-3server.yml up -d
+# One-time setup first: the shared hugegraph-net network and the required
+# credentials in docker/.env — see the 3-Node Cluster Quickstart in
+# docker/README.md.
+docker compose -f docker-compose-3pd-3store-3server.yml up -d
 ```
 
-The compose file uses a Docker bridge network (`hg-net`) with container hostnames for service discovery. Configuration is injected via environment variables using the `HG_*` prefix:
+The compose file joins a pre-created external Docker network (`hugegraph-net`, override via `HUGEGRAPH_NETWORK`) shared with the Hubble add-on, with container hostnames for service discovery. Configuration is injected via environment variables using the `HG_*` prefix:
 
 **PD environment variables** (per node):
 
@@ -709,13 +712,20 @@ environment:
   HG_STORE_DATA_PATH: /hugegraph-store/storage         # maps to app.data-path
 ```
 
-**Server environment variables**:
+**Server environment variables** (per node; `HG_SERVER_REST_URL` names the node itself):
 
 ```yaml
 environment:
   HG_SERVER_BACKEND: hstore                            # maps to backend
   HG_SERVER_PD_PEERS: pd0:8686,pd1:8686,pd2:8686      # maps to pd.peers
   STORE_REST: store0:8520                              # used by wait-partition.sh
+  HG_SERVER_CLUSTER: hg                                # PD discovery application name
+  HG_SERVER_USE_PD: "true"                             # register with PD
+  HG_SERVER_REST_URL: http://server0:8080              # address registered with PD
+  HG_SERVER_MIN_FREE_MEMORY: "0"                       # disable free-memory guard locally
+  HG_SERVER_INIT_STORE_ENABLED: "false"                # PD/HStore deployments skip init-store
+  HG_SERVER_AUTH_TOKEN_SECRET: ${HUGEGRAPH_AUTH_TOKEN_SECRET:?Set a shared auth token secret}  # same value on all replicas, from docker/.env
+  PASSWORD: ${HUGEGRAPH_ADMIN_PASSWORD:?}              # required; initial admin password, from docker/.env
 ```
 
 **Startup ordering** is enforced via `depends_on` with `condition: service_healthy`:
@@ -728,8 +738,9 @@ environment:
 **Deploy**:
 
 ```bash
-# Start cluster (run from the docker/ directory)
-HUGEGRAPH_VERSION=1.7.0 docker compose -f docker-compose-3pd-3store-3server.yml up -d
+# Start cluster (run from the docker/ directory, after the one-time setup
+# in docker/README.md)
+docker compose -f docker-compose-3pd-3store-3server.yml up -d
 
 # Check status
 docker ps
