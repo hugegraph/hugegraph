@@ -218,6 +218,18 @@ public final class GraphManager {
         this.rpcServer = new RpcServer(conf);
         this.rpcClient = new RpcClientProvider(conf);
         this.pdPeers = conf.get(ServerOptions.PD_PEERS);
+        this.PDExist = conf.get(ServerOptions.USE_PD);
+
+        /*
+         * Connect the process-wide MetaManager with the configured cluster
+         * before any local HStore graph is opened. StandardHugeGraph has a
+         * legacy fallback connection for callers outside GraphManager; if it
+         * wins this race, every graph config and listener uses its hard-coded
+         * metadata namespace instead of ServerOptions.CLUSTER.
+         */
+        if (this.PDExist) {
+            this.initMetaManager(conf);
+        }
 
         this.roleStateMachine = null;
         this.globalNodeRoleInfo = new GlobalMasterInfo();
@@ -248,8 +260,7 @@ public final class GraphManager {
             this.localGraphs = ImmutableSet.of();
         }
 
-        PDExist = conf.get(ServerOptions.USE_PD);
-        if (PDExist) {
+        if (this.PDExist) {
             try {
                 loadMetaFromPD();
             } catch (Exception e) {

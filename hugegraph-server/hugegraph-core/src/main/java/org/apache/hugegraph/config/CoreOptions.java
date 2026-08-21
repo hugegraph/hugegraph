@@ -652,6 +652,12 @@ public class CoreOptions extends OptionHolder {
             disallowEmpty(),
             "127.0.0.1:8686"
     );
+    public static final ConfigOption<String> CLUSTER = new ConfigOption<>(
+            "cluster",
+            "The PD metadata namespace shared by HStore graphs.",
+            disallowEmpty(),
+            "hg"
+    );
     public static final ConfigOption<String> MEMORY_MODE = new ConfigOption<>(
             "memory.mode",
             "The memory mode used for query in HugeGraph.",

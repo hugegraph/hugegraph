@@ -23,6 +23,7 @@ import org.apache.hugegraph.auth.StandardAuthManagerV2Test;
 import org.apache.hugegraph.auth.WsAndHttpBasicAuthHandlerTest;
 import org.apache.hugegraph.core.RoleElectionStateMachineTest;
 import org.apache.hugegraph.meta.EtcdMetaDriverTest;
+import org.apache.hugegraph.meta.MetaManagerConnectionTest;
 import org.apache.hugegraph.meta.MetaManagerSchemaCacheClearEventTest;
 import org.apache.hugegraph.meta.managers.AuthMetaManagerTest;
 import org.apache.hugegraph.traversal.optimize.TraversalUtilOptimizeTest;
@@ -119,6 +120,7 @@ import org.junit.runners.Suite;
         CacheTest.LevelCacheTest.class,
         CachedSchemaTransactionTest.class,
         MetaManagerSchemaCacheClearEventTest.class,
+        MetaManagerConnectionTest.class,
         EtcdMetaDriverTest.class,
         CachedGraphTransactionTest.class,
         CacheManagerTest.class,
