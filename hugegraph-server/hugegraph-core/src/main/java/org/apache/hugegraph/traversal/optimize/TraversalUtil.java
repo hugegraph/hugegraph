@@ -881,7 +881,8 @@ public final class TraversalUtil {
     static boolean canExtractHasContainer(HugeGraph graph,
                                           HasContainer has) {
         if (has.getKey() == null || has.getPredicate() == null ||
-            hasNullLabelValue(has) || hasTextPredicate(has)) {
+            hasNullLabelValue(has) || hasNotPredicate(has) ||
+            hasTextPredicate(has)) {
             return false;
         }
         if (isSysProp(has.getKey())) {
@@ -914,6 +915,17 @@ public final class TraversalUtil {
             }
         }
         return true;
+    }
+
+    private static boolean hasNotPredicate(HasContainer has) {
+        List<P<Object>> predicates = new ArrayList<>();
+        collectPredicates(predicates, ImmutableList.of(has.getPredicate()));
+        for (P<Object> predicate : predicates) {
+            if (predicate instanceof NotP) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static boolean hasTextPredicate(HasContainer has) {
@@ -1084,8 +1096,6 @@ public final class TraversalUtil {
         Condition condition;
         if (keyForContainsKeyOrValue(has.getKey())) {
             condition = convContains2Relation(graph, has);
-        } else if (p instanceof NotP) {
-            condition = convNot(graph, type, has);
         } else if (bp instanceof Compare) {
             condition = convCompare2Relation(graph, type, has);
         } else if (bp instanceof Condition.RelationType) {
@@ -1101,79 +1111,6 @@ public final class TraversalUtil {
             throw newUnsupportedPredicate(p);
         }
         return condition;
-    }
-
-    private static Condition convNot(HugeGraph graph,
-                                     HugeType type,
-                                     HasContainer has) {
-        P<?> predicate = has.getPredicate();
-        assert predicate instanceof NotP;
-
-        HasContainer inner = new HasContainer(has.getKey(),
-                                              predicate.negate());
-        Condition condition = convHas2Condition(inner, type, graph);
-        return negateCondition(predicate, condition);
-    }
-
-    private static Condition negateCondition(P<?> predicate,
-                                             Condition condition) {
-        switch (condition.type()) {
-            case RELATION:
-                return negateRelation(predicate,
-                                      (Condition.Relation) condition);
-            case AND:
-                Condition.And and = (Condition.And) condition;
-                return Condition.or(negateCondition(predicate, and.left()),
-                                    negateCondition(predicate, and.right()));
-            case OR:
-                Condition.Or or = (Condition.Or) condition;
-                return Condition.and(negateCondition(predicate, or.left()),
-                                     negateCondition(predicate, or.right()));
-            case NOT:
-                return ((Condition.Not) condition).condition();
-            default:
-                throw newUnsupportedPredicate(predicate);
-        }
-    }
-
-    private static Condition.Relation negateRelation(
-            P<?> predicate, Condition.Relation relation) {
-        Condition.RelationType type;
-        switch (relation.relation()) {
-            case EQ:
-                type = Condition.RelationType.NEQ;
-                break;
-            case NEQ:
-                type = Condition.RelationType.EQ;
-                break;
-            case GT:
-                type = Condition.RelationType.LTE;
-                break;
-            case GTE:
-                type = Condition.RelationType.LT;
-                break;
-            case LT:
-                type = Condition.RelationType.GTE;
-                break;
-            case LTE:
-                type = Condition.RelationType.GT;
-                break;
-            case IN:
-                type = Condition.RelationType.NOT_IN;
-                break;
-            case NOT_IN:
-                type = Condition.RelationType.IN;
-                break;
-            default:
-                throw newUnsupportedPredicate(predicate);
-        }
-
-        if (relation.isSysprop()) {
-            return new Condition.SyspropRelation((HugeKeys) relation.key(),
-                                                 type, relation.value());
-        }
-        return new Condition.UserpropRelation((Id) relation.key(),
-                                              type, relation.value());
     }
 
     public static Condition convAnd(HugeGraph graph,

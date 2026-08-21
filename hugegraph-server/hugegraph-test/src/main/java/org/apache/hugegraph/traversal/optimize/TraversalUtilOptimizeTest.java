@@ -23,13 +23,11 @@ import java.util.Set;
 import org.apache.hugegraph.HugeGraph;
 import org.apache.hugegraph.backend.id.Id;
 import org.apache.hugegraph.backend.id.IdGenerator;
-import org.apache.hugegraph.backend.query.Condition;
 import org.apache.hugegraph.exception.NotFoundException;
 import org.apache.hugegraph.schema.IndexLabel;
 import org.apache.hugegraph.schema.PropertyKey;
 import org.apache.hugegraph.schema.VertexLabel;
 import org.apache.hugegraph.testutil.Assert;
-import org.apache.hugegraph.type.HugeType;
 import org.apache.hugegraph.type.define.DataType;
 import org.apache.hugegraph.type.define.IndexType;
 import org.apache.hugegraph.type.define.SchemaStatus;
@@ -138,16 +136,29 @@ public class TraversalUtilOptimizeTest {
     }
 
     @Test
-    public void testConvertNegatedComparePredicate() {
+    public void testCanExtractHasContainerKeepsNegatedComparePredicateLocal() {
         HugeGraph graph = Mockito.mock(HugeGraph.class);
         PropertyKey age = propertyKey(1L, "age", DataType.INT);
         Mockito.when(graph.propertyKey("age")).thenReturn(age);
 
-        Condition condition = TraversalUtil.convHas2Condition(
-                new HasContainer("age", P.not(P.lte(10))),
-                HugeType.VERTEX, graph);
+        Assert.assertFalse(TraversalUtil.canExtractHasContainer(
+                graph, new HasContainer("age", P.not(P.lte(10)))));
+    }
 
-        Assert.assertEquals(Condition.gt(age.id(), 10), condition);
+    @Test
+    public void testExtractHasContainerKeepsNestedNegatedPredicateLocal() {
+        HugeGraph graph = Mockito.mock(HugeGraph.class);
+        PropertyKey age = propertyKey(1L, "age", DataType.INT);
+        Mockito.when(graph.propertyKey("age")).thenReturn(age);
+
+        Traversal.Admin<?, ?> traversal = traversal(
+                __.V().has("age", P.gt(18).and(P.not(P.lte(65)))), graph);
+        HugeGraphStep<?, ?> newStep = replaceGraphStep(traversal);
+
+        TraversalUtil.extractHasContainer(newStep, traversal);
+
+        Assert.assertTrue(newStep.getHasContainers().isEmpty());
+        Assert.assertTrue(hasStepExists(traversal, "age"));
     }
 
     @Test
