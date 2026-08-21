@@ -4875,14 +4875,10 @@ public class VertexCoreTest extends BaseCoreTest {
                  .and(P.lt(29).or(P.eq(35)).or(P.gt(45)))
         ).values("name").toList();
 
-        // There is duplicate results with OR condition
-        Assert.assertEquals(5, vertices.size());
-
         Set<String> names = ImmutableSet.of("Hebe", "James",
                                             "Tom Cat", "Lisa");
-        for (Object name : vertices) {
-            Assert.assertTrue(names.contains(name));
-        }
+        Assert.assertEquals(names.size(), vertices.size());
+        Assert.assertEquals(names, ImmutableSet.copyOf(vertices));
     }
 
     @Test
