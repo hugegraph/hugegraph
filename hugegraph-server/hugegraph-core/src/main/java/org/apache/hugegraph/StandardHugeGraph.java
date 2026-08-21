@@ -265,7 +265,8 @@ public class StandardHugeGraph implements HugeGraph {
 
         if (isHstore()) {
             // TODO: parameterize the remaining configurations
-            MetaManager.instance().connect("hg", MetaManager.MetaDriverType.PD,
+            MetaManager.instance().connect(config.get(CoreOptions.CLUSTER),
+                                           MetaManager.MetaDriverType.PD,
                                            "ca", "ca", "ca",
                                            config.get(CoreOptions.PD_PEERS));
         }

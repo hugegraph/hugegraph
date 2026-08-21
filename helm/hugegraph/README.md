@@ -41,10 +41,10 @@ from Docker Hub, so no local build or image-loading step is needed:
 
 | Component | Default image | Pull policy |
 |---|---|---|
-| PD | `hugegraph/pd:helm-dev` | `IfNotPresent` |
-| Store | `hugegraph/store:helm-dev` | `IfNotPresent` |
-| Server | `hugegraph/server:helm-dev` | `IfNotPresent` |
-| Hubble | `hugegraph/hubble:latest` | `Always` |
+| PD | `hugegraph/pd:1.7.0` | `IfNotPresent` |
+| Store | `hugegraph/store:1.7.0` | `IfNotPresent` |
+| Server | `hugegraph/server:1.7.0` | `IfNotPresent` |
+| Hubble | `hugegraph/hubble:1.7.0` | `IfNotPresent` |
 
 If your cluster uses a private registry, override the image repository, tag,
 and pull policy in a values file before installing.
@@ -123,6 +123,7 @@ Open <http://127.0.0.1:8088> and sign in as `admin`. The Server API is at
 | Resources | `pd.resources`, `store.resources`, `server.resources`, `hubble.resources` | Explicit requests and limits |
 | Storage | `pd.storage.*`, `store.storage.*`, `hubble.persistence.*` | `10Gi`, `50Gi`, `1Gi` PVC |
 | Authentication | `server.auth.enabled`, `server.auth.admin.*`, `server.auth.token.*` | `true`, chart-managed admin + JWT |
+| Server metadata | `server.cluster` | Stable PD metadata namespace (`hg-test` by default) |
 | Hubble | `hubble.enabled`, `hubble.mode`, `hubble.port` | `true`, `pd`, `8088` |
 
 `values-cluster.yaml` is a starting point, not a capacity guarantee. Recalculate
@@ -217,12 +218,10 @@ A fresh install seeds PD with a partition shard count of 3 when
 default of 1. The seed applies at first bootstrap only; see Partition
 Sharding below.
 
-This first chart is version `0.1.1`. On this development branch, PD, Store,
-and Server default to Docker Hub images tagged `helm-dev` with
-`pullPolicy: IfNotPresent`. Hubble still tracks
-`hugegraph/hubble:latest` with `Always` (source is in `hugegraph-toolchain`).
-Before stable publication, pin all component tags and `appVersion` to the next
-HugeGraph release.
+This first chart is version `0.1.1` and defaults to the reproducible HugeGraph
+`1.7.0` image set. Use `values-1.5.yaml` or `values-1.7.yaml` for release
+compatibility checks. `values-master-target.yaml` is explicitly a moving
+`helm-dev` candidate and must not be advertised as a released `1.8`.
 
 Verify the release:
 
@@ -234,6 +233,9 @@ helm test hugegraph --namespace hugegraph
 
 | File | Purpose |
 |---|---|
+| `values-1.5.yaml` | HugeGraph 1.5.0 component tags |
+| `values-1.7.yaml` | HugeGraph 1.7.0 component tags |
+| `values-master-target.yaml` | `helm-dev` PD/Store/Server candidate |
 | `values.yaml` | Default 3+3+3+1 topology with preferred anti-affinity, authentication, automatic admin Secret, and Hubble in `pd` mode |
 | `values-single.yaml` | Single-node 1+1+1+1 development preset with the same authentication and Hubble defaults |
 | `values-cluster.yaml` | Production 3+3+3+1 starting point with JVM/resources, PD/Store PDBs, required anti-affinity, authentication, and Hubble persistence |
@@ -247,10 +249,10 @@ node topology, and storage class before production use.
 The following section is only for users who do not already have a Kubernetes
 cluster. If you already have one, follow Quick Start and skip this section.
 
-The normal chart defaults pull PD, Store, and Server from Docker Hub. To test
+The normal chart defaults pull PD, Store, Server, and Hubble from Docker Hub. To test
 local PD, Store, and Server builds instead, build those three images, load them
 into the cluster, and override their tags and pull policies during install.
-Hubble still pulls `hugegraph/hubble:latest`. Current Hubble images need
+Hubble uses the pinned `hugegraph/hubble:1.7.0` image. Current Hubble images need
 `server.auth`. The Quick Start generates the admin Secret when no existing
 Secret is supplied and reuses an existing Secret first.
 
@@ -674,8 +676,8 @@ trusted network.
 | `hubble.mode` | `pd` discovers the cluster through PD and enables the operations view; `direct` talks to the Server client Service only | `pd` |
 | `hubble.allowWithoutServerAuth` | Renders Hubble without `server.auth`, for future images whose login does not require cluster authentication | `false` |
 | `hubble.image.repository` | Hubble image repository | `hugegraph/hubble` |
-| `hubble.image.tag` | Hubble image tag. Tracks the development image until the next release is pinned | `latest` |
-| `hubble.image.pullPolicy` | Hubble image pull policy | `Always` |
+| `hubble.image.tag` | Hubble image tag | `1.7.0` |
+| `hubble.image.pullPolicy` | Hubble image pull policy | `IfNotPresent` |
 | `hubble.port` | Hubble HTTP port, container port, and Service port | `8088` |
 | `hubble.persistence.enabled` | Persist UI connection metadata in a PVC | `false` |
 | `hubble.persistence.size` | PVC size | `1Gi` |

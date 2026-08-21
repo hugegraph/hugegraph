@@ -124,6 +124,8 @@ fi
     set_prop "pd.peers" "${HG_SERVER_PD_PEERS}" "${REST_SERVER_CONF}"
 [[ -n "${HG_SERVER_CLUSTER:-}" ]] && \
     set_prop "cluster" "${HG_SERVER_CLUSTER}" "${REST_SERVER_CONF}"
+[[ -n "${HG_SERVER_CLUSTER:-}" ]] && \
+    set_prop "cluster" "${HG_SERVER_CLUSTER}" "${GRAPH_CONF}"
 [[ -n "${HG_SERVER_REST_URL:-}" ]] && set_prop "restserver.url" \
     "${HG_SERVER_REST_URL}" "${REST_SERVER_CONF}"
 [[ -n "${HG_SERVER_MIN_FREE_MEMORY:-}" ]] && set_prop "restserver.min_free_memory" \

@@ -75,6 +75,11 @@ spec:
       {{- else }}
       {{- with include "hugegraph.antiAffinity" (dict "mode" .Values.pd.antiAffinity "component" "pd" "labels" (include "hugegraph.selectorLabels" . | fromYaml)) }}{{ . | trim | nindent 6 }}{{- end }}
       {{- end }}
+      {{- if and (hasKey .Values.pd.storage "enabled") (not .Values.pd.storage.enabled) }}
+      volumes:
+        - name: pd-data
+          emptyDir: {}
+      {{- end }}
       containers:
         - name: pd
           image: "{{ .Values.pd.image.repository }}:{{ .Values.pd.image.tag | default $.Chart.AppVersion }}"
@@ -145,6 +150,7 @@ spec:
           resources:
             {{- toYaml . | nindent 12 }}
           {{- end }}
+  {{- if or (not (hasKey .Values.pd.storage "enabled")) .Values.pd.storage.enabled }}
   volumeClaimTemplates:
     - metadata:
         name: pd-data
@@ -156,3 +162,4 @@ spec:
         resources:
           requests:
             storage: {{ .Values.pd.storage.size }}
+  {{- end }}

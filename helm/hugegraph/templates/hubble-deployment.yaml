@@ -19,6 +19,7 @@
 {{- include "hugegraph.validateValues" . }}
 {{- $customPort := ne (int .Values.hubble.port) 8088 }}
 {{- $mode := .Values.hubble.mode | default "pd" }}
+{{- $anonymousMode := and (not .Values.server.auth.enabled) .Values.hubble.allowWithoutServerAuth }}
 {{- if not (has $mode (list "pd" "direct")) }}
 {{- fail "hubble.mode must be one of: pd, direct" }}
 {{- end }}
@@ -110,6 +111,9 @@ spec:
               fi
               TMP=$(mktemp)
               FOUND_PD_ENABLED=false
+              {{- if $anonymousMode }}
+              FOUND_SERVER_AUTH=false
+              {{- end }}
               {{- if $pdMode }}
               FOUND_PD_PEERS=false
               FOUND_PD_SERVER=false
@@ -128,6 +132,12 @@ spec:
                     printf 'pd.enabled={{ $pdMode }}\n' >>"${TMP}"
                     FOUND_PD_ENABLED=true
                     ;;
+                  {{- if $anonymousMode }}
+                  server.auth.enabled=*)
+                    printf 'server.auth.enabled=false\n' >>"${TMP}"
+                    FOUND_SERVER_AUTH=true
+                    ;;
+                  {{- end }}
                   {{- if $pdMode }}
                   pd.peers=*)
                     printf 'pd.peers=%s\n' "${HG_HUBBLE_PD_PEERS}" >>"${TMP}"
@@ -170,6 +180,11 @@ spec:
               if [[ "${FOUND_PD_ENABLED}" == false ]]; then
                 printf 'pd.enabled={{ $pdMode }}\n' >>"${TMP}"
               fi
+              {{- if $anonymousMode }}
+              if [[ "${FOUND_SERVER_AUTH}" == false ]]; then
+                printf 'server.auth.enabled=false\n' >>"${TMP}"
+              fi
+              {{- end }}
               {{- if $pdMode }}
               if [[ "${FOUND_PD_PEERS}" == false ]]; then
                 printf 'pd.peers=%s\n' "${HG_HUBBLE_PD_PEERS}" >>"${TMP}"

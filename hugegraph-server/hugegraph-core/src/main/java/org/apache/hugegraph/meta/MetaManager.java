@@ -162,27 +162,33 @@ public class MetaManager {
                                      String clientKeyFile, Object... args) {
         E.checkArgument(cluster != null && !cluster.isEmpty(),
                         "The cluster can't be null or empty");
-        if (this.metaDriver == null) {
-            this.cluster = cluster;
+        if (this.metaDriver != null) {
+            // MetaManager is process-wide. Opening each HStore graph calls
+            // connect() again with a legacy default cluster. Rebuilding the
+            // managers here would silently switch their key namespace and
+            // discard the graph listeners registered by GraphManager.
+            return;
+        }
 
-            switch (type) {
-                case ETCD:
-                    this.metaDriver = trustFile == null || trustFile.isEmpty() ?
-                                      new EtcdMetaDriver(args) :
-                                      new EtcdMetaDriver(trustFile,
-                                                         clientCertFile,
-                                                         clientKeyFile, args);
-                    break;
-                case PD:
-                    assert args.length > 0;
-                    // FIXME: assume pd.peers is urls separated by commas in a string
-                    //        like `127.0.0.1:8686,127.0.0.1:8687,127.0.0.1:8688`
-                    this.metaDriver = new PdMetaDriver((String) args[0]);
-                    break;
-                default:
-                    throw new AssertionError(String.format(
-                            "Invalid meta driver type: %s", type));
-            }
+        this.cluster = cluster;
+
+        switch (type) {
+            case ETCD:
+                this.metaDriver = trustFile == null || trustFile.isEmpty() ?
+                                  new EtcdMetaDriver(args) :
+                                  new EtcdMetaDriver(trustFile,
+                                                     clientCertFile,
+                                                     clientKeyFile, args);
+                break;
+            case PD:
+                assert args.length > 0;
+                // FIXME: assume pd.peers is urls separated by commas in a string
+                //        like `127.0.0.1:8686,127.0.0.1:8687,127.0.0.1:8688`
+                this.metaDriver = new PdMetaDriver((String) args[0]);
+                break;
+            default:
+                throw new AssertionError(String.format(
+                        "Invalid meta driver type: %s", type));
         }
         this.initManagers(this.cluster);
     }

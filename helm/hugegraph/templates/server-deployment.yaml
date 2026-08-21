@@ -135,6 +135,7 @@ spec:
               {{- if $pdMeta }}
               FOUND_USE_PD=false
               FOUND_PD_PEERS=false
+              FOUND_CLUSTER=false
               FOUND_URLS_TO_PD=false
               FOUND_DEPLOY_IN_K8S=false
               {{- end }}
@@ -160,6 +161,10 @@ spec:
                   pd.peers=*)
                     printf 'pd.peers=%s\n' "${HG_SERVER_PD_PEERS}" >>"${TMP}"
                     FOUND_PD_PEERS=true
+                    ;;
+                  cluster=*)
+                    printf 'cluster=%s\n' "${HG_SERVER_CLUSTER}" >>"${TMP}"
+                    FOUND_CLUSTER=true
                     ;;
                   server.urls_to_pd=*)
                     printf 'server.urls_to_pd=%s\n' "${HG_SERVER_URLS_TO_PD}" >>"${TMP}"
@@ -209,6 +214,9 @@ spec:
               if [[ "${FOUND_PD_PEERS}" == false ]]; then
                 printf 'pd.peers=%s\n' "${HG_SERVER_PD_PEERS}" >>"${TMP}"
               fi
+              if [[ "${FOUND_CLUSTER}" == false ]]; then
+                printf 'cluster=%s\n' "${HG_SERVER_CLUSTER}" >>"${TMP}"
+              fi
               # PD hands this URL to discovery clients such as Hubble.
               # HG_SERVER_URLS_TO_PD uses server.advertiseUrl when set,
               # otherwise the in-cluster Server Service URL. The k8s
@@ -247,7 +255,22 @@ spec:
               {{- end }}
               chmod 600 "${TMP}"
               mv "${TMP}" "${CONF}"
-              exec ./docker-entrypoint.sh
+              ./docker-entrypoint.sh &
+              ENTRYPOINT_PID=$!
+              forward_term() {
+                kill -TERM "${ENTRYPOINT_PID}" 2>/dev/null || true
+              }
+              trap forward_term TERM INT
+              set +e
+              wait "${ENTRYPOINT_PID}"
+              ENTRYPOINT_STATUS=$?
+              set -e
+              if [[ "${ENTRYPOINT_STATUS}" -ne 0 ]]; then
+                echo "docker-entrypoint.sh failed with status ${ENTRYPOINT_STATUS}" >&2
+                echo "Last 200 lines of ./logs/hugegraph-server.log:" >&2
+                tail -n 200 ./logs/hugegraph-server.log >&2 || true
+              fi
+              exit "${ENTRYPOINT_STATUS}"
           {{- end }}
           ports:
             - name: http
@@ -257,6 +280,8 @@ spec:
               value: {{ .Values.server.backend | quote }}
             - name: HG_SERVER_PD_PEERS
               value: {{ include "hugegraph.pd.grpcPeersList" . | quote }}
+            - name: HG_SERVER_CLUSTER
+              value: {{ .Values.server.cluster | default "hg-test" | quote }}
             - name: HG_SERVER_PD_REST_ENDPOINT
               value: {{ include "hugegraph.pd.restPeersList" . | quote }}
             - name: STORE_REST

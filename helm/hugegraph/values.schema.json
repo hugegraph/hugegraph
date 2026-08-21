@@ -124,6 +124,9 @@
         "storageClassName"
       ],
       "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
         "size": {
           "type": "string",
           "minLength": 1
@@ -354,6 +357,9 @@
                 "LoadBalancer"
               ]
             },
+            "clusterIP": {
+              "type": "string"
+            },
             "annotations": {
               "type": "object"
             },
@@ -530,6 +536,11 @@
         "backend": {
           "type": "string",
           "const": "hstore"
+        },
+        "cluster": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Stable PD metadata namespace shared by all Server replicas"
         },
         "resources": {
           "$ref": "#/definitions/resources"
@@ -869,6 +880,9 @@
             "NodePort",
             "LoadBalancer"
           ]
+        },
+        "clusterIP": {
+          "type": "string"
         },
         "annotations": {
           "type": "object"

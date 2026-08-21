@@ -91,29 +91,42 @@ spec:
               HEALTH_PEERS=$(echo "{{ include "hugegraph.pd.restPeersList" . }}" | tr ',' ' ')
               TIMEOUT={{ .Values.store.waitTimeoutSeconds | default 900 }}
               DEADLINE=$(( $(date +%s) + TIMEOUT ))
-              echo "Waiting for PD quorum (${REQUIRED}) among: ${HEALTH_PEERS}"
+              echo "Waiting for PD leader and quorum (${REQUIRED}) among: ${HEALTH_PEERS}"
               until [ "$(
                 ok=0
                 for peer in ${HEALTH_PEERS}; do
-                  if curl -fsS "http://${peer}/v1/health" >/dev/null 2>&1; then
+                  # PD protects /v1/members with its internal service Basic auth.
+                  # The current PD contract validates the service name; Store uses
+                  # the same "store" identity as its gRPC client.
+                  MEMBERS=$(curl -fsS -u store: "http://${peer}/v1/members" 2>/dev/null || true)
+                  SERVICE_COUNT=$(printf '%s' "${MEMBERS}" | sed -n 's/.*"numOfService"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p')
+                  NORMAL_COUNT=$(printf '%s' "${MEMBERS}" | sed -n 's/.*"numOfNormalService"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p')
+                  if printf '%s' "${MEMBERS}" | grep -Eq '"pdLeader"[[:space:]]*:[[:space:]]*\{' \
+                    && [ "${SERVICE_COUNT:-0}" -ge "${REQUIRED}" ] \
+                    && [ "${NORMAL_COUNT:-0}" -ge "${REQUIRED}" ]; then
                     ok=$((ok+1))
                   fi
                 done
                 echo "$ok"
               )" -ge "${REQUIRED}" ]; do
                 if [ "$(date +%s)" -ge "${DEADLINE}" ]; then
-                  echo "Timed out after ${TIMEOUT}s waiting for PD quorum (${REQUIRED}) among: ${HEALTH_PEERS}" >&2
+                  echo "Timed out after ${TIMEOUT}s waiting for PD leader and quorum (${REQUIRED}) among: ${HEALTH_PEERS}" >&2
                   echo "Check PD Pods: kubectl get pods -l app.kubernetes.io/component=pd" >&2
                   exit 1
                 fi
-                echo "Waiting for PD quorum..."
+                echo "Waiting for PD leader and quorum..."
                 sleep 5
               done
-              echo "PD quorum reached."
+              echo "PD leader and quorum reached."
           {{- with .Values.store.waitResources }}
           resources:
             {{- toYaml . | nindent 12 }}
           {{- end }}
+      {{- if and (hasKey .Values.store.storage "enabled") (not .Values.store.storage.enabled) }}
+      volumes:
+        - name: store-data
+          emptyDir: {}
+      {{- end }}
       containers:
         - name: store
           image: "{{ .Values.store.image.repository }}:{{ .Values.store.image.tag | default $.Chart.AppVersion }}"
@@ -180,6 +193,7 @@ spec:
           resources:
             {{- toYaml . | nindent 12 }}
           {{- end }}
+  {{- if or (not (hasKey .Values.store.storage "enabled")) .Values.store.storage.enabled }}
   volumeClaimTemplates:
     - metadata:
         name: store-data
@@ -191,3 +205,4 @@ spec:
         resources:
           requests:
             storage: {{ .Values.store.storage.size }}
+  {{- end }}

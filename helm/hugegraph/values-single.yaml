@@ -24,34 +24,40 @@ pd:
   replicas: 1
   image:
     repository: hugegraph/pd
-    tag: helm-dev
+    tag: 1.7.0
     pullPolicy: IfNotPresent
   antiAffinity: disabled
   pdb:
     enabled: false
+  service:
+    clusterIP: None
   storage:
+    enabled: false
     size: 5Gi
 
 store:
   replicas: 1
   image:
     repository: hugegraph/store
-    tag: helm-dev
+    tag: 1.7.0
     pullPolicy: IfNotPresent
   antiAffinity: disabled
   pdb:
     enabled: false
   storage:
+    enabled: false
     size: 10Gi
 
 server:
   replicas: 1
   image:
     repository: hugegraph/server
-    tag: helm-dev
+    tag: 1.7.0
     pullPolicy: IfNotPresent
   hpa:
     enabled: false
+  service:
+    clusterIP: None
   auth:
     enabled: true
     admin:
@@ -62,3 +68,5 @@ server:
 hubble:
   enabled: true
   mode: pd
+  service:
+    clusterIP: None

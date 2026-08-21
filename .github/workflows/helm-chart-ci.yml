@@ -48,10 +48,18 @@ jobs:
           helm lint helm/hugegraph
           helm lint helm/hugegraph -f helm/hugegraph/values-single.yaml
           helm lint helm/hugegraph -f helm/hugegraph/values-cluster.yaml
+          helm lint helm/hugegraph -f helm/hugegraph/values-1.5.yaml
+          helm lint helm/hugegraph -f helm/hugegraph/values-1.7.yaml
+          helm lint helm/hugegraph -f helm/hugegraph/values-master-target.yaml
 
       - name: helm template
         run: |
-          for preset in "" "-f helm/hugegraph/values-single.yaml" "-f helm/hugegraph/values-cluster.yaml"; do
+          for preset in "" \
+            "-f helm/hugegraph/values-single.yaml" \
+            "-f helm/hugegraph/values-cluster.yaml" \
+            "-f helm/hugegraph/values-1.5.yaml" \
+            "-f helm/hugegraph/values-1.7.yaml" \
+            "-f helm/hugegraph/values-master-target.yaml"; do
             # shellcheck disable=SC2086 # $preset intentionally splits into flags
             helm template ci helm/hugegraph $preset > /dev/null
           done
@@ -62,12 +70,11 @@ jobs:
           grep -qF 'kind: Secret' /tmp/helm-default.yaml
           grep -qF 'helm.sh/resource-policy: keep' /tmp/helm-default.yaml
           grep -qF 'name: PASSWORD' /tmp/helm-default.yaml
-          grep -qF 'image: "hugegraph/pd:helm-dev"' /tmp/helm-default.yaml
-          grep -qF 'image: "hugegraph/store:helm-dev"' /tmp/helm-default.yaml
-          grep -qF 'image: "hugegraph/server:helm-dev"' /tmp/helm-default.yaml
-          grep -qF 'image: "hugegraph/hubble:latest"' /tmp/helm-default.yaml
+          grep -qF 'image: "hugegraph/pd:1.7.0"' /tmp/helm-default.yaml
+          grep -qF 'image: "hugegraph/store:1.7.0"' /tmp/helm-default.yaml
+          grep -qF 'image: "hugegraph/server:1.7.0"' /tmp/helm-default.yaml
+          grep -qF 'image: "hugegraph/hubble:1.7.0"' /tmp/helm-default.yaml
           grep -qF 'imagePullPolicy: IfNotPresent' /tmp/helm-default.yaml
-          grep -qF 'imagePullPolicy: Always' /tmp/helm-default.yaml
           # An explicitly supplied admin Secret takes precedence over auto-creation.
           helm template ci helm/hugegraph \
             --set server.auth.admin.autoGenerate=true \
@@ -195,7 +202,12 @@ jobs:
           set -o pipefail
           curl -sSLo /tmp/kc.tar.gz https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz
           tar -xzf /tmp/kc.tar.gz -C /tmp
-          for preset in "" "-f helm/hugegraph/values-single.yaml" "-f helm/hugegraph/values-cluster.yaml"; do
+          for preset in "" \
+            "-f helm/hugegraph/values-single.yaml" \
+            "-f helm/hugegraph/values-cluster.yaml" \
+            "-f helm/hugegraph/values-1.5.yaml" \
+            "-f helm/hugegraph/values-1.7.yaml" \
+            "-f helm/hugegraph/values-master-target.yaml"; do
             # shellcheck disable=SC2086 # $preset intentionally splits into flags
             helm template ci helm/hugegraph $preset | /tmp/kubeconform -strict -summary -kubernetes-version 1.23.0
           done
@@ -226,8 +238,12 @@ jobs:
           # --reuse-values discards them, so the fixture must become values.yaml.
           cp -R helm/hugegraph /tmp/legacy
           cp helm/hugegraph/testdata/values-pre-hardening.yaml /tmp/legacy/values.yaml
-          helm template legacy /tmp/legacy > /dev/null
-          helm template legacy /tmp/legacy --is-upgrade > /dev/null
+          helm template legacy /tmp/legacy > /tmp/legacy-render.yaml
+          helm template legacy /tmp/legacy --is-upgrade > /tmp/legacy-upgrade.yaml
+          # Missing new persistence/cluster keys must retain the behavior that
+          # old releases had before those values existed.
+          test "$(grep -cF 'volumeClaimTemplates:' /tmp/legacy-render.yaml)" -eq 2
+          grep -qF 'value: "hg-test"' /tmp/legacy-render.yaml
 
       - name: helm package
         run: helm package helm/hugegraph -d /tmp/chart
