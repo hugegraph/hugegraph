@@ -23,7 +23,7 @@ pd:
   replicas: 3
   image:
     repository: hugegraph/pd
-    tag: helm-dev
+    tag: 1.7.0
     pullPolicy: IfNotPresent
   javaOpts: >-
     -Xms256m -Xmx512m
@@ -49,7 +49,7 @@ store:
   replicas: 3
   image:
     repository: hugegraph/store
-    tag: helm-dev
+    tag: 1.7.0
     pullPolicy: IfNotPresent
   javaOpts: >-
     -Xms512m -Xmx1024m
@@ -82,7 +82,7 @@ server:
   replicas: 3
   image:
     repository: hugegraph/server
-    tag: helm-dev
+    tag: 1.7.0
     pullPolicy: IfNotPresent
   javaOpts: >-
     -Xms512m -Xmx1024m

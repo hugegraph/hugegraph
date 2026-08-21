@@ -15,22 +15,17 @@
 # limitations under the License.
 #
 
-apiVersion: v2
-name: hugegraph
-description: Helm chart for Apache HugeGraph HStore cluster (PD + Store + Server)
-type: application
-version: 0.1.1
-appVersion: "1.7.0"
-kubeVersion: ">=1.22.0-0"
-keywords:
-  - hugegraph
-  - graph
-  - hstore
-  - raft
-home: https://hugegraph.apache.org/
-sources:
-  - https://github.com/apache/hugegraph
-maintainers:
-  - name: HugeGraph Community
-    url: https://hugegraph.apache.org/
-    email: dev@hugegraph.apache.org
+# Apache HugeGraph 1.7.0 compatibility preset.
+# Use only with the corresponding 1.7.0 PD/Store/Server/Hubble images.
+pd:
+  image:
+    tag: 1.7.0
+store:
+  image:
+    tag: 1.7.0
+server:
+  image:
+    tag: 1.7.0
+hubble:
+  image:
+    tag: 1.7.0

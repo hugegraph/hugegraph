@@ -15,22 +15,18 @@
 # limitations under the License.
 #
 
-apiVersion: v2
-name: hugegraph
-description: Helm chart for Apache HugeGraph HStore cluster (PD + Store + Server)
-type: application
-version: 0.1.1
-appVersion: "1.7.0"
-kubeVersion: ">=1.22.0-0"
-keywords:
-  - hugegraph
-  - graph
-  - hstore
-  - raft
-home: https://hugegraph.apache.org/
-sources:
-  - https://github.com/apache/hugegraph
-maintainers:
-  - name: HugeGraph Community
-    url: https://hugegraph.apache.org/
-    email: dev@hugegraph.apache.org
+# Candidate matrix preset for the helm-dev branch.
+# helm-dev is a moving candidate and must not be advertised as a released 1.8.
+pd:
+  image:
+    tag: helm-dev
+store:
+  image:
+    tag: helm-dev
+server:
+  image:
+    tag: helm-dev
+hubble:
+  image:
+    # There is no published Hubble helm-dev tag; use the explicit tested base.
+    tag: 1.7.0

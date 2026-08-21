@@ -27,7 +27,7 @@ pd:
   replicas: 3
   image:
     repository: hugegraph/pd
-    tag: helm-dev
+    tag: 1.7.0
     pullPolicy: IfNotPresent
   # Empty preserves the image entrypoint's automatic JVM sizing. The chart
   # renders its partition settings below as -D system properties ahead of
@@ -61,6 +61,7 @@ pd:
     raft: 8610
   dataPath: /hugegraph-pd/pd_data
   storage:
+    enabled: true
     size: 10Gi
     storageClassName: ""
   resources: {}
@@ -126,7 +127,7 @@ store:
   replicas: 3
   image:
     repository: hugegraph/store
-    tag: helm-dev
+    tag: 1.7.0
     pullPolicy: IfNotPresent
   # Empty preserves the image entrypoint's automatic JVM sizing.
   javaOpts: ""
@@ -136,6 +137,7 @@ store:
     rest: 8520
   dataPath: /hugegraph-store/storage
   storage:
+    enabled: true
     size: 50Gi
     storageClassName: ""
   resources: {}
@@ -195,12 +197,16 @@ server:
   replicas: 3
   image:
     repository: hugegraph/server
-    tag: helm-dev
+    tag: 1.7.0
     pullPolicy: IfNotPresent
   # Empty preserves the image entrypoint's automatic JVM sizing.
   javaOpts: ""
   port: 8080
   backend: hstore
+  # PD metadata namespace used by every Server replica. Keep this stable
+  # across upgrades and image changes or existing graph configs will appear
+  # to disappear even though their Store data is still present.
+  cluster: hg-test
   resources: {}
   # Server is stateless and may scale past the node count via HPA, so the
   # default only prefers spreading. Use "required" when replicas are always
@@ -321,17 +327,15 @@ hubble:
   enabled: true
   # pd: discover the cluster through PD (enables the cluster operations view).
   # direct: talk to the Server client Service only, without PD discovery.
-  # Current Hubble images require server.auth to be enabled: the UI login
-  # authenticates against the cluster, so rendering fails otherwise unless
-  # allowWithoutServerAuth explicitly overrides for images that support it.
+  # Released Hubble 1.7 images require server.auth. Set this override only for
+  # a Hubble image with anonymous-session support; the chart then writes
+  # server.auth.enabled=false into Hubble's runtime configuration.
   mode: pd
   allowWithoutServerAuth: false
   image:
     repository: hugegraph/hubble
-    # The draft tracks latest until the next HugeGraph release tag is available.
-    # Pin the release tag and switch to IfNotPresent before stable publication.
-    tag: latest
-    pullPolicy: Always
+    tag: 1.7.0
+    pullPolicy: IfNotPresent
   port: 8088
   # Hubble keeps UI connection metadata, including any graph credentials
   # entered in the UI, in an embedded per-instance H2 database, so the

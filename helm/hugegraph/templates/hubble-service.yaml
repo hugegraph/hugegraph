@@ -30,6 +30,9 @@ metadata:
   {{- end }}
 spec:
   type: {{ get $svc "type" | default "ClusterIP" }}
+  {{- with (get $svc "clusterIP") }}
+  clusterIP: {{ . | quote }}
+  {{- end }}
   selector:
     {{- include "hugegraph.selectorLabels" . | nindent 4 }}
     app.kubernetes.io/component: hubble
