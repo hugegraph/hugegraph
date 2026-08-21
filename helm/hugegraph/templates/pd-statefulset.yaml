@@ -75,7 +75,7 @@ spec:
       {{- else }}
       {{- with include "hugegraph.antiAffinity" (dict "mode" .Values.pd.antiAffinity "component" "pd" "labels" (include "hugegraph.selectorLabels" . | fromYaml)) }}{{ . | trim | nindent 6 }}{{- end }}
       {{- end }}
-      {{- if not .Values.pd.storage.enabled }}
+      {{- if and (hasKey .Values.pd.storage "enabled") (not .Values.pd.storage.enabled) }}
       volumes:
         - name: pd-data
           emptyDir: {}
@@ -150,7 +150,7 @@ spec:
           resources:
             {{- toYaml . | nindent 12 }}
           {{- end }}
-  {{- if .Values.pd.storage.enabled }}
+  {{- if or (not (hasKey .Values.pd.storage "enabled")) .Values.pd.storage.enabled }}
   volumeClaimTemplates:
     - metadata:
         name: pd-data

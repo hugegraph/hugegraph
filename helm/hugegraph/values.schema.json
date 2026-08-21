@@ -120,7 +120,6 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "enabled",
         "size",
         "storageClassName"
       ],
@@ -510,7 +509,6 @@
         "image",
         "port",
         "backend",
-        "cluster",
         "resources",
         "waitImage",
         "initStoreEnabled",

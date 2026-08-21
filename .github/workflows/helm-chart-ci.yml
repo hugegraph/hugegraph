@@ -238,8 +238,12 @@ jobs:
           # --reuse-values discards them, so the fixture must become values.yaml.
           cp -R helm/hugegraph /tmp/legacy
           cp helm/hugegraph/testdata/values-pre-hardening.yaml /tmp/legacy/values.yaml
-          helm template legacy /tmp/legacy > /dev/null
-          helm template legacy /tmp/legacy --is-upgrade > /dev/null
+          helm template legacy /tmp/legacy > /tmp/legacy-render.yaml
+          helm template legacy /tmp/legacy --is-upgrade > /tmp/legacy-upgrade.yaml
+          # Missing new persistence/cluster keys must retain the behavior that
+          # old releases had before those values existed.
+          test "$(grep -cF 'volumeClaimTemplates:' /tmp/legacy-render.yaml)" -eq 2
+          grep -qF 'value: "hg-test"' /tmp/legacy-render.yaml
 
       - name: helm package
         run: helm package helm/hugegraph -d /tmp/chart

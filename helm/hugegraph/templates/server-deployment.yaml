@@ -281,7 +281,7 @@ spec:
             - name: HG_SERVER_PD_PEERS
               value: {{ include "hugegraph.pd.grpcPeersList" . | quote }}
             - name: HG_SERVER_CLUSTER
-              value: {{ .Values.server.cluster | quote }}
+              value: {{ .Values.server.cluster | default "hg-test" | quote }}
             - name: HG_SERVER_PD_REST_ENDPOINT
               value: {{ include "hugegraph.pd.restPeersList" . | quote }}
             - name: STORE_REST

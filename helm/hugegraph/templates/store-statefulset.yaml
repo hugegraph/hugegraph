@@ -122,7 +122,7 @@ spec:
           resources:
             {{- toYaml . | nindent 12 }}
           {{- end }}
-      {{- if not .Values.store.storage.enabled }}
+      {{- if and (hasKey .Values.store.storage "enabled") (not .Values.store.storage.enabled) }}
       volumes:
         - name: store-data
           emptyDir: {}
@@ -193,7 +193,7 @@ spec:
           resources:
             {{- toYaml . | nindent 12 }}
           {{- end }}
-  {{- if .Values.store.storage.enabled }}
+  {{- if or (not (hasKey .Values.store.storage "enabled")) .Values.store.storage.enabled }}
   volumeClaimTemplates:
     - metadata:
         name: store-data
