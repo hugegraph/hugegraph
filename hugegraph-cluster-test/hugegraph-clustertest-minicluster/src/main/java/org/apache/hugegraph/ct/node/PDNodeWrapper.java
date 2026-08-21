@@ -70,8 +70,8 @@ public class PDNodeWrapper extends AbstractNodeWrapper {
             String pdNodeJarPath = getFileInDir(workPath, PD_JAR_PREFIX);
             startCmd.addAll(Arrays.asList(
                     "-Dname=HugeGraphPD" + this.index,
-                    "-Xms512m",
-                    "-Xmx4g",
+                    "-Xms128m",
+                    "-Xmx512m",
                     "-XX:+HeapDumpOnOutOfMemoryError",
                     "-XX:HeapDumpPath=" + configPath + "logs",
                     "-Dlog4j.configurationFile=" + configPath + File.separator +

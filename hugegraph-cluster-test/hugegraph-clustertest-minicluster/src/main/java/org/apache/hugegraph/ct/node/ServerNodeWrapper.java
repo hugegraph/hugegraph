@@ -124,6 +124,8 @@ public class ServerNodeWrapper extends AbstractNodeWrapper {
 
             startCmd.addAll(Arrays.asList(
                     "-Dname=HugeGraphServer" + this.index,
+                    "-Xms128m",
+                    "-Xmx1g",
                     "--add-exports=java.base/jdk.internal.reflect=ALL-UNNAMED",
                     "--add-modules=jdk.unsupported",
                     "--add-exports=java.base/sun.nio.ch=ALL-UNNAMED",

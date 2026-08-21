@@ -39,7 +39,7 @@ public class StoreNodeWrapper extends AbstractNodeWrapper {
         super();
         this.fileNames = new ArrayList<>(List.of(LOG4J_FILE));
         this.workPath = STORE_LIB_PATH;
-        this.startLine = "o.a.h.s.n.StoreNodeApplication - Starting StoreNodeApplication";
+        this.startLine = "o.a.h.s.n.StoreNodeApplication - Started StoreNodeApplication";
         createNodeDir(Paths.get(STORE_TEMPLATE_PATH), getNodePath() + CONF_DIR + File.separator);
         createLogDir();
     }
@@ -48,7 +48,7 @@ public class StoreNodeWrapper extends AbstractNodeWrapper {
         super(clusterId, index);
         this.fileNames = new ArrayList<>(List.of(LOG4J_FILE));
         this.workPath = STORE_LIB_PATH;
-        this.startLine = "o.a.h.s.n.StoreNodeApplication - Starting StoreNodeApplication";
+        this.startLine = "o.a.h.s.n.StoreNodeApplication - Started StoreNodeApplication";
         createNodeDir(Paths.get(STORE_TEMPLATE_PATH), getNodePath() + CONF_DIR + File.separator);
         createLogDir();
     }
@@ -70,8 +70,8 @@ public class StoreNodeWrapper extends AbstractNodeWrapper {
                     "-Dlog4j.configurationFile=" + configPath + CONF_DIR
                     + File.separator + "log4j2.xml",
                     "-Dfastjson.parser.safeMode=true",
-                    "-Xms512m",
-                    "-Xmx2048m",
+                    "-Xms128m",
+                    "-Xmx1g",
                     "-XX:MetaspaceSize=256M",
                     "-XX:+UseG1GC",
                     "-XX:+ParallelRefProcEnabled",

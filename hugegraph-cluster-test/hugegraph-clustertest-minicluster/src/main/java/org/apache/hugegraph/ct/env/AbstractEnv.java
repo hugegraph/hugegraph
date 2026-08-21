@@ -19,15 +19,21 @@ package org.apache.hugegraph.ct.env;
 
 import static org.apache.hugegraph.ct.base.ClusterConstant.CONF_DIR;
 
+import java.io.File;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
+import org.apache.commons.io.FileUtils;
 import org.apache.hugegraph.ct.base.HGTestLogger;
 import org.apache.hugegraph.ct.config.ClusterConfig;
 import org.apache.hugegraph.ct.config.GraphConfig;
 import org.apache.hugegraph.ct.config.PDConfig;
 import org.apache.hugegraph.ct.config.ServerConfig;
 import org.apache.hugegraph.ct.config.StoreConfig;
+import org.apache.hugegraph.ct.node.BaseNodeWrapper;
 import org.apache.hugegraph.ct.node.PDNodeWrapper;
 import org.apache.hugegraph.ct.node.ServerNodeWrapper;
 import org.apache.hugegraph.ct.node.StoreNodeWrapper;
@@ -39,6 +45,8 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 public abstract class AbstractEnv implements BaseEnv {
 
+    private static final long NODE_START_TIMEOUT_MINUTES = 5L;
+    private static final int START_LOG_TAIL_LINES = 80;
     private static final Logger LOG = HGTestLogger.ENV_LOG;
 
     protected ClusterConfig clusterConfig;
@@ -87,36 +95,64 @@ public abstract class AbstractEnv implements BaseEnv {
     }
 
     public void startCluster() {
-        for (PDNodeWrapper pdNodeWrapper : pdNodeWrappers) {
-            pdNodeWrapper.start();
-            while (!pdNodeWrapper.isStarted()) {
-                try {
-                    Thread.sleep(1000);
-                } catch (InterruptedException e) {
-                    throw new RuntimeException(e);
-                }
+        try {
+            for (PDNodeWrapper pdNodeWrapper : pdNodeWrappers) {
+                pdNodeWrapper.start();
+                this.waitUntilStarted(pdNodeWrapper);
+            }
+            for (StoreNodeWrapper storeNodeWrapper : storeNodeWrappers) {
+                storeNodeWrapper.start();
+                this.waitUntilStarted(storeNodeWrapper);
+            }
+            for (ServerNodeWrapper serverNodeWrapper : serverNodeWrappers) {
+                serverNodeWrapper.start();
+                this.waitUntilStarted(serverNodeWrapper);
+            }
+        } catch (RuntimeException | Error e) {
+            this.stopCluster();
+            throw e;
+        }
+    }
+
+    private void waitUntilStarted(BaseNodeWrapper node) {
+        long deadline = System.nanoTime() +
+                        TimeUnit.MINUTES.toNanos(NODE_START_TIMEOUT_MINUTES);
+        while (!node.isStarted()) {
+            if (!node.isAlive()) {
+                throw this.startupFailure(node, "exited before startup");
+            }
+            if (System.nanoTime() >= deadline) {
+                throw this.startupFailure(node, String.format(
+                          "did not start within %s minutes",
+                          NODE_START_TIMEOUT_MINUTES));
+            }
+            try {
+                Thread.sleep(1000);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new RuntimeException(e);
             }
         }
-        for (StoreNodeWrapper storeNodeWrapper : storeNodeWrappers) {
-            storeNodeWrapper.start();
-            while (!storeNodeWrapper.isStarted()) {
-                try {
-                    Thread.sleep(1000);
-                } catch (InterruptedException e) {
-                    throw new RuntimeException(e);
-                }
+    }
+
+    private AssertionError startupFailure(BaseNodeWrapper node, String reason) {
+        StringBuilder message = new StringBuilder(String.format(
+                "Node '%s' %s; startup log: '%s'",
+                node.getID(), reason, node.getLogPath()));
+        try {
+            List<String> lines = FileUtils.readLines(
+                    new File(node.getLogPath()), StandardCharsets.UTF_8);
+            int from = Math.max(0, lines.size() - START_LOG_TAIL_LINES);
+            message.append(System.lineSeparator()).append("Startup log tail:");
+            for (String line : lines.subList(from, lines.size())) {
+                message.append(System.lineSeparator()).append(line);
             }
+        } catch (IOException e) {
+            message.append(System.lineSeparator())
+                   .append("Failed to read startup log: ")
+                   .append(e.getMessage());
         }
-        for (ServerNodeWrapper serverNodeWrapper : serverNodeWrappers) {
-            serverNodeWrapper.start();
-            while (!serverNodeWrapper.isStarted()) {
-                try {
-                    Thread.sleep(1000);
-                } catch (InterruptedException e) {
-                    throw new RuntimeException(e);
-                }
-            }
-        }
+        return new AssertionError(message.toString());
     }
 
     public void stopCluster() {
