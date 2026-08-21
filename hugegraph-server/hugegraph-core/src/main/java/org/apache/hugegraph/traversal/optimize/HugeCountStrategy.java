@@ -72,7 +72,7 @@ public final class HugeCountStrategy
             Set.of(Compare.eq, Compare.neq, Compare.lte, Compare.gt,
                    new NotP.NotPBiPredicate<>(Compare.eq),
                    new NotP.NotPBiPredicate<>(Compare.neq),
-                   new NotP.NotPBiPredicate<>(Compare.lt),
+                   new NotP.NotPBiPredicate<>(Compare.lte),
                    new NotP.NotPBiPredicate<>(Compare.gt));
 
     private static final HugeCountStrategy INSTANCE = new HugeCountStrategy();

@@ -1453,13 +1453,25 @@ public final class TraversalUtil {
         List<P<Object>> leafPredicates = new ArrayList<>();
         collectPredicates(leafPredicates, ImmutableList.of(predicate));
         for (P<Object> pred : leafPredicates) {
-            if (pred.getBiPredicate() == Compare.neq &&
-                pred.getValue() == null) {
+            if (isNullInequalityPredicate(pred)) {
                 continue;
             }
             Object value = validPropertyValue(pred.getValue(), pkey);
             pred.setValue(value);
         }
+    }
+
+    private static boolean isNullInequalityPredicate(P<?> predicate) {
+        if (predicate.getValue() != null) {
+            return false;
+        }
+        if (predicate.getBiPredicate() == Compare.neq) {
+            return true;
+        }
+        if (!(predicate instanceof NotP)) {
+            return false;
+        }
+        return ((NotP<?>) predicate).negate().getBiPredicate() == Compare.eq;
     }
 
     private static boolean isSysProp(String key) {

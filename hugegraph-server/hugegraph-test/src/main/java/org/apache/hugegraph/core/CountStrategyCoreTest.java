@@ -30,6 +30,7 @@ import org.apache.hugegraph.exception.NoIndexException;
 import org.apache.hugegraph.schema.SchemaManager;
 import org.apache.hugegraph.testutil.Assert;
 import org.apache.hugegraph.traversal.optimize.HugeCountStep;
+import org.apache.hugegraph.traversal.optimize.HugeCountStrategy;
 import org.apache.hugegraph.traversal.optimize.HugeGraphStep;
 import org.apache.hugegraph.type.HugeType;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
@@ -144,6 +145,17 @@ public class CountStrategyCoreTest extends BaseCoreTest {
                                 Assert.assertContains("offset/limit", e.getMessage());
                                 Assert.assertContains("uncommitted records", e.getMessage());
                             });
+    }
+
+    private static void assertNegatedCountHighRange(long expected,
+                                                    P<Long> predicate) {
+        GraphTraversal<?, Long> traversal = __.count().is(P.not(predicate));
+        HugeCountStrategy.instance().apply(traversal.asAdmin());
+
+        Step<?, ?> firstStep = traversal.asAdmin().getStartStep();
+        Assert.assertInstanceOf(RangeGlobalStep.class, firstStep);
+        Assert.assertEquals(expected,
+                            ((RangeGlobalStep<?>) firstStep).getHighRange());
     }
 
     private void initTextRangeSchema(boolean withEdge) {
@@ -311,15 +323,35 @@ public class CountStrategyCoreTest extends BaseCoreTest {
                                 .where(__.out("knows").count()
                                          .is(P.not(P.lt(2L))))
                                 .count().next();
+        long notLteOne = graph().traversal().V(source.id())
+                                 .where(__.out("knows").count()
+                                          .is(P.not(P.lte(1L))))
+                                 .count().next();
         long notGtOne = graph().traversal().V(source.id())
                                 .where(__.out("knows").count()
                                          .is(P.not(P.gt(1L))))
                                 .count().next();
+        long notGteThree = graph().traversal().V(source.id())
+                                   .where(__.out("knows").count()
+                                            .is(P.not(P.gte(3L))))
+                                   .count().next();
 
         Assert.assertEquals(1L, notEqZero);
         Assert.assertEquals(0L, notNeqOne);
         Assert.assertEquals(1L, notLtTwo);
+        Assert.assertEquals(1L, notLteOne);
         Assert.assertEquals(0L, notGtOne);
+        Assert.assertEquals(1L, notGteThree);
+    }
+
+    @Test
+    public void testNegatedScalarPredicatesUseComplementedHighRange() {
+        assertNegatedCountHighRange(3L, P.eq(2L));
+        assertNegatedCountHighRange(3L, P.neq(2L));
+        assertNegatedCountHighRange(2L, P.lt(2L));
+        assertNegatedCountHighRange(3L, P.lte(2L));
+        assertNegatedCountHighRange(3L, P.gt(2L));
+        assertNegatedCountHighRange(2L, P.gte(2L));
     }
 
     @Test
