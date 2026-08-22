@@ -72,21 +72,15 @@ function extract_html_css_from_jar() {
     local jar_file="$1"
     local dest_dir="$2"
     local abs_jar_path
-    # Prefer /dev/shm on Linux for speed; fallback to TMPDIR or /tmp
-    local resource_target
-    if [ "$(uname -s)" = "Linux" ] && [ -d /dev/shm ]; then
-        resource_target="/dev/shm/rocksdb_resource"
-    else
-        resource_target="${TMPDIR:-/tmp}/rocksdb_resource"
-    fi
+    local resource_target="$dest_dir/rocksdb_resource"
 
     if [ ! -f "$jar_file" ]; then
         echo "Error: JAR file '$jar_file' does not exist." >&2
         return 1
     fi
 
-    mkdir -p "$dest_dir" || {
-        echo "Error: Cannot create destination directory '$dest_dir'." >&2
+    mkdir -p "$resource_target" || {
+        echo "Error: Cannot create resource directory '$resource_target'." >&2
         return 1
     }
 
@@ -99,7 +93,7 @@ function extract_html_css_from_jar() {
         echo "Error: 'unzip' command not found. Please install unzip." >&2
         return 1
     fi
-    unzip -j -o "$abs_jar_path" "*.html" "*.css" -d "$dest_dir" > /dev/null || {
+    unzip -j -o "$abs_jar_path" "*.html" "*.css" -d "$resource_target" > /dev/null || {
         local code=$?
         if [ $code -eq 11 ]; then
             echo "Notice: No .html or .css files found in '$jar_file'." >&2
@@ -110,42 +104,23 @@ function extract_html_css_from_jar() {
         fi
     }
 
-    mkdir -p "$resource_target" || {
-        echo "Error: Cannot create target directory '$resource_target'." >&2
-        return 1
-    }
-
-    if compgen -G "$dest_dir"/*.html >/dev/null 2>&1; then
-        cp -f "$dest_dir"/*.html "$resource_target"/
-    fi
-    if compgen -G "$dest_dir"/*.css >/dev/null 2>&1; then
-        cp -f "$dest_dir"/*.css "$resource_target"/
-    fi
 }
 
 function ensure_libaio_symlink() {
-    # Check for Ubuntu 24.04+ and create a symlink for libaio if needed.
-    # This is a workaround for software expecting the old libaio.so.1 name,
-    # as it was renamed to libaio.so.1t64 in the new release.
-    # https://askubuntu.com/questions/1512196/libaio1-on-noble/1516639#1516639
+    local dest_dir="$1"
+    # Keep the Ubuntu 24.04 compatibility link inside the component runtime.
+    # Installation must never require sudo or modify /usr/lib.
     if [ -f /etc/os-release ]; then
         . /etc/os-release
-        if [ "${ID:-}" = "ubuntu" ] && command -v dpkg >/dev/null 2>&1 && dpkg --compare-versions "${VERSION_ID:-0}" "ge" "24.04"; then
-            local libaio_link_target="/usr/lib/x86_64-linux-gnu/libaio.so.1"
-            if [ ! -e "$libaio_link_target" ]; then
-                echo "Ubuntu ${VERSION_ID:-?} detected. Creating compatibility symlink for libaio."
-                if [ -e /usr/lib/x86_64-linux-gnu/libaio.so.1t64 ]; then
-                    if [ "$EUID" -eq 0 ]; then
-                        ln -sf /usr/lib/x86_64-linux-gnu/libaio.so.1t64 "$libaio_link_target" || true
-                    elif command -v sudo >/dev/null 2>&1; then
-                        sudo ln -sf /usr/lib/x86_64-linux-gnu/libaio.so.1t64 "$libaio_link_target" || true
-                    else
-                        echo "Warn: sudo not available, skip creating $libaio_link_target" >&2
-                    fi
-                else
-                    echo "Warn: libaio.so.1t64 not found, skip creating compat symlink" >&2
-                fi
-            fi
+        if [ "${ID:-}" = "ubuntu" ] &&
+           command -v dpkg >/dev/null 2>&1 &&
+           dpkg --compare-versions "${VERSION_ID:-0}" "ge" "24.04" &&
+           [ ! -e /usr/lib/x86_64-linux-gnu/libaio.so.1 ] &&
+           [ -e /usr/lib/x86_64-linux-gnu/libaio.so.1t64 ]; then
+            mkdir -p "$dest_dir"
+            ln -sfn /usr/lib/x86_64-linux-gnu/libaio.so.1t64 \
+                    "$dest_dir/libaio.so.1"
+            echo "Prepared component-local libaio.so.1 compatibility link"
         fi
     fi
 }
@@ -260,13 +235,22 @@ function require_topling_platform() {
     fi
 }
 
-function preload_toplingdb() {
+function prepare_toplingdb() {
     local lib_dir="$1"
     local dest_dir="$2"
+    local top_override="${3:-}"
 
     require_topling_platform || return 1
 
-    local top="$(cd "$lib_dir"/../ && pwd)"
+    local top
+    if [ -n "$top_override" ]; then
+        top="$top_override"
+    else
+        top="$(cd "$lib_dir"/../ && pwd)" || {
+            echo "Error: failed to resolve the ToplingDB installation directory" >&2
+            return 1
+        }
+    fi
 
     local jar_file
     jar_file=$(ls -1 "$lib_dir"/rocksdbjni*.jar 2>/dev/null | sort -V | tail -n1 || true)
@@ -275,8 +259,10 @@ function preload_toplingdb() {
         return 1
     fi
 
-    ensure_libaio_symlink
-    download_and_setup_jemalloc "$top"
+    ensure_libaio_symlink "$dest_dir"
+    if ! download_and_setup_jemalloc "$top"; then
+        echo "Warning: jemalloc is unavailable; continuing without it" >&2
+    fi
     extract_so_with_jar "$jar_file" "$dest_dir"
     if [ -d "$dest_dir" ]; then
         if [[ ":${LD_LIBRARY_PATH:-}:" != *":$dest_dir:"* ]]; then
@@ -302,5 +288,7 @@ function preload_toplingdb() {
     else
         echo "Warn: LD paths skipped, directory '$dest_dir' does not exist." >&2
     fi
-    extract_html_css_from_jar "$jar_file" "$dest_dir"
+    if ! extract_html_css_from_jar "$jar_file" "$dest_dir"; then
+        echo "Warning: failed to extract optional ToplingDB web resources; continuing" >&2
+    fi
 }

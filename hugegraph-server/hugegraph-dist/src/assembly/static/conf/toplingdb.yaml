@@ -17,7 +17,7 @@
 # common parameters
 http:
   # normally parent path of db path
-  document_root: /dev/shm/rocksdb_resource
+  document_root: ./library/rocksdb_resource
   listening_ports: '127.0.0.1:2011'
   auto_start_http: true
 setenv:
@@ -154,5 +154,9 @@ DBOptions:
     statistics: "${stat}"
     max_manifest_file_size: 100M
     max_background_jobs: 8
+# WARNING: This profile enables ToplingDB-specific WAL/SST behavior through
+# convert_to_sst and memtable_as_log_index. After ToplingDB writes data, changing
+# rocksdb.provider back to rocksdb is not a safe rollback. Restore a complete,
+# consistent snapshot created before migration; see the ToplingDB design document.
     compaction_readahead_size: 0
     memtable_as_log_index: true

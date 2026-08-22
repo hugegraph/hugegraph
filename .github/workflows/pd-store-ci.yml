@@ -8,8 +8,68 @@ on:
       - 'test-*'
   pull_request:
 
+permissions:
+  contents: read
+  packages: read
+
 # TODO: consider merge to one ci.yml file
 jobs:
+  distributed-rocksdb-runtime:
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        component: [ pd, store ]
+        provider: [ rocksdb, topling ]
+    env:
+      TRAVIS_DIR: hugegraph-server/hugegraph-dist/src/assembly/travis
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GITHUB_ACTOR: ${{ github.actor }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Java 11
+        uses: actions/setup-java@v4
+        with:
+          java-version: '11'
+          distribution: 'zulu'
+
+      - name: Use staged maven repo settings
+        run: |
+          mkdir -p "$HOME/.m2"
+          cp -vf .github/configs/settings.xml "$HOME/.m2/settings.xml"
+
+      - name: Package distributions
+        run: |
+          mvn clean package -Dmaven.test.skip=true -ntp
+
+      - name: Configure ${{ matrix.component }} ${{ matrix.provider }} provider
+        run: |
+          VERSION=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)
+          SERVER_DIR="hugegraph-server/apache-hugegraph-server-$VERSION"
+          if [ "${{ matrix.component }}" = "pd" ]; then
+            COMPONENT_DIR="hugegraph-pd/apache-hugegraph-pd-$VERSION"
+            CONFIG_FILE="$COMPONENT_DIR/conf/application.yml"
+            sed -i 's/^# rocksdb:/rocksdb:/' "$CONFIG_FILE"
+            sed -i 's/^#   provider: rocksdb/  provider: ${{ matrix.provider }}/' \
+                "$CONFIG_FILE"
+          else
+            COMPONENT_DIR="hugegraph-store/apache-hugegraph-store-$VERSION"
+            CONFIG_FILE="$COMPONENT_DIR/conf/application-pd.yml"
+            sed -i 's/^  # provider: topling/  provider: ${{ matrix.provider }}/' \
+                "$CONFIG_FILE"
+          fi
+          echo "SERVER_DIR=$SERVER_DIR" >> "$GITHUB_ENV"
+          echo "COMPONENT_DIR=$COMPONENT_DIR" >> "$GITHUB_ENV"
+
+      - name: Prepare and test real ${{ matrix.provider }} runtime
+        run: |
+          source "$TRAVIS_DIR/install-rocksdb.sh" "${{ matrix.component }}"
+          "$TRAVIS_DIR/test-rocksdb-runtime.sh" \
+              "${{ matrix.provider }}" "$SERVER_DIR" "$COMPONENT_DIR"
+
   struct:
     runs-on: ubuntu-latest
     env:
@@ -102,7 +162,6 @@ jobs:
         # todo remove --fail-at-end after test
         run: |
           mvn clean package -U -Dmaven.javadoc.skip=true -Dmaven.test.skip=true -ntp --fail-at-end
-          source "${TRAVIS_DIR}/install-rocksdb.sh"
 
       - name: Run common test
         run: |
@@ -118,6 +177,7 @@ jobs:
         # todo remove --fail-at-end after test
         run: |
           mvn clean package -U -Dmaven.javadoc.skip=true -Dmaven.test.skip=true -ntp --fail-at-end
+          source "${TRAVIS_DIR}/install-rocksdb.sh" pd
 
       - name: Check startup test prerequisites (PD)
         id: pd-preflight
@@ -204,7 +264,7 @@ jobs:
         # todo remove --fail-at-end after test
         run: |
           mvn clean package -U -Dmaven.javadoc.skip=true -Dmaven.test.skip=true -ntp --fail-at-end
-          source "${TRAVIS_DIR}/install-rocksdb.sh"
+          source "${TRAVIS_DIR}/install-rocksdb.sh" store
 
       - name: Check startup test prerequisites (Store)
         id: store-preflight
@@ -315,7 +375,9 @@ jobs:
         # todo remove --fail-at-end after test
         run: |
           mvn clean package -U -Dmaven.javadoc.skip=true -Dmaven.test.skip=true -ntp --fail-at-end
-          source "${TRAVIS_DIR}/install-rocksdb.sh"
+          source "${TRAVIS_DIR}/install-rocksdb.sh" pd
+          source "${TRAVIS_DIR}/install-rocksdb.sh" store
+          source "${TRAVIS_DIR}/install-rocksdb.sh" hstore
 
       - name: Prepare env and service
         run: |

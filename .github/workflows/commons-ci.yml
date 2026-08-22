@@ -9,6 +9,10 @@ on:
       - /^test-.*$/
   pull_request:
 
+permissions:
+  contents: read
+  packages: read
+
 jobs:
   build-commons:
     runs-on: ubuntu-latest

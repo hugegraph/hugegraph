@@ -37,7 +37,6 @@ import org.apache.hugegraph.backend.serializer.BinarySerializer;
 import org.apache.hugegraph.backend.store.BackendEntry.BackendColumn;
 import org.apache.hugegraph.backend.store.BackendEntry.BackendColumnIterator;
 import org.apache.hugegraph.backend.store.BackendEntryIterator;
-import org.apache.hugegraph.backend.store.BackendStoreProvider;
 import org.apache.hugegraph.backend.store.rocksdb.RocksDBIteratorPool.ReusedRocksIterator;
 import org.apache.hugegraph.config.CoreOptions;
 import org.apache.hugegraph.config.HugeConfig;
@@ -447,10 +446,6 @@ public class RocksDBStdSessions extends RocksDBSessions {
             }
         }
         return cfs;
-    }
-
-    private static String getDbName(String dataPath) {
-        return Paths.get(dataPath).getFileName().toString();
     }
 
     public static void initOptions(HugeConfig conf,
