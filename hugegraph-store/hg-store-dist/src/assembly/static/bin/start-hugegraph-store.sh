@@ -38,6 +38,8 @@ GITHUB="https://github.com"
 PID_FILE="$BIN/pid"
 
 . "$BIN"/util.sh
+PARENT_DIR="$(cd "$TOP"/../ && pwd)"
+SERVER_VERSION_DIR="${SERVER_VERSION_DIR:-$(find_hugegraph_server_dir "$PARENT_DIR")}"
 
 arch=$(uname -m)
 echo "Current arch: $arch"
@@ -62,6 +64,15 @@ elif [[ $arch == "x86_64" ]]; then
     fi
 else
     echo "Unsupported architecture: $arch"
+fi
+
+# preload rocksdb/toplingdb
+if [ -n "$SERVER_VERSION_DIR" ] && [ -e "$SERVER_VERSION_DIR/bin/preload-topling.sh" ]; then
+    TOPLINGDB_EASY_MIGRATE_CONF="$CONF/rocksdb_store.yaml"
+    TOPLING_COMPONENT_TOP="$TOP"
+    TOPLING_USE_SERVER_CLASSPATH=false
+    source "$SERVER_VERSION_DIR/bin/preload-topling.sh"
+    unset TOPLING_COMPONENT_TOP TOPLING_USE_SERVER_CLASSPATH
 fi
 
 ##pd/store max user processes, ulimit -u
