@@ -27,10 +27,15 @@ import org.apache.hugegraph.auth.HugeGraphAuthProxy.Context;
 import org.apache.hugegraph.auth.HugeGraphAuthProxy.ContextThreadPoolExecutor;
 import org.apache.hugegraph.config.CoreOptions;
 import org.apache.hugegraph.event.EventHub;
+import org.apache.hugegraph.security.HugeGraphGremlinLangScriptEngine;
+import org.apache.hugegraph.security.HugeGraphGremlinLangScriptEngineFactory;
 import org.apache.hugegraph.testutil.Whitebox;
 import org.apache.hugegraph.util.Events;
 import org.apache.hugegraph.util.Log;
 import org.apache.tinkerpop.gremlin.groovy.engine.GremlinExecutor;
+import org.apache.tinkerpop.gremlin.jsr223.GremlinScriptEngine;
+import org.apache.tinkerpop.gremlin.jsr223.GremlinScriptEngineManager;
+import org.apache.tinkerpop.gremlin.process.traversal.TraversalSource;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversalSource;
 import org.apache.tinkerpop.gremlin.server.GraphManager;
 import org.apache.tinkerpop.gremlin.server.GremlinServer;
@@ -49,6 +54,7 @@ public class ContextGremlinServer extends GremlinServer {
     private static final String G_PREFIX = "__g_";
 
     private final EventHub eventHub;
+    private final HugeGraphGremlinLangScriptEngine gremlinLangEngine;
 
     static {
         HugeGraphAuthProxy.setContext(Context.admin());
@@ -60,6 +66,26 @@ public class ContextGremlinServer extends GremlinServer {
          */
         super(settings, newGremlinExecutorService(settings));
         this.eventHub = eventHub;
+        GremlinScriptEngineManager manager =
+                this.getServerGremlinExecutor()
+                    .getGremlinExecutor()
+                    .getScriptEngineManager();
+        GremlinScriptEngine engine = manager.getEngineByName(
+                HugeGraphGremlinLangScriptEngineFactory.INTERNAL_ENGINE_NAME);
+        if (!(engine instanceof HugeGraphGremlinLangScriptEngine)) {
+            throw new HugeException("Failed to initialize HugeGraph " +
+                                    "GremlinLang script engine");
+        }
+        this.gremlinLangEngine = (HugeGraphGremlinLangScriptEngine) engine;
+        manager.registerEngineName(
+                HugeGraphGremlinLangScriptEngineFactory.ENGINE_NAME,
+                this.gremlinLangEngine.getFactory());
+        if (manager.getEngineByName(
+                    HugeGraphGremlinLangScriptEngineFactory.ENGINE_NAME) !=
+            this.gremlinLangEngine) {
+            throw new HugeException("Failed to register public GremlinLang " +
+                                    "script engine name");
+        }
         this.listenChanges();
     }
 
@@ -93,6 +119,7 @@ public class ContextGremlinServer extends GremlinServer {
         try {
             return super.stop();
         } finally {
+            this.gremlinLangEngine.clear();
             this.unlistenChanges();
         }
     }
@@ -120,6 +147,7 @@ public class ContextGremlinServer extends GremlinServer {
             }
             // Add a traversal source for all graphs with customed rule.
             manager.putTraversalSource(gName, g);
+            this.gremlinLangEngine.add(g);
         }
     }
 
@@ -134,6 +162,7 @@ public class ContextGremlinServer extends GremlinServer {
 
         GraphTraversalSource g = manager.getGraph(name).traversal();
         manager.putTraversalSource(G_PREFIX + name, g);
+        this.gremlinLangEngine.add(g);
 
         Whitebox.invoke(executor, "globalBindings",
                         new Class<?>[]{String.class, Object.class},
@@ -146,6 +175,11 @@ public class ContextGremlinServer extends GremlinServer {
         GremlinExecutor executor = this.getServerGremlinExecutor()
                                        .getGremlinExecutor();
         try {
+            TraversalSource source = manager.getTraversalSource(G_PREFIX +
+                                                                 name);
+            if (source instanceof GraphTraversalSource) {
+                this.gremlinLangEngine.remove((GraphTraversalSource) source);
+            }
             manager.removeGraph(name);
             manager.removeTraversalSource(G_PREFIX + name);
             Whitebox.invoke(executor, "globalBindings",
@@ -158,6 +192,14 @@ public class ContextGremlinServer extends GremlinServer {
     }
 
     static ExecutorService newGremlinExecutorService(Settings settings) {
+        if (!HugeGraphWsAndHttpChannelizer.class.getName().equals(
+                settings.channelizer)) {
+            throw new HugeException(
+                    "The Gremlin Server channelizer must be '%s' to " +
+                    "protect remote Gremlin requests, but got '%s'",
+                    HugeGraphWsAndHttpChannelizer.class.getName(),
+                    settings.channelizer);
+        }
         if (settings.gremlinPool == 0) {
             settings.gremlinPool = CoreOptions.CPUS;
         }

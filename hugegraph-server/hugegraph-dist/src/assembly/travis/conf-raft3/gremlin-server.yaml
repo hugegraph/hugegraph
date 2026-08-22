@@ -21,11 +21,23 @@ port: 8183
 # timeout in ms of gremlin query
 evaluationTimeout: 60000
 
-channelizer: org.apache.tinkerpop.gremlin.server.channel.WsAndHttpChannelizer
+channelizer: org.apache.hugegraph.auth.HugeGraphWsAndHttpChannelizer
 # don't set graph at here, this happens after support for dynamically adding graph
 graphs: {
 }
 scriptEngines: {
+  # Internal registration name; remote clients still use gremlin-lang.
+  hugegraph-gremlin-lang: {
+    plugins: {
+      org.apache.tinkerpop.gremlin.jsr223.GremlinLangPlugin: {
+        cacheEnabled: true,
+        caffeine: "maximumSize=1024,expireAfterAccess=10m"
+      },
+      org.apache.tinkerpop.gremlin.jsr223.VariableResolverPlugin: {
+        resolver: DefaultVariableResolver
+      }
+    }
+  },
   gremlin-groovy: {
     plugins: {
       org.apache.hugegraph.plugin.HugeGraphGremlinPlugin: {},

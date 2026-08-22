@@ -99,6 +99,14 @@ public class GremlinConfigCompatibilityTest extends BaseUnitTest {
     private static final String IO_REGISTRY =
             "org.apache.hugegraph.io.HugeGraphIoRegistry";
     private static final String GREMLIN_SERVER_CONFIG = "gremlin-server.yaml";
+    private static final String HUGEGRAPH_CHANNELIZER =
+            "org.apache.hugegraph.auth.HugeGraphWsAndHttpChannelizer";
+    private static final String GREMLIN_LANG_PLUGIN =
+            "org.apache.tinkerpop.gremlin.jsr223.GremlinLangPlugin";
+    private static final String VARIABLE_RESOLVER_PLUGIN =
+            "org.apache.tinkerpop.gremlin.jsr223.VariableResolverPlugin";
+    private static final String HUGEGRAPH_GREMLIN_LANG =
+            "hugegraph-gremlin-lang";
     private static final String REMOTE_OBJECTS_CONFIG = "remote-objects.yaml";
     private static final List<String> GREMLIN_SERVER_CONFIG_VARIANTS =
             Arrays.asList(
@@ -213,6 +221,37 @@ public class GremlinConfigCompatibilityTest extends BaseUnitTest {
             }
             Assert.assertTrue("No GraphBinary serializer in " + variant,
                               found);
+        }
+    }
+
+    @Test
+    public void testGremlinServerConfigVariantsEnableGuardedGremlinLang()
+            throws Exception {
+        Path assembly = serverAssemblyPath();
+
+        for (String variant : GREMLIN_SERVER_CONFIG_VARIANTS) {
+            Settings settings = Settings.read(assembly.resolve(variant)
+                                                   .toString());
+            Assert.assertEquals(variant, HUGEGRAPH_CHANNELIZER,
+                                settings.channelizer);
+            Assert.assertTrue(variant,
+                              settings.scriptEngines.containsKey(
+                                      "gremlin-groovy"));
+            Settings.ScriptEngineSettings gremlinLang =
+                    settings.scriptEngines.get(HUGEGRAPH_GREMLIN_LANG);
+            Assert.assertNotNull(variant, gremlinLang);
+
+            Map<String, Object> cache = gremlinLang.plugins.get(
+                    GREMLIN_LANG_PLUGIN);
+            Assert.assertEquals(variant, true, cache.get("cacheEnabled"));
+            Assert.assertEquals(variant,
+                                "maximumSize=1024,expireAfterAccess=10m",
+                                cache.get("caffeine"));
+
+            Map<String, Object> variables = gremlinLang.plugins.get(
+                    VARIABLE_RESOLVER_PLUGIN);
+            Assert.assertEquals(variant, "DefaultVariableResolver",
+                                variables.get("resolver"));
         }
     }
 
