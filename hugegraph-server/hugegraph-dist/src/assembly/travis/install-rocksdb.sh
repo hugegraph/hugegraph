@@ -101,6 +101,9 @@ detect_rocksdb_provider() {
     local conf_dir="$1"
     local file
     local -a values=()
+    local -a unique_values=()
+    local value key conflicts
+    local -A seen=()
 
     for file in "$conf_dir"/graphs/*.properties; do
         [ -f "$file" ] || continue
@@ -139,11 +142,20 @@ detect_rocksdb_provider() {
         )
     done
 
-    if [ "${#values[@]}" -gt 1 ]; then
-        echo "Error: rocksdb.provider must be configured exactly once" >&2
+    for value in "${values[@]}"; do
+        key="provider:$value"
+        if [ -z "${seen[$key]:-}" ]; then
+            unique_values+=("$value")
+            seen[$key]=true
+        fi
+    done
+
+    if [ "${#unique_values[@]}" -gt 1 ]; then
+        conflicts=$(IFS=,; echo "${unique_values[*]}")
+        echo "Error: conflicting rocksdb.provider values: $conflicts" >&2
         return 1
     fi
-    local provider="${values[0]:-rocksdb}"
+    local provider="${unique_values[0]:-rocksdb}"
     case "$provider" in
         rocksdb | topling)
             echo "$provider"

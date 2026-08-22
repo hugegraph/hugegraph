@@ -45,7 +45,7 @@ public final class RocksDBRuntimeSmokeTest {
         String provider = args[0];
         String dbPath = args[1];
         String expectedNativePath = args[2];
-        verifyProvider(provider, expectedNativePath);
+        verifyProvider(provider);
         RocksDB.loadLibrary();
         verifyNativeLibrary(expectedNativePath);
 
@@ -55,7 +55,7 @@ public final class RocksDBRuntimeSmokeTest {
                           provider, RocksDB.rocksdbVersion());
     }
 
-    private static void verifyProvider(String provider, String expectedNativePath) {
+    private static void verifyProvider(String provider) {
         boolean hasToplingApi;
         try {
             Class.forName("org.rocksdb.SidePluginRepo");
@@ -70,9 +70,8 @@ public final class RocksDBRuntimeSmokeTest {
         if ("rocksdb".equals(provider) && hasToplingApi) {
             throw new IllegalStateException("Standard provider loaded a Topling JAR");
         }
-        if ("topling".equals(provider) && !hasToplingApi &&
-            "none".equals(expectedNativePath)) {
-            throw new IllegalStateException("Topling provider loaded no Topling runtime");
+        if ("topling".equals(provider) && !hasToplingApi) {
+            throw new IllegalStateException("Topling provider loaded no Topling API");
         }
     }
 
