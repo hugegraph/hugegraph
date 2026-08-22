@@ -39,6 +39,7 @@ public class HugeGraphGremlinLangScriptEngine extends AbstractScriptEngine
        implements GremlinScriptEngine {
 
     private static final String TRAVERSAL_SOURCE = "g";
+    private static final String TINKERPOP_INITIALIZATION_PROBE = "1+1";
 
     private final HugeGraphGremlinLangScriptEngineFactory factory;
     private final Customizer[] customizers;
@@ -56,6 +57,17 @@ public class HugeGraphGremlinLangScriptEngine extends AbstractScriptEngine
     @Override
     public Object eval(String script, ScriptContext context)
             throws ScriptException {
+        /*
+         * Gremlin Server evaluates this fixed expression once for every
+         * configured engine whose registration name is not "gremlin-lang".
+         * HugeGraph uses a private registration name to avoid colliding with
+         * TinkerPop's factory, and the probe runs before traversal sources are
+         * injected. The fixed expression needs no graph access.
+         */
+        if (TINKERPOP_INITIALIZATION_PROBE.equals(script) &&
+            context.getAttribute(TRAVERSAL_SOURCE) == null) {
+            return 2;
+        }
         Delegate delegate = this.delegate(traversalSource(context));
         try {
             return verify(delegate.engine.eval(

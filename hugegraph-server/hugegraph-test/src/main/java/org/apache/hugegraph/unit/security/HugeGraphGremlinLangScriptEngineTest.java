@@ -185,6 +185,26 @@ public class HugeGraphGremlinLangScriptEngineTest {
     }
 
     @Test
+    public void testAllowsTinkerPopInitializationProbeWithoutTraversalSource()
+            throws Exception {
+        HugeGraphGremlinLangScriptEngine engine = engine();
+
+        Assert.assertEquals(2, engine.eval("1+1", new SimpleBindings()));
+        Assert.assertEquals(0, engine.traversalSourceCount());
+    }
+
+    @Test
+    public void testRejectsOtherScriptsWithoutTraversalSource() {
+        HugeGraphGremlinLangScriptEngine engine = engine();
+
+        Assert.assertThrows(IllegalArgumentException.class,
+                            () -> engine.eval("2+2", new SimpleBindings()),
+                            e -> Assert.assertContains(
+                                    "GraphTraversalSource",
+                                    e.getMessage()));
+    }
+
+    @Test
     public void testVerifierAllowsNormalTraversal() throws Exception {
         try (TinkerGraph graph = TinkerGraph.open();
              GraphTraversalSource g = graph.traversal()) {
