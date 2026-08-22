@@ -61,6 +61,7 @@ chmod +x "${TEST_HOME}/bin/"*.sh
 (
     cd "${TEST_HOME}"
     HG_SERVER_BACKEND=hstore \
+    HG_SERVER_ROCKSDB_PROVIDER=topling \
     HG_SERVER_PD_PEERS=pd:8686 \
     HG_SERVER_CLUSTER=hg \
     HG_SERVER_USE_PD=true \
@@ -72,6 +73,8 @@ chmod +x "${TEST_HOME}/bin/"*.sh
 [[ "$(wc -l < "${TEST_HOME}/docker/init-store-calls")" -eq 1 ]]
 
 grep -qx 'backend=hstore' "${TEST_HOME}/conf/graphs/hugegraph.properties"
+grep -qx 'rocksdb.provider=topling' \
+    "${TEST_HOME}/conf/graphs/hugegraph.properties"
 grep -qx 'pd.peers=pd:8686' "${TEST_HOME}/conf/graphs/hugegraph.properties"
 grep -qx 'usePD=true' "${TEST_HOME}/conf/rest-server.properties"
 grep -qx 'pd.peers=pd:8686' "${TEST_HOME}/conf/rest-server.properties"
@@ -83,6 +86,18 @@ grep -qx 'restserver.min_free_memory=0' \
 grep -qx 'auth.token_secret=12345678901234567890123456789012' \
     "${TEST_HOME}/conf/rest-server.properties"
 grep -qx 'auth.token_secret=12345678901234567890123456789012' \
+    "${TEST_HOME}/conf/graphs/hugegraph.properties"
+
+cp "${TEST_HOME}/conf/graphs/hugegraph.properties" \
+    "${TEST_HOME}/conf/graphs/hugegraph.properties.before-invalid-provider"
+if (
+    cd "${TEST_HOME}"
+    HG_SERVER_ROCKSDB_PROVIDER=invalid bash ./docker-entrypoint.sh
+); then
+    echo "invalid RocksDB provider unexpectedly succeeded" >&2
+    exit 1
+fi
+cmp "${TEST_HOME}/conf/graphs/hugegraph.properties.before-invalid-provider" \
     "${TEST_HOME}/conf/graphs/hugegraph.properties"
 
 cp "${TEST_HOME}/conf/rest-server.properties" \

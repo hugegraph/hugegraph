@@ -255,6 +255,7 @@ Configuration is injected via environment variables. The old `docker/configs/app
 | Variable | Required | Default | Maps To | Description |
 |----------|----------|---------|-----------------------------|-------------|
 | `HG_SERVER_BACKEND` | Yes | — | `backend` in `hugegraph.properties` | Storage backend (e.g. `hstore`) |
+| `HG_SERVER_ROCKSDB_PROVIDER` | No | Image/config default | `rocksdb.provider` | RocksDB JNI provider (`rocksdb` or `topling`); the Topling image defaults to `topling` |
 | `HG_SERVER_PD_PEERS` | Yes | — | `pd.peers` | PD cluster addresses (e.g. `pd0:8686,pd1:8686,pd2:8686`) |
 | `HG_SERVER_CLUSTER` | No | — | `cluster` in `rest-server.properties` | PD discovery application name; single-node Compose uses `hg` to match Hubble |
 | `HG_SERVER_USE_PD` | No | — | `usePD` in `rest-server.properties` | Enables Server PD registration and discovery |

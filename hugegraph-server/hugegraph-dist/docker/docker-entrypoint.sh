@@ -90,6 +90,13 @@ migrate_env() {
 migrate_env "BACKEND"  "HG_SERVER_BACKEND"
 migrate_env "PD_PEERS" "HG_SERVER_PD_PEERS"
 
+ROCKSDB_PROVIDER="${HG_SERVER_ROCKSDB_PROVIDER:-}"
+case "${ROCKSDB_PROVIDER}" in
+    "" | rocksdb | topling) ;;
+    *) log "ERROR: HG_SERVER_ROCKSDB_PROVIDER must be rocksdb or topling"
+       exit 1 ;;
+esac
+
 if [[ -n "${HG_SERVER_AUTH_TOKEN_SECRET:-}" ]]; then
     LC_ALL=C
     if (( ${#HG_SERVER_AUTH_TOKEN_SECRET} < 32 )); then
@@ -117,6 +124,8 @@ fi
 
 # ── Map env → properties file ─────────────────────────────────────────
 [[ -n "${HG_SERVER_BACKEND:-}"  ]] && set_prop "backend"  "${HG_SERVER_BACKEND}"  "${GRAPH_CONF}"
+[[ -n "${ROCKSDB_PROVIDER}" ]] && \
+    set_prop "rocksdb.provider" "${ROCKSDB_PROVIDER}" "${GRAPH_CONF}"
 [[ -n "${HG_SERVER_PD_PEERS:-}" ]] && set_prop "pd.peers" "${HG_SERVER_PD_PEERS}" "${GRAPH_CONF}"
 [[ -n "${HG_SERVER_USE_PD:-}" ]] && \
     set_prop "usePD" "${HG_SERVER_USE_PD}" "${REST_SERVER_CONF}"

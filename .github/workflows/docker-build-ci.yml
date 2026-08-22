@@ -35,11 +35,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        dockerfile:
-          - hugegraph-pd/Dockerfile
-          - hugegraph-store/Dockerfile
-          - hugegraph-server/Dockerfile
-          - hugegraph-server/Dockerfile-hstore
+        include:
+          - dockerfile: hugegraph-pd/Dockerfile
+          - dockerfile: hugegraph-store/Dockerfile
+          - dockerfile: hugegraph-server/Dockerfile
+          - dockerfile: hugegraph-server/Dockerfile
+            target: topling
+          - dockerfile: hugegraph-server/Dockerfile-hstore
 
     steps:
       - name: Checkout
@@ -47,7 +49,12 @@ jobs:
 
       - name: Build ${{ matrix.dockerfile }}
         run: |
-          IMAGE_ID=$(docker build -q -f ${{ matrix.dockerfile }} .)
+          TARGET_ARGS=()
+          if [[ -n "${{ matrix.target }}" ]]; then
+            TARGET_ARGS+=(--target "${{ matrix.target }}")
+          fi
+          IMAGE_ID=$(docker build -q "${TARGET_ARGS[@]}" \
+                     -f ${{ matrix.dockerfile }} .)
           echo "Built: $IMAGE_ID"
           echo "IMAGE_ID=$IMAGE_ID" >> "$GITHUB_ENV"
           HC=$(docker inspect --format='{{json .Config.Healthcheck}}' "$IMAGE_ID")
@@ -55,8 +62,19 @@ jobs:
           [[ "$HC" != "null" ]] || { echo "ERROR: HEALTHCHECK missing in ${{ matrix.dockerfile }}"; exit 1; }
 
       - name: Test server entrypoint property mapping
-        if: matrix.dockerfile == 'hugegraph-server/Dockerfile'
+        if: matrix.dockerfile == 'hugegraph-server/Dockerfile' && matrix.target != 'topling'
         run: bash hugegraph-server/hugegraph-dist/docker/test/test-docker-entrypoint.sh
+
+      - name: Verify ToplingDB image runtime
+        if: matrix.target == 'topling'
+        run: |
+          docker inspect --format='{{range .Config.Env}}{{println .}}{{end}}' \
+            "$IMAGE_ID" | grep -qx 'HG_SERVER_ROCKSDB_PROVIDER=topling'
+          docker run --rm --entrypoint bash "$IMAGE_ID" -c '
+            test -n "$(find lib/topling -maxdepth 1 -name "rocksdbjni*.jar" -print -quit)"
+            test -r library/librocksdbjni-linux64.so
+            ldd library/librocksdbjni-linux64.so | grep -qv "not found"
+          '
 
       # The startup preflight needs a socket-table tool, and the base image
       # ships none of its own.  Without one every start reports "unknown" and
