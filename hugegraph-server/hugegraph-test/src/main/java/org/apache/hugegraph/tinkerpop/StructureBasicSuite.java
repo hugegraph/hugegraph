@@ -66,7 +66,7 @@ public class StructureBasicSuite extends AbstractGremlinSuite {
      * This list of tests in the suite that will be executed.
      * Gremlin developers should add to this list
      * as needed to enforce tests upon implementations. This list is synchronized
-     * with TinkerPop 3.7.6's official StructureStandardSuite.
+     * with TinkerPop 3.8.1's official StructureStandardSuite.
      */
     private static final Class<?>[] ALL_TESTS = new Class<?>[]{
             CommunityGeneratorTest.class,

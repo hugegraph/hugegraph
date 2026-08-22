@@ -66,7 +66,7 @@ HugeGraph supports both **standalone** and **distributed** deployments:
                         │             HugeGraph Server (:8080)                │
                         │  ┌──────────┐  ┌──────────┐  ┌──────────────────┐   │
                         │  │ REST API │  │ Gremlin  │  │   Cypher Engine  │   │
-                        │  │(Jersey 3)│  │ (TP 3.7) │  │   (OpenCypher)   │   │
+                        │  │(Jersey 3)│  │ (TP 3.8) │  │   (OpenCypher)   │   │
                         │  └────┬─────┘  └────┬─────┘  └────────┬─────────┘   │
                         │       └─────────────┼─────────────────┘             │
                         │            ┌────────▼────────┐                      │
@@ -125,7 +125,7 @@ flowchart TB
 
     subgraph Server["HugeGraph Server :8080"]
         API[REST API<br/>Jersey 3]
-        GS[Gremlin Server<br/>TinkerPop 3.7]
+        GS[Gremlin Server<br/>TinkerPop 3.8]
         CS[Cypher Engine<br/>OpenCypher]
         CORE[Graph Engine<br/>hugegraph-core]
 
@@ -285,7 +285,7 @@ curl http://localhost:8080/versions
 #   "versions": {
 #     "version": "v1",
 #     "core": "1.7.0",
-#     "gremlin": "3.7.6",
+#     "gremlin": "3.8.1",
 #     "api": "1.7.0"
 #   }
 # }

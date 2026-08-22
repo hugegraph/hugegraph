@@ -17,11 +17,10 @@
 
 package org.apache.hugegraph.core;
 
-import java.time.Instant;
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -34,12 +33,15 @@ import org.apache.tinkerpop.gremlin.process.traversal.DT;
 import org.apache.tinkerpop.gremlin.process.traversal.Merge;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.TextP;
+import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__;
+import org.apache.tinkerpop.gremlin.process.traversal.step.sideEffect.AddPropertyStepContract;
 import org.apache.tinkerpop.gremlin.process.traversal.step.sideEffect.FailStep;
 import org.apache.tinkerpop.gremlin.structure.Direction;
 import org.apache.tinkerpop.gremlin.structure.Edge;
 import org.apache.tinkerpop.gremlin.structure.T;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
+import org.apache.tinkerpop.gremlin.structure.VertexProperty.Cardinality;
 import org.junit.Test;
 
 public class TinkerPop37StepsCoreTest extends BaseCoreTest {
@@ -128,19 +130,43 @@ public class TinkerPop37StepsCoreTest extends BaseCoreTest {
 
     @Test
     public void testDateManipulationSteps() {
-        Date start = Date.from(Instant.parse("2023-08-02T00:00:00Z"));
-        Date expected = Date.from(Instant.parse("2023-08-09T00:00:00Z"));
+        OffsetDateTime start = OffsetDateTime.parse("2023-08-02T00:00:00Z");
+        OffsetDateTime expected = OffsetDateTime.parse("2023-08-09T00:00:00Z");
 
-        Date actual = graph().traversal()
-                             .inject("2023-08-02T00:00:00Z")
-                             .asDate().dateAdd(DT.day, 7).next();
-        long seconds = graph().traversal()
-                              .inject("2023-08-02T00:00:00Z")
-                              .asDate().dateAdd(DT.day, 7)
-                              .dateDiff(start).next();
+        OffsetDateTime actual = graph().traversal()
+                                       .inject("2023-08-02T00:00:00Z")
+                                       .asDate().dateAdd(DT.day, 7).next();
+        long milliseconds = graph().traversal()
+                                   .inject("2023-08-02T00:00:00Z")
+                                   .asDate().dateAdd(DT.day, 7)
+                                   .dateDiff(start).next();
 
         Assert.assertEquals(expected, actual);
-        Assert.assertEquals(604800L, seconds);
+        Assert.assertEquals(604800000L, milliseconds);
+    }
+
+    @Test
+    public void testAddVertexKeepsPropertiesFoldedByPrimaryKeyStrategy() {
+        this.initMutationSchema();
+
+        GraphTraversal<Vertex, Vertex> traversal = graph().traversal()
+                                                          .addV("person")
+                                                          .property(
+                                                               Cardinality.single,
+                                                               "name",
+                                                               __.constant("marko"))
+                                                          .property(
+                                                               Cardinality.single,
+                                                               "status", "active");
+        Assert.assertTrue(traversal.asAdmin().getSteps().stream().anyMatch(
+                          step -> step instanceof AddPropertyStepContract));
+
+        Vertex vertex = traversal.next();
+        commitTx();
+
+        Vertex stored = graph().traversal().V(vertex.id()).next();
+        Assert.assertEquals("marko", stored.value("name"));
+        Assert.assertEquals("active", stored.value("status"));
     }
 
     @Test

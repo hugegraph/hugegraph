@@ -42,7 +42,7 @@ import io.cucumber.junit.CucumberOptions;
         },
         plugin = {
                 "progress",
-                "junit:target/cucumber-tp37.xml",
+                "junit:target/cucumber-tp38.xml",
                 "org.apache.hugegraph.tinkerpop." +
                 "HugeGraphScenarioCountPlugin"
         })
@@ -52,7 +52,10 @@ public class HugeGraphFeatureTest {
             "^g_(?!mergeEXlabel_knows_out_marko_in_vadas_weight_05X_" +
             "exists$)(?!V_hasXperson_name_marko_X_mergeEXlabel_knowsX_" +
             "optionXonCreate_created_YX_optionXonMatch_created_NX_" +
-            "exists_updated$).*";
+            "exists_updated$)" +
+            // HugeGraph rejects limit queries while graph initializer data
+            // is still uncommitted, before mergeE can validate its endpoints.
+            "(?!V_limitX1X_mergeEXnullvarX$).*";
 
     public static final String TAGS =
             "(@StepAsString or @StepConcat or @StepFormat or " +

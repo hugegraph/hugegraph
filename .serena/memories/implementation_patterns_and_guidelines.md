@@ -23,7 +23,7 @@
 - After `.proto` changes: `mvn clean compile` → `target/generated-sources/protobuf/`
 
 ## Query Languages
-- **Gremlin**: Native TinkerPop 3.7.6
+- **Gremlin**: Native TinkerPop 3.8.1
 - **OpenCypher**: `hugegraph-api/opencypher/`
 - TinkerPop exceptions are passed through in Gremlin responses
 

@@ -25,6 +25,7 @@ import org.apache.commons.configuration2.Configuration;
 import org.apache.commons.configuration2.MapConfiguration;
 import org.apache.hugegraph.HugeGraph;
 import org.apache.hugegraph.schema.SchemaManager;
+import org.apache.hugegraph.type.define.DataType;
 import org.apache.hugegraph.type.define.IdStrategy;
 import org.apache.tinkerpop.gremlin.LoadGraphWith;
 import org.apache.tinkerpop.gremlin.features.World;
@@ -123,6 +124,8 @@ public class HugeGraphWorld implements World {
     private void prepareGherkinSchema(TestGraph testGraph) {
         HugeGraph graph = testGraph.hugegraph();
         SchemaManager schema = graph.schema();
+        schema.propertyKey("birthday").dataType(DataType.OBJECT)
+              .ifNotExist().create();
         schema.propertyKey("created").ifNotExist().create();
         schema.propertyKey("matched").ifNotExist().create();
         schema.vertexLabel("a").useAutomaticId().ifNotExist().create();
@@ -132,6 +135,10 @@ public class HugeGraphWorld implements World {
         this.prepareVertexLabel(graph, schema, "person");
         this.prepareVertexLabel(graph, schema, "software");
         this.prepareVertexLabel(graph, schema, TestGraph.DEFAULT_VL);
+        if (graph.existsVertexLabel("person")) {
+            schema.vertexLabel("person").properties("birthday")
+                  .nullableKeys("birthday").append();
+        }
         this.prepareEdgeLabel(graph, schema, "knows");
         this.prepareEdgeLabel(graph, schema, "created");
         if (graph.existsVertexLabel("person")) {

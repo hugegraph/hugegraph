@@ -136,6 +136,32 @@ public class TraversalUtilOptimizeTest {
     }
 
     @Test
+    public void testCanExtractHasContainerKeepsNegatedComparePredicateLocal() {
+        HugeGraph graph = Mockito.mock(HugeGraph.class);
+        PropertyKey age = propertyKey(1L, "age", DataType.INT);
+        Mockito.when(graph.propertyKey("age")).thenReturn(age);
+
+        Assert.assertFalse(TraversalUtil.canExtractHasContainer(
+                graph, new HasContainer("age", P.not(P.lte(10)))));
+    }
+
+    @Test
+    public void testExtractHasContainerKeepsNestedNegatedPredicateLocal() {
+        HugeGraph graph = Mockito.mock(HugeGraph.class);
+        PropertyKey age = propertyKey(1L, "age", DataType.INT);
+        Mockito.when(graph.propertyKey("age")).thenReturn(age);
+
+        Traversal.Admin<?, ?> traversal = traversal(
+                __.V().has("age", P.gt(18).and(P.not(P.lte(65)))), graph);
+        HugeGraphStep<?, ?> newStep = replaceGraphStep(traversal);
+
+        TraversalUtil.extractHasContainer(newStep, traversal);
+
+        Assert.assertTrue(newStep.getHasContainers().isEmpty());
+        Assert.assertTrue(hasStepExists(traversal, "age"));
+    }
+
+    @Test
     public void testCanExtractHasContainerWithTextRangePredicate() {
         HugeGraph graph = Mockito.mock(HugeGraph.class);
         PropertyKey name = propertyKey(1L, "name", DataType.TEXT);
@@ -557,7 +583,8 @@ public class TraversalUtilOptimizeTest {
         TraversalHelper.replaceStep((Step) origin, (Step) newStep, traversal);
     }
 
-    private static boolean hasContainer(HasContainerHolder step, String key) {
+    private static boolean hasContainer(HasContainerHolder<?, ?> step,
+                                        String key) {
         for (HasContainer has : step.getHasContainers()) {
             if (key.equals(has.getKey())) {
                 return true;
