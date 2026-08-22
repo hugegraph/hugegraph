@@ -2241,7 +2241,8 @@ public class VertexCoreTest extends BaseCoreTest {
 
     @Test
     public void testAddOlapSecondaryProperties() {
-        // FIXME: skip this test for hstore
+        // FIXME: The legacy HStore guard and related coverage debt are tracked in
+        // https://github.com/apache/hugegraph/issues/3090
         Assume.assumeTrue("skip this test for hstore",
                           Objects.equals("hstore", System.getProperty("backend")));
 
@@ -2332,7 +2333,8 @@ public class VertexCoreTest extends BaseCoreTest {
 
     @Test
     public void testAddOlapRangeProperties() {
-        // FIXME: skip this test for hstore
+        // FIXME: The legacy HStore guard and related coverage debt are tracked in
+        // https://github.com/apache/hugegraph/issues/3090
         Assume.assumeTrue("skip this test for hstore",
                           Objects.equals("hstore", System.getProperty("backend")));
 
@@ -2458,7 +2460,8 @@ public class VertexCoreTest extends BaseCoreTest {
 
     @Test
     public void testAddOlapRangeAndOlapSecondaryProperties() {
-        // FIXME: skip this test for hstore
+        // FIXME: The legacy HStore guard and related coverage debt are tracked in
+        // https://github.com/apache/hugegraph/issues/3090
         Assume.assumeTrue("skip this test for hstore",
                           Objects.equals("hstore", System.getProperty("backend")));
 
@@ -2632,7 +2635,8 @@ public class VertexCoreTest extends BaseCoreTest {
 
     @Test
     public void testQueryOlapRangeAndRegularSecondaryProperties() {
-        // FIXME: skip this test for hstore
+        // FIXME: The legacy HStore guard and related coverage debt are tracked in
+        // https://github.com/apache/hugegraph/issues/3090
         Assume.assumeTrue("skip this test for hstore",
                           Objects.equals("hstore", System.getProperty("backend")));
 
@@ -2761,7 +2765,8 @@ public class VertexCoreTest extends BaseCoreTest {
 
     @Test
     public void testQueryOlapWithUpdates() {
-        // FIXME: skip this test for hstore
+        // FIXME: The legacy HStore guard and related coverage debt are tracked in
+        // https://github.com/apache/hugegraph/issues/3090
         Assume.assumeTrue("skip this test for hstore",
                           Objects.equals("hstore", System.getProperty("backend")));
 
@@ -4198,8 +4203,7 @@ public class VertexCoreTest extends BaseCoreTest {
 
         /*
          * The double precision type typically has a range of around 1E-307 to
-         * 1E+308 with a precision of at least 15 digits. (postgresql)
-         * https://www.postgresql.org/docs/9.5/datatype-numeric.html#DATATYPE-NUMERIC-TABLE
+         * 1E+308 with a precision of at least 15 digits.
          */
         final double max15 = new BigDecimal(Double.MAX_VALUE)
                 .movePointLeft(308)
@@ -6334,8 +6338,7 @@ public class VertexCoreTest extends BaseCoreTest {
         Assert.assertEquals("3", vertices.get(0).value("name"));
 
         String backend = graph.backend();
-        Set<String> nonZeroBackends = ImmutableSet.of("postgresql",
-                                                      "rocksdb", "hbase", "hstore");
+        Set<String> nonZeroBackends = ImmutableSet.of("rocksdb", "hbase", "hstore");
         if (nonZeroBackends.contains(backend)) {
             Assert.assertThrows(Exception.class, () -> {
                 graph.addVertex(T.label, "person", "name", "0",
@@ -7734,7 +7737,8 @@ public class VertexCoreTest extends BaseCoreTest {
 
     @Test
     public void testScanVertexInPaging() {
-        // FIXME: skip this test for hstore
+        // FIXME: The legacy HStore guard and related coverage debt are tracked in
+        // https://github.com/apache/hugegraph/issues/3090
         Assume.assumeTrue("skip this test for hstore",
                           Objects.equals("hstore", System.getProperty("backend")));
 
@@ -7748,13 +7752,8 @@ public class VertexCoreTest extends BaseCoreTest {
         ConditionQuery query = new ConditionQuery(HugeType.VERTEX);
 
         String backend = graph.backend();
-        if (backend.equals("cassandra") || backend.equals("scylladb")) {
-            query.scan(String.valueOf(Long.MIN_VALUE),
-                       String.valueOf(Long.MAX_VALUE));
-        } else {
-            query.scan(BackendTable.ShardSplitter.START,
-                       BackendTable.ShardSplitter.END);
-        }
+        query.scan(BackendTable.ShardSplitter.START,
+                   BackendTable.ShardSplitter.END);
 
         query.limit(1);
         String page = PageInfo.PAGE_NONE;
@@ -8480,7 +8479,8 @@ public class VertexCoreTest extends BaseCoreTest {
 
     @Test
     public void testQueryByPropertyInPageWithLimitGtPageSize() {
-        // FIXME: skip this test for hstore
+        // FIXME: The legacy HStore guard and related coverage debt are tracked in
+        // https://github.com/apache/hugegraph/issues/3090
         Assume.assumeTrue("skip this test for hstore",
                           Objects.equals("hstore", System.getProperty("backend")));
 
@@ -8560,7 +8560,8 @@ public class VertexCoreTest extends BaseCoreTest {
 
     @Test
     public void testQueryBySingleRangePropertyInPage() {
-        // FIXME: skip this test for hstore
+        // FIXME: The legacy HStore guard and related coverage debt are tracked in
+        // https://github.com/apache/hugegraph/issues/3090
         Assume.assumeTrue("skip this test for hstore",
                           Objects.equals("hstore", System.getProperty("backend")));
 
@@ -8709,7 +8710,8 @@ public class VertexCoreTest extends BaseCoreTest {
 
     @Test
     public void testQueryByRangeIndexInPage() {
-        // FIXME: skip this test for hstore
+        // FIXME: The legacy HStore guard and related coverage debt are tracked in
+        // https://github.com/apache/hugegraph/issues/3090
         Assume.assumeTrue("skip this test for hstore",
                           Objects.equals("hstore", System.getProperty("backend")));
 
@@ -9126,13 +9128,11 @@ public class VertexCoreTest extends BaseCoreTest {
         Assert.assertEquals(vertex3, g.V().hasLabel("person")
                                       .has("name", "xyz\u0003abc").next());
 
-        if (!graph.backend().equals("postgresql")) {
-            Vertex vertex0 = graph.addVertex(T.label, "person", "name",
-                                             "xyz\u0000abc", "city", "Hongkong",
-                                             "age", 10);
-            Assert.assertEquals(vertex0, g.V().hasLabel("person")
-                                          .has("name", "xyz\u0000abc").next());
-        }
+        Vertex vertex0 = graph.addVertex(T.label, "person", "name",
+                                         "xyz\u0000abc", "city", "Hongkong",
+                                         "age", 10);
+        Assert.assertEquals(vertex0, g.V().hasLabel("person")
+                                      .has("name", "xyz\u0000abc").next());
 
         Assert.assertThrows(IllegalArgumentException.class, () -> {
             graph.addVertex(T.label, "person", "name",
@@ -9257,18 +9257,6 @@ public class VertexCoreTest extends BaseCoreTest {
             }, e -> {
                 Assert.assertContains("can't contains byte '0x00'",
                                       e.getMessage());
-            });
-        } else if (backend.equals("postgresql")) {
-            Assert.assertThrows(BackendException.class, () -> {
-                graph.addVertex(T.label, "person", "name", "7",
-                                "city", "xyz\u0000efg",
-                                "age", 15);
-                graph.tx().commit();
-            }, e -> {
-                graph.tx().rollback();
-                Assert.assertContains("invalid byte sequence for encoding " +
-                                      "\"UTF8\": 0x00",
-                                      e.getCause().getMessage());
             });
         } else {
             graph.addVertex(T.label, "person", "name", "8",

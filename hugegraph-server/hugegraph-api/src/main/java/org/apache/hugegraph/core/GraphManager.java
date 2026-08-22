@@ -34,7 +34,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
@@ -66,6 +65,7 @@ import org.apache.hugegraph.config.HugeConfig;
 import org.apache.hugegraph.config.ServerOptions;
 import org.apache.hugegraph.config.TypedOption;
 import org.apache.hugegraph.event.EventHub;
+import org.apache.hugegraph.event.EventHub.NotifyResult;
 import org.apache.hugegraph.exception.ExistedException;
 import org.apache.hugegraph.exception.NotFoundException;
 import org.apache.hugegraph.exception.NotSupportException;
@@ -355,7 +355,10 @@ public final class GraphManager {
 
         this.initMetaManager(conf);
         this.initK8sManagerIfNeeded(conf);
-        this.initAdminUserIfNeeded(conf.get(ServerOptions.ADMIN_PA));
+        if (shouldBootstrapAdmin(this.authenticator,
+                                 conf.get(ServerOptions.AUTH_REMOTE_URL))) {
+            this.initAdminUserIfNeeded(conf.get(ServerOptions.ADMIN_PA));
+        }
 
         this.createDefaultGraphSpaceIfNeeded(conf);
 
@@ -368,6 +371,19 @@ public final class GraphManager {
         this.listenMetaChanges();
     }
 
+    private static boolean shouldBootstrapAdmin(HugeAuthenticator authenticator,
+                                                String remoteUrl) {
+        return authenticator instanceof StandardAuthenticator &&
+               remoteUrl.isEmpty();
+    }
+
+    /**
+     * Creates the built-in admin account in PD metadata. With init-store
+     * disabled this is the only bootstrap that admin gets, and init-store's
+     * fail-closed check assumes it works, so only the already-exists case is
+     * benign; any other failure aborts startup instead of leaving the server
+     * without a usable administrator.
+     */
     public void initAdminUserIfNeeded(String password) {
         HugeUser user = new HugeUser("admin");
         user.nickname("超级管理员");
@@ -380,10 +396,29 @@ public final class GraphManager {
         user.create(new Date());
         user.avatar("/image.png");
         try {
-            this.metaManager.createUser(user);
+            try {
+                this.metaManager.createUser(user);
+            } catch (Exception e) {
+                // Judged by re-reading rather than by matching the message:
+                // benign only if the admin actually exists, from an earlier
+                // startup or from a concurrent server that won the race
+                HugeUser existing;
+                try {
+                    existing = this.metaManager.findUser(user.name());
+                } catch (Exception probe) {
+                    e.addSuppressed(probe);
+                    throw e;
+                }
+                if (existing == null) {
+                    throw e;
+                }
+                LOG.info("The built-in admin user already exists, " +
+                         "skip creating it");
+            }
             this.metaManager.initDefaultGraphSpace();
         } catch (Exception e) {
-            LOG.info(e.getMessage());
+            throw new HugeException("Failed to init the built-in admin " +
+                                    "user or the default graph space", e);
         }
     }
 
@@ -1193,30 +1228,38 @@ public final class GraphManager {
 
             // Init graph and start it
             graph.create(this.graphsDir, this.globalNodeRoleInfo);
+
+            // Let gremlin server and rest server add graph to context
+            this.notifyEvent(Events.GRAPH_CREATE, graph);
         } catch (Throwable e) {
             LOG.error("Failed to create graph '{}' due to: {}",
                       name, e.getMessage(), e);
             if (graph != null) {
-                this.dropGraphLocal(graph);
+                this.graphs.remove(graph.spaceGraphName(), graph);
+                try {
+                    this.dropGraphLocal(graph);
+                } finally {
+                    // The create event may have partially registered the graph
+                    this.notifyEventLenient(Events.GRAPH_DROP, graph);
+                }
             }
             throw e;
         }
-
-        // Let gremlin server and rest server add graph to context
-        this.notifyAndWaitEvent(Events.GRAPH_CREATE, graph);
 
         return graph;
     }
 
     private void dropGraphLocal(HugeGraph graph) {
-        // Clear data and config files
-        graph.drop();
-
-        /*
-         * Will fill graph instance into HugeFactory.graphs after
-         * GraphFactory.open() succeed, remove it when the graph drops
-         */
-        HugeFactory.remove(graph);
+        try {
+            // Clear data and config files
+            graph.drop();
+        } finally {
+            /*
+             * Will fill graph instance into HugeFactory.graphs after
+             * GraphFactory.open() succeed, remove it when the graph drops
+             */
+            HugeFactory.remove(graph);
+        }
     }
 
     public HugeGraph createGraph(String graphSpace, String name, String creator,
@@ -1342,18 +1385,37 @@ public final class GraphManager {
         graph.updateTime(timeStamp);
 
         String graphName = spaceGraphName(graphSpace, name);
+        this.graphs.put(graphName, graph);
+
+        /*
+         * Let gremlin server and rest server context add graph before the
+         * graph is published, so that a failed local binding can't leave the
+         * graph behind in meta for the other servers to converge on
+         */
+        try {
+            this.notifyEvent(Events.GRAPH_CREATE, graph);
+        } catch (Throwable e) {
+            this.notifyEventLenient(Events.GRAPH_DROP, graph);
+            this.graphs.remove(graphName, graph);
+            try {
+                graph.close();
+            } catch (Exception e1) {
+                if (graph instanceof StandardHugeGraph) {
+                    ((StandardHugeGraph) graph).clearSchedulerAndLock();
+                }
+            }
+            HugeFactory.remove(graph);
+            throw e;
+        }
+
         if (init) {
             this.creatingGraphs.add(graphName);
             this.metaManager.addGraphConfig(graphSpace, name, configs);
             this.metaManager.notifyGraphAdd(graphSpace, name);
         }
-        this.graphs.put(graphName, graph);
         if (!grpcThread) {
             this.metaManager.updateGraphSpaceConfig(graphSpace, gs);
         }
-
-        // Let gremlin server and rest server context add graph
-        this.eventHub.notify(Events.GRAPH_CREATE, graph);
 
         if (init) {
             String schema = propConfig.getString(
@@ -1754,7 +1816,7 @@ public final class GraphManager {
             LOG.debug("RestServer accepts event '{}'", event.name());
             event.checkArgs(HugeGraph.class);
             HugeGraph graph = (HugeGraph) event.args()[0];
-            this.graphs.remove(graph.spaceGraphName());
+            this.graphs.remove(graph.spaceGraphName(), graph);
             return null;
         });
     }
@@ -1771,12 +1833,34 @@ public final class GraphManager {
         this.metaManager.listenGraphClear(ConsumerWrapper.wrap(this::graphClearHandler));
     }
 
-    private void notifyAndWaitEvent(String event, HugeGraph graph) {
-        Future<?> future = this.eventHub.notify(event, graph);
+    /**
+     * Notify the listeners of `event` synchronously, failing if any listener
+     * did not complete successfully.
+     * <p>
+     * EventHub swallows every throwable raised by a listener and reports the
+     * attempted and successful listeners from the same snapshot.
+     */
+    private void notifyEvent(String event, HugeGraph graph) {
+        String graphName = graph.spaceGraphName();
+        NotifyResult result = this.eventHub.notifySync(event, graph);
+
+        if (!result.success()) {
+            throw new HugeException("Only %s of %s listeners handled event " +
+                                    "'%s' of graph '%s' successfully",
+                                    result.succeeded(), result.attempted(),
+                                    event, graphName);
+        }
+    }
+
+    /**
+     * Notify listeners synchronously, but keep listener failures non-fatal.
+     * Used by the drop and rollback paths, where cleanup must be best-effort.
+     */
+    private void notifyEventLenient(String event, HugeGraph graph) {
         try {
-            future.get();
+            this.eventHub.notifySync(event, graph);
         } catch (Throwable e) {
-            LOG.warn("Error when waiting for event execution: {}", event, e);
+            LOG.warn("Error when notifying event: {}", event, e);
         }
     }
 
@@ -1863,6 +1947,17 @@ public final class GraphManager {
         Map<String, Object> attachedConfigs = new HashMap<>(configs);
         if (StringUtils.isNotEmpty((String) configs.get(CoreOptions.ALIAS_NAME.name()))) {
             return attachedConfigs;
+        }
+        if (this.config.containsKey(CoreOptions.SCHEMA_CACHE_CAPACITY.name())) {
+            attachedConfigs.putIfAbsent(
+                    CoreOptions.SCHEMA_CACHE_CAPACITY.name(),
+                    this.config.get(CoreOptions.SCHEMA_CACHE_CAPACITY));
+        }
+        if (this.config.containsKey(
+                CoreOptions.SERIALIZER_BUFFER_MAX_CAPACITY.name())) {
+            attachedConfigs.putIfAbsent(
+                    CoreOptions.SERIALIZER_BUFFER_MAX_CAPACITY.name(),
+                    this.config.get(CoreOptions.SERIALIZER_BUFFER_MAX_CAPACITY));
         }
         Object value = this.config.get(CoreOptions.VERTEX_CACHE_EXPIRE);
         if (Objects.nonNull(value)) {
@@ -1988,7 +2083,7 @@ public final class GraphManager {
         this.dropGraphLocal(graph);
 
         // Let gremlin server and rest server context remove graph
-        this.notifyAndWaitEvent(Events.GRAPH_DROP, graph);
+        this.notifyEventLenient(Events.GRAPH_DROP, graph);
     }
 
     public void dropGraph(String graphSpace, String name, boolean clear) {
@@ -2110,6 +2205,19 @@ public final class GraphManager {
         for (String key : this.metaManager.graphConfigs(graphSpace).keySet()) {
             graphs.add(key.split(DELIMITER)[1]);
         }
+        if (DEFAULT_GRAPH_SPACE_SERVICE_NAME.equals(graphSpace)) {
+            String prefix = spaceGraphName(graphSpace, "");
+            for (String key : this.graphs.keySet()) {
+                if (!key.startsWith(prefix)) {
+                    continue;
+                }
+                String graph = key.substring(prefix.length());
+                if (SYS_GRAPH.equals(graph)) {
+                    continue;
+                }
+                graphs.add(graph);
+            }
+        }
         return graphs;
     }
 
@@ -2119,7 +2227,14 @@ public final class GraphManager {
         }
         GraphSpace space = this.graphSpaces.get(name);
         if (space == null) {
+            // Cache miss: try to load from etcd and populate the local cache
+            // so that subsequent calls (e.g. validGraphSpace checks) don't fail
+            // due to a race between the graphspace-create event and the listener
+            // updating this.graphSpaces.
             space = this.metaManager.graphSpace(name);
+            if (space != null) {
+                this.graphSpaces.putIfAbsent(name, space);
+            }
         }
         return space;
     }
@@ -2147,9 +2262,27 @@ public final class GraphManager {
         if (StringUtils.isEmpty(nickname)) {
             return false;
         }
+        if (!isPDEnabled()) {
+            // In non-PD mode, metaManager is not initialized.
+            // Check nickname against in-memory graphs (same pattern as graphs()).
+            for (Map.Entry<String, Graph> entry : this.graphs.entrySet()) {
+                String key = entry.getKey();
+                String[] parts = key.split(DELIMITER, 2);
+                if (parts.length == 2 && parts[0].equals(graphSpace) &&
+                    entry.getValue() instanceof HugeGraph) {
+                    HugeGraph hg = (HugeGraph) entry.getValue();
+                    if (nickname.equals(hg.nickname())) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+        // PD mode: check via metaManager
         for (Map<String, Object> graphConfig :
                 this.metaManager.graphConfigs(graphSpace).values()) {
-            if (nickname.equals(graphConfig.get("nickname").toString())) {
+            Object nick = graphConfig.get("nickname");
+            if (nick != null && nickname.equals(nick.toString())) {
                 return true;
             }
         }
@@ -2185,12 +2318,93 @@ public final class GraphManager {
         return this.metaManager.getGraphConfig(graphSpace, graphName);
     }
 
+    /**
+     * Update the nickname of a graph.
+     * In non-PD mode (standalone RocksDB), only the in-memory instance is updated
+     * since local config files cannot be hot-reloaded.
+     * In PD mode, the change is also persisted to the meta storage so it
+     * survives restarts.
+     */
+    public void updateGraphNickname(String graphSpace, String graphName,
+                                    String nickname) {
+        // Always update the in-memory graph instance first
+        HugeGraph g = this.graph(graphSpace, graphName);
+        // Capture the old nickname so we can restore it on failure
+        String oldNickname = g != null ? g.nickname() : null;
+        if (g != null) {
+            g.nickname(nickname);
+        }
+        if (!isPDEnabled()) {
+            // Non-PD mode: in-memory only, acceptable for standalone RocksDB
+            return;
+        }
+        Map<String, Object> configs;
+        try {
+            configs = this.metaManager.getGraphConfig(graphSpace, graphName);
+            if (configs == null) {
+                return;
+            }
+            configs.put("nickname", nickname);
+            this.metaManager.updateGraphConfig(graphSpace, graphName, configs);
+        } catch (Exception e) {
+            // Roll back only if the PD metadata write did not succeed.
+            if (g != null) {
+                g.nickname(oldNickname);
+            }
+            throw new HugeException("Failed to persist nickname for graph " +
+                                    "'%s/%s'", e, graphSpace, graphName);
+        }
+        try {
+            this.metaManager.notifyGraphUpdate(graphSpace, graphName);
+        } catch (Exception e) {
+            LOG.warn("Failed to notify graph nickname update for graph '{}/{}'",
+                     graphSpace, graphName, e);
+        }
+    }
+
     public String pdPeers() {
         return this.pdPeers;
     }
 
     public String cluster() {
         return this.cluster;
+    }
+
+    public Set<String> schemaTemplates(String graphSpace) {
+        if (!isPDEnabled()) {
+            throw new HugeException("Schema templates are not supported in " +
+                                    "standalone (non-PD) mode");
+        }
+        return this.metaManager.schemaTemplates(graphSpace);
+    }
+
+    public void createSchemaTemplate(String graphSpace, SchemaTemplate template) {
+        if (!isPDEnabled()) {
+            throw new HugeException("Schema templates are not supported in " +
+                                    "standalone (non-PD) mode");
+        }
+        checkSchemaTemplateName(template.name());
+        this.metaManager.addSchemaTemplate(graphSpace, template);
+    }
+
+    public void dropSchemaTemplate(String graphSpace, String name) {
+        if (!isPDEnabled()) {
+            throw new HugeException("Schema templates are not supported in " +
+                                    "standalone (non-PD) mode");
+        }
+        this.metaManager.removeSchemaTemplate(graphSpace, name);
+    }
+
+    public void updateSchemaTemplate(String graphSpace, SchemaTemplate template) {
+        if (!isPDEnabled()) {
+            throw new HugeException("Schema templates are not supported in " +
+                                    "standalone (non-PD) mode");
+        }
+        this.metaManager.updateSchemaTemplate(graphSpace, template);
+    }
+
+    private static void checkSchemaTemplateName(String name) {
+        checkName(name, "schema template");
     }
 
     private enum PdRegisterType {
