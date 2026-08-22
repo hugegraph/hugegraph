@@ -20,6 +20,7 @@ package org.apache.hugegraph.security;
 import java.io.Reader;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import javax.script.AbstractScriptEngine;
 import javax.script.Bindings;
@@ -45,6 +46,7 @@ public class HugeGraphGremlinLangScriptEngine extends AbstractScriptEngine
     private final Customizer[] customizers;
     private final ConcurrentMap<GraphTraversalSource, Delegate>
             delegates;
+    private final AtomicBoolean initializationProbeAllowed;
 
     HugeGraphGremlinLangScriptEngine(
             HugeGraphGremlinLangScriptEngineFactory factory,
@@ -52,6 +54,7 @@ public class HugeGraphGremlinLangScriptEngine extends AbstractScriptEngine
         this.factory = factory;
         this.customizers = customizers.clone();
         this.delegates = new ConcurrentHashMap<>();
+        this.initializationProbeAllowed = new AtomicBoolean(true);
     }
 
     @Override
@@ -65,7 +68,8 @@ public class HugeGraphGremlinLangScriptEngine extends AbstractScriptEngine
          * injected. The fixed expression needs no graph access.
          */
         if (TINKERPOP_INITIALIZATION_PROBE.equals(script) &&
-            context.getAttribute(TRAVERSAL_SOURCE) == null) {
+            context.getAttribute(TRAVERSAL_SOURCE) == null &&
+            this.initializationProbeAllowed.compareAndSet(true, false)) {
             return 2;
         }
         Delegate delegate = this.delegate(traversalSource(context));
@@ -122,6 +126,14 @@ public class HugeGraphGremlinLangScriptEngine extends AbstractScriptEngine
         return this.factory;
     }
 
+    public void add(GraphTraversalSource traversalSource) {
+        if (traversalSource == null) {
+            throw new IllegalArgumentException(
+                    "The traversal source can't be null");
+        }
+        this.delegates.computeIfAbsent(traversalSource, this::newDelegate);
+    }
+
     public void remove(GraphTraversalSource traversalSource) {
         if (traversalSource != null) {
             this.delegates.remove(traversalSource);
@@ -137,12 +149,20 @@ public class HugeGraphGremlinLangScriptEngine extends AbstractScriptEngine
     }
 
     private Delegate delegate(GraphTraversalSource traversalSource) {
-        return this.delegates.computeIfAbsent(
-                traversalSource,
-                source -> new Delegate(
-                        new GremlinLangScriptEngine(this.customizers),
-                        source.withStrategies(
-                                GremlinLangRestrictionStrategy.instance())));
+        Delegate delegate = this.delegates.get(traversalSource);
+        if (delegate == null) {
+            throw new IllegalArgumentException(
+                    "The 'g' binding must be a registered " +
+                    "GraphTraversalSource");
+        }
+        return delegate;
+    }
+
+    private Delegate newDelegate(GraphTraversalSource traversalSource) {
+        return new Delegate(
+                new GremlinLangScriptEngine(this.customizers),
+                traversalSource.withStrategies(
+                        GremlinLangRestrictionStrategy.instance()));
     }
 
     private static GraphTraversalSource traversalSource(

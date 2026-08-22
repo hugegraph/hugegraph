@@ -20,7 +20,7 @@ package org.apache.hugegraph.security;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.step.TraversalParent;
-import org.apache.tinkerpop.gremlin.process.traversal.step.map.CallStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.map.CallStepContract;
 import org.apache.tinkerpop.gremlin.process.traversal.step.sideEffect.IoStep;
 
 public final class GremlinLangTraversalVerifier {
@@ -34,7 +34,7 @@ public final class GremlinLangTraversalVerifier {
 
     static void verify(Traversal.Admin<?, ?> traversal) {
         for (Step<?, ?> step : traversal.getSteps()) {
-            if (step instanceof IoStep || step instanceof CallStep) {
+            if (step instanceof IoStep || step instanceof CallStepContract) {
                 throw new SecurityException(String.format(
                         "The traversal step '%s' is not allowed for remote " +
                         "Gremlin requests", step.getClass().getSimpleName()));

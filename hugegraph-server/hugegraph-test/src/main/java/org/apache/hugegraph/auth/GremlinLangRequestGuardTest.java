@@ -24,7 +24,9 @@ import static io.netty.handler.codec.http.HttpVersion.HTTP_1_1;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Collections;
+import java.util.concurrent.ExecutorService;
 
+import org.apache.hugegraph.HugeException;
 import org.apache.hugegraph.testutil.Assert;
 import org.apache.tinkerpop.gremlin.server.Settings;
 import org.apache.tinkerpop.gremlin.util.Tokens;
@@ -40,6 +42,30 @@ import io.netty.handler.codec.http.DefaultFullHttpRequest;
 import io.netty.handler.codec.http.FullHttpResponse;
 
 public class GremlinLangRequestGuardTest {
+
+    private static final String STANDARD_CHANNELIZER =
+            "org.apache.tinkerpop.gremlin.server.channel." +
+            "WsAndHttpChannelizer";
+
+    @Test
+    public void testRejectsUnprotectedServerChannelizer() {
+        Settings settings = new Settings();
+        settings.channelizer = STANDARD_CHANNELIZER;
+        settings.gremlinPool = 1;
+        ExecutorService executor = null;
+
+        try {
+            executor = ContextGremlinServer.newGremlinExecutorService(
+                    settings);
+            Assert.fail("Expected an unprotected channelizer error");
+        } catch (HugeException e) {
+            Assert.assertContains("channelizer", e.getMessage());
+        } finally {
+            if (executor != null) {
+                executor.shutdownNow();
+            }
+        }
+    }
 
     @Test
     public void testAllowsStandardGremlinLangEval() {

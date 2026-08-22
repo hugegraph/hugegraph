@@ -21,6 +21,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -78,7 +79,7 @@ public class HugeGraphGremlinLangScriptEngineTest {
         graph.addVertex(T.label, "person", "name", "marko");
         graph.addVertex(T.label, "person", "name", "stephen");
         GraphTraversalSource g = graph.traversal();
-        HugeGraphGremlinLangScriptEngine engine = engine();
+        HugeGraphGremlinLangScriptEngine engine = registeredEngine(g);
         Bindings bindings = new SimpleBindings();
         bindings.put("g", g);
 
@@ -105,7 +106,8 @@ public class HugeGraphGremlinLangScriptEngineTest {
             firstGraph.addVertex();
             secondGraph.addVertex();
             secondGraph.addVertex();
-            HugeGraphGremlinLangScriptEngine engine = engine();
+            HugeGraphGremlinLangScriptEngine engine = registeredEngine(
+                    first, second);
 
             Bindings bindings = new SimpleBindings();
             bindings.put("g", first);
@@ -129,7 +131,7 @@ public class HugeGraphGremlinLangScriptEngineTest {
                 graph.addVertex("name", "person-" + i);
             }
 
-            HugeGraphGremlinLangScriptEngine engine = engine();
+            HugeGraphGremlinLangScriptEngine engine = registeredEngine(g);
             ExecutorService executor = Executors.newFixedThreadPool(8);
             try {
                 List<Future<Object>> results = new ArrayList<>();
@@ -157,7 +159,7 @@ public class HugeGraphGremlinLangScriptEngineTest {
     public void testRemoveTraversalSourceDropsItsDelegate() throws Exception {
         TinkerGraph graph = TinkerGraph.open();
         GraphTraversalSource g = graph.traversal();
-        HugeGraphGremlinLangScriptEngine engine = engine();
+        HugeGraphGremlinLangScriptEngine engine = registeredEngine(g);
         Bindings bindings = new SimpleBindings();
         bindings.put("g", g);
 
@@ -165,6 +167,11 @@ public class HugeGraphGremlinLangScriptEngineTest {
         Assert.assertEquals(1, engine.traversalSourceCount());
 
         engine.remove(g);
+        Assert.assertEquals(0, engine.traversalSourceCount());
+        Assert.assertThrows(IllegalArgumentException.class,
+                            () -> engine.eval("g.V().count()", bindings),
+                            e -> Assert.assertContains("registered",
+                                                       e.getMessage()));
         Assert.assertEquals(0, engine.traversalSourceCount());
         g.close();
         graph.close();
@@ -174,7 +181,7 @@ public class HugeGraphGremlinLangScriptEngineTest {
     public void testAllowsSafeTerminalExecution() throws Exception {
         try (TinkerGraph graph = TinkerGraph.open();
              GraphTraversalSource g = graph.traversal()) {
-            HugeGraphGremlinLangScriptEngine engine = engine();
+            HugeGraphGremlinLangScriptEngine engine = registeredEngine(g);
             Bindings bindings = new SimpleBindings();
             bindings.put("g", g);
 
@@ -191,6 +198,11 @@ public class HugeGraphGremlinLangScriptEngineTest {
 
         Assert.assertEquals(2, engine.eval("1+1", new SimpleBindings()));
         Assert.assertEquals(0, engine.traversalSourceCount());
+        Assert.assertThrows(IllegalArgumentException.class,
+                            () -> engine.eval("1+1", new SimpleBindings()),
+                            e -> Assert.assertContains(
+                                    "GraphTraversalSource",
+                                    e.getMessage()));
     }
 
     @Test
@@ -241,7 +253,7 @@ public class HugeGraphGremlinLangScriptEngineTest {
             throws Exception {
         try (TinkerGraph graph = TinkerGraph.open();
              GraphTraversalSource g = graph.traversal()) {
-            HugeGraphGremlinLangScriptEngine engine = engine();
+            HugeGraphGremlinLangScriptEngine engine = registeredEngine(g);
             Bindings bindings = new SimpleBindings();
             bindings.put("g", g);
 
@@ -255,13 +267,52 @@ public class HugeGraphGremlinLangScriptEngineTest {
     }
 
     @Test
+    public void testVerifierRejectsParameterizedCallStep() throws Exception {
+        try (TinkerGraph graph = TinkerGraph.open();
+             GraphTraversalSource g = graph.traversal()) {
+            HugeGraphGremlinLangScriptEngine engine = registeredEngine(g);
+            Bindings bindings = new SimpleBindings();
+            bindings.put("g", g);
+            bindings.put("params",
+                         Collections.singletonMap("key", "value"));
+
+            Assert.assertThrows(SecurityException.class,
+                                () -> engine.eval(
+                                        "g.call('service', params)",
+                                        bindings),
+                                e -> Assert.assertContains("CallStep",
+                                                           e.getMessage()));
+        }
+    }
+
+    @Test
+    public void testVerifierRejectsParameterizedCallStepBeforeTerminalExecution()
+            throws Exception {
+        try (TinkerGraph graph = TinkerGraph.open();
+             GraphTraversalSource g = graph.traversal()) {
+            HugeGraphGremlinLangScriptEngine engine = registeredEngine(g);
+            Bindings bindings = new SimpleBindings();
+            bindings.put("g", g);
+            bindings.put("params",
+                         Collections.singletonMap("key", "value"));
+
+            Assert.assertThrows(SecurityException.class,
+                                () -> engine.eval(
+                                        "g.call('service', params).iterate()",
+                                        bindings),
+                                e -> Assert.assertContains("CallStep",
+                                                           e.getMessage()));
+        }
+    }
+
+    @Test
     public void testVerifierRejectsIoStepBeforeTerminalExecution()
             throws Exception {
         Path directory = Files.createTempDirectory("hugegraph-gremlin-lang");
         Path output = directory.resolve("graph.json");
         try (TinkerGraph graph = TinkerGraph.open();
              GraphTraversalSource g = graph.traversal()) {
-            HugeGraphGremlinLangScriptEngine engine = engine();
+            HugeGraphGremlinLangScriptEngine engine = registeredEngine(g);
             Bindings bindings = new SimpleBindings();
             bindings.put("g", g);
 
@@ -286,9 +337,10 @@ public class HugeGraphGremlinLangScriptEngineTest {
                                                    .cacheEnabled(true)
                                                    .caffeine("maximumSize=16")
                                                    .create();
-        VariableResolverPlugin variables = VariableResolverPlugin.build()
-                                                                  .resolver("DefaultVariableResolver")
-                                                                  .create();
+        VariableResolverPlugin variables =
+                VariableResolverPlugin.build()
+                                      .resolver("DefaultVariableResolver")
+                                      .create();
         customizers.addAll(Arrays.asList(
                 cache.getCustomizers("gremlin-lang").get()));
         customizers.addAll(Arrays.asList(
@@ -297,5 +349,14 @@ public class HugeGraphGremlinLangScriptEngineTest {
                 new HugeGraphGremlinLangScriptEngineFactory(
                         customizers.toArray(new Customizer[0]));
         return factory.getScriptEngine();
+    }
+
+    private static HugeGraphGremlinLangScriptEngine registeredEngine(
+            GraphTraversalSource... traversalSources) {
+        HugeGraphGremlinLangScriptEngine engine = engine();
+        for (GraphTraversalSource traversalSource : traversalSources) {
+            engine.add(traversalSource);
+        }
+        return engine;
     }
 }

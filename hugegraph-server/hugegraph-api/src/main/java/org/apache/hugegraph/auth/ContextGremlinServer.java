@@ -147,6 +147,7 @@ public class ContextGremlinServer extends GremlinServer {
             }
             // Add a traversal source for all graphs with customed rule.
             manager.putTraversalSource(gName, g);
+            this.gremlinLangEngine.add(g);
         }
     }
 
@@ -161,6 +162,7 @@ public class ContextGremlinServer extends GremlinServer {
 
         GraphTraversalSource g = manager.getGraph(name).traversal();
         manager.putTraversalSource(G_PREFIX + name, g);
+        this.gremlinLangEngine.add(g);
 
         Whitebox.invoke(executor, "globalBindings",
                         new Class<?>[]{String.class, Object.class},
@@ -190,6 +192,14 @@ public class ContextGremlinServer extends GremlinServer {
     }
 
     static ExecutorService newGremlinExecutorService(Settings settings) {
+        if (!HugeGraphWsAndHttpChannelizer.class.getName().equals(
+                settings.channelizer)) {
+            throw new HugeException(
+                    "The Gremlin Server channelizer must be '%s' to " +
+                    "protect remote Gremlin requests, but got '%s'",
+                    HugeGraphWsAndHttpChannelizer.class.getName(),
+                    settings.channelizer);
+        }
         if (settings.gremlinPool == 0) {
             settings.gremlinPool = CoreOptions.CPUS;
         }
