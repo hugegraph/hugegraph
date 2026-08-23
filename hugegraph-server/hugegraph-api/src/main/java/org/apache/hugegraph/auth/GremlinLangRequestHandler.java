@@ -35,7 +35,7 @@ public class GremlinLangRequestHandler
                           List<Object> output) {
         String rejection = GremlinLangRequestGuard.rejection(request);
         if (rejection == null) {
-            output.add(request);
+            output.add(GremlinLangRequestGuard.normalize(request));
             return;
         }
 

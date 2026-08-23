@@ -39,7 +39,9 @@ import org.apache.tinkerpop.gremlin.jsr223.Customizer;
 import org.apache.tinkerpop.gremlin.jsr223.GremlinLangPlugin;
 import org.apache.tinkerpop.gremlin.jsr223.GremlinScriptEngine;
 import org.apache.tinkerpop.gremlin.jsr223.GremlinScriptEngineManager;
+import org.apache.tinkerpop.gremlin.jsr223.JavaTranslator;
 import org.apache.tinkerpop.gremlin.jsr223.VariableResolverPlugin;
+import org.apache.tinkerpop.gremlin.process.traversal.Bytecode;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversalSource;
 import org.apache.tinkerpop.gremlin.structure.T;
@@ -175,6 +177,103 @@ public class HugeGraphGremlinLangScriptEngineTest {
         Assert.assertEquals(0, engine.traversalSourceCount());
         g.close();
         graph.close();
+    }
+
+    @Test
+    public void testProtectedSourceBlocksBytecodeIoTraversal()
+            throws Exception {
+        Path directory = Files.createTempDirectory("hugegraph-bytecode");
+        Path output = directory.resolve("graph.json");
+        try (TinkerGraph graph = TinkerGraph.open();
+             GraphTraversalSource g = graph.traversal()) {
+            HugeGraphGremlinLangScriptEngine engine = engine();
+            GraphTraversalSource protectedSource = engine.add(g);
+            Bytecode bytecode = g.io(output.toString())
+                                 .write().asAdmin().getBytecode();
+            Traversal.Admin<?, ?> traversal = JavaTranslator.of(
+                    protectedSource).translate(bytecode);
+
+            Assert.assertThrows(SecurityException.class,
+                                traversal::iterate,
+                                e -> Assert.assertContains("IoStep",
+                                                           e.getMessage()));
+            Assert.assertFalse(Files.exists(output));
+        } finally {
+            Files.deleteIfExists(output);
+            Files.deleteIfExists(directory);
+        }
+    }
+
+    @Test
+    public void testProtectedSourceAllowsSafeBytecodeTraversal()
+            throws Exception {
+        try (TinkerGraph graph = TinkerGraph.open();
+             GraphTraversalSource g = graph.traversal()) {
+            graph.addVertex();
+            HugeGraphGremlinLangScriptEngine engine = engine();
+            GraphTraversalSource protectedSource = engine.add(g);
+            Bytecode bytecode = g.V().count().asAdmin().getBytecode();
+            Traversal.Admin<?, ?> traversal = JavaTranslator.of(
+                    protectedSource).translate(bytecode);
+
+            Assert.assertEquals(1L, traversal.next());
+        }
+    }
+
+    @Test
+    public void testSessionEngineLazilyUsesProtectedTraversalSource()
+            throws Exception {
+        try (TinkerGraph graph = TinkerGraph.open();
+             GraphTraversalSource g = graph.traversal()) {
+            graph.addVertex();
+            HugeGraphGremlinLangScriptEngine mainEngine = engine();
+            GraphTraversalSource protectedSource = mainEngine.add(g);
+            HugeGraphGremlinLangScriptEngine sessionEngine = engine();
+            Bindings bindings = new SimpleBindings();
+            bindings.put("g", protectedSource);
+
+            Assert.assertEquals(1L, sessionEngine.eval(
+                    "g.V().count().next()", bindings));
+            Assert.assertEquals(1,
+                                sessionEngine.traversalSourceCount());
+        }
+    }
+
+    @Test
+    public void testSessionEngineRejectsUnprotectedTraversalSource()
+            throws Exception {
+        try (TinkerGraph graph = TinkerGraph.open();
+             GraphTraversalSource g = graph.traversal()) {
+            HugeGraphGremlinLangScriptEngine sessionEngine = engine();
+            Bindings bindings = new SimpleBindings();
+            bindings.put("g", g);
+
+            Assert.assertThrows(IllegalArgumentException.class,
+                                () -> sessionEngine.eval(
+                                        "g.V().count()", bindings),
+                                e -> Assert.assertContains("protected",
+                                                           e.getMessage()));
+        }
+    }
+
+    @Test
+    public void testRemovedProtectedSourceCannotRecreateDelegate()
+            throws Exception {
+        try (TinkerGraph graph = TinkerGraph.open();
+             GraphTraversalSource g = graph.traversal()) {
+            HugeGraphGremlinLangScriptEngine engine = engine();
+            GraphTraversalSource protectedSource = engine.add(g);
+            Bindings bindings = new SimpleBindings();
+            bindings.put("g", protectedSource);
+
+            engine.remove(protectedSource);
+
+            Assert.assertThrows(IllegalArgumentException.class,
+                                () -> engine.eval("g.V()", bindings),
+                                e -> Assert.assertContains("registered",
+                                                           e.getMessage()));
+            Assert.assertEquals(0, engine.traversalSourceCount());
+        }
     }
 
     @Test

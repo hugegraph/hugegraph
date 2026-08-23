@@ -46,6 +46,9 @@ public class HugeGraphGremlinLangScriptEngine extends AbstractScriptEngine
     private final Customizer[] customizers;
     private final ConcurrentMap<GraphTraversalSource, Delegate>
             delegates;
+    private final ConcurrentMap<GraphTraversalSource, Delegate>
+            protectedDelegates;
+    private final AtomicBoolean explicitRegistration;
     private final AtomicBoolean initializationProbeAllowed;
 
     HugeGraphGremlinLangScriptEngine(
@@ -54,6 +57,8 @@ public class HugeGraphGremlinLangScriptEngine extends AbstractScriptEngine
         this.factory = factory;
         this.customizers = customizers.clone();
         this.delegates = new ConcurrentHashMap<>();
+        this.protectedDelegates = new ConcurrentHashMap<>();
+        this.explicitRegistration = new AtomicBoolean(false);
         this.initializationProbeAllowed = new AtomicBoolean(true);
     }
 
@@ -126,22 +131,37 @@ public class HugeGraphGremlinLangScriptEngine extends AbstractScriptEngine
         return this.factory;
     }
 
-    public void add(GraphTraversalSource traversalSource) {
+    public GraphTraversalSource add(GraphTraversalSource traversalSource) {
         if (traversalSource == null) {
             throw new IllegalArgumentException(
                     "The traversal source can't be null");
         }
-        this.delegates.computeIfAbsent(traversalSource, this::newDelegate);
+        this.explicitRegistration.set(true);
+        Delegate delegate = this.delegates.computeIfAbsent(
+                traversalSource, this::newDelegate);
+        this.protectedDelegates.putIfAbsent(delegate.traversalSource,
+                                            delegate);
+        return delegate.traversalSource;
     }
 
     public void remove(GraphTraversalSource traversalSource) {
-        if (traversalSource != null) {
-            this.delegates.remove(traversalSource);
+        if (traversalSource == null) {
+            return;
+        }
+        Delegate delegate = this.delegates.get(traversalSource);
+        if (delegate == null) {
+            delegate = this.protectedDelegates.get(traversalSource);
+        }
+        if (delegate != null) {
+            this.delegates.remove(delegate.registrationSource, delegate);
+            this.protectedDelegates.remove(delegate.traversalSource,
+                                           delegate);
         }
     }
 
     public void clear() {
         this.delegates.clear();
+        this.protectedDelegates.clear();
     }
 
     public int traversalSourceCount() {
@@ -151,18 +171,42 @@ public class HugeGraphGremlinLangScriptEngine extends AbstractScriptEngine
     private Delegate delegate(GraphTraversalSource traversalSource) {
         Delegate delegate = this.delegates.get(traversalSource);
         if (delegate == null) {
+            delegate = this.protectedDelegates.get(traversalSource);
+        }
+        if (delegate == null && !this.explicitRegistration.get() &&
+            isProtected(traversalSource)) {
+            delegate = this.delegates.computeIfAbsent(
+                    traversalSource, this::newDelegate);
+            this.protectedDelegates.putIfAbsent(delegate.traversalSource,
+                                                delegate);
+        }
+        if (delegate == null) {
+            String requirement = this.explicitRegistration.get() ?
+                                 "registered" : "protected";
             throw new IllegalArgumentException(
-                    "The 'g' binding must be a registered " +
+                    "The 'g' binding must be a " + requirement + " " +
                     "GraphTraversalSource");
         }
         return delegate;
     }
 
     private Delegate newDelegate(GraphTraversalSource traversalSource) {
+        GraphTraversalSource protectedSource = traversalSource;
+        if (!isProtected(protectedSource)) {
+            protectedSource = traversalSource.withStrategies(
+                    GremlinLangRestrictionStrategy.instance());
+        }
         return new Delegate(
                 new GremlinLangScriptEngine(this.customizers),
-                traversalSource.withStrategies(
-                        GremlinLangRestrictionStrategy.instance()));
+                traversalSource, protectedSource);
+    }
+
+    private static boolean isProtected(
+            GraphTraversalSource traversalSource) {
+        return traversalSource.getStrategies()
+                              .getStrategy(
+                                      GremlinLangRestrictionStrategy.class)
+                              .isPresent();
     }
 
     private static GraphTraversalSource traversalSource(
@@ -218,11 +262,14 @@ public class HugeGraphGremlinLangScriptEngine extends AbstractScriptEngine
     private static final class Delegate {
 
         private final GremlinLangScriptEngine engine;
+        private final GraphTraversalSource registrationSource;
         private final GraphTraversalSource traversalSource;
 
         private Delegate(GremlinLangScriptEngine engine,
+                         GraphTraversalSource registrationSource,
                          GraphTraversalSource traversalSource) {
             this.engine = engine;
+            this.registrationSource = registrationSource;
             this.traversalSource = traversalSource;
         }
     }

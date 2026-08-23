@@ -17,6 +17,9 @@
 
 package org.apache.hugegraph.auth;
 
+import org.apache.hugegraph.security.HugeGraphGremlinLangScriptEngineFactory;
+import org.apache.tinkerpop.gremlin.process.traversal.Bytecode;
+import org.apache.tinkerpop.gremlin.process.traversal.util.BytecodeHelper;
 import org.apache.tinkerpop.gremlin.util.Tokens;
 import org.apache.tinkerpop.gremlin.util.message.RequestMessage;
 
@@ -26,41 +29,127 @@ public final class GremlinLangRequestGuard {
 
     private static final String CYPHER_PROCESSOR = "cypher";
     private static final String SESSION_PROCESSOR = "session";
+    private static final String TRAVERSAL_PROCESSOR = "traversal";
 
     private GremlinLangRequestGuard() {
     }
 
     public static String rejection(RequestMessage request) {
         String op = request.getOp();
-        if (Tokens.OPS_BYTECODE.equals(op)) {
-            return "Remote bytecode requests are disabled; submit a " +
-                   "gremlin-lang script instead";
+        String processor = request.getProcessor();
+        if (op == null) {
+            op = "";
+        }
+        if (processor == null) {
+            processor = "";
         }
 
-        String processor = request.getProcessor();
+        if (Tokens.OPS_AUTHENTICATION.equals(op)) {
+            return processor.isEmpty() ? null : unsupported(processor, op);
+        }
         if (CYPHER_PROCESSOR.equals(processor)) {
             if (Tokens.OPS_EVAL.equals(op) || op.isEmpty()) {
-                return null;
+                return textPayloadRejection(request, false);
             }
             return "The cypher processor only accepts text eval requests";
         }
-        if (!Tokens.OPS_EVAL.equals(op) && !op.isEmpty()) {
-            return null;
+        if (TRAVERSAL_PROCESSOR.equals(processor)) {
+            if (Tokens.OPS_BYTECODE.equals(op)) {
+                return bytecodeRejection(request);
+            }
+            return unsupported(processor, op);
         }
         if (SESSION_PROCESSOR.equals(processor)) {
-            return "The session processor is disabled for remote Gremlin " +
-                   "requests";
+            if (Tokens.OPS_EVAL.equals(op)) {
+                return textPayloadRejection(request, true);
+            }
+            if (Tokens.OPS_BYTECODE.equals(op)) {
+                return bytecodeRejection(request);
+            }
+            if (Tokens.OPS_CLOSE.equals(op)) {
+                return null;
+            }
+            return unsupported(processor, op);
         }
-        if (processor != null && !processor.isEmpty()) {
-            return String.format("The '%s' processor is not allowed for " +
-                                 "remote Gremlin requests", processor);
+        if (!processor.isEmpty()) {
+            return unsupported(processor, op);
+        }
+        if (Tokens.OPS_EVAL.equals(op) || op.isEmpty()) {
+            return textPayloadRejection(request, true);
+        }
+        return unsupported(processor, op);
+    }
+
+    public static RequestMessage normalize(RequestMessage request) {
+        String rejection = rejection(request);
+        if (rejection != null) {
+            throw new IllegalArgumentException(rejection);
         }
 
-        String language = request.getArg(Tokens.ARGS_LANGUAGE);
+        String processor = request.getProcessor();
+        String op = request.getOp();
+        boolean gremlinText = (processor == null || processor.isEmpty() ||
+                               SESSION_PROCESSOR.equals(processor)) &&
+                              (Tokens.OPS_EVAL.equals(op) || op.isEmpty());
+        if (!gremlinText) {
+            return request;
+        }
+        return RequestMessage.from(request)
+                             .addArg(Tokens.ARGS_LANGUAGE,
+                                     HugeGraphGremlinLangScriptEngineFactory.
+                                     INTERNAL_ENGINE_NAME)
+                             .create();
+    }
+
+    private static String textPayloadRejection(RequestMessage request,
+                                               boolean checkLanguage) {
+        Object gremlin = request.getArgs().get(Tokens.ARGS_GREMLIN);
+        if (!(gremlin instanceof String)) {
+            return "The gremlin argument for a text eval request must be " +
+                   "a string";
+        }
+        if (!checkLanguage) {
+            return null;
+        }
+
+        if (!request.getArgs().containsKey(Tokens.ARGS_LANGUAGE)) {
+            return null;
+        }
+        Object language = request.getArgs().get(Tokens.ARGS_LANGUAGE);
+        if (!(language instanceof String)) {
+            return "The language argument must be a string when provided";
+        }
         if (!GREMLIN_LANG.equals(language)) {
             return String.format("Remote Gremlin requests must use %s; " +
                                  "received '%s'", GREMLIN_LANG, language);
         }
         return null;
+    }
+
+    private static String bytecodeRejection(RequestMessage request) {
+        Object gremlin = request.getArgs().get(Tokens.ARGS_GREMLIN);
+        if (!(gremlin instanceof Bytecode)) {
+            return "The gremlin argument for a bytecode request must be " +
+                   "Bytecode";
+        }
+        Bytecode bytecode = (Bytecode) gremlin;
+        if (BytecodeHelper.getLambdaLanguage(bytecode).isPresent()) {
+            return "Remote Bytecode requests containing a Lambda are not " +
+                   "allowed";
+        }
+        for (Bytecode.Instruction instruction :
+             bytecode.getSourceInstructions()) {
+            if ("withoutStrategies".equals(instruction.getOperator())) {
+                return "Remote Bytecode requests cannot use " +
+                       "withoutStrategies";
+            }
+        }
+        return null;
+    }
+
+    private static String unsupported(String processor, String op) {
+        String name = processor.isEmpty() ? "standard" : processor;
+        return String.format("The '%s' processor does not allow operation " +
+                             "'%s' for remote requests", name, op);
     }
 }

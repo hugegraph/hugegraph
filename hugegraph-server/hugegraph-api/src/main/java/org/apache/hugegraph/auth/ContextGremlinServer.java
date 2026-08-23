@@ -117,11 +117,21 @@ public class ContextGremlinServer extends GremlinServer {
     @Override
     public synchronized CompletableFuture<Void> stop() {
         try {
-            return super.stop();
-        } finally {
-            this.gremlinLangEngine.clear();
-            this.unlistenChanges();
+            return afterStop(super.stop(), this::cleanup);
+        } catch (RuntimeException | Error e) {
+            this.cleanup();
+            throw e;
         }
+    }
+
+    static CompletableFuture<Void> afterStop(CompletableFuture<Void> stop,
+                                             Runnable cleanup) {
+        return stop.whenComplete((result, error) -> cleanup.run());
+    }
+
+    private void cleanup() {
+        this.gremlinLangEngine.clear();
+        this.unlistenChanges();
     }
 
     public void injectAuthGraph() {
@@ -146,8 +156,9 @@ public class ContextGremlinServer extends GremlinServer {
                         "it may lead to gremlin query error.", gName);
             }
             // Add a traversal source for all graphs with customed rule.
-            manager.putTraversalSource(gName, g);
-            this.gremlinLangEngine.add(g);
+            GraphTraversalSource protectedSource =
+                    this.gremlinLangEngine.add(g);
+            manager.putTraversalSource(gName, protectedSource);
         }
     }
 
@@ -161,8 +172,9 @@ public class ContextGremlinServer extends GremlinServer {
         manager.putGraph(name, graph);
 
         GraphTraversalSource g = manager.getGraph(name).traversal();
-        manager.putTraversalSource(G_PREFIX + name, g);
-        this.gremlinLangEngine.add(g);
+        GraphTraversalSource protectedSource =
+                this.gremlinLangEngine.add(g);
+        manager.putTraversalSource(G_PREFIX + name, protectedSource);
 
         Whitebox.invoke(executor, "globalBindings",
                         new Class<?>[]{String.class, Object.class},
