@@ -43,15 +43,19 @@ esac
 
 detect_rocksdb_provider() {
     local conf_dir="$1"
-    local file
-    local -a values=()
-    local -a unique_values=()
-    local value key conflicts
-    local -A seen=()
+    local file value provider="" seen_provider=false
 
-    for file in "$conf_dir"/graphs/*.properties; do
-        [ -f "$file" ] || continue
-        mapfile -t -O "${#values[@]}" values < <(
+    while IFS= read -r value; do
+        if [ "$seen_provider" = false ]; then
+            provider="$value"
+            seen_provider=true
+        elif [ "$provider" != "$value" ]; then
+            echo "Error: conflicting rocksdb.provider values: $provider,$value" >&2
+            return 1
+        fi
+    done < <(
+        for file in "$conf_dir"/graphs/*.properties; do
+            [ -f "$file" ] || continue
             awk '
                 /^[[:space:]]*#/ { next }
                 /^[[:space:]]*rocksdb\.provider[[:space:]]*=/ {
@@ -62,11 +66,9 @@ detect_rocksdb_provider() {
                     print value
                 }
             ' "$file"
-        )
-    done
-    for file in "$conf_dir"/application*.yml; do
-        [ -f "$file" ] || continue
-        mapfile -t -O "${#values[@]}" values < <(
+        done
+        for file in "$conf_dir"/application*.yml; do
+            [ -f "$file" ] || continue
             awk '
                 /^[[:space:]]*#/ || /^[[:space:]]*$/ { next }
                 /^[^[:space:]#][^:]*:/ {
@@ -83,23 +85,10 @@ detect_rocksdb_provider() {
                     print value
                 }
             ' "$file"
-        )
-    done
+        done
+    )
 
-    for value in "${values[@]}"; do
-        key="provider:$value"
-        if [ -z "${seen[$key]:-}" ]; then
-            unique_values+=("$value")
-            seen[$key]=true
-        fi
-    done
-
-    if [ "${#unique_values[@]}" -gt 1 ]; then
-        conflicts=$(IFS=,; echo "${unique_values[*]}")
-        echo "Error: conflicting rocksdb.provider values: $conflicts" >&2
-        return 1
-    fi
-    local provider="${unique_values[0]:-rocksdb}"
+    provider="${provider:-rocksdb}"
     case "$provider" in
         rocksdb | topling)
             echo "$provider"

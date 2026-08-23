@@ -28,6 +28,7 @@ import org.rocksdb.ColumnFamilyOptions;
 import org.rocksdb.DBOptions;
 import org.rocksdb.Options;
 import org.rocksdb.RocksDB;
+import org.rocksdb.RocksIterator;
 
 public final class RocksDBRuntimeSmokeTest {
 
@@ -105,6 +106,14 @@ public final class RocksDBRuntimeSmokeTest {
                      new ColumnFamilyDescriptor(CF, cfOptions))) {
             db.put(handle, KEY, VALUE);
             assertBytes(VALUE, db.get(handle, KEY), "initial read");
+            try (RocksIterator iterator = db.newIterator(handle)) {
+                iterator.seekToFirst();
+                if (!iterator.isValid()) {
+                    throw new AssertionError("iterator returned no data");
+                }
+                assertBytes(KEY, iterator.key(), "iterator key");
+                assertBytes(VALUE, iterator.value(), "iterator value");
+            }
         }
     }
 

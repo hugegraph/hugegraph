@@ -54,16 +54,21 @@ if [ "$COMPONENT_DIR" = "$SERVER_DIR" ]; then
               sort -V | tail -1 || true)
     fi
 else
-    BOOT_JAR=$(ls -1 "$COMPONENT_DIR"/lib/*.jar 2>/dev/null |
-               sort -V | tail -1 || true)
-    NESTED_JAR=$(unzip -Z1 "$BOOT_JAR" 'BOOT-INF/lib/rocksdbjni*.jar' |
-                 sort -V | tail -1 || true)
-    if [ -z "$NESTED_JAR" ]; then
-        echo "Error: no embedded rocksdbjni JAR found in $BOOT_JAR" >&2
-        exit 1
+    if [ "$PROVIDER" = "topling" ]; then
+        JAR=$(ls -1 "$SERVER_DIR"/lib/topling/rocksdbjni*.jar 2>/dev/null |
+              sort -V | tail -1 || true)
+    else
+        BOOT_JAR=$(ls -1 "$COMPONENT_DIR"/lib/*.jar 2>/dev/null |
+                   sort -V | tail -1 || true)
+        NESTED_JAR=$(unzip -Z1 "$BOOT_JAR" 'BOOT-INF/lib/rocksdbjni*.jar' |
+                     sort -V | tail -1 || true)
+        if [ -z "$NESTED_JAR" ]; then
+            echo "Error: no embedded rocksdbjni JAR found in $BOOT_JAR" >&2
+            exit 1
+        fi
+        JAR="$TEST_ROOT/rocksdbjni.jar"
+        unzip -p "$BOOT_JAR" "$NESTED_JAR" > "$JAR"
     fi
-    JAR="$TEST_ROOT/rocksdbjni.jar"
-    unzip -p "$BOOT_JAR" "$NESTED_JAR" > "$JAR"
 fi
 if [ -z "$JAR" ]; then
     echo "Error: no rocksdbjni JAR found for provider '$PROVIDER'" >&2
