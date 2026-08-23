@@ -193,6 +193,19 @@ public class GremlinLangRequestGuardTest {
     }
 
     @Test
+    public void testRejectsNonStringSessionForEval() {
+        RequestMessage request = RequestMessage.build(Tokens.OPS_EVAL)
+                                               .processor("session")
+                                               .addArg(Tokens.ARGS_GREMLIN,
+                                                       "g.V().count()")
+                                               .addArg(Tokens.ARGS_SESSION, 1)
+                                               .create();
+
+        Assert.assertContains("string",
+                              GremlinLangRequestGuard.rejection(request));
+    }
+
+    @Test
     public void testAllowsTraversalBytecodeWithoutLambda() {
         RequestMessage request = bytecode("traversal", new Bytecode());
 
@@ -210,6 +223,17 @@ public class GremlinLangRequestGuardTest {
                                                .create();
 
         Assert.assertNull(GremlinLangRequestGuard.rejection(request));
+    }
+
+    @Test
+    public void testRejectsNonStringSessionForBytecode() {
+        RequestMessage request = RequestMessage.from(
+                bytecode("session", new Bytecode()))
+                                               .addArg(Tokens.ARGS_SESSION, 1)
+                                               .create();
+
+        Assert.assertContains("string",
+                              GremlinLangRequestGuard.rejection(request));
     }
 
     @Test
@@ -241,6 +265,37 @@ public class GremlinLangRequestGuardTest {
                                                .create();
 
         Assert.assertNull(GremlinLangRequestGuard.rejection(request));
+    }
+
+    @Test
+    public void testRejectsNonStringSessionForClose() {
+        RequestMessage request = RequestMessage.build(Tokens.OPS_CLOSE)
+                                               .processor("session")
+                                               .addArg(Tokens.ARGS_SESSION, 1)
+                                               .create();
+
+        Assert.assertContains("string",
+                              GremlinLangRequestGuard.rejection(request));
+    }
+
+    @Test
+    public void testWebSocketHandlerRejectsNonStringSession() {
+        EmbeddedChannel channel = new EmbeddedChannel(
+                new GremlinLangRequestHandler());
+        RequestMessage request = RequestMessage.build(Tokens.OPS_EVAL)
+                                               .processor("session")
+                                               .addArg(Tokens.ARGS_GREMLIN,
+                                                       "g.V().count()")
+                                               .addArg(Tokens.ARGS_SESSION, 1)
+                                               .create();
+
+        Assert.assertFalse(channel.writeInbound(request));
+        ResponseMessage response = channel.readOutbound();
+        Assert.assertEquals(
+                ResponseStatusCode.REQUEST_ERROR_INVALID_REQUEST_ARGUMENTS,
+                response.getStatus().getCode());
+        Assert.assertContains("string", response.getStatus().getMessage());
+        channel.finishAndReleaseAll();
     }
 
     @Test

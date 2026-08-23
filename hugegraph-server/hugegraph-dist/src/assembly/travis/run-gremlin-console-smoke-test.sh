@@ -63,12 +63,13 @@ import org.apache.tinkerpop.gremlin.driver.Cluster
 cluster = Cluster.open('conf/remote.yaml')
 client = cluster.connect().alias(['g': '__g_DEFAULT-hugegraph'])
 try {
-    remoteScript = "def count = g.V().count().next(); " +
-                   "if (count < 0L) " +
-                   "throw new IllegalStateException('Unexpected vertex count: ' + count); " +
-                   "'${SMOKE_MARKER}-' + count"
+    remoteScript = "g.V().count()"
     results = client.submit(remoteScript).all().get()
-    println(results[0].object)
+    count = results[0].getLong()
+    if (count < 0L) {
+        throw new IllegalStateException('Unexpected vertex count: ' + count)
+    }
+    println('${SMOKE_MARKER}-' + count)
 } finally {
     client.close()
     cluster.close()

@@ -60,6 +60,10 @@ public final class GremlinLangRequestGuard {
             return unsupported(processor, op);
         }
         if (SESSION_PROCESSOR.equals(processor)) {
+            String rejection = sessionRejection(request);
+            if (rejection != null) {
+                return rejection;
+            }
             if (Tokens.OPS_EVAL.equals(op)) {
                 return textPayloadRejection(request, true);
             }
@@ -122,6 +126,14 @@ public final class GremlinLangRequestGuard {
         if (!GREMLIN_LANG.equals(language)) {
             return String.format("Remote Gremlin requests must use %s; " +
                                  "received '%s'", GREMLIN_LANG, language);
+        }
+        return null;
+    }
+
+    private static String sessionRejection(RequestMessage request) {
+        Object session = request.getArgs().get(Tokens.ARGS_SESSION);
+        if (!(session instanceof String)) {
+            return "The session argument must be a string";
         }
         return null;
     }

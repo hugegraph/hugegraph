@@ -18,6 +18,9 @@
 package org.apache.hugegraph.security;
 
 import java.io.Reader;
+import java.util.ArrayList;
+import java.util.Map;
+import java.util.WeakHashMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -41,6 +44,7 @@ public class HugeGraphGremlinLangScriptEngine extends AbstractScriptEngine
 
     private static final String TRAVERSAL_SOURCE = "g";
     private static final String TINKERPOP_INITIALIZATION_PROBE = "1+1";
+    private static final SourceRegistry SOURCES = new SourceRegistry();
 
     private final HugeGraphGremlinLangScriptEngineFactory factory;
     private final Customizer[] customizers;
@@ -131,7 +135,8 @@ public class HugeGraphGremlinLangScriptEngine extends AbstractScriptEngine
         return this.factory;
     }
 
-    public GraphTraversalSource add(GraphTraversalSource traversalSource) {
+    public synchronized GraphTraversalSource add(
+            GraphTraversalSource traversalSource) {
         if (traversalSource == null) {
             throw new IllegalArgumentException(
                     "The traversal source can't be null");
@@ -141,10 +146,11 @@ public class HugeGraphGremlinLangScriptEngine extends AbstractScriptEngine
                 traversalSource, this::newDelegate);
         this.protectedDelegates.putIfAbsent(delegate.traversalSource,
                                             delegate);
+        SOURCES.register(delegate.traversalSource, this);
         return delegate.traversalSource;
     }
 
-    public void remove(GraphTraversalSource traversalSource) {
+    public synchronized void remove(GraphTraversalSource traversalSource) {
         if (traversalSource == null) {
             return;
         }
@@ -153,13 +159,27 @@ public class HugeGraphGremlinLangScriptEngine extends AbstractScriptEngine
             delegate = this.protectedDelegates.get(traversalSource);
         }
         if (delegate != null) {
-            this.delegates.remove(delegate.registrationSource, delegate);
-            this.protectedDelegates.remove(delegate.traversalSource,
-                                           delegate);
+            if (this.explicitRegistration.get()) {
+                SOURCES.retire(delegate.traversalSource);
+            } else {
+                SOURCES.detach(delegate.traversalSource, this);
+                this.removeLocal(delegate.traversalSource);
+            }
         }
     }
 
-    public void clear() {
+    public synchronized void clear() {
+        if (this.explicitRegistration.get()) {
+            for (GraphTraversalSource source :
+                 new ArrayList<>(this.protectedDelegates.keySet())) {
+                SOURCES.retire(source);
+            }
+        } else {
+            for (GraphTraversalSource source :
+                 new ArrayList<>(this.protectedDelegates.keySet())) {
+                SOURCES.detach(source, this);
+            }
+        }
         this.delegates.clear();
         this.protectedDelegates.clear();
     }
@@ -173,12 +193,15 @@ public class HugeGraphGremlinLangScriptEngine extends AbstractScriptEngine
         if (delegate == null) {
             delegate = this.protectedDelegates.get(traversalSource);
         }
-        if (delegate == null && !this.explicitRegistration.get() &&
-            isProtected(traversalSource)) {
-            delegate = this.delegates.computeIfAbsent(
-                    traversalSource, this::newDelegate);
-            this.protectedDelegates.putIfAbsent(delegate.traversalSource,
-                                                delegate);
+        if (delegate == null && !this.explicitRegistration.get()) {
+            delegate = SOURCES.attach(traversalSource, this);
+            if (delegate == null &&
+                (SOURCES.isRetired(traversalSource) ||
+                 isProtected(traversalSource))) {
+                throw new IllegalArgumentException(
+                        "The protected 'g' binding must reference an active " +
+                        "GraphTraversalSource");
+            }
         }
         if (delegate == null) {
             String requirement = this.explicitRegistration.get() ?
@@ -190,6 +213,26 @@ public class HugeGraphGremlinLangScriptEngine extends AbstractScriptEngine
         return delegate;
     }
 
+    private Delegate attachLocal(GraphTraversalSource traversalSource) {
+        Delegate delegate = this.delegates.computeIfAbsent(
+                traversalSource, this::newProtectedDelegate);
+        this.protectedDelegates.putIfAbsent(delegate.traversalSource,
+                                            delegate);
+        return delegate;
+    }
+
+    private void removeLocal(GraphTraversalSource traversalSource) {
+        Delegate delegate = this.protectedDelegates.get(traversalSource);
+        if (delegate == null) {
+            delegate = this.delegates.get(traversalSource);
+        }
+        if (delegate != null) {
+            this.delegates.remove(delegate.registrationSource, delegate);
+            this.protectedDelegates.remove(delegate.traversalSource,
+                                           delegate);
+        }
+    }
+
     private Delegate newDelegate(GraphTraversalSource traversalSource) {
         GraphTraversalSource protectedSource = traversalSource;
         if (!isProtected(protectedSource)) {
@@ -199,6 +242,13 @@ public class HugeGraphGremlinLangScriptEngine extends AbstractScriptEngine
         return new Delegate(
                 new GremlinLangScriptEngine(this.customizers),
                 traversalSource, protectedSource);
+    }
+
+    private Delegate newProtectedDelegate(
+            GraphTraversalSource traversalSource) {
+        return new Delegate(
+                new GremlinLangScriptEngine(this.customizers),
+                traversalSource, traversalSource);
     }
 
     private static boolean isProtected(
@@ -271,6 +321,74 @@ public class HugeGraphGremlinLangScriptEngine extends AbstractScriptEngine
             this.engine = engine;
             this.registrationSource = registrationSource;
             this.traversalSource = traversalSource;
+        }
+    }
+
+    private static final class SourceRegistry {
+
+        private final Map<GraphTraversalSource, SourceEntry> sources;
+        private final Map<GraphTraversalSource, Boolean> retiredSources;
+
+        private SourceRegistry() {
+            this.sources = new WeakHashMap<>();
+            this.retiredSources = new WeakHashMap<>();
+        }
+
+        private synchronized void register(GraphTraversalSource source,
+                                           HugeGraphGremlinLangScriptEngine
+                                                   engine) {
+            SourceEntry entry = this.sources.computeIfAbsent(
+                    source, key -> new SourceEntry());
+            this.retiredSources.remove(source);
+            entry.engines.put(engine, Boolean.TRUE);
+        }
+
+        private synchronized Delegate attach(
+                GraphTraversalSource source,
+                HugeGraphGremlinLangScriptEngine engine) {
+            SourceEntry entry = this.sources.get(source);
+            if (entry == null) {
+                return null;
+            }
+            Delegate delegate = engine.attachLocal(source);
+            entry.engines.put(engine, Boolean.TRUE);
+            return delegate;
+        }
+
+        private synchronized boolean isRetired(
+                GraphTraversalSource source) {
+            return this.retiredSources.containsKey(source);
+        }
+
+        private synchronized void detach(
+                GraphTraversalSource source,
+                HugeGraphGremlinLangScriptEngine engine) {
+            SourceEntry entry = this.sources.get(source);
+            if (entry != null) {
+                entry.engines.remove(engine);
+            }
+        }
+
+        private synchronized void retire(GraphTraversalSource source) {
+            SourceEntry entry = this.sources.remove(source);
+            this.retiredSources.put(source, Boolean.TRUE);
+            if (entry == null) {
+                return;
+            }
+            for (HugeGraphGremlinLangScriptEngine engine :
+                 new ArrayList<>(entry.engines.keySet())) {
+                engine.removeLocal(source);
+            }
+            entry.engines.clear();
+        }
+    }
+
+    private static final class SourceEntry {
+
+        private final Map<HugeGraphGremlinLangScriptEngine, Boolean> engines;
+
+        private SourceEntry() {
+            this.engines = new WeakHashMap<>();
         }
     }
 }

@@ -30,10 +30,18 @@ import java.util.concurrent.Future;
 import javax.script.Bindings;
 import javax.script.SimpleBindings;
 
+import org.apache.hugegraph.HugeFactory;
+import org.apache.hugegraph.HugeGraph;
+import org.apache.hugegraph.auth.HugeGraphAuthProxy;
+import org.apache.hugegraph.auth.HugeAuthenticator;
+import org.apache.hugegraph.auth.RolePermission;
+import org.apache.hugegraph.security.GremlinLangRestrictionStrategy;
 import org.apache.hugegraph.security.GremlinLangTraversalVerifier;
 import org.apache.hugegraph.security.HugeGraphGremlinLangScriptEngine;
 import org.apache.hugegraph.security.HugeGraphGremlinLangScriptEngineFactory;
 import org.apache.hugegraph.testutil.Assert;
+import org.apache.hugegraph.task.TaskManager;
+import org.apache.hugegraph.unit.FakeObjects;
 import org.apache.tinkerpop.gremlin.jsr223.CachedGremlinScriptEngineManager;
 import org.apache.tinkerpop.gremlin.jsr223.Customizer;
 import org.apache.tinkerpop.gremlin.jsr223.GremlinLangPlugin;
@@ -97,6 +105,75 @@ public class HugeGraphGremlinLangScriptEngineTest {
         Assert.assertEquals(1, engine.traversalSourceCount());
         g.close();
         graph.close();
+    }
+
+    @Test
+    public void testProtectsHugeGraphAuthTraversalSource() throws Exception {
+        HugeGraph graph = HugeFactory.open(FakeObjects.newConfig());
+        HugeGraphAuthProxy proxy = new HugeGraphAuthProxy(graph);
+        HugeAuthenticator.User user = new HugeAuthenticator.User(
+                "sandbox-test", RolePermission.admin());
+        TaskManager.setContext(user.toJson());
+        HugeGraphGremlinLangScriptEngine mainEngine = engine();
+        HugeGraphGremlinLangScriptEngine sessionEngine = engine();
+        GraphTraversalSource source = proxy.traversal();
+        GraphTraversalSource protectedSource = null;
+        GraphTraversalSource replacement = null;
+        GraphTraversalSource protectedReplacement = null;
+        try {
+            protectedSource = mainEngine.add(source);
+            Assert.assertEquals(source.getClass(),
+                                protectedSource.getClass());
+            Bindings bindings = new SimpleBindings();
+            bindings.put("g", protectedSource);
+
+            Assert.assertEquals(0L, mainEngine.eval(
+                    "g.V().count().next()", bindings));
+            Assert.assertEquals(0L, mainEngine.eval(
+                    "g.V().count().next()", bindings));
+            Assert.assertEquals(0L, sessionEngine.eval(
+                    "g.V().count().next()", bindings));
+
+            Bytecode bytecode = new Bytecode();
+            bytecode.addStep("V");
+            bytecode.addStep("count");
+            Traversal.Admin<?, ?> mainTraversal = mainEngine.eval(
+                    bytecode, bindings, "g");
+            Assert.assertEquals(0L, mainTraversal.next());
+            Traversal.Admin<?, ?> sessionTraversal = sessionEngine.eval(
+                    bytecode, bindings, "g");
+            Assert.assertEquals(0L, sessionTraversal.next());
+
+            mainEngine.remove(protectedSource);
+            Assert.assertEquals(0, sessionEngine.traversalSourceCount());
+            Assert.assertThrows(IllegalArgumentException.class,
+                                () -> sessionEngine.eval(
+                                        "g.V().count().next()", bindings),
+                                e -> Assert.assertContains("active",
+                                                           e.getMessage()));
+
+            replacement = proxy.traversal();
+            protectedReplacement = mainEngine.add(replacement);
+            bindings.put("g", protectedReplacement);
+            Assert.assertEquals(0L, sessionEngine.eval(
+                    "g.V().count().next()", bindings));
+        } finally {
+            mainEngine.clear();
+            sessionEngine.clear();
+            if (protectedReplacement != null) {
+                protectedReplacement.close();
+            }
+            if (replacement != null) {
+                replacement.close();
+            }
+            if (protectedSource != null) {
+                protectedSource.close();
+            }
+            source.close();
+            graph.close();
+            HugeGraphAuthProxy.resetContext();
+            TaskManager.resetContext();
+        }
     }
 
     @Test
@@ -240,6 +317,55 @@ public class HugeGraphGremlinLangScriptEngineTest {
     }
 
     @Test
+    public void testRemovingSourceInvalidatesSessionEngine() throws Exception {
+        try (TinkerGraph graph = TinkerGraph.open();
+             GraphTraversalSource g = graph.traversal()) {
+            graph.addVertex();
+            HugeGraphGremlinLangScriptEngine mainEngine = engine();
+            GraphTraversalSource protectedSource = mainEngine.add(g);
+            HugeGraphGremlinLangScriptEngine sessionEngine = engine();
+            Bindings bindings = new SimpleBindings();
+            bindings.put("g", protectedSource);
+            Assert.assertEquals(1L, sessionEngine.eval(
+                    "g.V().count().next()", bindings));
+
+            mainEngine.remove(protectedSource);
+
+            Assert.assertEquals(0, sessionEngine.traversalSourceCount());
+            Assert.assertThrows(IllegalArgumentException.class,
+                                () -> sessionEngine.eval(
+                                        "g.V().count().next()", bindings),
+                                e -> Assert.assertContains("active",
+                                                           e.getMessage()));
+        }
+    }
+
+    @Test
+    public void testClearingSourcesInvalidatesSessionEngine()
+            throws Exception {
+        try (TinkerGraph graph = TinkerGraph.open();
+             GraphTraversalSource g = graph.traversal()) {
+            graph.addVertex();
+            HugeGraphGremlinLangScriptEngine mainEngine = engine();
+            GraphTraversalSource protectedSource = mainEngine.add(g);
+            HugeGraphGremlinLangScriptEngine sessionEngine = engine();
+            Bindings bindings = new SimpleBindings();
+            bindings.put("g", protectedSource);
+            Assert.assertEquals(1L, sessionEngine.eval(
+                    "g.V().count().next()", bindings));
+
+            mainEngine.clear();
+
+            Assert.assertEquals(0, sessionEngine.traversalSourceCount());
+            Assert.assertThrows(IllegalArgumentException.class,
+                                () -> sessionEngine.eval(
+                                        "g.V().count().next()", bindings),
+                                e -> Assert.assertContains("active",
+                                                           e.getMessage()));
+        }
+    }
+
+    @Test
     public void testSessionEngineRejectsUnprotectedTraversalSource()
             throws Exception {
         try (TinkerGraph graph = TinkerGraph.open();
@@ -252,6 +378,25 @@ public class HugeGraphGremlinLangScriptEngineTest {
                                 () -> sessionEngine.eval(
                                         "g.V().count()", bindings),
                                 e -> Assert.assertContains("protected",
+                                                           e.getMessage()));
+        }
+    }
+
+    @Test
+    public void testSessionEngineRejectsUnregisteredProtectedSource()
+            throws Exception {
+        try (TinkerGraph graph = TinkerGraph.open();
+             GraphTraversalSource g = graph.traversal();
+             GraphTraversalSource protectedSource = g.withStrategies(
+                     GremlinLangRestrictionStrategy.instance())) {
+            HugeGraphGremlinLangScriptEngine sessionEngine = engine();
+            Bindings bindings = new SimpleBindings();
+            bindings.put("g", protectedSource);
+
+            Assert.assertThrows(IllegalArgumentException.class,
+                                () -> sessionEngine.eval(
+                                        "g.V().count()", bindings),
+                                e -> Assert.assertContains("active",
                                                            e.getMessage()));
         }
     }
