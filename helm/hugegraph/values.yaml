@@ -32,9 +32,7 @@ pd:
   # Empty preserves the image entrypoint's automatic JVM sizing. The chart
   # renders its partition settings below as -D system properties ahead of
   # this value, so flags placed here win on conflict.
-  # Temporarily disable the PD Raft IP whitelist in the Kubernetes test
-  # environment. The PD application keeps the whitelist enabled by default.
-  javaOpts: "-Draft.ip-whitelist.enabled=false"
+  javaOpts: ""
   # Partition sharding, rendered as -D system properties that outrank the
   # image's conf/application.yml. PD copies both values into its own
   # persisted metadata at first bootstrap only; from then on the stored
@@ -109,20 +107,13 @@ pd:
   pdb:
     enabled: true
     minAvailable: 2
-  # Escape hatch for the peer-DNS gate below. Disable only when pod DNS
-  # cannot resolve the headless Service names in any form the gate tries;
-  # disabling re-exposes the first-boot allowlist race.
-  waitEnabled: true
-  # The gate needs an nslookup whose exit code reflects NXDOMAIN; busybox
-  # older than 1.30 exits 0 on failure and would make the gate a no-op.
-  # Optional in the schema and defaulted in the template so releases created
-  # before this field existed keep rendering under --reuse-values.
-  waitImage: curlimages/curl:8.5.0
-  # Bound the peer-DNS wait so a cluster whose PD DNS never publishes fails
-  # visibly instead of sitting in Init:0/1 forever.
-  waitTimeoutSeconds: 300
-  # Optional bounds for the PD-start DNS-gate init container.
-  waitResources: {}
+  # PD's raft IP whitelist resolves peers once at boot, which under
+  # Kubernetes blocks peers whose pod IPs were not yet published or change
+  # later. Off by default in-cluster (upstream switch
+  # raft.ip-whitelist.enabled); k8s network policy/auth owns that layer.
+  # Ignored by images that predate the switch. Set true to restore the
+  # image default.
+  raftIpWhitelistEnabled: false
   # Explicit rollout strategy instead of the implicit StatefulSet default.
   updateStrategy:
     type: RollingUpdate

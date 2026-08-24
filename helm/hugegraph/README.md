@@ -324,15 +324,16 @@ authentication disabled, leave `server.auth.admin.existingSecret` and
 helm upgrade hugegraph ./helm/hugegraph --namespace hugegraph --reuse-values
 ```
 
-Upgrading to 0.1.2 from an earlier revision rolls two workloads once:
+Upgrading to 0.1.3 from an earlier revision rolls two workloads once:
 
-- **PD** restarts one pod at a time because the Pod template gains the
-  `wait-for-pd-dns` init container. On current images a restarted PD returns
-  with a new Pod IP that peers holding older allowlists may reject (see
-  Limitations). If PDs log `Blocked connection` after the roll, delete all PD
-  pods at once — the DNS gate makes the parallel cold start deterministic.
-  For a maintenance-window upgrade, set `pd.updateStrategy.type=OnDelete`
-  and restart the pods yourself.
+- **PD** restarts one pod at a time because the Pod template changes: the
+  chart now disables PD's raft IP whitelist under Kubernetes
+  (`-Draft.ip-whitelist.enabled=false` in the derived `JAVA_OPTS`) and the
+  interim `wait-for-pd-dns` init container from 0.1.2 is removed — the
+  upstream switch fixes at the source what the gate only mitigated at first
+  boot. Requires a PD image that carries the switch; see Limitations for the
+  behavior on older images. For a maintenance-window upgrade, set
+  `pd.updateStrategy.type=OnDelete` and restart the pods yourself.
 - **Server** rolls because the Pod template gains the `checksum/auth`
   annotation, and once more on the first upgrade after a fresh install, when
   the checksum first observes the install-created Secrets. Template-only
@@ -1000,11 +1001,17 @@ independently of the release name.
 
 ## Limitations
 
-- PD builds its raft RPC allowlist by resolving peer hostnames once at
-  startup. The chart gates PD start on all peer DNS names resolving
-  (`wait-for-pd-dns`), which makes first boot deterministic, but a PD Pod
-  rescheduled to a new IP later can still be rejected by peers until they
-  restart and re-resolve; a dynamic refresh is upstream image work.
+- PD's raft IP whitelist resolves peer hostnames to IPs once at startup,
+  which under Kubernetes can block peers whose pod IPs were unpublished at
+  that moment or change later. The chart therefore disables the whitelist
+  in-cluster via the upstream `raft.ip-whitelist.enabled` switch, leaving
+  peer authentication to Kubernetes-level controls. Setting
+  `pd.raftIpWhitelistEnabled=true` restores the image default along with
+  its one-shot resolution semantics — bring-up races and pod-IP-change
+  rejections included — at the operator's own risk. PD images that predate
+  the switch ignore the flag and keep the whitelist active, so they remain
+  exposed to those failure modes; use images built from a source tree that
+  includes the switch.
 - The PD management REST endpoints (`/v1/members`, `/v1/stores`) reject
   requests on current images (`invalid service name`), and unauthenticated
   GETs return HTTP 200 with an `Unauthorized` JSON body. Until that is
