@@ -32,7 +32,9 @@ pd:
   # Empty preserves the image entrypoint's automatic JVM sizing. The chart
   # renders its partition settings below as -D system properties ahead of
   # this value, so flags placed here win on conflict.
-  javaOpts: ""
+  # Temporarily disable the PD Raft IP whitelist in the Kubernetes test
+  # environment. The PD application keeps the whitelist enabled by default.
+  javaOpts: "-Draft.ip-whitelist.enabled=false"
   # Partition sharding, rendered as -D system properties that outrank the
   # image's conf/application.yml. PD copies both values into its own
   # persisted metadata at first bootstrap only; from then on the stored
