@@ -81,6 +81,7 @@ import org.apache.hugegraph.unit.serializer.TableBackendEntryTest;
 import org.apache.hugegraph.unit.serializer.TextBackendEntryTest;
 import org.apache.hugegraph.unit.serializer.TextSerializerTest;
 import org.apache.hugegraph.unit.store.RamIntObjectMapTest;
+import org.apache.hugegraph.unit.traversal.ShortestPathTraverserTest;
 import org.apache.hugegraph.unit.util.CompressUtilTest;
 import org.apache.hugegraph.unit.util.JsonUtilTest;
 import org.apache.hugegraph.unit.util.RateLimiterTest;
@@ -161,6 +162,7 @@ import org.junit.runners.Suite;
         RoleElectionStateMachineTest.class,
         HugeGraphAuthProxyTest.class,
         SchemaElementTest.class,
+        ShortestPathTraverserTest.class,
 
         /* cmd */
         InitStoreConfigTest.class,
