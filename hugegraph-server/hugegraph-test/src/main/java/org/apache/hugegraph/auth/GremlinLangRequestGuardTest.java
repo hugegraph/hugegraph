@@ -17,6 +17,7 @@
 
 package org.apache.hugegraph.auth;
 
+import static com.codahale.metrics.MetricRegistry.name;
 import static io.netty.handler.codec.http.HttpHeaderNames.ACCEPT;
 import static io.netty.handler.codec.http.HttpHeaderNames.CONTENT_TYPE;
 import static io.netty.handler.codec.http.HttpMethod.POST;
@@ -26,6 +27,7 @@ import static io.netty.handler.codec.http.HttpVersion.HTTP_1_1;
 import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -39,7 +41,9 @@ import org.apache.hugegraph.testutil.Assert;
 import org.apache.tinkerpop.gremlin.groovy.engine.GremlinExecutor;
 import org.apache.tinkerpop.gremlin.process.traversal.Bytecode;
 import org.apache.tinkerpop.gremlin.server.GraphManager;
+import org.apache.tinkerpop.gremlin.server.GremlinServer;
 import org.apache.tinkerpop.gremlin.server.Settings;
+import org.apache.tinkerpop.gremlin.server.util.MetricManager;
 import org.apache.tinkerpop.gremlin.util.MessageSerializer;
 import org.apache.tinkerpop.gremlin.util.Tokens;
 import org.apache.tinkerpop.gremlin.util.function.Lambda;
@@ -50,6 +54,8 @@ import org.apache.tinkerpop.gremlin.util.ser.GraphBinaryMessageSerializerV1;
 import org.apache.tinkerpop.gremlin.util.ser.GraphSONUntypedMessageSerializerV1;
 import org.junit.Test;
 import org.mockito.Mockito;
+
+import com.codahale.metrics.Meter;
 
 import io.netty.buffer.Unpooled;
 import io.netty.buffer.UnpooledByteBufAllocator;
@@ -391,7 +397,73 @@ public class GremlinLangRequestGuardTest {
     @Test
     public void testHttpHandlerRejectsExplicitNullLanguageBeforeEvaluation() {
         assertHttpBadRequest("{\"gremlin\":\"g.V().count()\"," +
-                             "\"language\":null}", "gremlin-lang");
+                             "\"language\":null}",
+                             "language argument must be a string");
+    }
+
+    @Test
+    public void testHttpHandlerRejectsNonStringGremlinBeforeCoercion() {
+        String[] values = {"1", "true", "{}", "[]", "null"};
+
+        for (String value : values) {
+            assertHttpBadRequest("{\"gremlin\":" + value + "}",
+                                 "gremlin argument for a text eval request " +
+                                 "must be a string");
+        }
+    }
+
+    @Test
+    public void testHttpHandlerRejectsNonStringLanguageBeforeCoercion() {
+        String[] values = {"1", "true", "{}", "[]", "null"};
+
+        for (String value : values) {
+            assertHttpBadRequest("{\"gremlin\":\"g.V()\"," +
+                                 "\"language\":" + value + "}",
+                                 "language argument must be a string");
+        }
+    }
+
+    @Test
+    public void testHttpHandlerValidatesJsonContentTypeWithCharset() {
+        assertHttpBadRequest("{\"gremlin\":\"g.V()\",\"language\":1}",
+                             "application/json; charset=UTF-8",
+                             "language argument must be a string");
+    }
+
+    @Test
+    public void testHttpHandlerRejectionKeepsRequestId() {
+        UUID requestId = UUID.randomUUID();
+        String response = assertHttpBadRequest(
+                "{\"requestId\":\"" + requestId + "\"," +
+                "\"gremlin\":\"g.V()\",\"language\":1}",
+                "language argument must be a string");
+
+        Assert.assertContains(requestId.toString(), response);
+    }
+
+    @Test
+    public void testHttpHandlerParsedRejectionKeepsRequestId() {
+        UUID requestId = UUID.randomUUID();
+        String response = assertHttpBadRequest(
+                "{\"requestId\":\"" + requestId + "\"," +
+                "\"gremlin\":\"g.V()\"," +
+                "\"language\":\"gremlin-groovy\"}",
+                "gremlin-groovy");
+
+        Assert.assertContains(requestId.toString(), response);
+    }
+
+    @Test
+    public void testHttpHandlerRejectionMarksErrorMetric() {
+        Meter errorMeter = MetricManager.INSTANCE.getMeter(
+                name(GremlinServer.class, "errors"));
+        long count = errorMeter.getCount();
+
+        assertHttpBadRequest("{\"gremlin\":\"g.V()\"," +
+                             "\"language\":\"gremlin-groovy\"}",
+                             "gremlin-groovy");
+
+        Assert.assertEquals(count + 1L, errorMeter.getCount());
     }
 
     @Test
@@ -553,8 +625,15 @@ public class GremlinLangRequestGuardTest {
         assertHttpBadRequest("{\"gremlin\"", "body could not be parsed");
     }
 
-    private static void assertHttpBadRequest(String json,
-                                             String expectedMessage) {
+    private static String assertHttpBadRequest(String json,
+                                               String expectedMessage) {
+        return assertHttpBadRequest(json, "application/json",
+                                    expectedMessage);
+    }
+
+    private static String assertHttpBadRequest(String json,
+                                               String contentType,
+                                               String expectedMessage) {
         GremlinLangHttpHandler handler = new GremlinLangHttpHandler(
                 Collections.singletonMap(
                         "application/json",
@@ -564,15 +643,17 @@ public class GremlinLangRequestGuardTest {
         DefaultFullHttpRequest request = new DefaultFullHttpRequest(
                 HTTP_1_1, POST, "/gremlin",
                 Unpooled.copiedBuffer(json, StandardCharsets.UTF_8));
-        request.headers().set(CONTENT_TYPE, "application/json");
+        request.headers().set(CONTENT_TYPE, contentType);
 
         Assert.assertFalse(channel.writeInbound(request));
         FullHttpResponse response = channel.readOutbound();
         Assert.assertEquals(BAD_REQUEST, response.status());
-        Assert.assertContains(expectedMessage,
-                              response.content().toString(StandardCharsets.UTF_8));
+        String responseBody = response.content().toString(
+                StandardCharsets.UTF_8);
+        Assert.assertContains(expectedMessage, responseBody);
         response.release();
         channel.finishAndReleaseAll();
+        return responseBody;
     }
 
     private static RequestMessage eval(String language) {
