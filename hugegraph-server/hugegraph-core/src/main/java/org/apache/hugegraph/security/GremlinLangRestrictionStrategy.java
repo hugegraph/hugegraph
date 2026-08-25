@@ -37,6 +37,7 @@ public final class GremlinLangRestrictionStrategy
 
     @Override
     public void apply(Traversal.Admin<?, ?> traversal) {
+        GremlinLangTextPredicateAdapter.restore(traversal);
         GremlinLangTraversalVerifier.verify(traversal);
     }
 }

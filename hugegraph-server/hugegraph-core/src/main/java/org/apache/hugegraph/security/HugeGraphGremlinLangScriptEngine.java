@@ -17,6 +17,7 @@
 
 package org.apache.hugegraph.security;
 
+import java.io.IOException;
 import java.io.Reader;
 import java.util.ArrayList;
 import java.util.Map;
@@ -48,6 +49,7 @@ public class HugeGraphGremlinLangScriptEngine extends AbstractScriptEngine
 
     private final HugeGraphGremlinLangScriptEngineFactory factory;
     private final Customizer[] customizers;
+    private final GremlinLangTextPredicateAdapter textPredicateAdapter;
     private final ConcurrentMap<GraphTraversalSource, Delegate>
             delegates;
     private final ConcurrentMap<GraphTraversalSource, Delegate>
@@ -60,6 +62,8 @@ public class HugeGraphGremlinLangScriptEngine extends AbstractScriptEngine
             Customizer... customizers) {
         this.factory = factory;
         this.customizers = customizers.clone();
+        this.textPredicateAdapter =
+                new GremlinLangTextPredicateAdapter(this.customizers);
         this.delegates = new ConcurrentHashMap<>();
         this.protectedDelegates = new ConcurrentHashMap<>();
         this.explicitRegistration = new AtomicBoolean(false);
@@ -82,10 +86,13 @@ public class HugeGraphGremlinLangScriptEngine extends AbstractScriptEngine
             return 2;
         }
         Delegate delegate = this.delegate(traversalSource(context));
+        GremlinLangTextPredicateAdapter.AdaptedScript adapted =
+                this.textPredicateAdapter.adapt(script, context);
         try {
             return verify(delegate.engine.eval(
-                    script,
-                    guardedContext(context, delegate.traversalSource)));
+                    adapted.script(),
+                    guardedContext(context, delegate.traversalSource,
+                                   adapted.bindings())));
         } catch (ScriptException e) {
             rethrowSecurityException(e);
             throw e;
@@ -95,14 +102,10 @@ public class HugeGraphGremlinLangScriptEngine extends AbstractScriptEngine
     @Override
     public Object eval(Reader reader, ScriptContext context)
             throws ScriptException {
-        Delegate delegate = this.delegate(traversalSource(context));
         try {
-            return verify(delegate.engine.eval(
-                    reader,
-                    guardedContext(context, delegate.traversalSource)));
-        } catch (ScriptException e) {
-            rethrowSecurityException(e);
-            throw e;
+            return this.eval(readFully(reader), context);
+        } catch (IOException e) {
+            throw new ScriptException(e);
         }
     }
 
@@ -288,7 +291,8 @@ public class HugeGraphGremlinLangScriptEngine extends AbstractScriptEngine
 
     private static ScriptContext guardedContext(
             ScriptContext context,
-            GraphTraversalSource traversalSource) {
+            GraphTraversalSource traversalSource,
+            Map<String, Object> additionalBindings) {
         SimpleScriptContext guarded = new SimpleScriptContext();
         guarded.setReader(context.getReader());
         guarded.setWriter(context.getWriter());
@@ -299,6 +303,7 @@ public class HugeGraphGremlinLangScriptEngine extends AbstractScriptEngine
         if (original != null) {
             engineBindings.putAll(original);
         }
+        engineBindings.putAll(additionalBindings);
         engineBindings.put(TRAVERSAL_SOURCE, traversalSource);
         guarded.setBindings(engineBindings, ScriptContext.ENGINE_SCOPE);
 
@@ -307,6 +312,16 @@ public class HugeGraphGremlinLangScriptEngine extends AbstractScriptEngine
             guarded.setBindings(global, ScriptContext.GLOBAL_SCOPE);
         }
         return guarded;
+    }
+
+    private static String readFully(Reader reader) throws IOException {
+        StringBuilder script = new StringBuilder();
+        char[] buffer = new char[8192];
+        int length;
+        while ((length = reader.read(buffer)) != -1) {
+            script.append(buffer, 0, length);
+        }
+        return script.toString();
     }
 
     private static final class Delegate {
