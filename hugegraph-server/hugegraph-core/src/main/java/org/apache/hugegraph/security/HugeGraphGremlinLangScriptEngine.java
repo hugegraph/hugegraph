@@ -240,7 +240,8 @@ public class HugeGraphGremlinLangScriptEngine extends AbstractScriptEngine
         GraphTraversalSource protectedSource = traversalSource;
         if (!isProtected(protectedSource)) {
             protectedSource = traversalSource.withStrategies(
-                    GremlinLangRestrictionStrategy.instance());
+                    GremlinLangRestrictionStrategy.instance(),
+                    GremlinLangVerificationStrategy.instance());
         }
         return new Delegate(
                 new GremlinLangScriptEngine(this.customizers),
@@ -256,9 +257,11 @@ public class HugeGraphGremlinLangScriptEngine extends AbstractScriptEngine
 
     private static boolean isProtected(
             GraphTraversalSource traversalSource) {
-        return traversalSource.getStrategies()
-                              .getStrategy(
+        return traversalSource.getStrategies().getStrategy(
                                       GremlinLangRestrictionStrategy.class)
+                              .isPresent() &&
+               traversalSource.getStrategies().getStrategy(
+                                      GremlinLangVerificationStrategy.class)
                               .isPresent();
     }
 

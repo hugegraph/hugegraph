@@ -59,6 +59,11 @@ EOF
 
 cat > "$SMOKE_SCRIPT" <<EOF
 import org.apache.tinkerpop.gremlin.driver.Cluster
+import org.apache.tinkerpop.gremlin.driver.remote.DriverRemoteConnection
+import org.apache.tinkerpop.gremlin.process.traversal.AnonymousTraversalSource
+import org.apache.tinkerpop.gremlin.util.ser.GraphBinaryMessageSerializerV1
+
+import java.util.UUID
 
 cluster = Cluster.open('conf/remote.yaml')
 client = cluster.connect().alias(['g': '__g_DEFAULT-hugegraph'])
@@ -69,7 +74,52 @@ try {
     if (count < 0L) {
         throw new IllegalStateException('Unexpected vertex count: ' + count)
     }
-    println('${SMOKE_MARKER}-' + count)
+
+    // The Console config uses untyped GraphSON for legacy result objects.
+    // GLV Bytecode needs a typed serializer, so exercise its standard
+    // GraphBinary protocol with a separate connection.
+    glvCluster = Cluster.build()
+                        .addContactPoint('localhost')
+                        .port(8182)
+                        .credentials('admin', 'pa')
+                        .serializer(new GraphBinaryMessageSerializerV1())
+                        .create()
+    try {
+        remote = DriverRemoteConnection.using(
+                glvCluster, '__g_DEFAULT-hugegraph')
+        remoteG = AnonymousTraversalSource.traversal().withRemote(remote)
+        try {
+            bytecodeCount = remoteG.V().count().next()
+            if (bytecodeCount != count) {
+                throw new IllegalStateException(
+                        'Bytecode count differs from text count: ' +
+                        bytecodeCount + ' != ' + count)
+            }
+        } finally {
+            remoteG.close()
+        }
+    } finally {
+        glvCluster.close()
+    }
+
+    session = cluster.connect(
+            'hugegraph-smoke-' + UUID.randomUUID().toString())
+                     .alias(['g': '__g_DEFAULT-hugegraph'])
+    try {
+        sessionResults = session.submit(remoteScript).all().get()
+        sessionCount = sessionResults[0].getLong()
+        if (sessionCount != count) {
+            throw new IllegalStateException(
+                    'Session count differs from text count: ' +
+                    sessionCount + ' != ' + count)
+        }
+    } finally {
+        session.close()
+    }
+
+    println('${SMOKE_MARKER}-text-' + count +
+            '-bytecode-' + bytecodeCount +
+            '-session-' + sessionCount)
 } finally {
     client.close()
     cluster.close()

@@ -24,6 +24,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -41,6 +42,7 @@ import org.apache.hugegraph.auth.RolePermission;
 import org.apache.hugegraph.backend.query.Condition;
 import org.apache.hugegraph.security.GremlinLangRestrictionStrategy;
 import org.apache.hugegraph.security.GremlinLangTraversalVerifier;
+import org.apache.hugegraph.security.GremlinLangVerificationStrategy;
 import org.apache.hugegraph.security.HugeGraphGremlinLangScriptEngine;
 import org.apache.hugegraph.security.HugeGraphGremlinLangScriptEngineFactory;
 import org.apache.hugegraph.testutil.Assert;
@@ -58,8 +60,13 @@ import org.apache.tinkerpop.gremlin.process.traversal.Compare;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.TextP;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
+import org.apache.tinkerpop.gremlin.process.traversal.TraversalStrategy;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversalSource;
+import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__;
 import org.apache.tinkerpop.gremlin.process.traversal.step.HasContainerHolder;
+import org.apache.tinkerpop.gremlin.process.traversal.step.map.CallStep;
+import org.apache.tinkerpop.gremlin.process.traversal.strategy.AbstractTraversalStrategy;
+import org.apache.tinkerpop.gremlin.process.traversal.strategy.decoration.SubgraphStrategy;
 import org.apache.tinkerpop.gremlin.process.traversal.util.TraversalHelper;
 import org.apache.tinkerpop.gremlin.structure.T;
 import org.apache.tinkerpop.gremlin.tinkergraph.structure.TinkerGraph;
@@ -842,7 +849,8 @@ public class HugeGraphGremlinLangScriptEngineTest {
         try (TinkerGraph graph = TinkerGraph.open();
              GraphTraversalSource g = graph.traversal();
              GraphTraversalSource protectedSource = g.withStrategies(
-                     GremlinLangRestrictionStrategy.instance())) {
+                     GremlinLangRestrictionStrategy.instance(),
+                     GremlinLangVerificationStrategy.instance())) {
             HugeGraphGremlinLangScriptEngine sessionEngine = engine();
             Bindings bindings = new SimpleBindings();
             bindings.put("g", protectedSource);
@@ -943,6 +951,51 @@ public class HugeGraphGremlinLangScriptEngineTest {
                                         g.call("service")),
                                 e -> Assert.assertContains("CallStep",
                                                            e.getMessage()));
+        }
+    }
+
+    @Test
+    public void testVerifierRejectsStepAddedByLaterDecorationStrategy()
+            throws Exception {
+        try (TinkerGraph graph = TinkerGraph.open();
+             GraphTraversalSource g = graph.traversal()) {
+            HugeGraphGremlinLangScriptEngine engine = engine();
+            GraphTraversalSource protectedSource = engine.add(g);
+            try (GraphTraversalSource decoratedSource =
+                         protectedSource.withStrategies(
+                                 LateCallStepStrategy.instance())) {
+                Traversal<?, ?> traversal = decoratedSource.V();
+
+                Assert.assertThrows(SecurityException.class,
+                                    () -> traversal.asAdmin()
+                                                   .applyStrategies(),
+                                    e -> Assert.assertContains(
+                                            "CallStep", e.getMessage()));
+            }
+        }
+    }
+
+    @Test
+    public void testVerifierRunsAfterSubgraphDecorationStrategy()
+            throws Exception {
+        try (TinkerGraph graph = TinkerGraph.open();
+             GraphTraversalSource g = graph.traversal()) {
+            HugeGraphGremlinLangScriptEngine engine = engine();
+            GraphTraversalSource protectedSource = engine.add(g);
+            SubgraphStrategy subgraph = SubgraphStrategy.build()
+                                                         .vertices(__.call(
+                                                                 "service"))
+                                                         .create();
+            try (GraphTraversalSource decoratedSource =
+                         protectedSource.withStrategies(subgraph)) {
+                Traversal<?, ?> traversal = decoratedSource.V();
+
+                Assert.assertThrows(SecurityException.class,
+                                    () -> traversal.asAdmin()
+                                                   .applyStrategies(),
+                                    e -> Assert.assertContains(
+                                            "CallStep", e.getMessage()));
+            }
         }
     }
 
@@ -1083,5 +1136,38 @@ public class HugeGraphGremlinLangScriptEngineTest {
             engine.add(traversalSource);
         }
         return engine;
+    }
+
+    private static final class LateCallStepStrategy
+            extends AbstractTraversalStrategy<
+                    TraversalStrategy.DecorationStrategy>
+            implements TraversalStrategy.DecorationStrategy {
+
+        private static final LateCallStepStrategy INSTANCE =
+                new LateCallStepStrategy();
+
+        private LateCallStepStrategy() {
+        }
+
+        private static LateCallStepStrategy instance() {
+            return INSTANCE;
+        }
+
+        @Override
+        public Set<Class<? extends DecorationStrategy>> applyPrior() {
+            return Collections.singleton(
+                    GremlinLangRestrictionStrategy.class);
+        }
+
+        @Override
+        public Set<Class<? extends DecorationStrategy>> applyPost() {
+            return Collections.singleton(
+                    GremlinLangVerificationStrategy.class);
+        }
+
+        @Override
+        public void apply(Traversal.Admin<?, ?> traversal) {
+            traversal.addStep(new CallStep<>(traversal, false, "service"));
+        }
     }
 }
