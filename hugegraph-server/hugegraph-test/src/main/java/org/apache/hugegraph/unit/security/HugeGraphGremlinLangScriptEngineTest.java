@@ -68,6 +68,15 @@ import org.junit.Test;
 public class HugeGraphGremlinLangScriptEngineTest {
 
     @Test
+    public void testFactoryDoesNotClaimTinkerPopDiscoveryAliases() {
+        HugeGraphGremlinLangScriptEngineFactory factory =
+                new HugeGraphGremlinLangScriptEngineFactory();
+
+        Assert.assertTrue(factory.getExtensions().isEmpty());
+        Assert.assertTrue(factory.getMimeTypes().isEmpty());
+    }
+
+    @Test
     public void testManagerRegistersPublicNameToHugeGraphEngine() {
         GremlinScriptEngineManager manager =
                 new CachedGremlinScriptEngineManager();

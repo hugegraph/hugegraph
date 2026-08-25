@@ -38,14 +38,14 @@ public class HugeGraphGremlinLangScriptEngineFactory
 
     public HugeGraphGremlinLangScriptEngineFactory() {
         super(INTERNAL_ENGINE_NAME, BASE_FACTORY.getLanguageName(),
-              BASE_FACTORY.getExtensions(), BASE_FACTORY.getMimeTypes());
+              List.of(), List.of());
         this.fixedCustomizers = null;
     }
 
     public HugeGraphGremlinLangScriptEngineFactory(
             Customizer... customizers) {
         super(INTERNAL_ENGINE_NAME, BASE_FACTORY.getLanguageName(),
-              BASE_FACTORY.getExtensions(), BASE_FACTORY.getMimeTypes());
+              List.of(), List.of());
         this.fixedCustomizers = customizers.clone();
     }
 
