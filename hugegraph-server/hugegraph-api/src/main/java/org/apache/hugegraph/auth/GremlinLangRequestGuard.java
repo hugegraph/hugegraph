@@ -17,8 +17,11 @@
 
 package org.apache.hugegraph.auth;
 
+import org.apache.hugegraph.security.GremlinLangRestrictionStrategy;
+import org.apache.hugegraph.security.GremlinLangVerificationStrategy;
 import org.apache.hugegraph.security.HugeGraphGremlinLangScriptEngineFactory;
 import org.apache.tinkerpop.gremlin.process.traversal.Bytecode;
+import org.apache.tinkerpop.gremlin.process.traversal.TraversalSource;
 import org.apache.tinkerpop.gremlin.process.traversal.util.BytecodeHelper;
 import org.apache.tinkerpop.gremlin.util.Tokens;
 import org.apache.tinkerpop.gremlin.util.message.RequestMessage;
@@ -151,9 +154,18 @@ public final class GremlinLangRequestGuard {
         }
         for (Bytecode.Instruction instruction :
              bytecode.getSourceInstructions()) {
-            if ("withoutStrategies".equals(instruction.getOperator())) {
-                return "Remote Bytecode requests cannot use " +
-                       "withoutStrategies";
+            if (!TraversalSource.Symbols.withoutStrategies.equals(
+                    instruction.getOperator())) {
+                continue;
+            }
+            for (Object argument : instruction.getArguments()) {
+                if (argument == GremlinLangRestrictionStrategy.class ||
+                    argument == GremlinLangVerificationStrategy.class) {
+                    return String.format(
+                            "Remote Bytecode requests cannot remove sandbox " +
+                            "strategy '%s'", ((Class<?>) argument).
+                            getSimpleName());
+                }
             }
         }
         return null;

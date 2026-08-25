@@ -67,6 +67,7 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.HasContainerHolder;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.CallStep;
 import org.apache.tinkerpop.gremlin.process.traversal.strategy.AbstractTraversalStrategy;
 import org.apache.tinkerpop.gremlin.process.traversal.strategy.decoration.SubgraphStrategy;
+import org.apache.tinkerpop.gremlin.process.traversal.strategy.optimization.LazyBarrierStrategy;
 import org.apache.tinkerpop.gremlin.process.traversal.util.TraversalHelper;
 import org.apache.tinkerpop.gremlin.structure.T;
 import org.apache.tinkerpop.gremlin.tinkergraph.structure.TinkerGraph;
@@ -753,6 +754,43 @@ public class HugeGraphGremlinLangScriptEngineTest {
             Bytecode bytecode = g.V().count().asAdmin().getBytecode();
             Traversal.Admin<?, ?> traversal = JavaTranslator.of(
                     protectedSource).translate(bytecode);
+
+            Assert.assertEquals(1L, traversal.next());
+        }
+    }
+
+    @Test
+    public void testTextAllowsRemovingQueryStrategy() throws Exception {
+        try (TinkerGraph graph = TinkerGraph.open();
+             GraphTraversalSource g = graph.traversal()) {
+            graph.addVertex();
+            HugeGraphGremlinLangScriptEngine engine = registeredEngine(g);
+            Bindings bindings = new SimpleBindings();
+            bindings.put("g", g);
+
+            Traversal<?, ?> traversal = (Traversal<?, ?>) engine.eval(
+                    "g.withoutStrategies(LazyBarrierStrategy).V().count()",
+                    bindings);
+
+            Assert.assertEquals(1L, traversal.next());
+        }
+    }
+
+    @Test
+    public void testBytecodeAllowsRemovingQueryStrategy() throws Exception {
+        try (TinkerGraph graph = TinkerGraph.open();
+             GraphTraversalSource g = graph.traversal();
+             GraphTraversalSource requestSource =
+                     g.withoutStrategies(LazyBarrierStrategy.class)) {
+            graph.addVertex();
+            HugeGraphGremlinLangScriptEngine engine = registeredEngine(g);
+            Bindings bindings = new SimpleBindings();
+            bindings.put("g", g);
+            Bytecode bytecode = requestSource.V().count().asAdmin()
+                                             .getBytecode();
+
+            Traversal.Admin<?, ?> traversal = engine.eval(bytecode, bindings,
+                                                          "g");
 
             Assert.assertEquals(1L, traversal.next());
         }

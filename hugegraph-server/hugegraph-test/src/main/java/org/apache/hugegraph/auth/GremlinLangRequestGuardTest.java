@@ -37,9 +37,12 @@ import java.util.function.Function;
 import javax.script.Bindings;
 
 import org.apache.hugegraph.HugeException;
+import org.apache.hugegraph.security.GremlinLangRestrictionStrategy;
+import org.apache.hugegraph.security.GremlinLangVerificationStrategy;
 import org.apache.hugegraph.testutil.Assert;
 import org.apache.tinkerpop.gremlin.groovy.engine.GremlinExecutor;
 import org.apache.tinkerpop.gremlin.process.traversal.Bytecode;
+import org.apache.tinkerpop.gremlin.process.traversal.strategy.optimization.LazyBarrierStrategy;
 import org.apache.tinkerpop.gremlin.server.GraphManager;
 import org.apache.tinkerpop.gremlin.server.GremlinServer;
 import org.apache.tinkerpop.gremlin.server.Settings;
@@ -253,12 +256,50 @@ public class GremlinLangRequestGuardTest {
     }
 
     @Test
-    public void testRejectsBytecodeThatRemovesTraversalStrategies() {
+    public void testAllowsBytecodeThatRemovesQueryStrategy() {
         Bytecode bytecode = new Bytecode();
-        bytecode.addSource("withoutStrategies", Object.class);
+        bytecode.addSource("withoutStrategies", LazyBarrierStrategy.class);
         RequestMessage request = bytecode("traversal", bytecode);
 
-        Assert.assertContains("withoutStrategies",
+        Assert.assertNull(GremlinLangRequestGuard.rejection(request));
+    }
+
+    @Test
+    public void testAllowsSessionBytecodeThatRemovesQueryStrategy() {
+        Bytecode bytecode = new Bytecode();
+        bytecode.addSource("withoutStrategies", LazyBarrierStrategy.class);
+        RequestMessage request = RequestMessage.from(
+                bytecode("session", bytecode))
+                                               .addArg(Tokens.ARGS_SESSION,
+                                                       "session-id")
+                                               .create();
+
+        Assert.assertNull(GremlinLangRequestGuard.rejection(request));
+    }
+
+    @Test
+    public void testRejectsBytecodeThatRemovesRestrictionStrategy() {
+        Bytecode bytecode = new Bytecode();
+        bytecode.addSource("withoutStrategies",
+                           GremlinLangRestrictionStrategy.class);
+        RequestMessage request = bytecode("traversal", bytecode);
+
+        Assert.assertContains("GremlinLangRestrictionStrategy",
+                              GremlinLangRequestGuard.rejection(request));
+    }
+
+    @Test
+    public void testRejectsSessionBytecodeThatRemovesVerificationStrategy() {
+        Bytecode bytecode = new Bytecode();
+        bytecode.addSource("withoutStrategies",
+                           GremlinLangVerificationStrategy.class);
+        RequestMessage request = RequestMessage.from(
+                bytecode("session", bytecode))
+                                               .addArg(Tokens.ARGS_SESSION,
+                                                       "session-id")
+                                               .create();
+
+        Assert.assertContains("GremlinLangVerificationStrategy",
                               GremlinLangRequestGuard.rejection(request));
     }
 
