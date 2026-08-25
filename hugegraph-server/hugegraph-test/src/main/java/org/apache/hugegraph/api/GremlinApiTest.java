@@ -17,11 +17,9 @@
 
 package org.apache.hugegraph.api;
 
-import java.util.List;
 import java.util.Map;
 
 import org.apache.hugegraph.testutil.Assert;
-import org.junit.Assume;
 import org.junit.Test;
 
 import com.google.common.collect.ImmutableMap;
@@ -37,22 +35,23 @@ public class GremlinApiTest extends BaseApiTest {
         String body = "{" +
                       "\"gremlin\":\"g.V()\"," +
                       "\"bindings\":{}," +
-                      "\"language\":\"gremlin-groovy\"," +
+                      "\"language\":\"gremlin-lang\"," +
                       "\"aliases\":{\"g\":\"__g_DEFAULT-hugegraph\"}}";
         assertResponseStatus(200, client().post(path, body));
     }
 
     @Test
     public void testGet() {
-        Map<String, Object> params = ImmutableMap.of("gremlin",
-                                                     "this.binding.'DEFAULT-hugegraph'.traversal" +
-                                                     "().V()");
+        Map<String, Object> params = ImmutableMap.of(
+                "gremlin", "g.V()",
+                "language", "gremlin-lang",
+                "aliases.g", "__g_DEFAULT-hugegraph");
         Response r = client().get(path, params);
         Assert.assertEquals(r.readEntity(String.class), 200, r.getStatus());
     }
 
     @Test
-    public void testScript() {
+    public void testRemoteGroovyScriptIsRejected() {
         String bodyTemplate = "{" +
                               "\"gremlin\":\"%s\"," +
                               "\"bindings\":{}," +
@@ -80,19 +79,11 @@ public class GremlinApiTest extends BaseApiTest {
                         "'city','235e1153928149578691cf79258e90eb');" +
                         "marko.addEdge('knows',vadas,'date','20160110');";
         String body = String.format(bodyTemplate, script);
-        assertResponseStatus(200, client().post(path, body));
-
-        String queryV = "g.V()";
-        body = String.format(bodyTemplate, queryV);
-        assertResponseStatus(200, client().post(path, body));
-
-        String queryE = "g.E()";
-        body = String.format(bodyTemplate, queryE);
-        assertResponseStatus(200, client().post(path, body));
+        assertResponseStatus(400, client().post(path, body));
     }
 
     @Test
-    public void testClearAndInit() {
+    public void testRemoteAdminGroovyIsRejected() {
         String body = "{" +
                       "\"gremlin\":\"graph.backendStoreFeatures()" +
                       "                       .supportsSharedStorage();\"," +
@@ -100,48 +91,11 @@ public class GremlinApiTest extends BaseApiTest {
                       "\"language\":\"gremlin-groovy\"," +
                       "\"aliases\":{\"graph\":\"DEFAULT-hugegraph\"," +
                       "\"g\":\"__g_DEFAULT-hugegraph\"}}";
-        String content = assertResponseStatus(200, client().post(path, body));
-        Map<?, ?> result = assertJsonContains(content, "result");
-        @SuppressWarnings({"unchecked"})
-        Object data = ((List<Object>) assertMapContains(result, "data")).get(0);
-        boolean supportsSharedStorage = (boolean) data;
-        Assume.assumeTrue("Can't clear non-shared-storage backend",
-                          supportsSharedStorage);
-
-        body = "{" +
-               "\"gremlin\":\"" +
-               "  if (!graph.backendStoreFeatures()" +
-               "                .supportsSharedStorage())" +
-               "    return;" +
-               "  def auth = graph.hugegraph().authManager();" +
-               "  def admin = auth.findUser('admin');" +
-               "  graph.clearBackend();" +
-               "  graph.initBackend();" +
-               "  try {" +
-               "    auth.createUser(admin);" +
-               "  } catch(Exception e) {" +
-               "  }" +
-               "\"," +
-               "\"bindings\":{}," +
-               "\"language\":\"gremlin-groovy\"," +
-               "\"aliases\":{\"graph\":\"DEFAULT-hugegraph\"," +
-               "\"g\":\"__g_DEFAULT-hugegraph\"}}";
-
-        assertResponseStatus(200, client().post(path, body));
-
-        body = "{" +
-               "\"gremlin\":\"graph.serverStarted(" +
-               "              GlobalMasterInfo.master('server1'))\"," +
-               "\"bindings\":{}," +
-               "\"language\":\"gremlin-groovy\"," +
-               "\"aliases\":{\"graph\":\"DEFAULT-hugegraph\"," +
-               "\"g\":\"__g_DEFAULT-hugegraph\"}}";
-        assertResponseStatus(200, client().post(path, body));
+        assertResponseStatus(400, client().post(path, body));
     }
 
-    //FIXME: non-pd will not delete admin, but pd mode will
     @Test
-    public void testTruncate() {
+    public void testRemoteTruncateGroovyIsRejected() {
         String body = "{"
                       + "\"gremlin\":\""
                       + "  def auth = graph.hugegraph().authManager();"
@@ -158,7 +112,7 @@ public class GremlinApiTest extends BaseApiTest {
                       + "\"g\":\"__g_DEFAULT-hugegraph\"}"
                       + "}";
 
-        assertResponseStatus(200, client().post(path, body));
+        assertResponseStatus(400, client().post(path, body));
     }
 
     @Test
@@ -194,7 +148,7 @@ public class GremlinApiTest extends BaseApiTest {
                       "\"gremlin\":\"g.addV('person').property(T.id, '1')" +
                       ".property('foo', '123').property('bar', '123')\"," +
                       "\"bindings\":{}," +
-                      "\"language\":\"gremlin-groovy\"," +
+                      "\"language\":\"gremlin-lang\"," +
                       "\"aliases\":{\"g\":\"__g_DEFAULT-hugegraph\"}}";
         assertResponseStatus(200, client().post(path, body));
 
@@ -203,7 +157,7 @@ public class GremlinApiTest extends BaseApiTest {
                ".property(single, 'foo', '123')" +
                ".property(list, 'bar', '123')\"," +
                "\"bindings\":{}," +
-               "\"language\":\"gremlin-groovy\"," +
+               "\"language\":\"gremlin-lang\"," +
                "\"aliases\":{\"g\":\"__g_DEFAULT-hugegraph\"}}";
         assertResponseStatus(200, client().post(path, body));
 
@@ -212,7 +166,7 @@ public class GremlinApiTest extends BaseApiTest {
                ".property(list, 'foo', '123')" +
                ".property(list, 'bar', '123')\"," +
                "\"bindings\":{}," +
-               "\"language\":\"gremlin-groovy\"," +
+               "\"language\":\"gremlin-lang\"," +
                "\"aliases\":{\"g\":\"__g_DEFAULT-hugegraph\"}}";
         assertResponseStatus(400, client().post(path, body));
 
@@ -221,25 +175,19 @@ public class GremlinApiTest extends BaseApiTest {
                ".property(single, 'foo', '123')" +
                ".property(single, 'bar', '123')\"," +
                "\"bindings\":{}," +
-               "\"language\":\"gremlin-groovy\"," +
+               "\"language\":\"gremlin-lang\"," +
                "\"aliases\":{\"g\":\"__g_DEFAULT-hugegraph\"}}";
         assertResponseStatus(200, client().post(path, body));
     }
 
     @Test
-    public void testFileSerialize() {
+    public void testRemoteFileGroovyIsRejected() {
         String body = "{" +
                       "\"gremlin\":\"File file = new File('test.text')\"," +
                       "\"bindings\":{}," +
                       "\"language\":\"gremlin-groovy\"," +
                       "\"aliases\":{\"g\":\"__g_DEFAULT-hugegraph\"}}";
-        Response r = client().post(path, body);
-        String content = r.readEntity(String.class);
-        Assert.assertEquals(content, 200, r.getStatus());
-        Map<?, ?> result = assertJsonContains(content, "result");
-        @SuppressWarnings({"unchecked", "rawtypes"})
-        Map data = ((List<Map>) assertMapContains(result, "data")).get(0);
-        Assert.assertEquals("test.text", data.get("file"));
+        assertResponseStatus(400, client().post(path, body));
     }
 
     @Test
@@ -247,7 +195,7 @@ public class GremlinApiTest extends BaseApiTest {
         String body = "{" +
                       "\"gremlin\":\"g.V().order().by(desc)\"," +
                       "\"bindings\":{}," +
-                      "\"language\":\"gremlin-groovy\"," +
+                      "\"language\":\"gremlin-lang\"," +
                       "\"aliases\":{\"g\":\"__g_DEFAULT-hugegraph\"}}";
         Response response = client().post(path, body);
         assertResponseStatus(200, response);
@@ -258,7 +206,7 @@ public class GremlinApiTest extends BaseApiTest {
         String body = "{" +
                       "\"gremlin\":\"g.V().order().by(asc)\"," +
                       "\"bindings\":{}," +
-                      "\"language\":\"gremlin-groovy\"," +
+                      "\"language\":\"gremlin-lang\"," +
                       "\"aliases\":{\"g\":\"__g_DEFAULT-hugegraph\"}}";
         Response response = client().post(path, body);
         assertResponseStatus(200, response);
@@ -269,7 +217,7 @@ public class GremlinApiTest extends BaseApiTest {
         String body = "{" +
                       "\"gremlin\":\"g.E().order().by(desc)\"," +
                       "\"bindings\":{}," +
-                      "\"language\":\"gremlin-groovy\"," +
+                      "\"language\":\"gremlin-lang\"," +
                       "\"aliases\":{\"g\":\"__g_DEFAULT-hugegraph\"}}";
         Response response = client().post(path, body);
         assertResponseStatus(200, response);
@@ -280,7 +228,7 @@ public class GremlinApiTest extends BaseApiTest {
         String body = "{" +
                       "\"gremlin\":\"g.E().order().by(asc)\"," +
                       "\"bindings\":{}," +
-                      "\"language\":\"gremlin-groovy\"," +
+                      "\"language\":\"gremlin-lang\"," +
                       "\"aliases\":{\"g\":\"__g_DEFAULT-hugegraph\"}}";
         Response response = client().post(path, body);
         assertResponseStatus(200, response);

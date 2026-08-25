@@ -20,6 +20,7 @@ package org.apache.hugegraph.unit;
 import org.apache.hugegraph.api.auth.GraphSpaceAuthPayloadTest;
 import org.apache.hugegraph.api.auth.GraphSpaceGroupAPITest;
 import org.apache.hugegraph.api.cypher.CypherClientTest;
+import org.apache.hugegraph.auth.GremlinLangRequestGuardTest;
 import org.apache.hugegraph.auth.StandardAuthManagerV2Test;
 import org.apache.hugegraph.auth.WsAndHttpBasicAuthHandlerTest;
 import org.apache.hugegraph.core.RoleElectionStateMachineTest;
@@ -85,6 +86,7 @@ import org.apache.hugegraph.unit.serializer.StoreSerializerTest;
 import org.apache.hugegraph.unit.serializer.TableBackendEntryTest;
 import org.apache.hugegraph.unit.serializer.TextBackendEntryTest;
 import org.apache.hugegraph.unit.serializer.TextSerializerTest;
+import org.apache.hugegraph.unit.security.HugeGraphGremlinLangScriptEngineTest;
 import org.apache.hugegraph.unit.store.RamIntObjectMapTest;
 import org.apache.hugegraph.unit.util.CompressUtilTest;
 import org.apache.hugegraph.unit.util.JsonUtilTest;
@@ -110,6 +112,7 @@ import org.junit.runners.Suite;
         /* api gremlin */
         GremlinQueryAPITest.class,
         CypherClientTest.class,
+        GremlinLangRequestGuardTest.class,
         WsAndHttpBasicAuthHandlerTest.class,
         GraphSpaceGroupAPITest.class,
         GraphSpaceAuthPayloadTest.class,
@@ -187,6 +190,10 @@ import org.junit.runners.Suite;
 
         /* config */
         GremlinConfigCompatibilityTest.class,
+
+        /* security */
+        HugeGraphGremlinLangScriptEngineTest.class,
+
         /* rocksdb */
         RocksDBSessionsTest.class,
         RocksDBSessionTest.class,
