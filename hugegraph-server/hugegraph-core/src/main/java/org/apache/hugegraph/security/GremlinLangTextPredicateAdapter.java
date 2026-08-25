@@ -23,6 +23,7 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 import javax.script.Bindings;
 import javax.script.ScriptContext;
@@ -35,8 +36,6 @@ import org.antlr.v4.runtime.Recognizer;
 import org.antlr.v4.runtime.Token;
 import org.apache.commons.text.StringEscapeUtils;
 import org.apache.hugegraph.traversal.optimize.ConditionP;
-import org.apache.tinkerpop.gremlin.jsr223.Customizer;
-import org.apache.tinkerpop.gremlin.jsr223.GremlinLangCustomizer;
 import org.apache.tinkerpop.gremlin.language.grammar.GremlinLexer;
 import org.apache.tinkerpop.gremlin.process.traversal.Compare;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
@@ -47,6 +46,7 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.util.HasContainer;
 import org.apache.tinkerpop.gremlin.process.traversal.util.TraversalHelper;
 
 import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 
 final class GremlinLangTextPredicateAdapter {
 
@@ -54,22 +54,30 @@ final class GremlinLangTextPredicateAdapter {
     private static final String CONTAINS = "contains";
     private static final String RESERVED_BINDING_PREFIX =
             "hugegraphTextContainsInternal";
+    private static final long PLAN_CACHE_MAXIMUM_SIZE = 1024L;
+    private static final long PLAN_CACHE_EXPIRY_MINUTES = 10L;
 
     private final Cache<String, RewritePlan> plans;
 
-    GremlinLangTextPredicateAdapter(Customizer... customizers) {
-        this.plans = newPlanCache(customizers);
+    GremlinLangTextPredicateAdapter() {
+        this.plans = Caffeine.newBuilder()
+                             .maximumSize(PLAN_CACHE_MAXIMUM_SIZE)
+                             .expireAfterAccess(PLAN_CACHE_EXPIRY_MINUTES,
+                                                TimeUnit.MINUTES)
+                             .build();
     }
 
     AdaptedScript adapt(String script, ScriptContext context) {
+        rejectReservedBindings(context);
+        if (script.contains(RESERVED_BINDING_PREFIX)) {
+            rejectReservedIdentifiers(tokens(script));
+        }
         if (!mightContainTextPredicate(script)) {
             return AdaptedScript.identity(script);
         }
 
-        RewritePlan plan = this.plans == null ?
-                           parse(script) :
-                           this.plans.get(script,
-                                          GremlinLangTextPredicateAdapter::parse);
+        RewritePlan plan = this.plans.get(
+                script, GremlinLangTextPredicateAdapter::parse);
         return plan.materialize(context);
     }
 
@@ -84,25 +92,16 @@ final class GremlinLangTextPredicateAdapter {
     }
 
     private static RewritePlan parse(String script) {
-        GremlinLexer lexer = new GremlinLexer(CharStreams.fromString(script));
-        lexer.removeErrorListeners();
-        lexer.addErrorListener(ThrowingErrorListener.INSTANCE);
-        CommonTokenStream tokenStream = new CommonTokenStream(lexer);
-        tokenStream.fill();
-
-        List<Token> tokens = new ArrayList<>();
-        for (Token token : tokenStream.getTokens()) {
-            if (token.getType() != Token.EOF) {
-                tokens.add(token);
-            }
-        }
+        List<Token> tokens = tokens(script);
+        int[] codePointOffsets = codePointToUtf16Offsets(script);
 
         List<Occurrence> occurrences = new ArrayList<>();
         for (int i = 0; i < tokens.size(); i++) {
             if (!isTextContainsPrefix(tokens, i)) {
                 continue;
             }
-            Occurrence occurrence = match(tokens, i, occurrences.size());
+            Occurrence occurrence = match(tokens, i, occurrences.size(),
+                                          codePointOffsets);
             if (occurrence == null) {
                 throw unsupportedTextContains();
             }
@@ -126,8 +125,38 @@ final class GremlinLangTextPredicateAdapter {
         return new RewritePlan(rewritten.toString(), occurrences);
     }
 
+    private static List<Token> tokens(String script) {
+        GremlinLexer lexer = new GremlinLexer(CharStreams.fromString(script));
+        lexer.removeErrorListeners();
+        lexer.addErrorListener(ThrowingErrorListener.INSTANCE);
+        CommonTokenStream tokenStream = new CommonTokenStream(lexer);
+        tokenStream.fill();
+
+        List<Token> tokens = new ArrayList<>();
+        for (Token token : tokenStream.getTokens()) {
+            if (token.getType() != Token.EOF) {
+                tokens.add(token);
+            }
+        }
+        return tokens;
+    }
+
+    private static int[] codePointToUtf16Offsets(String script) {
+        int codePointCount = script.codePointCount(0, script.length());
+        int[] offsets = new int[codePointCount + 1];
+        int utf16Offset = 0;
+        for (int i = 0; i < codePointCount; i++) {
+            offsets[i] = utf16Offset;
+            int codePoint = script.codePointAt(utf16Offset);
+            utf16Offset += Character.charCount(codePoint);
+        }
+        offsets[codePointCount] = script.length();
+        return offsets;
+    }
+
     private static Occurrence match(List<Token> tokens, int index,
-                                    int occurrenceIndex) {
+                                    int occurrenceIndex,
+                                    int[] codePointOffsets) {
         if (index == 0 || index + 6 >= tokens.size()) {
             return null;
         }
@@ -159,8 +188,9 @@ final class GremlinLangTextPredicateAdapter {
                          decodeStringLiteral(argument.getText()) : null;
         String sourceBinding = isIdentifier(argument) ?
                                argument.getText() : null;
-        int start = tokens.get(index).getStartIndex();
-        int end = tokens.get(index + 5).getStopIndex() + 1;
+        int start = codePointOffsets[tokens.get(index).getStartIndex()];
+        int end = codePointOffsets[
+                tokens.get(index + 5).getStopIndex() + 1];
         return new Occurrence(start, end, internalBinding,
                               literal, sourceBinding);
     }
@@ -232,28 +262,30 @@ final class GremlinLangTextPredicateAdapter {
         }
     }
 
+    private static void rejectReservedBindings(ScriptContext context) {
+        rejectReservedBindings(context.getBindings(
+                ScriptContext.ENGINE_SCOPE));
+        rejectReservedBindings(context.getBindings(
+                ScriptContext.GLOBAL_SCOPE));
+    }
+
+    private static void rejectReservedBindings(Bindings bindings) {
+        if (bindings == null) {
+            return;
+        }
+        for (String name : bindings.keySet()) {
+            if (name.startsWith(RESERVED_BINDING_PREFIX)) {
+                throw new IllegalArgumentException(
+                        "Gremlin request contains a reserved " +
+                        "HugeGraph binding");
+            }
+        }
+    }
+
     private static IllegalArgumentException unsupportedTextContains() {
         return new IllegalArgumentException(
                 "Text.contains() is only supported as the final argument " +
                 "of has(), with one String literal or String binding");
-    }
-
-    @SuppressWarnings({"rawtypes", "unchecked"})
-    private static Cache<String, RewritePlan> newPlanCache(
-            Customizer[] customizers) {
-        for (Customizer customizer : customizers) {
-            if (!(customizer instanceof GremlinLangCustomizer)) {
-                continue;
-            }
-            GremlinLangCustomizer gremlinLang =
-                    (GremlinLangCustomizer) customizer;
-            if (!gremlinLang.isCacheEnabled()) {
-                return null;
-            }
-            return (Cache<String, RewritePlan>)
-                   gremlinLang.getCacheMaker().build();
-        }
-        return null;
     }
 
     private static void restoreCurrentTraversal(
@@ -293,8 +325,7 @@ final class GremlinLangTextPredicateAdapter {
 
         for (GValue<?> value : predicate.getGValues()) {
             if (!value.isVariable() ||
-                !value.getName().startsWith(RESERVED_BINDING_PREFIX) ||
-                !(value.get() instanceof TextContainsMarker)) {
+                !value.getName().startsWith(RESERVED_BINDING_PREFIX)) {
                 continue;
             }
             TextContainsMarker current = currentMarker(traversal,
@@ -361,7 +392,6 @@ final class GremlinLangTextPredicateAdapter {
             if (this.occurrences.isEmpty()) {
                 return AdaptedScript.identity(this.script);
             }
-            rejectReservedBindings(context);
             Map<String, Object> bindings = new LinkedHashMap<>();
             for (Occurrence occurrence : this.occurrences) {
                 String value = occurrence.resolve(context);
@@ -369,26 +399,6 @@ final class GremlinLangTextPredicateAdapter {
                              new TextContainsMarker(value));
             }
             return new AdaptedScript(this.script, bindings);
-        }
-
-        private static void rejectReservedBindings(ScriptContext context) {
-            rejectReservedBindings(context.getBindings(
-                    ScriptContext.ENGINE_SCOPE));
-            rejectReservedBindings(context.getBindings(
-                    ScriptContext.GLOBAL_SCOPE));
-        }
-
-        private static void rejectReservedBindings(Bindings bindings) {
-            if (bindings == null) {
-                return;
-            }
-            for (String name : bindings.keySet()) {
-                if (name.startsWith(RESERVED_BINDING_PREFIX)) {
-                    throw new IllegalArgumentException(
-                            "Gremlin request contains a reserved " +
-                            "HugeGraph binding");
-                }
-            }
         }
     }
 

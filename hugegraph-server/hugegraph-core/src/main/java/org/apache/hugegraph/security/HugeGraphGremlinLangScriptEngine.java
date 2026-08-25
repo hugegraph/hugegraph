@@ -34,6 +34,7 @@ import javax.script.SimpleBindings;
 import javax.script.SimpleScriptContext;
 
 import org.apache.tinkerpop.gremlin.jsr223.Customizer;
+import org.apache.tinkerpop.gremlin.jsr223.GremlinLangCustomizer;
 import org.apache.tinkerpop.gremlin.jsr223.GremlinLangScriptEngine;
 import org.apache.tinkerpop.gremlin.jsr223.GremlinScriptEngine;
 import org.apache.tinkerpop.gremlin.process.traversal.Bytecode;
@@ -61,9 +62,8 @@ public class HugeGraphGremlinLangScriptEngine extends AbstractScriptEngine
             HugeGraphGremlinLangScriptEngineFactory factory,
             Customizer... customizers) {
         this.factory = factory;
-        this.customizers = customizers.clone();
-        this.textPredicateAdapter =
-                new GremlinLangTextPredicateAdapter(this.customizers);
+        this.customizers = withoutTraversalCache(customizers);
+        this.textPredicateAdapter = new GremlinLangTextPredicateAdapter();
         this.delegates = new ConcurrentHashMap<>();
         this.protectedDelegates = new ConcurrentHashMap<>();
         this.explicitRegistration = new AtomicBoolean(false);
@@ -260,6 +260,21 @@ public class HugeGraphGremlinLangScriptEngine extends AbstractScriptEngine
                               .getStrategy(
                                       GremlinLangRestrictionStrategy.class)
                               .isPresent();
+    }
+
+    private static Customizer[] withoutTraversalCache(
+            Customizer[] customizers) {
+        Customizer[] safeCustomizers = customizers.clone();
+        for (int i = 0; i < safeCustomizers.length; i++) {
+            if (!(safeCustomizers[i] instanceof GremlinLangCustomizer)) {
+                continue;
+            }
+            GremlinLangCustomizer gremlinLang =
+                    (GremlinLangCustomizer) safeCustomizers[i];
+            safeCustomizers[i] = new GremlinLangCustomizer(
+                    false, gremlinLang.getCacheMaker());
+        }
+        return safeCustomizers;
     }
 
     private static GraphTraversalSource traversalSource(

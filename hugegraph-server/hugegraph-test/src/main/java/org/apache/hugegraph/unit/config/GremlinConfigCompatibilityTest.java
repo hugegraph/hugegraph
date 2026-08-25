@@ -243,10 +243,8 @@ public class GremlinConfigCompatibilityTest extends BaseUnitTest {
 
             Map<String, Object> cache = gremlinLang.plugins.get(
                     GREMLIN_LANG_PLUGIN);
-            Assert.assertEquals(variant, true, cache.get("cacheEnabled"));
-            Assert.assertEquals(variant,
-                                "maximumSize=1024,expireAfterAccess=10m",
-                                cache.get("caffeine"));
+            Assert.assertEquals(variant, false, cache.get("cacheEnabled"));
+            Assert.assertFalse(variant, cache.containsKey("caffeine"));
 
             Map<String, Object> variables = gremlinLang.plugins.get(
                     VARIABLE_RESOLVER_PLUGIN);

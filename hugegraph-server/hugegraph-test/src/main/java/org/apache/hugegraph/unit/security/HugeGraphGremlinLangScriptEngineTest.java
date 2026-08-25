@@ -29,7 +29,9 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
 import javax.script.Bindings;
+import javax.script.ScriptContext;
 import javax.script.SimpleBindings;
+import javax.script.SimpleScriptContext;
 
 import org.apache.hugegraph.HugeFactory;
 import org.apache.hugegraph.HugeGraph;
@@ -91,7 +93,7 @@ public class HugeGraphGremlinLangScriptEngineTest {
     }
 
     @Test
-    public void testCacheHitUsesCurrentBindingValues() throws Exception {
+    public void testRepeatedEvalUsesCurrentBindingValues() throws Exception {
         TinkerGraph graph = TinkerGraph.open();
         graph.addVertex(T.label, "person", "name", "marko");
         graph.addVertex(T.label, "person", "name", "stephen");
@@ -142,7 +144,7 @@ public class HugeGraphGremlinLangScriptEngineTest {
     }
 
     @Test
-    public void testTextContainsCacheHitUsesCurrentBinding()
+    public void testRepeatedTextContainsUsesCurrentBinding()
             throws Exception {
         try (TinkerGraph graph = TinkerGraph.open();
              GraphTraversalSource g = graph.traversal()) {
@@ -153,16 +155,46 @@ public class HugeGraphGremlinLangScriptEngineTest {
             bindings.put("g", g);
 
             bindings.put("keyword", "ark");
-            Assert.assertEquals("marko", engine.eval(
+            Traversal<?, ?> first = (Traversal<?, ?>) engine.eval(
                     "g.V().has('name', Text.contains(keyword))" +
-                    ".values('name').next()",
-                    bindings));
+                    ".values('name')",
+                    bindings);
+            Assert.assertEquals("marko", first.next());
 
             bindings.put("keyword", "teph");
-            Assert.assertEquals("stephen", engine.eval(
+            Traversal<?, ?> second = (Traversal<?, ?>) engine.eval(
                     "g.V().has('name', Text.contains(keyword))" +
-                    ".values('name').next()",
-                    bindings));
+                    ".values('name')",
+                    bindings);
+            Assert.assertEquals("stephen", second.next());
+        }
+    }
+
+    @Test
+    public void testTextContainsDoesNotReuseDirectResolverValue()
+            throws Exception {
+        try (TinkerGraph graph = TinkerGraph.open();
+             GraphTraversalSource g = graph.traversal()) {
+            graph.addVertex("name", "marko");
+            graph.addVertex("name", "stephen");
+            HugeGraphGremlinLangScriptEngine engine = engine(true, false);
+            engine.add(g);
+            Bindings bindings = new SimpleBindings();
+            bindings.put("g", g);
+
+            bindings.put("keyword", "ark");
+            Traversal<?, ?> first = (Traversal<?, ?>) engine.eval(
+                    "g.V().has('name', Text.contains(keyword))" +
+                    ".values('name')",
+                    bindings);
+            Assert.assertEquals("marko", first.next());
+
+            bindings.put("keyword", "teph");
+            Traversal<?, ?> second = (Traversal<?, ?>) engine.eval(
+                    "g.V().has('name', Text.contains(keyword))" +
+                    ".values('name')",
+                    bindings);
+            Assert.assertEquals("stephen", second.next());
         }
     }
 
@@ -275,6 +307,38 @@ public class HugeGraphGremlinLangScriptEngineTest {
     }
 
     @Test
+    public void testTextContainsSupportsSupplementaryUnicode()
+            throws Exception {
+        try (TinkerGraph graph = TinkerGraph.open();
+             GraphTraversalSource g = graph.traversal()) {
+            graph.addVertex("tag", "😀", "name", "marko",
+                            "city", "北😀京");
+            HugeGraphGremlinLangScriptEngine engine = registeredEngine(g);
+            Bindings bindings = new SimpleBindings();
+            bindings.put("g", g);
+
+            Traversal<?, ?> beforePredicate = (Traversal<?, ?>) engine.eval(
+                    "g.V().has('tag', '😀').has('name', " +
+                    "Text.contains('ark')).values('name')",
+                    bindings);
+            Assert.assertEquals("marko", beforePredicate.next());
+
+            Traversal<?, ?> insidePredicate = (Traversal<?, ?>) engine.eval(
+                    "g.V().has('city', Text.contains('😀')).values('name')",
+                    bindings);
+            Assert.assertEquals("marko", insidePredicate.next());
+
+            Traversal<?, ?> multiplePredicates =
+                    (Traversal<?, ?>) engine.eval(
+                            "g.V().has('tag', '😀').has('name', " +
+                            "Text.contains('ark')).has('city', " +
+                            "Text.contains('😀京')).values('name')",
+                            bindings);
+            Assert.assertEquals("marko", multiplePredicates.next());
+        }
+    }
+
+    @Test
     public void testTextPContainingKeepsTinkerPopSemantics()
             throws Exception {
         try (TinkerGraph graph = TinkerGraph.open();
@@ -339,6 +403,7 @@ public class HugeGraphGremlinLangScriptEngineTest {
     public void testTextContainsRejectsReservedBindings() throws Exception {
         try (TinkerGraph graph = TinkerGraph.open();
              GraphTraversalSource g = graph.traversal()) {
+            graph.addVertex("name", "hugegraphTextContainsInternal0");
             HugeGraphGremlinLangScriptEngine engine = registeredEngine(g);
             Bindings bindings = new SimpleBindings();
             bindings.put("g", g);
@@ -347,8 +412,39 @@ public class HugeGraphGremlinLangScriptEngineTest {
             Assert.assertThrows(IllegalArgumentException.class,
                                 () -> engine.eval(
                                         "g.V().has('name', " +
+                                        "hugegraphTextContainsInternal0)",
+                                        bindings),
+                                e -> Assert.assertContains("reserved",
+                                                           e.getMessage()));
+            Assert.assertThrows(IllegalArgumentException.class,
+                                () -> engine.eval(
+                                        "g.V().has('name', " +
                                         "Text.contains('ark'))",
                                         bindings),
+                                e -> Assert.assertContains("reserved",
+                                                           e.getMessage()));
+
+            Bindings safeBindings = new SimpleBindings();
+            safeBindings.put("g", g);
+            Assert.assertThrows(IllegalArgumentException.class,
+                                () -> engine.eval(
+                                        "g.V().has('name', " +
+                                        "hugegraphTextContainsInternal0)",
+                                        safeBindings),
+                                e -> Assert.assertContains("reserved",
+                                                           e.getMessage()));
+            Assert.assertTrue(((Traversal<?, ?>) engine.eval(
+                    "g.V().has('name', " +
+                    "'hugegraphTextContainsInternal0')",
+                    safeBindings)).hasNext());
+
+            SimpleScriptContext context = new SimpleScriptContext();
+            context.setBindings(safeBindings, ScriptContext.ENGINE_SCOPE);
+            Bindings globalBindings = new SimpleBindings();
+            globalBindings.put("hugegraphTextContainsInternal0", "ark");
+            context.setBindings(globalBindings, ScriptContext.GLOBAL_SCOPE);
+            Assert.assertThrows(IllegalArgumentException.class,
+                                () -> engine.eval("g.V().count()", context),
                                 e -> Assert.assertContains("reserved",
                                                            e.getMessage()));
         }
@@ -382,7 +478,7 @@ public class HugeGraphGremlinLangScriptEngineTest {
     }
 
     @Test
-    public void testConcurrentTextContainsCacheHitsKeepBindingsIsolated()
+    public void testConcurrentTextContainsRequestsKeepBindingsIsolated()
             throws Exception {
         try (TinkerGraph graph = TinkerGraph.open();
              GraphTraversalSource g = graph.traversal()) {
@@ -400,14 +496,18 @@ public class HugeGraphGremlinLangScriptEngineTest {
                         Bindings bindings = new SimpleBindings();
                         bindings.put("g", g);
                         bindings.put("keyword", keyword);
-                        return engine.eval(
-                                "g.V().has('name', " +
-                                "Text.contains(keyword)).count().next()",
-                                bindings);
+                        Traversal<?, ?> traversal =
+                                (Traversal<?, ?>) engine.eval(
+                                        "g.V().has('name', " +
+                                        "Text.contains(keyword))" +
+                                        ".values('name')",
+                                        bindings);
+                        return traversal.next();
                     }));
                 }
-                for (Future<Object> result : results) {
-                    Assert.assertEquals(1L, result.get());
+                for (int i = 0; i < requests; i++) {
+                    Assert.assertEquals("value-" + (char) ('a' + i),
+                                        results.get(i).get());
                 }
             } finally {
                 executor.shutdownNow();
@@ -509,7 +609,7 @@ public class HugeGraphGremlinLangScriptEngineTest {
     }
 
     @Test
-    public void testConcurrentCacheHitsKeepBindingValuesIsolated()
+    public void testConcurrentRequestsKeepBindingValuesIsolated()
             throws Exception {
         try (TinkerGraph graph = TinkerGraph.open();
              GraphTraversalSource g = graph.traversal()) {
@@ -539,6 +639,43 @@ public class HugeGraphGremlinLangScriptEngineTest {
             } finally {
                 executor.shutdownNow();
             }
+        }
+    }
+
+    @Test
+    public void testParameterizedTraversalRequestsKeepValuesIsolated()
+            throws Exception {
+        try (TinkerGraph graph = TinkerGraph.open();
+             GraphTraversalSource g = graph.traversal()) {
+            graph.addVertex("name", "warm");
+            graph.addVertex("name", "first");
+            graph.addVertex("name", "second");
+            HugeGraphGremlinLangScriptEngine engine = registeredEngine(g);
+            String script = "g.V().has('name', name).values('name')";
+
+            Bindings warmBindings = new SimpleBindings();
+            warmBindings.put("g", g);
+            warmBindings.put("name", "warm");
+            Traversal<?, ?> warm = (Traversal<?, ?>) engine.eval(
+                    script, warmBindings);
+            Assert.assertEquals("warm", warm.next());
+
+            Bindings firstBindings = new SimpleBindings();
+            firstBindings.put("g", g);
+            firstBindings.put("name", "first");
+            Traversal<?, ?> first = (Traversal<?, ?>) engine.eval(
+                    script, firstBindings);
+
+            Bindings secondBindings = new SimpleBindings();
+            secondBindings.put("g", g);
+            secondBindings.put("name", "second");
+            Traversal<?, ?> second = (Traversal<?, ?>) engine.eval(
+                    script, secondBindings);
+
+            first.asAdmin().applyStrategies();
+            second.asAdmin().applyStrategies();
+            Assert.assertEquals("first", first.next());
+            Assert.assertEquals("second", second.next());
         }
     }
 
@@ -889,6 +1026,11 @@ public class HugeGraphGremlinLangScriptEngineTest {
 
     private static HugeGraphGremlinLangScriptEngine engine(
             boolean cacheEnabled) {
+        return engine(cacheEnabled, true);
+    }
+
+    private static HugeGraphGremlinLangScriptEngine engine(
+            boolean cacheEnabled, boolean defaultVariableResolver) {
         List<Customizer> customizers = new ArrayList<>();
         GremlinLangPlugin cache = cacheEnabled ?
                                   GremlinLangPlugin.build()
@@ -899,14 +1041,17 @@ public class HugeGraphGremlinLangScriptEngineTest {
                                   GremlinLangPlugin.build()
                                                    .cacheEnabled(false)
                                                    .create();
-        VariableResolverPlugin variables =
-                VariableResolverPlugin.build()
-                                      .resolver("DefaultVariableResolver")
-                                      .create();
         customizers.addAll(Arrays.asList(
                 cache.getCustomizers("gremlin-lang").get()));
-        customizers.addAll(Arrays.asList(
-                variables.getCustomizers("gremlin-lang").get()));
+        if (defaultVariableResolver) {
+            VariableResolverPlugin variables =
+                    VariableResolverPlugin.build()
+                                          .resolver(
+                                                  "DefaultVariableResolver")
+                                          .create();
+            customizers.addAll(Arrays.asList(
+                    variables.getCustomizers("gremlin-lang").get()));
+        }
         HugeGraphGremlinLangScriptEngineFactory factory =
                 new HugeGraphGremlinLangScriptEngineFactory(
                         customizers.toArray(new Customizer[0]));
