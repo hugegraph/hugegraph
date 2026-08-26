@@ -145,11 +145,17 @@ function download_and_verify() {
     fi
 
     echo "Downloading $filepath..."
-    curl -fL -o "$filepath" "$url"
+    if ! curl -fL --retry 2 --retry-delay 2 --retry-max-time 90 \
+              --connect-timeout 10 --max-time 30 -o "$filepath" "$url"; then
+        echo "Failed to download $filepath" >&2
+        rm -f "$filepath"
+        return 1
+    fi
 
     actual_sha256=$(sha256sum "$filepath" | awk '{ print $1 }')
     if [[ $actual_sha256 != $expected_sha256 ]]; then
         echo "SHA-256 checksum verification failed for $filepath after download. Expected: $expected_sha256, but got: $actual_sha256"
+        rm -f "$filepath"
         return 1
     fi
 
@@ -159,6 +165,7 @@ function download_and_verify() {
 function download_and_setup_jemalloc() {
     local arch lib_file download_url expected_sha256 system_lib top
     top=$1
+    system_lib=""
 
     if [[ "${LD_PRELOAD:-}" == *"libjemalloc"* ]]; then
         return 0
@@ -264,6 +271,9 @@ function prepare_toplingdb() {
         echo "Warning: jemalloc is unavailable; continuing without it" >&2
     fi
     extract_so_with_jar "$jar_file" "$dest_dir"
+    if ! extract_html_css_from_jar "$jar_file" "$dest_dir"; then
+        echo "Warning: failed to extract optional ToplingDB web resources; continuing" >&2
+    fi
     if [ -d "$dest_dir" ]; then
         if [[ ":${LD_LIBRARY_PATH:-}:" != *":$dest_dir:"* ]]; then
             export LD_LIBRARY_PATH="$dest_dir${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
@@ -272,23 +282,7 @@ function prepare_toplingdb() {
         if [ -f "$dest_dir/librocksdbjni-linux64.so" ] && [[ ":${LD_PRELOAD:-}:" != *"librocksdbjni-linux64.so:"* ]]; then
             export LD_PRELOAD="${LD_PRELOAD:+$LD_PRELOAD:}$dest_dir/librocksdbjni-linux64.so"
         fi
-
-        # Persist environment for subsequent GitHub Actions steps
-        # so LD_* variables survive across separate run blocks.
-        if [ -n "${GITHUB_ENV:-}" ] && [ -w "$GITHUB_ENV" ]; then
-            {
-                echo "LD_LIBRARY_PATH=$LD_LIBRARY_PATH"
-                echo "LD_PRELOAD=$LD_PRELOAD"
-                if [ -n "${SERVER_VERSION_DIR:-}" ]; then
-                    echo "SERVER_VERSION_DIR=$SERVER_VERSION_DIR"
-                fi
-            } >> "$GITHUB_ENV" || true
-            echo "[common-topling] Exported LD_LIBRARY_PATH and LD_PRELOAD to GITHUB_ENV" >&2 || true
-        fi
     else
         echo "Warn: LD paths skipped, directory '$dest_dir' does not exist." >&2
-    fi
-    if ! extract_html_css_from_jar "$jar_file" "$dest_dir"; then
-        echo "Warning: failed to extract optional ToplingDB web resources; continuing" >&2
     fi
 }

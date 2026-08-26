@@ -464,8 +464,6 @@ protostuff-core-1.6.0.jar
 protostuff-runtime-1.6.0.jar
 rewriting-9.0-9.0.20190305.jar
 RoaringBitmap-0.9.38.jar
-rocksdbjni-6.29.5.jar
-rocksdbjni-7.7.3.jar
 rocksdbjni-8.10.2.jar
 scala-java8-compat_2.12-0.8.0.jar
 scala-library-2.12.7.jar

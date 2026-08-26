@@ -70,7 +70,7 @@ fi
 if [ -n "$SERVER_VERSION_DIR" ] && [ -e "$SERVER_VERSION_DIR/bin/preload-topling.sh" ]; then
     TOPLINGDB_EASY_MIGRATE_CONF="$CONF/rocksdb_store.yaml"
     TOPLING_COMPONENT_TOP="$TOP"
-    TOPLING_USE_SERVER_CLASSPATH=false
+    TOPLING_USE_SERVER_CLASSPATH=true
     source "$SERVER_VERSION_DIR/bin/preload-topling.sh"
     unset TOPLING_COMPONENT_TOP TOPLING_USE_SERVER_CLASSPATH
 fi
@@ -236,18 +236,28 @@ if [ "$(ps -ef | grep -v grep | grep java | grep -cE "${CONF}")" -ne 0 ]; then
 fi
 
 echo "Starting HG-StoreServer..."
+BOOT_JARS=("${LIB}"/hg-store-node-*.jar)
+if [ "${#BOOT_JARS[@]}" -ne 1 ] || [ ! -f "${BOOT_JARS[0]}" ]; then
+    echo "Expected exactly one HugeGraph Store executable JAR in ${LIB}" >> "${OUTPUT}"
+    exit 1
+fi
+BOOT_JAR="${BOOT_JARS[0]}"
+JAVA_MAIN=(-jar "$BOOT_JAR")
+if [ -n "${TOPLING_RUNTIME_CLASSPATH:-}" ]; then
+    JAVA_MAIN=(-cp "${TOPLING_RUNTIME_CLASSPATH}:${BOOT_JAR}" \
+               org.springframework.boot.loader.JarLauncher)
+fi
 
 # Turn on security check
 if [[ $DAEMON == "true" ]]; then
     echo "Starting HugeGraphStoreServer in daemon mode..."
     if [[ "${STDOUT_MODE:-false}" == "true" ]]; then
-        exec ${JAVA} -Dname="HugeGraphStore" ${JVM_OPTIONS} ${JAVA_OPTIONS} -jar \
-            -Dspring.config.location=${CONF}/application.yml \
-            ${LIB}/hg-store-node-*.jar &
+        exec ${JAVA} -Dname="HugeGraphStore" ${JVM_OPTIONS} ${JAVA_OPTIONS} \
+            -Dspring.config.location=${CONF}/application.yml "${JAVA_MAIN[@]}" &
     else
-        exec ${JAVA} -Dname="HugeGraphStore" ${JVM_OPTIONS} ${JAVA_OPTIONS} -jar \
-            -Dspring.config.location=${CONF}/application.yml \
-            ${LIB}/hg-store-node-*.jar >> ${OUTPUT} 2>&1 &
+        exec ${JAVA} -Dname="HugeGraphStore" ${JVM_OPTIONS} ${JAVA_OPTIONS} \
+            -Dspring.config.location=${CONF}/application.yml "${JAVA_MAIN[@]}" \
+            >> ${OUTPUT} 2>&1 &
     fi
     PID="$!"
     # Write pid to file
@@ -259,12 +269,11 @@ else
     echo "$$" > "$PID_FILE"
     echo "[+pid] $$"
     if [[ "${STDOUT_MODE:-false}" == "true" ]]; then
-        exec ${JAVA} -Dname="HugeGraphStore" ${JVM_OPTIONS} ${JAVA_OPTIONS} -jar \
-            -Dspring.config.location=${CONF}/application.yml \
-            ${LIB}/hg-store-node-*.jar
+        exec ${JAVA} -Dname="HugeGraphStore" ${JVM_OPTIONS} ${JAVA_OPTIONS} \
+            -Dspring.config.location=${CONF}/application.yml "${JAVA_MAIN[@]}"
     else
-        exec ${JAVA} -Dname="HugeGraphStore" ${JVM_OPTIONS} ${JAVA_OPTIONS} -jar \
-            -Dspring.config.location=${CONF}/application.yml \
-            ${LIB}/hg-store-node-*.jar >> ${OUTPUT} 2>&1
+        exec ${JAVA} -Dname="HugeGraphStore" ${JVM_OPTIONS} ${JAVA_OPTIONS} \
+            -Dspring.config.location=${CONF}/application.yml "${JAVA_MAIN[@]}" \
+            >> ${OUTPUT} 2>&1
     fi
 fi

@@ -102,12 +102,13 @@ detect_rocksdb_provider() {
     local file
     local -a values=()
     local -a unique_values=()
-    local value key conflicts
-    local -A seen=()
+    local value existing duplicate conflicts
 
     for file in "$conf_dir"/graphs/*.properties; do
         [ -f "$file" ] || continue
-        mapfile -t -O "${#values[@]}" values < <(
+        while IFS= read -r value; do
+            values[${#values[@]}]="$value"
+        done < <(
             awk '
                 /^[[:space:]]*#/ { next }
                 /^[[:space:]]*rocksdb\.provider[[:space:]]*=/ {
@@ -122,7 +123,9 @@ detect_rocksdb_provider() {
     done
     for file in "$conf_dir"/application*.yml; do
         [ -f "$file" ] || continue
-        mapfile -t -O "${#values[@]}" values < <(
+        while IFS= read -r value; do
+            values[${#values[@]}]="$value"
+        done < <(
             awk '
                 /^[[:space:]]*#/ || /^[[:space:]]*$/ { next }
                 /^[^[:space:]#][^:]*:/ {
@@ -143,10 +146,15 @@ detect_rocksdb_provider() {
     done
 
     for value in "${values[@]}"; do
-        key="provider:$value"
-        if [ -z "${seen[$key]:-}" ]; then
+        duplicate=false
+        for existing in "${unique_values[@]}"; do
+            if [ "$existing" = "$value" ]; then
+                duplicate=true
+                break
+            fi
+        done
+        if [ "$duplicate" = false ]; then
             unique_values+=("$value")
-            seen[$key]=true
         fi
     done
 
