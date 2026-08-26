@@ -101,8 +101,7 @@ public class SubgraphStatAlgorithm extends AbstractAlgorithm {
         if (copySchema) {
             graph.schema().copyFrom(parent.schema());
         }
-        new HugeScriptTraversal<>(graph.traversal(), "gremlin-groovy",
-                                  script, ImmutableMap.of(),
+        new HugeScriptTraversal<>(graph.traversal(), script, ImmutableMap.of(),
                                   ImmutableMap.of()).iterate();
         graph.tx().commit();
     }
