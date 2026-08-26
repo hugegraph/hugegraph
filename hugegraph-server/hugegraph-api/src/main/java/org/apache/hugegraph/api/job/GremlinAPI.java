@@ -91,7 +91,6 @@ public class GremlinAPI extends API {
         GREMLIN_JOB_INPUT_HISTOGRAM.update(request.gremlin.length());
 
         HugeGraph g = graph(manager, graphSpace, graph);
-        request.aliase(graph, "graph");
         JobBuilder<Object> builder = JobBuilder.of(g);
         builder.name(request.name())
                .input(request.toJson())
