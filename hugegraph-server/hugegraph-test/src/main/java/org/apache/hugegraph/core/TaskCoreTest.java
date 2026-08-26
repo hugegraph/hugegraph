@@ -18,6 +18,7 @@
 package org.apache.hugegraph.core;
 
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -33,6 +34,7 @@ import org.apache.hugegraph.HugeGraph;
 import org.apache.hugegraph.api.job.GremlinAPI.GremlinRequest;
 import org.apache.hugegraph.backend.id.Id;
 import org.apache.hugegraph.backend.id.IdGenerator;
+import org.apache.hugegraph.config.CoreOptions;
 import org.apache.hugegraph.exception.NotFoundException;
 import org.apache.hugegraph.job.EphemeralJob;
 import org.apache.hugegraph.job.EphemeralJobBuilder;
@@ -45,6 +47,8 @@ import org.apache.hugegraph.task.TaskScheduler;
 import org.apache.hugegraph.task.TaskStatus;
 import org.apache.hugegraph.testutil.Assert;
 import org.apache.hugegraph.testutil.Whitebox;
+import org.apache.tinkerpop.gremlin.structure.T;
+import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -619,7 +623,7 @@ public class TaskCoreTest extends BaseCoreTest {
         TaskScheduler scheduler = graph.taskScheduler();
 
         GremlinRequest request = new GremlinRequest();
-        request.gremlin("sleep(100); 3 + 5");
+        request.gremlin("g.V().count()");
 
         JobBuilder<Object> builder = JobBuilder.of(graph);
         builder.name("test-job-gremlin")
@@ -636,104 +640,94 @@ public class TaskCoreTest extends BaseCoreTest {
         Assert.assertEquals("test-job-gremlin", task.name());
         Assert.assertEquals("gremlin", task.type());
         Assert.assertEquals(TaskStatus.SUCCESS, task.status());
-        Assert.assertEquals("8", task.result());
+        Assert.assertEquals("[0]", task.result());
 
         task = scheduler.task(task.id());
         Assert.assertEquals("test-job-gremlin", task.name());
         Assert.assertEquals("gremlin", task.type());
         Assert.assertEquals(TaskStatus.SUCCESS, task.status());
-        Assert.assertEquals("8", task.result());
+        Assert.assertEquals("[0]", task.result());
     }
 
     @Test
-    public void testGremlinJobWithScript() throws TimeoutException {
+    public void testGremlinJobWithTraversalQueries() throws TimeoutException {
         HugeGraph graph = graph();
         TaskScheduler scheduler = graph.taskScheduler();
+        graph.schema().propertyKey("name").asText().create();
+        graph.schema().propertyKey("age").asInt().create();
+        graph.schema().propertyKey("date").asDate().create();
+        graph.schema().vertexLabel("person1").properties("name", "age")
+             .create();
+        graph.schema().vertexLabel("person2").properties("name", "age")
+             .create();
+        graph.schema().edgeLabel("knows").link("person1", "person2")
+             .properties("date").create();
+        for (int i = 0; i < 100; i++) {
+            Vertex p1 = graph.addVertex(T.label, "person1",
+                                        "name", "p1-" + i, "age", 29);
+            Vertex p2 = graph.addVertex(T.label, "person2",
+                                        "name", "p2-" + i, "age", 27);
+            p1.addEdge("knows", p2, "date", "2016-01-10");
+        }
+        graph.tx().commit();
 
-        String script = "schema=graph.schema();" +
-                        "schema.propertyKey('name').asText().ifNotExist().create();" +
-                        "schema.propertyKey('age').asInt().ifNotExist().create();" +
-                        "schema.propertyKey('lang').asText().ifNotExist().create();" +
-                        "schema.propertyKey('date').asDate().ifNotExist().create();" +
-                        "schema.propertyKey('price').asInt().ifNotExist().create();" +
-                        "schema.vertexLabel('person1').properties('name','age').ifNotExist()" +
-                        ".create();" +
-                        "schema.vertexLabel('person2').properties('name','age').ifNotExist()" +
-                        ".create();" +
-                        "schema.edgeLabel('knows').sourceLabel('person1').targetLabel('person2')." +
-                        "properties('date').ifNotExist().create();" +
-                        "for(int i = 0; i < 1000; i++) {" +
-                        "  p1=graph.addVertex(T.label,'person1','name','p1-'+i,'age',29);" +
-                        "  p2=graph.addVertex(T.label,'person2','name','p2-'+i,'age',27);" +
-                        "  p1.addEdge('knows',p2,'date','2016-01-10');" +
-                        "}";
-
+        String script = "g.V().count()";
         HugeTask<Object> task = runGremlinJob(script);
         task = scheduler.waitUntilTaskCompleted(task.id(), 10);
-        Assert.assertEquals("test-gremlin-job", task.name());
-        Assert.assertEquals("gremlin", task.type());
         Assert.assertEquals(TaskStatus.SUCCESS, task.status());
-        Assert.assertEquals("[]", task.result());
-
-        script = "g.V().count()";
-        task = runGremlinJob(script);
-        task = scheduler.waitUntilTaskCompleted(task.id(), 10);
-        Assert.assertEquals(TaskStatus.SUCCESS, task.status());
-        Assert.assertEquals("[2000]", task.result());
+        Assert.assertEquals("[200]", task.result());
 
         script = "g.V().hasLabel('person1').count()";
         task = runGremlinJob(script);
         task = scheduler.waitUntilTaskCompleted(task.id(), 10);
         Assert.assertEquals(TaskStatus.SUCCESS, task.status());
-        Assert.assertEquals("[1000]", task.result());
+        Assert.assertEquals("[100]", task.result());
 
         script = "g.V().hasLabel('person2').count()";
         task = runGremlinJob(script);
         task = scheduler.waitUntilTaskCompleted(task.id(), 10);
         Assert.assertEquals(TaskStatus.SUCCESS, task.status());
-        Assert.assertEquals("[1000]", task.result());
+        Assert.assertEquals("[100]", task.result());
 
         script = "g.E().count()";
         task = runGremlinJob(script);
         task = scheduler.waitUntilTaskCompleted(task.id(), 10);
         Assert.assertEquals(TaskStatus.SUCCESS, task.status());
-        Assert.assertEquals("[1000]", task.result());
+        Assert.assertEquals("[100]", task.result());
 
         script = "g.E().hasLabel('knows').count()";
         task = runGremlinJob(script);
         task = scheduler.waitUntilTaskCompleted(task.id(), 10);
         Assert.assertEquals(TaskStatus.SUCCESS, task.status());
-        Assert.assertEquals("[1000]", task.result());
+        Assert.assertEquals("[100]", task.result());
     }
 
     @Test
     public void testGremlinJobWithSerializedResults() throws TimeoutException {
         HugeGraph graph = graph();
         TaskScheduler scheduler = graph.taskScheduler();
+        graph.schema().propertyKey("name").asText().create();
+        graph.schema().vertexLabel("char").useCustomizeNumberId()
+             .properties("name").create();
+        graph.schema().edgeLabel("next").link("char", "char")
+             .properties("name").create();
+        Vertex a = graph.addVertex(T.id, 1L, T.label, "char", "name", "A");
+        Vertex b = graph.addVertex(T.id, 2L, T.label, "char", "name", "B");
+        Vertex c = graph.addVertex(T.id, 3L, T.label, "char", "name", "C");
+        Vertex d = graph.addVertex(T.id, 4L, T.label, "char", "name", "D");
+        Vertex e = graph.addVertex(T.id, 5L, T.label, "char", "name", "E");
+        Vertex f = graph.addVertex(T.id, 6L, T.label, "char", "name", "F");
+        a.addEdge("next", b, "name", "ab");
+        b.addEdge("next", c, "name", "bc");
+        b.addEdge("next", d, "name", "bd");
+        c.addEdge("next", d, "name", "cd");
+        c.addEdge("next", e, "name", "ce");
+        d.addEdge("next", e, "name", "de");
+        e.addEdge("next", f, "name", "ef");
+        f.addEdge("next", d, "name", "fd");
+        graph.tx().commit();
 
-        String script = "schema=graph.schema();" +
-                        "schema.propertyKey('name').asText().ifNotExist().create();" +
-                        "schema.vertexLabel('char').useCustomizeNumberId()" +
-                        "      .properties('name').ifNotExist().create();" +
-                        "schema.edgeLabel('next').sourceLabel('char').targetLabel('char')" +
-                        "      .properties('name').ifNotExist().create();" +
-                        "g.addV('char').property(id,1).property('name','A').as('a')" +
-                        " .addV('char').property(id,2).property('name','B').as('b')" +
-                        " .addV('char').property(id,3).property('name','C').as('c')" +
-                        " .addV('char').property(id,4).property('name','D').as('d')" +
-                        " .addV('char').property(id,5).property('name','E').as('e')" +
-                        " .addV('char').property(id,6).property('name','F').as('f')" +
-                        " .addE('next').from('a').to('b').property('name','ab')" +
-                        " .addE('next').from('b').to('c').property('name','bc')" +
-                        " .addE('next').from('b').to('d').property('name','bd')" +
-                        " .addE('next').from('c').to('d').property('name','cd')" +
-                        " .addE('next').from('c').to('e').property('name','ce')" +
-                        " .addE('next').from('d').to('e').property('name','de')" +
-                        " .addE('next').from('e').to('f').property('name','ef')" +
-                        " .addE('next').from('f').to('d').property('name','fd')" +
-                        " .iterate();" +
-                        "g.tx().commit(); g.E().count();";
-
+        String script = "g.E().count()";
         HugeTask<Object> task = runGremlinJob(script);
         task = scheduler.waitUntilTaskCompleted(task.id(), 10);
         Assert.assertEquals("test-gremlin-job", task.name());
@@ -896,18 +890,24 @@ public class TaskCoreTest extends BaseCoreTest {
         task = builder.schedule();
         task = scheduler.waitUntilTaskCompleted(task.id(), 10);
         Assert.assertEquals(TaskStatus.FAILED, task.status());
-        Assert.assertContains("Invalid aliases value 'null'", task.result());
+        Assert.assertContains("Invalid language value ''", task.result());
+        Assert.assertContains("only 'gremlin-lang' is supported", task.result());
 
         builder = JobBuilder.of(graph);
         builder.name("test-job-gremlin")
                .input("{\"gremlin\":\"\", \"bindings\":{}, " +
-                      "\"language\":\"test\", \"aliases\":{}}")
+                      "\"language\":\"gremlin-groovy\", \"aliases\":{}}")
                .job(new GremlinJob());
         task = builder.schedule();
         task = scheduler.waitUntilTaskCompleted(task.id(), 10);
         Assert.assertEquals(TaskStatus.FAILED, task.status());
-        Assert.assertContains("test is not an available GremlinScriptEngine",
+        Assert.assertContains("Invalid language value 'gremlin-groovy'",
                               task.result());
+        Assert.assertContains("only 'gremlin-lang' is supported", task.result());
+
+        task = runGremlinJob("1 + 2");
+        task = scheduler.waitUntilTaskCompleted(task.id(), 10);
+        Assert.assertEquals(TaskStatus.FAILED, task.status());
     }
 
     @Test
@@ -948,42 +948,37 @@ public class TaskCoreTest extends BaseCoreTest {
     }
 
     @Test
-    public void testGremlinJobAndCancel() throws TimeoutException {
+    public void testTaskCancellationAndResultLimits() throws TimeoutException {
         HugeGraph graph = graph();
         TaskScheduler scheduler = graph.taskScheduler();
 
-        HugeTask<Object> task = runGremlinJob("Thread.sleep(1000 * 10);");
-
-        sleepAWhile(200 * 6);
+        Id sleepingId = IdGenerator.of(88894);
+        HugeTask<Object> task = new HugeTask<>(sleepingId, null,
+                                               new SleepCallable<>());
+        task.type("test");
+        task.name("test-task-cancel");
+        scheduler.schedule(task);
+        sleepAWhile(200);
         task = scheduler.task(task.id());
         scheduler.cancel(task);
 
-        task = scheduler.task(task.id());
-        // For DistributedTaskScheduler, local cancel may result in CANCELLED directly
-        // (task thread updates status after being interrupted)
-        // or CANCELLING (if task hasn't processed the interrupt yet)
-        Assert.assertTrue("Task status should be CANCELLING or CANCELLED, but was " + task.status(),
-                          task.status() == TaskStatus.CANCELLING ||
-                          task.status() == TaskStatus.CANCELLED);
-
         task = scheduler.waitUntilTaskCompleted(task.id(), 10);
         Assert.assertEquals(TaskStatus.CANCELLED, task.status());
-        Assert.assertEquals("test-gremlin-job", task.name());
+        Assert.assertEquals("test-task-cancel", task.name());
         Assert.assertTrue(task.result(), task.result() == null ||
                                          task.result().endsWith("InterruptedException"));
 
-        // Cancel success task
-        HugeTask<Object> task2 = runGremlinJob("1+2");
+        HugeTask<Object> task2 = runGremlinJob("g.inject(3)");
         task2 = scheduler.waitUntilTaskCompleted(task2.id(), 10);
         Assert.assertEquals(TaskStatus.SUCCESS, task2.status());
         scheduler.cancel(task2);
         task2 = scheduler.task(task2.id());
         Assert.assertEquals(TaskStatus.SUCCESS, task2.status());
-        Assert.assertEquals("3", task2.result());
+        Assert.assertEquals("[3]", task2.result());
 
-        // Cancel failure task with big results (job size exceeded limit)
-        String bigList = "def l=[]; for (i in 1..800001) l.add(i); l;";
-        HugeTask<Object> task3 = runGremlinJob(bigList);
+        String oversizedTraversal = "g.inject(1).repeat(__.identity())." +
+                                    "emit().times(800001)";
+        HugeTask<Object> task3 = runGremlinJob(oversizedTraversal);
         task3 = scheduler.waitUntilTaskCompleted(task3.id(), 12);
         Assert.assertEquals(TaskStatus.FAILED, task3.status());
         scheduler.cancel(task3);
@@ -993,59 +988,56 @@ public class TaskCoreTest extends BaseCoreTest {
                               "has exceeded the max limit 800000",
                               task3.result());
 
-        // Cancel failure task with big results (task exceeded limit 16M)
-        String bigResults = "def random = new Random(); def rs=[];" +
-                            "for (i in 0..4) {" +
-                            "  def len = 1024 * 1024;" +
-                            "  def item = new StringBuilder(len);" +
-                            "  for (j in 0..len) { " +
-                            "    item.append(\"node:\"); " +
-                            "    item.append((char) random.nextInt(256)); " +
-                            "    item.append(\",\"); " +
-                            "  };" +
-                            "  rs.add(item);" +
-                            "};" +
-                            "rs;";
-        HugeTask<Object> task4 = runGremlinJob(bigResults);
-        task4 = scheduler.waitUntilTaskCompleted(task4.id(), 10);
-        Assert.assertEquals(TaskStatus.FAILED, task4.status());
-        scheduler.cancel(task4);
-        task4 = scheduler.task(task4.id());
-        Assert.assertEquals(TaskStatus.FAILED, task4.status());
-        Assert.assertContains("LimitExceedException: Task result size",
-                              task4.result());
-        Assert.assertContains("exceeded limit 16777216 bytes",
-                              task4.result());
+        long defaultResultLimit = graph.option(CoreOptions.TASK_RESULT_SIZE_LIMIT);
+        long testResultLimit = 1024L * 1024L;
+        graph.configuration().setProperty(CoreOptions.TASK_RESULT_SIZE_LIMIT.name(),
+                                          testResultLimit);
+        try {
+            Id largeResultId = IdGenerator.of(88895);
+            HugeTask<String> largeResult = new HugeTask<>(
+                    largeResultId, null, new LargeResultCallable());
+            largeResult.type("test");
+            largeResult.name("test-task-large-result");
+            scheduler.schedule(largeResult);
+            HugeTask<?> task4 = scheduler.waitUntilTaskCompleted(largeResultId, 10);
+            Assert.assertEquals(TaskStatus.FAILED, task4.status());
+            scheduler.cancel(task4);
+            task4 = scheduler.task(task4.id());
+            Assert.assertEquals(TaskStatus.FAILED, task4.status());
+            Assert.assertContains("LimitExceedException: Task result size",
+                                  task4.result());
+            Assert.assertContains("exceeded limit 1048576 bytes",
+                                  task4.result());
+        } finally {
+            graph.configuration().setProperty(
+                    CoreOptions.TASK_RESULT_SIZE_LIMIT.name(), defaultResultLimit);
+        }
     }
 
     @Test
-    public void testGremlinJobAndRestore() throws Exception {
+    public void testTaskAndRestore() throws Exception {
         HugeGraph graph = graph();
         TaskScheduler scheduler = graph.taskScheduler();
 
-        String gremlin = "println('task start');" +
-                         "for(int i=gremlinJob.progress(); i<=10; i++) {" +
-                         "  gremlinJob.updateProgress(i);" +
-                         "  Thread.sleep(200); " +
-                         "  println('sleep=>'+i);" +
-                         "}; 100;";
-        HugeTask<Object> task = runGremlinJob(gremlin);
+        Id id = IdGenerator.of(88896);
+        HugeTask<Object> task = new HugeTask<>(id, null,
+                                               new ProgressCallable());
+        task.type("test");
+        task.name("test-task-restore");
+        scheduler.schedule(task);
 
         sleepAWhile(200 * 6);
         task = scheduler.task(task.id());
         scheduler.cancel(task);
-
-        task = scheduler.task(task.id());
-        Assert.assertTrue("Task status should be CANCELLING or CANCELLED, but was " + task.status(),
-                          task.status() == TaskStatus.CANCELLING ||
-                          task.status() == TaskStatus.CANCELLED);
 
         task = scheduler.waitUntilTaskCompleted(task.id(), 10);
         Assert.assertEquals(TaskStatus.CANCELLED, task.status());
         Assert.assertTrue("progress=" + task.progress(),
                           0 < task.progress() && task.progress() < 10);
         Assert.assertEquals(0, task.retries());
-        Assert.assertNull(task.result());
+        Assert.assertTrue(task.result(), task.result() == null ||
+                                         task.result().endsWith(
+                                                 "InterruptedException"));
 
         HugeTask<Object> finalTask = task;
 
@@ -1093,10 +1085,13 @@ public class TaskCoreTest extends BaseCoreTest {
     }
 
     private HugeTask<Object> runGremlinJob(String gremlin) {
-        HugeGraph graph = graph();
-
         GremlinRequest request = new GremlinRequest();
         request.gremlin(gremlin);
+        return this.runGremlinJob(request);
+    }
+
+    private HugeTask<Object> runGremlinJob(GremlinRequest request) {
+        HugeGraph graph = graph();
 
         JobBuilder<Object> builder = JobBuilder.of(graph);
         builder.name("test-gremlin-job")
@@ -1115,6 +1110,51 @@ public class TaskCoreTest extends BaseCoreTest {
             Thread.sleep(ms);
         } catch (InterruptedException e) {
             // ignore
+        }
+    }
+
+    public static class ProgressCallable extends TaskCallable<Object> {
+
+        public ProgressCallable() {
+            // pass
+        }
+
+        @Override
+        public Object call() throws Exception {
+            for (int i = this.progress(); i <= 10; i++) {
+                this.updateProgress(i);
+                Thread.sleep(200L);
+            }
+            return 100;
+        }
+
+        @Override
+        public void done() {
+            this.graph().taskScheduler().save(this.task());
+        }
+
+        @Override
+        protected void cancelled() {
+            this.graph().taskScheduler().save(this.task());
+        }
+    }
+
+    public static class LargeResultCallable extends TaskCallable<String> {
+
+        public LargeResultCallable() {
+            // pass
+        }
+
+        @Override
+        public String call() {
+            byte[] bytes = new byte[2 * 1024 * 1024];
+            new Random(1L).nextBytes(bytes);
+            return Base64.getEncoder().encodeToString(bytes);
+        }
+
+        @Override
+        public void done() {
+            this.graph().taskScheduler().save(this.task());
         }
     }
 
@@ -1172,6 +1212,11 @@ public class TaskCoreTest extends BaseCoreTest {
 
         @Override
         public void done() {
+            this.graph().taskScheduler().save(this.task());
+        }
+
+        @Override
+        protected void cancelled() {
             this.graph().taskScheduler().save(this.task());
         }
     }

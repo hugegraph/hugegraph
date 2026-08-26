@@ -35,6 +35,7 @@ import jakarta.ws.rs.core.Response;
  *  GET    /graphspaces/{gs}/schematemplates
  *  GET    /graphspaces/{gs}/schematemplates/{name}
  *  POST   /graphspaces/{gs}/schematemplates
+ *  POST   /graphspaces/{gs}/schematemplates/{name}/validate
  *  PUT    /graphspaces/{gs}/schematemplates/{name}
  *  DELETE /graphspaces/{gs}/schematemplates/{name}
  */
@@ -81,6 +82,14 @@ public class SchemaTemplateApiTest extends BaseApiTest {
         String body = String.format("{\"name\":\"%s\",\"schema\":\"%s\"}",
                                    TEMPLATE_NAME, TEMPLATE_SCHEMA);
         Response r = client().post(PATH, body);
+        String content = assertResponseStatus(400, r);
+        Assert.assertTrue(content.contains(STANDALONE_ERROR));
+    }
+
+    @Test
+    public void testValidateSchemaTemplateReturnsFriendlyError() {
+        Response r = client().post(PATH + "/" + TEMPLATE_NAME + "/validate",
+                                   jakarta.ws.rs.client.Entity.text(""));
         String content = assertResponseStatus(400, r);
         Assert.assertTrue(content.contains(STANDALONE_ERROR));
     }

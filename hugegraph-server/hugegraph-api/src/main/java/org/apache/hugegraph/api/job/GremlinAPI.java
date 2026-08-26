@@ -36,6 +36,7 @@ import org.apache.hugegraph.define.Checkable;
 import org.apache.hugegraph.job.GremlinJob;
 import org.apache.hugegraph.job.JobBuilder;
 import org.apache.hugegraph.metrics.MetricsUtil;
+import org.apache.hugegraph.security.HugeGraphGremlinLangScriptEngineFactory;
 import org.apache.hugegraph.util.E;
 import org.apache.hugegraph.util.JsonUtil;
 import org.apache.hugegraph.util.Log;
@@ -110,8 +111,10 @@ public class GremlinAPI extends API {
         @Schema(description = "The bindings for the Gremlin script")
         private Map<String, Object> bindings = new HashMap<>();
         @JsonProperty
-        @Schema(description = "The language of the Gremlin script", example = "gremlin-groovy")
-        private String language = "gremlin-groovy";
+        @Schema(description = "The language of the Gremlin script",
+                example = "gremlin-lang")
+        private String language =
+                HugeGraphGremlinLangScriptEngineFactory.ENGINE_NAME;
         @JsonProperty
         @Schema(description = "The aliases for graph references")
         private Map<String, String> aliases = new HashMap<>();
@@ -184,6 +187,11 @@ public class GremlinAPI extends API {
                                    "The gremlin parameter can't be null");
             E.checkArgumentNotNull(this.language,
                                    "The language parameter can't be null");
+            E.checkArgument(
+                    HugeGraphGremlinLangScriptEngineFactory.ENGINE_NAME.equals(
+                            this.language),
+                    "The language parameter must be 'gremlin-lang', but got '%s'",
+                    this.language);
             E.checkArgument(this.aliases == null || this.aliases.isEmpty(),
                             "There is no need to pass gremlin aliases");
         }
