@@ -28,6 +28,7 @@ import org.apache.hugegraph.security.HugeGraphGremlinLangScriptEngineFactory;
 import org.apache.hugegraph.testutil.Assert;
 import org.apache.hugegraph.traversal.optimize.HugeScriptTraversal;
 import org.apache.hugegraph.unit.BaseUnitTest;
+import org.apache.tinkerpop.gremlin.process.traversal.GType;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversalSource;
 import org.apache.tinkerpop.gremlin.process.traversal.strategy.optimization.LazyBarrierStrategy;
 import org.apache.tinkerpop.gremlin.tinkergraph.structure.TinkerGraph;
@@ -84,6 +85,61 @@ public class HugeScriptTraversalTest extends BaseUnitTest {
             Assert.assertFalse(traversal.getStrategies()
                                         .getStrategy(LazyBarrierStrategy.class)
                                         .isPresent());
+            traversal.close();
+        }
+    }
+
+    @Test
+    public void testRejectTraversalSourceAlias() throws Exception {
+        try (TinkerGraph graph = TinkerGraph.open();
+             GraphTraversalSource g = graph.traversal()) {
+            Assert.assertThrows(
+                    IllegalArgumentException.class,
+                    () -> new HugeScriptTraversal<>(
+                            g, "hugegraph.V().count()",
+                            Collections.emptyMap(),
+                            Map.of("hugegraph", "graph")),
+                    e -> Assert.assertContains("aliases are not supported",
+                                               e.getMessage()));
+        }
+    }
+
+    @Test
+    public void testRejectAliasToArbitraryBinding() throws Exception {
+        try (TinkerGraph graph = TinkerGraph.open();
+             GraphTraversalSource g = graph.traversal()) {
+            Assert.assertThrows(
+                    IllegalArgumentException.class,
+                    () -> new HugeScriptTraversal<>(
+                            g, "hugegraph.V().count()", Map.of("other", g),
+                            Map.of("hugegraph", "other")),
+                    e -> Assert.assertContains("aliases are not supported",
+                                               e.getMessage()));
+        }
+    }
+
+    @Test
+    public void testRejectAliasOverwritingProtectedSource() throws Exception {
+        try (TinkerGraph graph = TinkerGraph.open();
+             GraphTraversalSource g = graph.traversal()) {
+            Assert.assertThrows(
+                    IllegalArgumentException.class,
+                    () -> new HugeScriptTraversal<>(
+                            g, "g.V().count()", Collections.emptyMap(),
+                            Map.of("g", "graph")),
+                    e -> Assert.assertContains("aliases are not supported",
+                                               e.getMessage()));
+        }
+    }
+
+    @Test
+    public void testGraphTokenDoesNotExposeGraphObject() throws Exception {
+        try (TinkerGraph graph = TinkerGraph.open();
+             GraphTraversalSource g = graph.traversal()) {
+            HugeScriptTraversal<Object, Object> traversal =
+                    traversal(g, "g.inject(graph)");
+
+            Assert.assertEquals(GType.GRAPH, traversal.next());
             traversal.close();
         }
     }

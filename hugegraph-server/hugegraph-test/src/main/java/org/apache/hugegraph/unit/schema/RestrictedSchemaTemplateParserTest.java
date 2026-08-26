@@ -81,6 +81,38 @@ public class RestrictedSchemaTemplateParserTest extends BaseUnitTest {
     }
 
     @Test
+    public void testParseLongLiteralSuffix() {
+        String template = "schema.propertyKey('code').id(100L)" +
+                          ".asText().userdata(['rank': -3l]).create();" +
+                          "schema.vertexLabel('person').ttl(86400L).create();";
+
+        SchemaTemplatePlan plan = RestrictedSchemaTemplateParser.parse(template);
+
+        Assert.assertEquals(100L, plan.commands().get(0).operations()
+                                           .get(0).arguments().get(0));
+        Object userdata = plan.commands().get(0).operations().get(2)
+                              .arguments().get(0);
+        Assert.assertEquals(-3L, ((Map<?, ?>) userdata).get("rank"));
+        Assert.assertEquals(86400L, plan.commands().get(1).operations()
+                                             .get(0).arguments().get(0));
+    }
+
+    @Test
+    public void testRejectLongSuffixOnFloatingPointLiteral() {
+        List<String> templates = Arrays.asList(
+                "schema.vertexLabel('person').ttl(1.0L).create();",
+                "schema.vertexLabel('person').ttl(1e3l).create();"
+        );
+
+        for (String template : templates) {
+            Assert.assertThrows(
+                    IllegalArgumentException.class,
+                    () -> RestrictedSchemaTemplateParser.parse(template),
+                    e -> Assert.assertContains("Long suffix", e.getMessage()));
+        }
+    }
+
+    @Test
     public void testAllowSchemaAssignmentWithoutSemicolon() {
         String template = "schema = graph.schema()\n" +
                           "schema.propertyKey('name').asText().create()";

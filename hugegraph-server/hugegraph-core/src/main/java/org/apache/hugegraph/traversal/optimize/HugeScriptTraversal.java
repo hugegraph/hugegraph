@@ -54,7 +54,6 @@ public final class HugeScriptTraversal<S, E> extends DefaultTraversal<S, E> {
     private final GraphTraversalSource traversalSource;
     private final String script;
     private final Map<String, Object> bindings;
-    private final Map<String, String> aliases;
 
     private Object result;
 
@@ -70,12 +69,14 @@ public final class HugeScriptTraversal<S, E> extends DefaultTraversal<S, E> {
         org.apache.hugegraph.util.E.checkArgument(
                 traversalSource instanceof GraphTraversalSource,
                 "The traversal source must be a GraphTraversalSource");
+        org.apache.hugegraph.util.E.checkArgument(
+                aliases.isEmpty(),
+                "Gremlin aliases are not supported by gremlin-lang");
         this.graph = traversalSource.getGraph();
         this.traversalSource = (GraphTraversalSource) traversalSource;
         this.strategies = traversalSource.getStrategies().clone();
         this.script = script;
         this.bindings = bindings;
-        this.aliases = aliases;
         this.result = null;
     }
 
@@ -115,17 +116,6 @@ public final class HugeScriptTraversal<S, E> extends DefaultTraversal<S, E> {
             GraphTraversalSource protectedSource =
                     engine.add(this.traversalSource.clone());
             bindings.put("g", protectedSource);
-            bindings.put("graph", protectedSource);
-
-            for (Map.Entry<String, String> entry : this.aliases.entrySet()) {
-                Object value = bindings.get(entry.getValue());
-                if (value == null) {
-                    throw new IllegalArgumentException(String.format(
-                              "Invalid alias '%s':'%s'", entry.getKey(),
-                              entry.getValue()));
-                }
-                bindings.put(entry.getKey(), value);
-            }
 
             Object result = engine.eval(this.script, bindings);
 

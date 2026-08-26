@@ -429,7 +429,17 @@ public final class RestrictedSchemaTemplateParser {
             }
         }
 
-        String value = this.input.substring(start, this.offset);
+        int numberEnd = this.offset;
+        if (!this.end() && (this.current() == 'L' ||
+                            this.current() == 'l')) {
+            if (floating) {
+                throw this.error("Long suffix is only allowed for integer " +
+                                 "literals");
+            }
+            this.advance();
+        }
+
+        String value = this.input.substring(start, numberEnd);
         try {
             if (floating) {
                 return Double.valueOf(value);
