@@ -17,6 +17,7 @@
 
 package org.apache.hugegraph.unit;
 
+import org.apache.hugegraph.backend.tx.GraphIndexTransactionTest;
 import org.apache.hugegraph.api.auth.GraphSpaceAuthPayloadTest;
 import org.apache.hugegraph.api.auth.GraphSpaceGroupAPITest;
 import org.apache.hugegraph.auth.StandardAuthManagerV2Test;
@@ -48,8 +49,11 @@ import org.apache.hugegraph.unit.core.DirectionsTest;
 import org.apache.hugegraph.unit.core.ExceptionTest;
 import org.apache.hugegraph.unit.core.GraphManagerAdminInitTest;
 import org.apache.hugegraph.unit.core.GraphManagerConfigTest;
+import org.apache.hugegraph.unit.core.HstoreSessionsTest;
+import org.apache.hugegraph.unit.core.IdHolderTest;
 import org.apache.hugegraph.unit.core.LocksTableTest;
 import org.apache.hugegraph.unit.core.PageStateTest;
+import org.apache.hugegraph.unit.core.QueryResultsTest;
 import org.apache.hugegraph.unit.core.QueryTest;
 import org.apache.hugegraph.unit.core.RangeTest;
 import org.apache.hugegraph.unit.core.RolePermissionTest;
@@ -79,6 +83,7 @@ import org.apache.hugegraph.unit.serializer.TableBackendEntryTest;
 import org.apache.hugegraph.unit.serializer.TextBackendEntryTest;
 import org.apache.hugegraph.unit.serializer.TextSerializerTest;
 import org.apache.hugegraph.unit.store.RamIntObjectMapTest;
+import org.apache.hugegraph.unit.traversal.ShortestPathTraverserTest;
 import org.apache.hugegraph.unit.util.CompressUtilTest;
 import org.apache.hugegraph.unit.util.JsonUtilTest;
 import org.apache.hugegraph.unit.util.RateLimiterTest;
@@ -140,16 +145,20 @@ import org.junit.runners.Suite;
         BackendMutationTest.class,
         ConditionTest.class,
         ConditionQueryFlattenTest.class,
+        GraphIndexTransactionTest.class,
         QueryTest.class,
+        QueryResultsTest.class,
         RangeTest.class,
         SecurityManagerTest.class,
         RolePermissionTest.class,
         ExceptionTest.class,
         GraphManagerAdminInitTest.class,
         GraphManagerConfigTest.class,
+        HstoreSessionsTest.class,
         BackendStoreInfoTest.class,
         TraversalUtilTest.class,
         TraversalUtilOptimizeTest.class,
+        IdHolderTest.class,
         PageStateTest.class,
         SystemSchemaStoreTest.class,
         ServerInfoManagerTest.class,
@@ -157,6 +166,7 @@ import org.junit.runners.Suite;
         RoleElectionStateMachineTest.class,
         HugeGraphAuthProxyTest.class,
         SchemaElementTest.class,
+        ShortestPathTraverserTest.class,
 
         /* cmd */
         InitStoreConfigTest.class,
