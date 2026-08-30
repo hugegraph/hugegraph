@@ -38,8 +38,9 @@ Store startup sets:
 TOPLINGDB_EASY_MIGRATE_CONF="$STORE_HOME/conf/rocksdb_store.yaml"
 ```
 
-Both start scripts use the Server distribution's `preload-topling.sh` helper to
-select the prepared Topling JAR and native library. This is shared startup
+Both distributions carry the same `preload-topling.sh` helper and load only
+their component-local Topling JAR and native library. PD and Store do not
+discover or depend on a neighboring Server distribution. This is shared source
 tooling, not a shared Java provider or shared DB owner.
 
 ## Configuration

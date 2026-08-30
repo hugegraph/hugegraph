@@ -34,7 +34,7 @@ Easy Migrate is activated before the JVM starts:
 sequenceDiagram
   autonumber
   participant User
-  participant Install as install-rocksdb.sh
+  participant Install as prepare-topling.sh
   participant Start as component start script
   participant Preload as preload-topling.sh
   participant JVM as HugeGraph JVM

@@ -64,8 +64,7 @@ trap 'echo "[install-rocksdb] error at line ${LINENO}: ${BASH_COMMAND}" >&2' ERR
 VERSION=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)
 COMPONENT="${1:-server}"
 SERVER_VERSION_DIR="$(pwd)/hugegraph-server/apache-hugegraph-server-$VERSION"
-SERVER_BIN="$SERVER_VERSION_DIR/bin"
-SERVER_LIB="$SERVER_VERSION_DIR/lib"
+TOPLING_SOURCE_LIB="$(pwd)/hugegraph-server/hugegraph-dist/src/assembly/static/lib/topling"
 
 case "$COMPONENT" in
     server | hstore)
@@ -82,16 +81,9 @@ case "$COMPONENT" in
         exit 1
         ;;
 esac
-INSTALL_DEST_DIR="$COMPONENT_VERSION_DIR/library"
+COMPONENT_BIN="$COMPONENT_VERSION_DIR/bin"
+COMPONENT_LIB="$COMPONENT_VERSION_DIR/lib"
 
-if [ ! -d "$SERVER_VERSION_DIR" ]; then
-    echo "Error: SERVER_VERSION_DIR not found: $SERVER_VERSION_DIR" >&2
-    exit 1
-fi
-if [ ! -d "$SERVER_LIB" ]; then
-    echo "Error: SERVER_LIB dir not found: $SERVER_LIB" >&2
-    exit 1
-fi
 if [ ! -d "$COMPONENT_VERSION_DIR" ]; then
     echo "Error: component dir not found: $COMPONENT_VERSION_DIR" >&2
     exit 1
@@ -178,18 +170,20 @@ detect_rocksdb_provider() {
 PROVIDER=$(detect_rocksdb_provider "$COMPONENT_VERSION_DIR/conf") || exit 1
 
 if [ "$PROVIDER" = "topling" ]; then
-    if [ ! -f "$SERVER_BIN/common-topling.sh" ]; then
-        echo "Error: common-topling.sh not found under: $SERVER_BIN" >&2
+    if [ ! -x "$COMPONENT_BIN/prepare-topling.sh" ]; then
+        echo "Error: prepare-topling.sh not found under: $COMPONENT_BIN" >&2
         exit 1
     fi
 
-    source "$SERVER_BIN/common-topling.sh"
-    type prepare_toplingdb >/dev/null 2>&1 || {
-        echo "Error: function prepare_toplingdb not found" >&2
+    TOPLING_JARS=("$TOPLING_SOURCE_LIB"/rocksdbjni*.jar)
+    if [ "${#TOPLING_JARS[@]}" -ne 1 ] || [ ! -f "${TOPLING_JARS[0]}" ]; then
+        echo "Error: expected exactly one ToplingDB JAR under: $TOPLING_SOURCE_LIB" >&2
         exit 1
-    }
-    prepare_toplingdb "$SERVER_LIB/topling" "$INSTALL_DEST_DIR" \
-                      "$COMPONENT_VERSION_DIR"
+    fi
+    mkdir -p "$COMPONENT_LIB/topling"
+    rm -f "$COMPONENT_LIB"/topling/rocksdbjni*.jar
+    cp "${TOPLING_JARS[0]}" "$COMPONENT_LIB/topling/"
+    "$COMPONENT_BIN/prepare-topling.sh"
 else
     echo "[install-rocksdb] $COMPONENT uses rocksdb provider (or unset)," \
          "skipping native preload"

@@ -63,20 +63,15 @@ PID_FILE="$BIN/pid"
 
 . "$BIN"/util.sh
 
-PARENT_DIR="$(cd "$TOP"/../ && pwd)"
-SERVER_VERSION_DIR="${SERVER_VERSION_DIR:-$(find_hugegraph_server_dir "$PARENT_DIR")}"
-
 ensure_path_writable "$LOGS"
 ensure_path_writable "$PLUGINS"
 
 # preload rocksdb/toplingdb
-if [ -n "$SERVER_VERSION_DIR" ] && [ -e "$SERVER_VERSION_DIR/bin/preload-topling.sh" ]; then
-    TOPLINGDB_EASY_MIGRATE_CONF="$CONF/rocksdb_pd.yaml"
-    TOPLING_COMPONENT_TOP="$TOP"
-    TOPLING_USE_SERVER_CLASSPATH=true
-    source "$SERVER_VERSION_DIR/bin/preload-topling.sh"
-    unset TOPLING_COMPONENT_TOP TOPLING_USE_SERVER_CLASSPATH
+if [ ! -r "$BIN/preload-topling.sh" ]; then
+    echo "Required RocksDB runtime selector not found: $BIN/preload-topling.sh" >&2
+    exit 1
 fi
+source "$BIN/preload-topling.sh" || exit 1
 
 # The maximum and minimum heap memory that service can use
 MAX_MEM=$((32 * 1024))

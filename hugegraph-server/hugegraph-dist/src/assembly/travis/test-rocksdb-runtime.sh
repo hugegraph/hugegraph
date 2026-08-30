@@ -18,9 +18,8 @@
 
 set -Eeuo pipefail
 
-PROVIDER="${1:?Usage: $0 <provider> <server-dir> [component-dir]}"
-SERVER_DIR="${2:?Usage: $0 <provider> <server-dir> [component-dir]}"
-COMPONENT_DIR="${3:-$SERVER_DIR}"
+PROVIDER="${1:?Usage: $0 <provider> <component-dir>}"
+COMPONENT_DIR="${2:?Usage: $0 <provider> <component-dir>}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 TEST_ROOT=$(mktemp -d /tmp/hugegraph-rocksdb-runtime.XXXXXX)
@@ -46,16 +45,16 @@ case "$PROVIDER" in
         ;;
 esac
 
-if [ "$COMPONENT_DIR" = "$SERVER_DIR" ]; then
+if compgen -G "$COMPONENT_DIR/lib/rocksdbjni*.jar" >/dev/null; then
     if [ "$PROVIDER" = "topling" ]; then
         JAR="${TOPLING_RUNTIME_CLASSPATH:-}"
     else
-        JAR=$(ls -1 "$SERVER_DIR"/lib/rocksdbjni*.jar 2>/dev/null |
+        JAR=$(ls -1 "$COMPONENT_DIR"/lib/rocksdbjni*.jar 2>/dev/null |
               sort -V | tail -1 || true)
     fi
 else
     if [ "$PROVIDER" = "topling" ]; then
-        JAR=$(ls -1 "$SERVER_DIR"/lib/topling/rocksdbjni*.jar 2>/dev/null |
+        JAR=$(ls -1 "$COMPONENT_DIR"/lib/topling/rocksdbjni*.jar 2>/dev/null |
               sort -V | tail -1 || true)
     else
         BOOT_JAR=$(ls -1 "$COMPONENT_DIR"/lib/*.jar 2>/dev/null |

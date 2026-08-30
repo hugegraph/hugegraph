@@ -45,30 +45,69 @@ jobs:
         run: |
           mvn clean package -Dmaven.test.skip=true -ntp
 
-      - name: Configure ${{ matrix.component }} ${{ matrix.provider }} provider
+      - name: Select ${{ matrix.component }} ${{ matrix.provider }} distribution
         run: |
           VERSION=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)
           SERVER_DIR="hugegraph-server/apache-hugegraph-server-$VERSION"
           if [ "${{ matrix.component }}" = "pd" ]; then
             COMPONENT_DIR="hugegraph-pd/apache-hugegraph-pd-$VERSION"
-            CONFIG_FILE="$COMPONENT_DIR/conf/application.yml"
-            sed -i 's/^# rocksdb:/rocksdb:/' "$CONFIG_FILE"
-            sed -i 's/^#   provider: rocksdb/  provider: ${{ matrix.provider }}/' \
-                "$CONFIG_FILE"
+            if [ "${{ matrix.provider }}" = "rocksdb" ]; then
+              CONFIG_FILE="$COMPONENT_DIR/conf/application.yml"
+              sed -i 's/^# rocksdb:/rocksdb:/' "$CONFIG_FILE"
+              sed -i 's/^#   provider: rocksdb/  provider: rocksdb/' \
+                  "$CONFIG_FILE"
+            fi
           else
             COMPONENT_DIR="hugegraph-store/apache-hugegraph-store-$VERSION"
-            CONFIG_FILE="$COMPONENT_DIR/conf/application-pd.yml"
-            sed -i 's/^  # provider: topling/  provider: ${{ matrix.provider }}/' \
-                "$CONFIG_FILE"
+            if [ "${{ matrix.provider }}" = "rocksdb" ]; then
+              CONFIG_FILE="$COMPONENT_DIR/conf/application-pd.yml"
+              sed -i 's/^  # provider: topling/  provider: rocksdb/' \
+                  "$CONFIG_FILE"
+            fi
           fi
-          echo "SERVER_DIR=$SERVER_DIR" >> "$GITHUB_ENV"
-          echo "COMPONENT_DIR=$COMPONENT_DIR" >> "$GITHUB_ENV"
+          if [ "${{ matrix.provider }}" = "topling" ]; then
+            touch "$COMPONENT_DIR/bin/pid"
+            if [ "${{ matrix.component }}" = "pd" ]; then
+              ln -s /missing/topling-ci-pd-data "$COMPONENT_DIR/pd_data"
+            else
+              touch "$COMPONENT_DIR/storage"
+            fi
+            install-dist/scripts/build-topling-distribution.sh \
+                "${{ matrix.component }}" "$VERSION"
+            COMPONENT_DIR="$COMPONENT_DIR-topling"
+          fi
+          if [ "${{ matrix.component }}" = "pd" ]; then
+            STANDARD_COMPONENT_DIR="hugegraph-pd/apache-hugegraph-pd-$VERSION"
+          else
+            STANDARD_COMPONENT_DIR="hugegraph-store/apache-hugegraph-store-$VERSION"
+          fi
+          {
+            echo "VERSION=$VERSION"
+            echo "SERVER_DIR=$SERVER_DIR"
+            echo "STANDARD_COMPONENT_DIR=$STANDARD_COMPONENT_DIR"
+            echo "COMPONENT_DIR=$COMPONENT_DIR"
+          } >> "$GITHUB_ENV"
+
+      - name: Verify clean ToplingDB distribution
+        if: matrix.provider == 'topling'
+        env:
+          TOPLING_EXPECT_DIRTY_STANDARD: 'true'
+        run: |
+          "$TRAVIS_DIR/test-topling-distribution.sh" \
+            "${{ matrix.component }}" "$STANDARD_COMPONENT_DIR" "$COMPONENT_DIR"
 
       - name: Prepare and test real ${{ matrix.provider }} runtime
         run: |
-          source "$TRAVIS_DIR/install-rocksdb.sh" "${{ matrix.component }}"
           "$TRAVIS_DIR/test-rocksdb-runtime.sh" \
-              "${{ matrix.provider }}" "$SERVER_DIR" "$COMPONENT_DIR"
+              "${{ matrix.provider }}" "$COMPONENT_DIR"
+
+      - name: Verify standard runtime packaging
+        if: matrix.component == 'pd' && matrix.provider == 'rocksdb'
+        run: |
+          "$TRAVIS_DIR/test-topling-runtime-packaging.sh" \
+            "$SERVER_DIR" \
+            "hugegraph-pd/apache-hugegraph-pd-$VERSION" \
+            "hugegraph-store/apache-hugegraph-store-$VERSION"
 
   struct:
     runs-on: ubuntu-latest

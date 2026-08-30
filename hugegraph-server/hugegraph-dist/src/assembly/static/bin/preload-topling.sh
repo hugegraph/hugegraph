@@ -26,20 +26,10 @@ IFS=$'\n\t'
 # Unified error capture for easy positioning
 trap 'echo "[preload-topling] error at line ${LINENO}: ${BASH_COMMAND}" >&2' ERR
 
-SERVER_BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SERVER_TOP="$(cd "$SERVER_BIN"/../ && pwd)"
-SERVER_LIB="$SERVER_TOP/lib"
-COMPONENT_TOP="${TOPLING_COMPONENT_TOP:-$SERVER_TOP}"
-USE_SERVER_CLASSPATH="${TOPLING_USE_SERVER_CLASSPATH:-true}"
+RUNTIME_BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+COMPONENT_TOP="$(cd "$RUNTIME_BIN"/../ && pwd)"
+COMPONENT_LIB="$COMPONENT_TOP/lib"
 DEST_DIR="$COMPONENT_TOP/library"
-
-case "$USE_SERVER_CLASSPATH" in
-    true | false) ;;
-    *)
-        echo "Error: TOPLING_USE_SERVER_CLASSPATH must be true or false" >&2
-        exit 1
-        ;;
-esac
 
 detect_rocksdb_provider() {
     local conf_dir="$1"
@@ -136,14 +126,11 @@ if [ "$PROVIDER" = "topling" ]; then
         echo "Error: ToplingDB runtime supports Linux x86_64 only" >&2
         exit 1
     fi
-    TOPLING_JAR=""
-    if [ "$USE_SERVER_CLASSPATH" = "true" ]; then
-        TOPLING_JAR=$(ls -1 "$SERVER_LIB"/topling/rocksdbjni*.jar 2>/dev/null |
-                      sort -V | tail -1 || true)
-        if [ -z "$TOPLING_JAR" ]; then
-            echo "Error: no prepared ToplingDB JAR found in $SERVER_LIB/topling/" >&2
-            exit 1
-        fi
+    TOPLING_JAR=$(ls -1 "$COMPONENT_LIB"/topling/rocksdbjni*.jar 2>/dev/null |
+                  sort -V | tail -1 || true)
+    if [ -z "$TOPLING_JAR" ]; then
+        echo "Error: no prepared ToplingDB JAR found in $COMPONENT_LIB/topling/" >&2
+        exit 1
     fi
 
     CONF_FILE="${TOPLINGDB_EASY_MIGRATE_CONF:-}"
@@ -182,12 +169,11 @@ if [ "$PROVIDER" = "topling" ]; then
 
     export LD_PRELOAD="${LD_PRELOAD:+$LD_PRELOAD:}$NATIVE_LIBRARY"
     export TOPLING_ACTIVE_NATIVE="$NATIVE_LIBRARY"
-    if [ "$USE_SERVER_CLASSPATH" = "true" ]; then
-        export TOPLING_RUNTIME_CLASSPATH="$TOPLING_JAR"
-        export CLASSPATH="$TOPLING_JAR${CLASSPATH:+:$CLASSPATH}"
-        export TOPLING_ACTIVE_JAR="$TOPLING_JAR"
-    fi
+    export TOPLING_RUNTIME_CLASSPATH="$TOPLING_JAR"
+    export CLASSPATH="$TOPLING_JAR${CLASSPATH:+:$CLASSPATH}"
+    export TOPLING_ACTIVE_JAR="$TOPLING_JAR"
 else
+    unset TOPLINGDB_EASY_MIGRATE_CONF
     echo "[preload-topling] Component uses rocksdb provider"
 fi
 

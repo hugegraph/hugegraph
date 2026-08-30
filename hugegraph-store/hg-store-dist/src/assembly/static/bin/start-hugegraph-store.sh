@@ -38,8 +38,6 @@ GITHUB="https://github.com"
 PID_FILE="$BIN/pid"
 
 . "$BIN"/util.sh
-PARENT_DIR="$(cd "$TOP"/../ && pwd)"
-SERVER_VERSION_DIR="${SERVER_VERSION_DIR:-$(find_hugegraph_server_dir "$PARENT_DIR")}"
 
 arch=$(uname -m)
 echo "Current arch: $arch"
@@ -67,13 +65,11 @@ else
 fi
 
 # preload rocksdb/toplingdb
-if [ -n "$SERVER_VERSION_DIR" ] && [ -e "$SERVER_VERSION_DIR/bin/preload-topling.sh" ]; then
-    TOPLINGDB_EASY_MIGRATE_CONF="$CONF/rocksdb_store.yaml"
-    TOPLING_COMPONENT_TOP="$TOP"
-    TOPLING_USE_SERVER_CLASSPATH=true
-    source "$SERVER_VERSION_DIR/bin/preload-topling.sh"
-    unset TOPLING_COMPONENT_TOP TOPLING_USE_SERVER_CLASSPATH
+if [ ! -r "$BIN/preload-topling.sh" ]; then
+    echo "Required RocksDB runtime selector not found: $BIN/preload-topling.sh" >&2
+    exit 1
 fi
+source "$BIN/preload-topling.sh" || exit 1
 
 ##pd/store max user processes, ulimit -u
 # Reduce the maximum number of processes that can be opened by a normal dev/user

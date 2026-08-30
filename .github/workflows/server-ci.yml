@@ -43,24 +43,47 @@ jobs:
           mvn clean package -pl hugegraph-server/hugegraph-dist -am \
               -Dmaven.test.skip=true -ntp
 
-      - name: Configure ${{ matrix.provider }} provider
+      - name: Select ${{ matrix.provider }} distribution
         run: |
           VERSION=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)
           SERVER_DIR="hugegraph-server/apache-hugegraph-server-$VERSION"
-          GRAPH_CONF="$SERVER_DIR/conf/graphs/hugegraph.properties"
-          sed -i '/^[#]*rocksdb\.provider=/d' "$GRAPH_CONF"
-          echo "rocksdb.provider=${{ matrix.provider }}" >> "$GRAPH_CONF"
+          if [ "${{ matrix.provider }}" = "topling" ]; then
+            touch "$SERVER_DIR/bin/pid"
+            mkdir -p "$SERVER_DIR/logs"
+            touch "$SERVER_DIR/logs/topling-ci-marker"
+            install-dist/scripts/build-topling-distribution.sh server "$VERSION"
+            SERVER_DIR="$SERVER_DIR-topling"
+          else
+            GRAPH_CONF="$SERVER_DIR/conf/graphs/hugegraph.properties"
+            sed -i '/^[#]*rocksdb\.provider=/d' "$GRAPH_CONF"
+            echo "rocksdb.provider=rocksdb" >> "$GRAPH_CONF"
+          fi
+          echo "STANDARD_SERVER_DIR=hugegraph-server/apache-hugegraph-server-$VERSION" \
+            >> "$GITHUB_ENV"
           echo "SERVER_DIR=$SERVER_DIR" >> "$GITHUB_ENV"
 
-      - name: Prepare ${{ matrix.provider }} runtime
+      - name: Verify clean ToplingDB distribution
+        if: matrix.provider == 'topling'
+        env:
+          TOPLING_EXPECT_DIRTY_STANDARD: 'true'
         run: |
-          source "$TRAVIS_DIR/install-rocksdb.sh" server
+          "$TRAVIS_DIR/test-topling-distribution.sh" \
+            server "$STANDARD_SERVER_DIR" "$SERVER_DIR"
 
       - name: Select and test real ${{ matrix.provider }} runtime
         run: |
           source "$SERVER_DIR/bin/preload-topling.sh"
           "$TRAVIS_DIR/test-rocksdb-runtime.sh" \
               "${{ matrix.provider }}" "$SERVER_DIR"
+
+  topling-runtime-shell-test:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Test strict component-local runtime selection
+        run: hugegraph-server/hugegraph-dist/src/assembly/travis/test-topling-runtime-selection.sh
 
   wait-storage-shell-test:
     permissions:

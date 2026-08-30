@@ -9,7 +9,7 @@ DB/column-family lifecycle.
 
 ```text
 component configuration
-  -> install-rocksdb.sh prepares the runtime
+  -> component-local prepare-topling.sh prepares the runtime
   -> start script selects rocksdb or topling
   -> preload-topling.sh exports TOPLINGDB_EASY_MIGRATE_CONF
   -> JVM uses the existing RocksDB Java API
@@ -33,8 +33,9 @@ not on that Server process.
 
 ## Enable ToplingDB
 
-ToplingDB is opt-in. Set the provider in the component configuration, then
-prepare the runtime before starting the service.
+ToplingDB is opt-in. Use the Topling distribution or image for the component,
+set the provider in its configuration, then prepare the bundled runtime before
+starting the service.
 
 For Server:
 
@@ -45,15 +46,20 @@ rocksdb.provider=topling
 For PD or Store, set the corresponding `rocksdb.provider` value in its
 application YAML.
 
-Prepare the selected component runtime:
+Each Server, PD, and Store distribution carries the same runtime helpers. A
+Topling distribution additionally carries its component-local JAR under
+`lib/topling/`. Prepare that runtime without a source checkout:
 
 ```bash
-source hugegraph-server/hugegraph-dist/src/assembly/travis/install-rocksdb.sh server
-# or: pd / store
+bin/prepare-topling.sh
 ```
 
-The normal start script sources `preload-topling.sh`. For ToplingDB it validates
-the prepared files and exports:
+The standard distribution carries the helpers but no Topling JAR or native
+library. Selecting `topling` from a standard distribution therefore fails
+explicitly instead of falling back to RocksDB.
+
+The normal start script sources its own `bin/preload-topling.sh`. For ToplingDB
+it validates the prepared files and exports:
 
 ```bash
 TOPLINGDB_EASY_MIGRATE_CONF=/absolute/path/to/component/config.yaml
