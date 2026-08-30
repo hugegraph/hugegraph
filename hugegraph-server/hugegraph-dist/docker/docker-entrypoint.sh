@@ -277,7 +277,24 @@ fi
 
 PID=$(cat ./bin/pid 2>/dev/null || true)
 if [[ -n "$PID" ]]; then
-    trap 'kill -TERM "$PID" 2>/dev/null; while kill -0 "$PID" 2>/dev/null; do sleep 1; done; exit 0' TERM INT
+    # shellcheck disable=SC2329  # Invoked by the TERM/INT trap below.
+    shutdown_server() {
+        kill -TERM "$PID" 2>/dev/null || true
+        while kill -0 "$PID" 2>/dev/null; do
+            # kill -0 remains true for an unreaped zombie. Do not keep the
+            # container alive after the JVM has already completed shutdown.
+            if [[ -r "/proc/$PID/stat" ]]; then
+                PROCESS_STATE=$(awk '{ print $3 }' "/proc/$PID/stat" \
+                                2>/dev/null || true)
+                if [[ "$PROCESS_STATE" == "Z" ]]; then
+                    break
+                fi
+            fi
+            sleep 1
+        done
+        exit 0
+    }
+    trap shutdown_server TERM INT
     tail --pid="$PID" -f /dev/null
     exit 1
 fi

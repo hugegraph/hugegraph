@@ -38,6 +38,10 @@ backend=rocksdb
 EOF
 cat > "${TEST_HOME}/bin/start-hugegraph.sh" <<'EOF'
 #!/usr/bin/env bash
+if [[ "${START_TEST_CHILD:-false}" == "true" ]]; then
+    sleep 300 &
+    printf '%s\n' "$!" > ./bin/pid
+fi
 exit 0
 EOF
 cat > "${TEST_HOME}/bin/init-store.sh" <<'EOF'
@@ -280,5 +284,41 @@ rm -f "${TEST_HOME}/rocksdb-data/.hugegraph-state/init_complete"
     PASSWORD=-n bash ./docker-entrypoint.sh
 )
 grep -Fqx -- '-n' "${TEST_HOME}/docker/init-store-password"
+
+rm -f "${TEST_HOME}/bin/pid"
+(
+    cd "${TEST_HOME}"
+    exec setsid env \
+        START_TEST_CHILD=true \
+        HG_SERVER_BACKEND=hstore \
+        HG_SERVER_ROCKSDB_PROVIDER=rocksdb \
+        bash ./docker-entrypoint.sh
+) &
+entrypoint_pid=$!
+for _ in $(seq 1 10); do
+    [[ -s "${TEST_HOME}/bin/pid" ]] && break
+    sleep 1
+done
+[[ -s "${TEST_HOME}/bin/pid" ]]
+child_pid=$(<"${TEST_HOME}/bin/pid")
+kill -TERM -- "-${entrypoint_pid}"
+for _ in $(seq 1 15); do
+    ! kill -0 "${entrypoint_pid}" 2>/dev/null && break
+    sleep 1
+done
+if kill -0 "${entrypoint_pid}" 2>/dev/null; then
+    kill -KILL -- "-${entrypoint_pid}" 2>/dev/null || true
+    wait "${entrypoint_pid}" 2>/dev/null || true
+    echo "Docker entrypoint did not finish SIGTERM handling" >&2
+    exit 1
+fi
+if ! wait "${entrypoint_pid}"; then
+    echo "Docker entrypoint did not exit cleanly after SIGTERM" >&2
+    exit 1
+fi
+if kill -0 "${child_pid}" 2>/dev/null; then
+    echo "Docker entrypoint left its Server child running" >&2
+    exit 1
+fi
 
 echo "PASS: Docker entrypoint configures HStore discovery and authentication"
