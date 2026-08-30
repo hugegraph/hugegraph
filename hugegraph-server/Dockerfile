@@ -29,32 +29,17 @@ ARG SOURCE_REVISION=local
 
 RUN --mount=type=cache,id=hugegraph-maven-${SOURCE_REVISION},target=/root/.m2,sharing=locked \
     mvn install $MAVEN_ARGS -e -B -ntp -Dmaven.test.skip=true -Dmaven.javadoc.skip=true \
-    && rm ./hugegraph-server/*.tar.gz ./hugegraph-pd/*.tar.gz ./hugegraph-store/*.tar.gz
-
-# Prepare the optional ToplingDB runtime in a dedicated build target. The
-# regular Maven distribution intentionally excludes lib/topling/**.
-FROM build AS build-topling
-
-RUN apt-get -q update \
-    && apt-get -q install -y --no-install-recommends --no-install-suggests unzip \
-    && rm -rf /var/lib/apt/lists/* \
-    && SERVER_DIR=$(find /pkg/hugegraph-server -maxdepth 1 -type d \
-                     -name 'apache-hugegraph-server-*' -print -quit) \
-    && test -n "$SERVER_DIR" \
-    && mkdir -p "$SERVER_DIR/lib/topling" \
-    && cp /pkg/hugegraph-server/hugegraph-dist/src/assembly/static/lib/topling/rocksdbjni*.jar \
-          "$SERVER_DIR/lib/topling/" \
-    && printf '\nrocksdb.provider=topling\n' \
-          >> "$SERVER_DIR/conf/graphs/hugegraph.properties" \
-    && bash -c 'source hugegraph-server/hugegraph-dist/src/assembly/travis/install-rocksdb.sh server' \
-    && sed -i '/^rocksdb\.provider=topling$/d' \
-          "$SERVER_DIR/conf/graphs/hugegraph.properties"
+    && rm -f ./hugegraph-server/*.tar.gz ./hugegraph-pd/*.tar.gz ./hugegraph-store/*.tar.gz
 
 # Shared runtime environment
 # Note: ZGC (The Z Garbage Collector) is only supported on ARM-Mac with java > 13
 FROM eclipse-temurin:11-jre-noble AS runtime
 
-LABEL maintainer="HugeGraph Docker Maintainers <dev@hugegraph.apache.org>"
+ARG SOURCE_REPOSITORY=https://github.com/apache/hugegraph
+ARG SOURCE_REVISION=local
+LABEL maintainer="HugeGraph Docker Maintainers <dev@hugegraph.apache.org>" \
+      org.opencontainers.image.source="${SOURCE_REPOSITORY}" \
+      org.opencontainers.image.revision="${SOURCE_REVISION}"
 
 # TODO: use g1gc or zgc as default
 # Note: --add-exports is required for Java 11+ to access jdk.internal.reflect for auth proxy
@@ -66,7 +51,7 @@ WORKDIR /hugegraph-server/
 
 # 1. Install runtime dependencies and configure server
 # Note: iproute2 provides `ss`, which the bin/util.sh port preflight needs.  The
-# jammy base image ships neither ss nor netstat, so without it the preflight is
+# The base image ships neither ss nor netstat, so without it the preflight is
 # permanently inconclusive and a duplicate start is no longer caught.  It
 # replaces lsof, which no shipped script calls any more.
 RUN apt-get -q update \
@@ -75,6 +60,7 @@ RUN apt-get -q update \
        procps \
        curl \
        iproute2 \
+       util-linux \
        vim \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
@@ -93,30 +79,62 @@ HEALTHCHECK --interval=15s --timeout=10s --start-period=90s --retries=3 \
 ENTRYPOINT ["/usr/bin/dumb-init", "--"]
 CMD ["./docker-entrypoint.sh"]
 
-# ToplingDB image: contains both providers and selects ToplingDB by default.
-# Build with: docker build --platform linux/amd64 --target topling ...
-FROM runtime AS topling
+# Topling runtime packages. The current native library requires glibc 2.38+.
+FROM runtime AS topling-runtime
 
-COPY --from=build-topling /pkg/hugegraph-server/apache-hugegraph-server-*/ /hugegraph-server/
 RUN apt-get -q update \
     && apt-get -q install -y --no-install-recommends --no-install-suggests \
+       libaio1t64 \
        libbz2-1.0 \
+       libjemalloc2 \
        liblz4-1 \
        libsnappy1v5 \
+       liburing2 \
        zlib1g \
     && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Build the formal Server Topling distribution on Linux amd64.
+FROM topling-runtime AS build-topling
+
+COPY --from=build /pkg/ /pkg/
+WORKDIR /pkg
+RUN apt-get -q update \
+    && apt-get -q install -y --no-install-recommends --no-install-suggests \
+       rsync \
+       unzip \
+    && apt-get clean \
     && rm -rf /var/lib/apt/lists/* \
-    && cp /opt/hugegraph-docker/*.groovy ./scripts/ \
+    && SERVER_DIR=$(find /pkg/hugegraph-server -maxdepth 1 -type d \
+                     -name 'apache-hugegraph-server-*' ! -name '*-topling' \
+                     -print -quit) \
+    && test -n "$SERVER_DIR" \
+    && VERSION=${SERVER_DIR##*/apache-hugegraph-server-} \
+    && install-dist/scripts/build-topling-distribution.sh server "$VERSION"
+
+# ToplingDB image: contains both providers and selects ToplingDB by default.
+# Build with: docker build --platform linux/amd64 --target topling ...
+FROM topling-runtime AS topling
+
+LABEL org.apache.hugegraph.rocksdb-runtime="topling"
+COPY --from=build-topling /pkg/hugegraph-server/apache-hugegraph-server-*-topling/ /hugegraph-server/
+RUN cp /opt/hugegraph-docker/*.groovy ./scripts/ \
     && sed -i "s/^restserver.url.*$/restserver.url=http:\/\/0.0.0.0:8080/g" \
         ./conf/rest-server.properties
 ENV HG_SERVER_ROCKSDB_PROVIDER="topling"
-VOLUME /hugegraph-server
+ENV HG_SERVER_ENFORCE_PROVIDER_MARKER="true"
+RUN mkdir -p /hugegraph-server/rocksdb-data /hugegraph-server/topling-data
+VOLUME ["/hugegraph-server/rocksdb-data", "/hugegraph-server/topling-data"]
 
 # Keep the standard image as the final/default target for existing builds.
 FROM runtime AS standard
 
+LABEL org.apache.hugegraph.rocksdb-runtime="standard"
 COPY --from=build /pkg/hugegraph-server/apache-hugegraph-server-*/ /hugegraph-server/
 RUN cp /opt/hugegraph-docker/*.groovy ./scripts/ \
     && sed -i "s/^restserver.url.*$/restserver.url=http:\/\/0.0.0.0:8080/g" \
         ./conf/rest-server.properties
+ENV HG_SERVER_ROCKSDB_PROVIDER="rocksdb"
+# Preserve the historical root volume so existing anonymous-volume upgrades
+# continue to expose their data. New named-volume examples use rocksdb-data.
 VOLUME /hugegraph-server

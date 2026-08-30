@@ -73,6 +73,12 @@ source_preload() {
         "$COMPONENT_ROOT/bin/preload-topling.sh"
 }
 
+source_preload_override() {
+    TOPLINGDB_ROCKSDB_PROVIDER="$1" PATH="$FAKE_BIN:$PATH" \
+        bash -c 'source "$1"' _ \
+        "$COMPONENT_ROOT/bin/preload-topling.sh"
+}
+
 reset_fixture
 source_preload
 echo "PASS: unset provider selects standard RocksDB without Topling runtime"
@@ -82,6 +88,10 @@ printf '%s\n' 'rocksdb.provider=not-topling' \
 expect_failure "invalid provider" \
                "invalid rocksdb.provider 'not-topling'" \
                source_preload
+
+expect_failure "invalid provider override" \
+               "invalid TOPLINGDB_ROCKSDB_PROVIDER 'not-topling'" \
+               source_preload_override not-topling
 
 printf '%s\n' 'rocksdb.provider=rocksdb' \
     > "$COMPONENT_ROOT/conf/graphs/hugegraph.properties"
@@ -128,3 +138,20 @@ PATH="$FAKE_BIN:$PATH" bash -c '
     test "$TOPLING_ACTIVE_NATIVE" = "$2/library/librocksdbjni-linux64.so"
 ' _ "$COMPONENT_ROOT/bin/preload-topling.sh" "$COMPONENT_ROOT"
 echo "PASS: valid component-local Topling runtime is selected"
+
+printf '%s\n' 'rocksdb.provider=rocksdb' \
+    > "$COMPONENT_ROOT/conf/graphs/hugegraph.properties"
+TOPLINGDB_ROCKSDB_PROVIDER=topling PATH="$FAKE_BIN:$PATH" bash -c '
+    source "$1"
+    test "$TOPLING_RUNTIME_CLASSPATH" = "$2/lib/topling/rocksdbjni-topling.jar"
+' _ "$COMPONENT_ROOT/bin/preload-topling.sh" "$COMPONENT_ROOT"
+echo "PASS: provider override selects ToplingDB before JVM startup"
+
+printf '%s\n' 'rocksdb.provider=topling' \
+    > "$COMPONENT_ROOT/conf/graphs/hugegraph.properties"
+TOPLINGDB_ROCKSDB_PROVIDER=rocksdb PATH="$FAKE_BIN:$PATH" bash -c '
+    source "$1"
+    test -z "${TOPLING_RUNTIME_CLASSPATH:-}"
+    test -z "${TOPLINGDB_EASY_MIGRATE_CONF:-}"
+' _ "$COMPONENT_ROOT/bin/preload-topling.sh"
+echo "PASS: provider override selects standard RocksDB without Topling preload"

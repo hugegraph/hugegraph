@@ -59,7 +59,8 @@ if [ "${TOPLING_EXPECT_DIRTY_STANDARD:-false}" = "true" ]; then
     esac
 fi
 
-for helper in common-topling.sh prepare-topling.sh preload-topling.sh; do
+for helper in common-topling.sh prepare-topling.sh preload-topling.sh \
+              verify-rocksdb-provider.sh; do
     [ -x "$STANDARD_DIR/bin/$helper" ] ||
         fail "standard distribution is missing helper: $helper"
     [ -x "$TOPLING_DIR/bin/$helper" ] ||

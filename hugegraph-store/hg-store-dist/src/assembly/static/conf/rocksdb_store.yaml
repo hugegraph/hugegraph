@@ -19,7 +19,7 @@ http:
   # normally parent path of db path
   document_root: ./library/rocksdb_resource
   listening_ports: '127.0.0.1:2013'
-  auto_start_http: true
+  auto_start_http: false
 setenv:
   StrSimpleEnvNameNotOverwrite: StringValue
   IntSimpleEnvNameNotOverwrite: 16384

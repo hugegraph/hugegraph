@@ -60,9 +60,22 @@ public class ServerNodeWrapper extends AbstractNodeWrapper {
         createNodeDir(Paths.get(SERVER_TEMPLATE_PATH), getNodePath() + CONF_DIR + File.separator);
         configureGremlinPort(gremlinPort);
         this.fileNames = new ArrayList<>(List.of(EMPTY_SAMPLE_GROOVY_FILE, EXAMPLE_GROOVY_FILE));
-        this.startLine = "Channel started at port";
         createNodeDir(Paths.get(SERVER_PACKAGE_PATH), getNodePath());
         createLogDir();
+    }
+
+    @Override
+    public boolean isStarted() {
+        try {
+            List<String> lines = Files.readAllLines(Paths.get(this.getLogPath()));
+            boolean gremlinStarted = lines.stream().anyMatch(
+                    line -> line.contains("Channel started at port"));
+            boolean restStarted = lines.stream().anyMatch(
+                    line -> line.contains("RestServer started"));
+            return gremlinStarted && restStarted;
+        } catch (IOException ignored) {
+            return false;
+        }
     }
 
     private void configureGremlinPort(int gremlinPort) {

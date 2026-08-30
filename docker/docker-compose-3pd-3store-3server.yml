@@ -32,7 +32,7 @@ volumes:
 # ── Shared service defaults ──────────────────────────────────────────
 x-pd-common: &pd-common
   image: hugegraph/pd:${HUGEGRAPH_VERSION:-latest}
-  pull_policy: missing
+  pull_policy: ${HUGEGRAPH_PD_PULL_POLICY:-missing}
   restart: unless-stopped
   networks: [hg-net]
   healthcheck:
@@ -44,7 +44,7 @@ x-pd-common: &pd-common
 
 x-store-common: &store-common
   image: hugegraph/store:${HUGEGRAPH_VERSION:-latest}
-  pull_policy: missing
+  pull_policy: ${HUGEGRAPH_STORE_PULL_POLICY:-missing}
   restart: unless-stopped
   networks: [hg-net]
   depends_on:
@@ -60,7 +60,7 @@ x-store-common: &store-common
 
 x-server-common: &server-common
   image: hugegraph/server:${HUGEGRAPH_VERSION:-latest}
-  pull_policy: missing
+  pull_policy: ${HUGEGRAPH_SERVER_PULL_POLICY:-missing}
   restart: unless-stopped
   networks: [hg-net]
   depends_on:

@@ -90,7 +90,19 @@ detect_rocksdb_provider() {
     esac
 }
 
-PROVIDER=$(detect_rocksdb_provider "$COMPONENT_TOP/conf") || exit 1
+PROVIDER="${TOPLINGDB_ROCKSDB_PROVIDER:-}"
+if [ -n "$PROVIDER" ]; then
+    case "$PROVIDER" in
+        rocksdb | topling) ;;
+        *)
+            echo "Error: invalid TOPLINGDB_ROCKSDB_PROVIDER '$PROVIDER';" \
+                 "expected rocksdb or topling" >&2
+            exit 1
+            ;;
+    esac
+else
+    PROVIDER=$(detect_rocksdb_provider "$COMPONENT_TOP/conf") || exit 1
+fi
 
 remove_path_entry() {
     local value="${1:-}"
@@ -156,7 +168,7 @@ if [ "$PROVIDER" = "topling" ]; then
     NATIVE_LIBRARY="$DEST_DIR/librocksdbjni-linux64.so"
     if [ ! -r "$NATIVE_LIBRARY" ]; then
         echo "Error: prepared ToplingDB native library not found: $NATIVE_LIBRARY" >&2
-        echo "       Run install-rocksdb.sh for this component before startup." >&2
+        echo "       Run bin/prepare-topling.sh for this component before startup." >&2
         exit 1
     fi
     export LD_LIBRARY_PATH="$DEST_DIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"

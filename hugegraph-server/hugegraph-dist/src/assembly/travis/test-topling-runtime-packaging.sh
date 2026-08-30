@@ -50,7 +50,8 @@ fail() {
 
 reference_checksum=""
 for component_dir in "${COMPONENT_DIRS[@]}"; do
-    for helper in common-topling.sh prepare-topling.sh preload-topling.sh; do
+    for helper in common-topling.sh prepare-topling.sh preload-topling.sh \
+                  verify-rocksdb-provider.sh; do
         if [ ! -x "$component_dir/bin/$helper" ]; then
             fail "missing executable helper: $component_dir/bin/$helper"
         fi
@@ -79,10 +80,8 @@ for component_dir in "${COMPONENT_DIRS[@]}"; do
 
     fixture="$TEST_ROOT/$(basename "$component_dir")"
     cp -R "$component_dir" "$fixture"
-    mkdir -p "$fixture/conf/graphs"
-    printf '%s\n' 'rocksdb.provider=topling' \
-        > "$fixture/conf/graphs/provider-test.properties"
-    if PATH="$FAKE_BIN:$PATH" bash -c \
+    if TOPLINGDB_ROCKSDB_PROVIDER=topling \
+       PATH="$FAKE_BIN:$PATH" bash -c \
             'source "$1/bin/preload-topling.sh"' _ "$fixture" \
             > "$fixture/preload.out" 2>&1; then
         fail "standard artifact accepted Topling without a local runtime: $component_dir"

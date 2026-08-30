@@ -107,6 +107,36 @@ IMAGE_TAG=local docker buildx bake --file docker/bake.hcl --set '*.platform=linu
 
 These local commands can read existing Registry caches but do not publish images or write remote caches because `EXPORT_CACHE` defaults to `false`.
 
+Build the Linux x86_64 Topling deployment set by selecting the runtime variant.
+PD, Store, and standalone Server use their `topling` targets. The HStore Server
+remains free of a local Topling runtime.
+
+```bash
+RUNTIME_VARIANT=topling \
+IMAGE_TAG=topling \
+docker buildx bake --file docker/bake.hcl
+```
+
+Apply the Topling overlay after the development Compose file:
+
+```bash
+(
+  cd docker
+  export HUGEGRAPH_ADMIN_PASSWORD='replace-with-a-strong-password'
+  docker compose \
+    -f docker-compose.dev.yml \
+    -f docker-compose-topling.yml \
+    up -d --wait pd store server
+)
+```
+
+To use published candidates, also set
+`TOPLING_PD_IMAGE=hugegraph/pd:topling`,
+`TOPLING_STORE_IMAGE=hugegraph/store:topling`,
+`TOPLING_IMAGE_PULL_POLICY=always`,
+`HUGEGRAPH_SERVER_IMAGE=hugegraph/server:topling`, and
+`HUGEGRAPH_SERVER_PULL_POLICY=always`.
+
 ```bash
 (
   cd docker
@@ -228,7 +258,9 @@ Configuration is injected via environment variables. The old `docker/configs/app
 | `HG_PD_INITIAL_STORE_LIST` | Yes | — | `pd.initial-store-list` | Expected stores (e.g. `store0:8500,store1:8500,store2:8500`) |
 | `HG_PD_GRPC_PORT` | No | `8686` | `grpc.port` | gRPC server port |
 | `HG_PD_REST_PORT` | No | `8620` | `server.port` | REST API port |
-| `HG_PD_DATA_PATH` | No | `/hugegraph-pd/pd_data` | `pd.data-path` | Metadata storage path |
+| `HG_PD_ROCKSDB_PROVIDER` | No | Image default | `rocksdb.provider` | `rocksdb` or `topling`; Topling images default to `topling` |
+| `HG_PD_DATA_PATH` | No | Provider-specific path | `pd.data-path` | `/hugegraph-pd/pd_data` for RocksDB or `/hugegraph-pd/topling-pd-data` for ToplingDB |
+| `HG_PD_ENFORCE_PROVIDER_MARKER` | No | `false` | Startup safety gate | Rejects an unmarked non-empty data path when `true`; enabled by Topling images |
 | `HG_PD_INITIAL_STORE_COUNT` | No | `1` | `pd.initial-store-count` | Min stores for cluster availability |
 
 **Deprecated aliases** (still work but log a warning):
@@ -249,7 +281,9 @@ Configuration is injected via environment variables. The old `docker/configs/app
 | `HG_STORE_RAFT_ADDRESS` | Yes | — | `raft.address` | This node's Raft address (e.g. `store0:8510`) |
 | `HG_STORE_GRPC_PORT` | No | `8500` | `grpc.port` | gRPC server port |
 | `HG_STORE_REST_PORT` | No | `8520` | `server.port` | REST API port |
-| `HG_STORE_DATA_PATH` | No | `/hugegraph-store/storage` | `app.data-path` | Data storage path |
+| `HG_STORE_ROCKSDB_PROVIDER` | No | Image default | `rocksdb.provider` | `rocksdb` or `topling`; Topling images default to `topling` |
+| `HG_STORE_DATA_PATH` | No | Provider-specific path | `app.data-path` | `/hugegraph-store/storage` for RocksDB or `/hugegraph-store/topling-storage` for ToplingDB |
+| `HG_STORE_ENFORCE_PROVIDER_MARKER` | No | `false` | Startup safety gate | Rejects an unmarked non-empty data path when `true`; enabled by Topling images |
 
 **Deprecated aliases** (still work but log a warning):
 
@@ -265,6 +299,8 @@ Configuration is injected via environment variables. The old `docker/configs/app
 |----------|----------|---------|-----------------------------|-------------|
 | `HG_SERVER_BACKEND` | Yes | — | `backend` in `hugegraph.properties` | Storage backend (e.g. `hstore`) |
 | `HG_SERVER_ROCKSDB_PROVIDER` | No | Image/config default | `rocksdb.provider` | RocksDB JNI provider (`rocksdb` or `topling`); the Topling image defaults to `topling` |
+| `HG_SERVER_DATA_PATH` | No | Provider-specific image path | `rocksdb.data_path`, `rocksdb.wal_path` | RocksDB data root; standard uses `/hugegraph-server/rocksdb-data`, Topling uses `/hugegraph-server/topling-data` |
+| `HG_SERVER_ENFORCE_PROVIDER_MARKER` | No | `false` | Startup safety gate | Rejects an unmarked non-empty data root when `true`; enabled by the Topling image |
 | `HG_SERVER_PD_PEERS` | Yes | — | `pd.peers` | PD cluster addresses (e.g. `pd0:8686,pd1:8686,pd2:8686`) |
 | `HG_SERVER_CLUSTER` | No | — | `cluster` in `rest-server.properties` | PD discovery application name; single-node Compose uses `hg` to match Hubble |
 | `HG_SERVER_USE_PD` | No | — | `usePD` in `rest-server.properties` | Enables Server PD registration and discovery |
@@ -277,7 +313,7 @@ Configuration is injected via environment variables. The old `docker/configs/app
 
 > **The built-in authenticator with `HG_SERVER_INIT_STORE_ENABLED=false` requires `usePD=true` and an HStore-backed `auth.graph_store`, unless `auth.remote_url` delegates auth elsewhere.** With init-store skipped, the server creates the built-in admin in PD metadata, and only an HStore auth graph uses the PD-backed auth manager that can read that account. init-store exits non-zero when the combination is unusable, rather than leaving a server nobody can log in to. A custom `auth.authenticator` is exempt because it manages its own identities.
 >
-> `docker/init_complete` is written by init-store itself, and only after it has initialized. A skipped run therefore records nothing, whether it was disabled by the variable or by the property in a mounted `rest-server.properties`, so a later re-enable is still able to initialize. The marker only short-circuits re-initialization: init-store runs on every container start, and a disabled one performs the fail-closed check above first, so a marker left by an earlier release or an earlier enabled run cannot bypass it.
+> For a local RocksDB backend, init-store writes its completion marker below the provider data root at `.hugegraph-state/init_complete`. The marker therefore survives container recreation with the data volume. A standard RocksDB deployment migrates the legacy `docker/init_complete` marker once. HStore keeps the existing container-local marker behavior. A skipped run records nothing, so a later re-enable can still initialize.
 >
 > The entrypoint maps **`PASSWORD` to `auth.admin_pa`** before init-store runs. A disabled init-store does not read the password from standard input, but the PD startup path uses the explicit `auth.admin_pa` value when it first creates the administrator. Changing it later does not rotate an existing password.
 

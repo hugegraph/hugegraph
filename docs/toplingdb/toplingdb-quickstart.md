@@ -20,9 +20,82 @@ and Store data with `app.data-path` in `conf/application.yml`.
 
 ## Prerequisites
 
-Build on Linux x86_64 with Java 11+, Maven 3.5+, `rsync`, `unzip`, `tar`, and
-the native packages required by the bundled Topling library. The preparation
-script reports any unresolved dependency and stops.
+Topling images and distributions currently support Linux x86_64 only. The
+native packages required by the bundled library are installed in the images.
+The preparation script reports any unresolved dependency and stops.
+
+## Docker Images
+
+The `topling` image tag names one compatible deployment set:
+
+| Image | Role |
+|---|---|
+| `hugegraph/hugegraph:topling` | Standalone Server with local ToplingDB |
+| `hugegraph/pd:topling` | PD metadata on ToplingDB |
+| `hugegraph/store:topling` | Store data on ToplingDB |
+| `hugegraph/server:topling` | HStore Server without a local Topling runtime |
+
+Run the standalone image with its provider-specific data volume:
+
+```bash
+docker volume create hugegraph-topling-data
+docker run -d \
+  --pull always \
+  --platform linux/amd64 \
+  --name hugegraph-topling \
+  -p 8080:8080 \
+  -v hugegraph-topling-data:/hugegraph-server/topling-data \
+  hugegraph/hugegraph:topling
+
+curl --fail http://127.0.0.1:8080/versions
+```
+
+Run a source-checkout 1+1+1 HStore stack with the published images:
+
+```bash
+export HUGEGRAPH_ADMIN_PASSWORD='replace-with-a-strong-password'
+export HUGEGRAPH_SERVER_IMAGE='hugegraph/server:topling'
+export HUGEGRAPH_SERVER_PULL_POLICY='always'
+export TOPLING_PD_IMAGE='hugegraph/pd:topling'
+export TOPLING_STORE_IMAGE='hugegraph/store:topling'
+export TOPLING_IMAGE_PULL_POLICY='always'
+
+docker compose \
+  -f docker/docker-compose.dev.yml \
+  -f docker/docker-compose-topling.yml \
+  up -d --wait pd store server
+```
+
+The overlay mounts separate Topling volumes for PD and Store. The HStore Server
+does not load a local Topling library.
+
+For a published 3+3+3 stack, select all three deployment images explicitly:
+
+```bash
+export HUGEGRAPH_VERSION=topling
+export HUGEGRAPH_SERVER_PULL_POLICY=always
+export TOPLING_PD_IMAGE=hugegraph/pd:topling
+export TOPLING_STORE_IMAGE=hugegraph/store:topling
+export TOPLING_IMAGE_PULL_POLICY=always
+
+docker compose \
+  -f docker/docker-compose-3pd-3store-3server.yml \
+  -f docker/docker-compose-3pd-3store-3server-topling.yml \
+  up -d --wait
+```
+
+`HUGEGRAPH_VERSION=topling` selects the compatible HStore Server image.
+Each PD and Store instance receives a distinct Topling volume. For local Bake
+images, use the same variables with the tags produced by `docker/bake.hcl`.
+
+The `topling` tag is mutable. The commands above force a pull so a cached image
+cannot silently stand in for the current deployment set. Pin the registry
+digest when an exact build must be reproduced, and verify the image source,
+revision, and runtime labels during acceptance.
+
+## Build Distributions from Source
+
+Build on Linux x86_64 with Java 11+, Maven 3.5+, `rsync`, `unzip`, and `tar`.
 
 ```bash
 git clone https://github.com/hugegraph/hugegraph.git
@@ -59,6 +132,26 @@ library/librocksdbjni-linux64.so
 
 The generator selects `provider=topling` and prepares the native runtime. Run
 `bin/prepare-topling.sh` again after replacing the bundled Topling JAR.
+
+## Provider Data Markers
+
+Docker entrypoints validate `.hugegraph-rocksdb-provider` before starting a
+JVM. The marker records the component and provider. A mismatched marker always
+stops startup. Topling also rejects an unmarked, non-empty data directory.
+The configured data root must already exist as a real directory; mount or
+create it before startup. Symlinked path components are rejected.
+
+Standard RocksDB accepts an existing unmarked directory for backward
+compatibility. New deployments should still use the image defaults:
+
+| Component | Standard data root | Topling data root |
+|---|---|---|
+| Server | `/hugegraph-server/rocksdb-data` | `/hugegraph-server/topling-data` |
+| PD | `/hugegraph-pd/pd_data` | `/hugegraph-pd/topling-pd-data` |
+| Store | `/hugegraph-store/storage` | `/hugegraph-store/topling-storage` |
+
+The marker prevents accidental reuse. It does not convert data between
+providers.
 
 ## Standalone Server
 

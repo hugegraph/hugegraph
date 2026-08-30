@@ -66,6 +66,14 @@
             <destName>preload-topling.sh</destName>
             <fileMode>0755</fileMode>
         </file>
+        <file>
+            <source>
+                ${project.basedir}/../../hugegraph-server/hugegraph-dist/src/assembly/static/bin/verify-rocksdb-provider.sh
+            </source>
+            <outputDirectory>bin</outputDirectory>
+            <destName>verify-rocksdb-provider.sh</destName>
+            <fileMode>0755</fileMode>
+        </file>
     </files>
 
     <dependencySets>

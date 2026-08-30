@@ -1,0 +1,77 @@
+#
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
+# Apply this file after docker-compose-3pd-3store-3server.yml. Build the
+# local/hugegraph-{pd,store}:topling images before starting the stack.
+name: hugegraph-3x3-topling
+
+volumes:
+  hg-pd0-topling-data:
+  hg-pd1-topling-data:
+  hg-pd2-topling-data:
+  hg-store0-topling-data:
+  hg-store1-topling-data:
+  hg-store2-topling-data:
+
+x-topling-pd: &topling-pd
+  image: ${TOPLING_PD_IMAGE:-local/hugegraph-pd:topling}
+  platform: linux/amd64
+  pull_policy: ${TOPLING_IMAGE_PULL_POLICY:-never}
+  environment:
+    HG_PD_ROCKSDB_PROVIDER: topling
+    HG_PD_DATA_PATH: /hugegraph-pd/topling-pd-data
+    HG_PD_ENFORCE_PROVIDER_MARKER: "true"
+
+x-topling-store: &topling-store
+  image: ${TOPLING_STORE_IMAGE:-local/hugegraph-store:topling}
+  platform: linux/amd64
+  pull_policy: ${TOPLING_IMAGE_PULL_POLICY:-never}
+  environment:
+    HG_STORE_ROCKSDB_PROVIDER: topling
+    HG_STORE_DATA_PATH: /hugegraph-store/topling-storage
+    HG_STORE_ENFORCE_PROVIDER_MARKER: "true"
+
+services:
+  pd0:
+    <<: *topling-pd
+    volumes:
+      - hg-pd0-topling-data:/hugegraph-pd/topling-pd-data
+
+  pd1:
+    <<: *topling-pd
+    volumes:
+      - hg-pd1-topling-data:/hugegraph-pd/topling-pd-data
+
+  pd2:
+    <<: *topling-pd
+    volumes:
+      - hg-pd2-topling-data:/hugegraph-pd/topling-pd-data
+
+  store0:
+    <<: *topling-store
+    volumes:
+      - hg-store0-topling-data:/hugegraph-store/topling-storage
+
+  store1:
+    <<: *topling-store
+    volumes:
+      - hg-store1-topling-data:/hugegraph-store/topling-storage
+
+  store2:
+    <<: *topling-store
+    volumes:
+      - hg-store2-topling-data:/hugegraph-store/topling-storage

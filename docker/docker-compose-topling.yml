@@ -1,0 +1,55 @@
+#
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
+# Apply this file after docker-compose.dev.yml. It replaces only the local
+# RocksDB owners. The HStore Server stays on Dockerfile-hstore.
+name: hugegraph-single-topling
+
+volumes:
+  hg-pd-topling-data:
+  hg-store-topling-data:
+
+services:
+  pd:
+    image: ${TOPLING_PD_IMAGE:-local/hugegraph-pd:topling}
+    pull_policy: ${TOPLING_IMAGE_PULL_POLICY:-build}
+    platform: linux/amd64
+    build:
+      context: ..
+      dockerfile: hugegraph-pd/Dockerfile
+      target: topling
+    environment:
+      HG_PD_ROCKSDB_PROVIDER: topling
+      HG_PD_DATA_PATH: /hugegraph-pd/topling-pd-data
+      HG_PD_ENFORCE_PROVIDER_MARKER: "true"
+    volumes:
+      - hg-pd-topling-data:/hugegraph-pd/topling-pd-data
+
+  store:
+    image: ${TOPLING_STORE_IMAGE:-local/hugegraph-store:topling}
+    pull_policy: ${TOPLING_IMAGE_PULL_POLICY:-build}
+    platform: linux/amd64
+    build:
+      context: ..
+      dockerfile: hugegraph-store/Dockerfile
+      target: topling
+    environment:
+      HG_STORE_ROCKSDB_PROVIDER: topling
+      HG_STORE_DATA_PATH: /hugegraph-store/topling-storage
+      HG_STORE_ENFORCE_PROVIDER_MARKER: "true"
+    volumes:
+      - hg-store-topling-data:/hugegraph-store/topling-storage

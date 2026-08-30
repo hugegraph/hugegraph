@@ -45,6 +45,11 @@ The `-topling` image selects ToplingDB by default. Set
 `HG_SERVER_ROCKSDB_PROVIDER=rocksdb` to use the standard RocksDB provider from
 the same image. ToplingDB currently supports only Linux x86-64. Do not switch
 an existing data volume between providers without a supported migration.
+Before changing providers, stop writes and take a verified snapshot of the
+current volume. Start the target provider with a new empty volume, or restore a
+snapshot that was created by that provider. A provider setting change is not a
+data migration; never mount a ToplingDB data directory into standard RocksDB
+for rollback.
 
 ## 2. Create Sample Graph on Server Startup
 

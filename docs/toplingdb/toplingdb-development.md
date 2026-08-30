@@ -33,6 +33,8 @@ startup. PD and Store never search a neighboring Server distribution.
 | PD Easy Migrate YAML | `hugegraph-pd/hg-pd-dist/src/assembly/static/conf/rocksdb_pd.yaml` |
 | Store Easy Migrate YAML | `hugegraph-store/hg-store-dist/src/assembly/static/conf/rocksdb_store.yaml` |
 | Topling distribution generator | `install-dist/scripts/build-topling-distribution.sh` |
+| Provider data marker | `hugegraph-server/hugegraph-dist/src/assembly/static/bin/verify-rocksdb-provider.sh` |
+| Docker build graph | `docker/bake.hcl` |
 | Focused shell tests | `hugegraph-server/hugegraph-dist/src/assembly/travis/test-topling-*.sh` |
 
 The PD and Store assembly descriptors copy the canonical helper scripts into
@@ -104,6 +106,7 @@ Run the platform-independent selection and packaging tests first:
 TRAVIS_DIR=hugegraph-server/hugegraph-dist/src/assembly/travis
 
 "$TRAVIS_DIR/test-topling-runtime-selection.sh"
+"$TRAVIS_DIR/test-topling-docker-entrypoints.sh"
 "$TRAVIS_DIR/test-topling-runtime-packaging.sh" \
   "hugegraph-server/apache-hugegraph-server-$VERSION" \
   "hugegraph-pd/apache-hugegraph-pd-$VERSION" \
@@ -124,10 +127,13 @@ On Linux x86_64, validate each generated Topling distribution:
 ```
 
 Repeat the distribution and runtime checks for PD and Store. The CI jobs
-`server-rocksdb-runtime` and `distributed-rocksdb-runtime` run a matrix across
-standard RocksDB and ToplingDB. They also contaminate the standard build with
-known runtime-state fixtures and verify that the Topling directory and tarball
-remain clean.
+`server-rocksdb-runtime` and `distributed-rocksdb-runtime` build a matrix across
+standard RocksDB and ToplingDB. Standard runtime checks and both distribution
+contracts are required. The synthetic Topling column-family lifecycle check is
+reported as a non-blocking diagnostic for issue #212; image-backed service
+lifecycle tests remain required. The jobs also contaminate the standard build
+with known runtime-state fixtures and verify that the Topling directory and
+tarball remain clean.
 
 Run repository checks before pushing:
 
@@ -140,28 +146,48 @@ git diff --check
 Use ShellCheck on each changed shell script. Existing warnings in untouched
 lines do not justify unrelated cleanup in a Topling change.
 
-## Docker Status
+## Docker Images
 
-The Server Dockerfile has a `topling` target:
+Server, PD, and Store Dockerfiles have explicit `standard` and `topling`
+targets. Build the complete Topling deployment set with Bake:
 
 ```bash
-docker build \
-  --platform linux/amd64 \
-  --target topling \
-  -t hugegraph-server:topling \
-  -f hugegraph-server/Dockerfile .
+RUNTIME_VARIANT=topling \
+IMAGE_TAG=topling \
+docker buildx bake --file docker/bake.hcl
 ```
 
-The image selects Topling with `HG_SERVER_ROCKSDB_PROVIDER=topling`. Test the
-native mapping and a real Server lifecycle before publishing an image.
-
-PD and Store do not yet have independent Topling image targets in this branch.
-Use their Topling distributions until those targets pass component-local JNI,
-health, stop, restart, and persistence tests. Do not relabel the standard PD or
-Store image as a Topling image.
+The Topling variant is Linux x86_64 only. It builds
+`hugegraph/hugegraph`, `hugegraph/pd`, and `hugegraph/store` from their
+`topling` targets. `hugegraph/server` remains the standard HStore Server and
+receives the same tag as the compatible deployment set.
 
 An HStore Server image remains free of a local Topling JAR and native library.
 PD and Store own their local runtime.
+
+Published candidates carry `org.opencontainers.image.source`,
+`org.opencontainers.image.revision`, and
+`org.apache.hugegraph.rocksdb-runtime` labels. Verify the exact source commit
+before accepting a mutable deployment tag:
+
+```bash
+docker image inspect hugegraph/hugegraph:topling \
+  --format '{{json .Config.Labels}}'
+```
+
+Run the single-node or 3+3+3 Topling Compose overlay after the corresponding
+base file. Local development defaults to `local/hugegraph-{pd,store}:topling`.
+Set `TOPLING_PD_IMAGE`, `TOPLING_STORE_IMAGE`, and
+`TOPLING_IMAGE_PULL_POLICY=always` to test published PD and Store candidates.
+Also set `HUGEGRAPH_SERVER_IMAGE=hugegraph/server:topling` and
+`HUGEGRAPH_SERVER_PULL_POLICY=always` for the matching HStore Server.
+
+Every local RocksDB owner uses a provider-specific data root. The entrypoint
+validates `.hugegraph-rocksdb-provider` before it mutates configuration or
+starts Java. Topling rejects unmarked non-empty data. Standard RocksDB accepts
+legacy unmarked data, but rejects a Topling marker. The helper rejects symlinked
+path components and serializes marker initialization on a pinned directory
+inode.
 
 ## Native Runtime Changes
 
@@ -175,9 +201,12 @@ When replacing `rocksdbjni*.jar`:
 5. Record the JAR SHA-256 and the exact source and toolchain evidence available.
 
 Issue [#212](https://github.com/hugegraph/hugegraph/issues/212) tracks native
-DB/column-family lifecycle behavior. A synthetic assertion may be separated
-from required CI only after real Server, PD, Store, and HStore lifecycle tests
-pass. ABI loading or `ldd` output cannot establish service correctness.
+DB/column-family lifecycle behavior. Real Server and 1+1+1 HStore tests must
+cover CRUD, clean HugeGraph transaction close, container recreation, and
+persistence. The current native runtime can still report a SidePluginRepo
+bookkeeping warning after HugeGraph closes successfully. Keep that upstream
+evidence separate from the provider-selection and data-isolation gates. ABI
+loading or `ldd` output cannot establish service correctness.
 
 ## Review Boundaries
 

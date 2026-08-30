@@ -90,12 +90,55 @@ migrate_env() {
 migrate_env "BACKEND"  "HG_SERVER_BACKEND"
 migrate_env "PD_PEERS" "HG_SERVER_PD_PEERS"
 
-ROCKSDB_PROVIDER="${HG_SERVER_ROCKSDB_PROVIDER:-}"
+ROCKSDB_PROVIDER="${HG_SERVER_ROCKSDB_PROVIDER:-rocksdb}"
 case "${ROCKSDB_PROVIDER}" in
-    "" | rocksdb | topling) ;;
+    rocksdb | topling) ;;
     *) log "ERROR: HG_SERVER_ROCKSDB_PROVIDER must be rocksdb or topling"
        exit 1 ;;
 esac
+
+REQUESTED_BACKEND="${HG_SERVER_BACKEND:-$(get_prop_encoded "backend" "${GRAPH_CONF}")}"
+if [[ "${REQUESTED_BACKEND}" == "hstore" ]]; then
+    TOPLING_JAR=$(find ./lib -path '*/topling/rocksdbjni*.jar' \
+                       -print -quit 2>/dev/null || true)
+    if [[ "${ROCKSDB_PROVIDER}" == "topling" ]]; then
+        log "ERROR: an HStore Server cannot select a local ToplingDB runtime"
+        exit 1
+    fi
+    if [[ -n "${TOPLING_JAR}" ||
+          -e ./library/librocksdbjni-linux64.so ]]; then
+        log "ERROR: an HStore Server image must not contain a local" \
+            "ToplingDB runtime"
+        exit 1
+    fi
+fi
+
+if [[ -n "${HG_SERVER_DATA_PATH:-}" ]]; then
+    ROCKSDB_DATA_ROOT="${HG_SERVER_DATA_PATH}"
+elif [[ "${ROCKSDB_PROVIDER}" == "topling" ]]; then
+    ROCKSDB_DATA_ROOT="$(pwd)/topling-data"
+else
+    ROCKSDB_DATA_ROOT="$(pwd)/rocksdb-data"
+fi
+ENFORCE_PROVIDER_MARKER="${HG_SERVER_ENFORCE_PROVIDER_MARKER:-false}"
+case "${ENFORCE_PROVIDER_MARKER}" in
+    true | false) ;;
+    *) log "ERROR: HG_SERVER_ENFORCE_PROVIDER_MARKER must be true or false"
+       exit 1 ;;
+esac
+if [[ "${REQUESTED_BACKEND}" == "rocksdb" ]]; then
+    ./bin/verify-rocksdb-provider.sh server "${ROCKSDB_PROVIDER}" \
+        "${ROCKSDB_DATA_ROOT}" "${ENFORCE_PROVIDER_MARKER}"
+    LEGACY_INIT_MARKER="${DOCKER_FOLDER}/${INIT_FLAG_FILE}"
+    DOCKER_FOLDER="${ROCKSDB_DATA_ROOT}/.hugegraph-state"
+    mkdir -p "${DOCKER_FOLDER}"
+    if [[ "${ROCKSDB_PROVIDER}" == "rocksdb" &&
+          -f "${LEGACY_INIT_MARKER}" &&
+          ! -e "${DOCKER_FOLDER}/${INIT_FLAG_FILE}" ]]; then
+        cp "${LEGACY_INIT_MARKER}" "${DOCKER_FOLDER}/${INIT_FLAG_FILE}"
+        log "migrated the legacy RocksDB initialization marker"
+    fi
+fi
 
 if [[ -n "${HG_SERVER_AUTH_TOKEN_SECRET:-}" ]]; then
     LC_ALL=C
@@ -124,8 +167,11 @@ fi
 
 # ── Map env → properties file ─────────────────────────────────────────
 [[ -n "${HG_SERVER_BACKEND:-}"  ]] && set_prop "backend"  "${HG_SERVER_BACKEND}"  "${GRAPH_CONF}"
-[[ -n "${ROCKSDB_PROVIDER}" ]] && \
-    set_prop "rocksdb.provider" "${ROCKSDB_PROVIDER}" "${GRAPH_CONF}"
+set_prop "rocksdb.provider" "${ROCKSDB_PROVIDER}" "${GRAPH_CONF}"
+if [[ "${REQUESTED_BACKEND}" == "rocksdb" ]]; then
+    set_prop "rocksdb.data_path" "${ROCKSDB_DATA_ROOT}/data" "${GRAPH_CONF}"
+    set_prop "rocksdb.wal_path" "${ROCKSDB_DATA_ROOT}/wal" "${GRAPH_CONF}"
+fi
 [[ -n "${HG_SERVER_PD_PEERS:-}" ]] && set_prop "pd.peers" "${HG_SERVER_PD_PEERS}" "${GRAPH_CONF}"
 [[ -n "${HG_SERVER_USE_PD:-}" ]] && \
     set_prop "usePD" "${HG_SERVER_USE_PD}" "${REST_SERVER_CONF}"

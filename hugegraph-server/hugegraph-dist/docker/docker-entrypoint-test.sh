@@ -22,7 +22,10 @@ TEST_HOME=$(mktemp -d "${TMPDIR:-/tmp}/hugegraph-entrypoint-test.XXXXXX")
 trap 'rm -rf "${TEST_HOME}"' EXIT
 
 mkdir -p "${TEST_HOME}/bin" "${TEST_HOME}/conf/graphs" "${TEST_HOME}/docker"
+mkdir -p "${TEST_HOME}/rocksdb-data"
 cp "${SCRIPT_DIR}/docker-entrypoint.sh" "${TEST_HOME}/docker-entrypoint.sh"
+cp "${SCRIPT_DIR}/../src/assembly/static/bin/verify-rocksdb-provider.sh" \
+    "${TEST_HOME}/bin/verify-rocksdb-provider.sh"
 touch "${TEST_HOME}/docker/init_complete"
 
 cat > "${TEST_HOME}/conf/rest-server.properties" <<'EOF'
@@ -61,7 +64,7 @@ chmod +x "${TEST_HOME}/bin/"*.sh
 (
     cd "${TEST_HOME}"
     HG_SERVER_BACKEND=hstore \
-    HG_SERVER_ROCKSDB_PROVIDER=topling \
+    HG_SERVER_ROCKSDB_PROVIDER=rocksdb \
     HG_SERVER_PD_PEERS=pd:8686 \
     HG_SERVER_CLUSTER=hg \
     HG_SERVER_USE_PD=true \
@@ -73,7 +76,7 @@ chmod +x "${TEST_HOME}/bin/"*.sh
 [[ "$(wc -l < "${TEST_HOME}/docker/init-store-calls")" -eq 1 ]]
 
 grep -qx 'backend=hstore' "${TEST_HOME}/conf/graphs/hugegraph.properties"
-grep -qx 'rocksdb.provider=topling' \
+grep -qx 'rocksdb.provider=rocksdb' \
     "${TEST_HOME}/conf/graphs/hugegraph.properties"
 grep -qx 'pd.peers=pd:8686' "${TEST_HOME}/conf/graphs/hugegraph.properties"
 grep -qx 'usePD=true' "${TEST_HOME}/conf/rest-server.properties"
@@ -89,6 +92,36 @@ grep -qx 'auth.token_secret=12345678901234567890123456789012' \
     "${TEST_HOME}/conf/graphs/hugegraph.properties"
 
 cp "${TEST_HOME}/conf/graphs/hugegraph.properties" \
+    "${TEST_HOME}/conf/graphs/hugegraph.properties.before-hstore-topling"
+if (
+    cd "${TEST_HOME}"
+    HG_SERVER_BACKEND=hstore \
+    HG_SERVER_ROCKSDB_PROVIDER=topling \
+        bash ./docker-entrypoint.sh
+); then
+    echo "HStore Server unexpectedly selected a local Topling provider" >&2
+    exit 1
+fi
+cmp "${TEST_HOME}/conf/graphs/hugegraph.properties.before-hstore-topling" \
+    "${TEST_HOME}/conf/graphs/hugegraph.properties"
+
+mkdir -p "${TEST_HOME}/lib/topling" "${TEST_HOME}/library" \
+         "${TEST_HOME}/topling-data"
+touch "${TEST_HOME}/lib/topling/rocksdbjni-topling.jar"
+touch "${TEST_HOME}/library/librocksdbjni-linux64.so"
+if (
+    cd "${TEST_HOME}"
+    HG_SERVER_BACKEND=hstore \
+    HG_SERVER_ROCKSDB_PROVIDER=rocksdb \
+        bash ./docker-entrypoint.sh
+); then
+    echo "HStore Server unexpectedly accepted a local Topling payload" >&2
+    exit 1
+fi
+rm -f "${TEST_HOME}/lib/topling/rocksdbjni-topling.jar"
+rm -f "${TEST_HOME}/library/librocksdbjni-linux64.so"
+
+cp "${TEST_HOME}/conf/graphs/hugegraph.properties" \
     "${TEST_HOME}/conf/graphs/hugegraph.properties.before-invalid-provider"
 if (
     cd "${TEST_HOME}"
@@ -98,6 +131,36 @@ if (
     exit 1
 fi
 cmp "${TEST_HOME}/conf/graphs/hugegraph.properties.before-invalid-provider" \
+    "${TEST_HOME}/conf/graphs/hugegraph.properties"
+
+(
+    cd "${TEST_HOME}"
+    HG_SERVER_BACKEND=rocksdb \
+    HG_SERVER_ROCKSDB_PROVIDER=topling \
+    HG_SERVER_ENFORCE_PROVIDER_MARKER=true \
+        bash ./docker-entrypoint.sh
+)
+grep -qx "rocksdb.data_path=${TEST_HOME}/topling-data/data" \
+    "${TEST_HOME}/conf/graphs/hugegraph.properties"
+grep -qx "rocksdb.wal_path=${TEST_HOME}/topling-data/wal" \
+    "${TEST_HOME}/conf/graphs/hugegraph.properties"
+grep -Fqx 'component=server' \
+    "${TEST_HOME}/topling-data/.hugegraph-rocksdb-provider"
+grep -Fqx 'provider=topling' \
+    "${TEST_HOME}/topling-data/.hugegraph-rocksdb-provider"
+cp "${TEST_HOME}/conf/graphs/hugegraph.properties" \
+    "${TEST_HOME}/conf/graphs/hugegraph.properties.before-provider-mismatch"
+if (
+    cd "${TEST_HOME}"
+    HG_SERVER_BACKEND=rocksdb \
+    HG_SERVER_ROCKSDB_PROVIDER=rocksdb \
+    HG_SERVER_DATA_PATH="${TEST_HOME}/topling-data" \
+        bash ./docker-entrypoint.sh
+); then
+    echo "provider-mismatched Server data path unexpectedly succeeded" >&2
+    exit 1
+fi
+cmp "${TEST_HOME}/conf/graphs/hugegraph.properties.before-provider-mismatch" \
     "${TEST_HOME}/conf/graphs/hugegraph.properties"
 
 cp "${TEST_HOME}/conf/rest-server.properties" \
@@ -162,7 +225,7 @@ sed -i "s|^auth\\.token_secret=.*|auth.token_secret  ${rest_secret}|" \
 grep -qx "auth.token_secret=${rest_secret}" \
     "${TEST_HOME}/conf/rest-server.properties"
 
-[[ "$(wc -l < "${TEST_HOME}/docker/init-store-calls")" -eq 5 ]]
+[[ "$(wc -l < "${TEST_HOME}/docker/init-store-calls")" -eq 6 ]]
 [[ "$(wc -l < "${TEST_HOME}/docker/enable-auth-calls")" -eq 4 ]]
 
 (
@@ -211,6 +274,7 @@ grep -Fqx 'auth.admin_pa=Strong\\Pass\ 9!' \
     "${TEST_HOME}/conf/rest-server.properties"
 
 rm -f "${TEST_HOME}/docker/init_complete"
+rm -f "${TEST_HOME}/rocksdb-data/.hugegraph-state/init_complete"
 (
     cd "${TEST_HOME}"
     PASSWORD=-n bash ./docker-entrypoint.sh
