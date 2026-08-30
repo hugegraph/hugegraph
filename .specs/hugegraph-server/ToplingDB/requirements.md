@@ -1,35 +1,48 @@
-# Requirements of ToplingDB
+# Requirements of ToplingDB Easy Migrate
 
-## Introduction
+## Runtime Compatibility
 
-RocksDB is the primary standalone/distributed backend storage engine planned for HugeGraph.
-However, the current `rocksdb-jni` design makes it difficult for HugeGraph to dynamically modify or adjust RocksDB parameters, resulting in limited flexibility and extensive hard-coding logic.
+HugeGraph must support standard RocksDB by default and an explicitly selected
+ToplingDB runtime without changing the RocksDB Java API used by Server, PD, or
+Store.
 
-To improve performance, functionality, and usability, HugeGraph introduces `ToplingDB` as an optional enhancement.
-It allows users to configure RocksDB parameters via external configuration files and visualize storage engine status through a built-in Web Server.
+Acceptance criteria:
 
-## Requirement List
+- ToplingDB is selected only by component configuration.
+- Missing or unreadable Easy Migrate configuration fails ToplingDB startup.
+- Standard RocksDB does not require an Easy Migrate configuration.
+- No HugeGraph Java code creates or manages a `SidePluginRepo`.
 
-### 1. Support ToplingDB while maintaining compatibility with RocksDB
+## External Configuration
 
-**User Story**: As a long-term user, I want the system to support the enhanced features of ToplingDB without affecting existing RocksDB functionality or data compatibility.
+The startup layer must set `TOPLINGDB_EASY_MIGRATE_CONF` to the configuration
+for the component that owns RocksDB. The native hook must apply the YAML
+options to normal RocksDB open and column-family operations.
 
-**Acceptance Criteria**: Users can choose between RocksDB and ToplingDB via configuration files or startup parameters.
+`DBOptions.default` remains the fallback for unmatched databases.
+`DBOptions.log` remains a separate specialized mapping.
 
-### 2. Support configuring RocksDB parameters via external configuration files
+## Component Ownership
 
-**User Story**: As a user, I want to adjust storage engine parameters based on my business needs and hardware environment to optimize database performance.
+Standalone Server, PD, and Store may own local RocksDB instances. A Server
+using the HStore backend is a remote client and must not be described as
+opening a local RocksDB instance.
 
-**Acceptance Criteria**: The system supports passing configuration files to customize RocksDB parameters.
+## Graceful Shutdown
 
-### 3. Support runtime observability of the RocksDB storage engine
+SIGTERM must enter the existing HugeGraph, PD, or Store graceful shutdown,
+which closes column families and databases through the normal RocksDB API.
+Easy Migrate then releases native tracking through `MaybeForgetCF` and
+`MaybeForgetDB`.
 
-**User Story**: As a system operator, I want clear and intuitive visibility into RocksDB configuration and runtime status.
+No operation or test may require `SidePluginRepo.closeAllDB()`. The existing
+bounded Store shutdown timeout remains a general lifecycle boundary, not a
+ToplingDB-specific cleanup mechanism.
 
-**Acceptance Criteria**: The system supports enhancing storage engine observability via a Web Server.
+## Verification
 
-## Success Criteria
-
-* The system maintains API compatibility with both RocksDB and ToplingDB.
-* The system supports configuring ToplingDB parameters via external configuration files.
-* The system enhances storage engine observability through a built-in Web Server.
+- Standard RocksDB DB/CF tests run without Easy Migrate.
+- ToplingDB ABI diagnostics may inspect only JAR/native availability and
+  mappings.
+- Every ToplingDB DB/CF functional test runs with a readable
+  `TOPLINGDB_EASY_MIGRATE_CONF`.

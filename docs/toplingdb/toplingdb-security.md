@@ -1,28 +1,36 @@
 # ToplingDB Security Hardening Guide
 
-This document provides best practices for securing a ToplingDB deployment. It covers file permissions, network access control, firewall rules, and additional hardening measures to reduce the attack surface and ensure safe operation in production environments.
+This document provides best practices for securing a ToplingDB deployment. It
+covers file permissions, network access control, firewall rules, and additional
+hardening measures that reduce the production attack surface.
 
 ---
 
 ## 1. File Permissions
 
-Restrict file permissions to prevent unauthorized access or modification of scripts and configuration files:
+Restrict file permissions to prevent unauthorized access or modification of
+scripts and configuration files:
 
 ```bash
 chmod 750 $HUGEGRAPH_HOME/bin/*.sh
-chmod 640 $HUGEGRAPH_HOME/conf/graphs/*.yaml
+chmod 640 $HUGEGRAPH_HOME/conf/toplingdb.yaml
 chown -R hugegraph:hugegraph $HUGEGRAPH_HOME
 ```
 
-- `750` ensures only the owner can execute scripts, while group members can read them.
-- `640` ensures configuration files are readable by the owner and group, but not world-readable.
-- Ownership should be assigned to a dedicated service account (e.g., `hugegraph`).
+- `750` ensures only the owner can execute scripts, while group members can
+  read them.
+- `640` makes configuration files readable by the owner and group, but not
+  world-readable.
+- Assign ownership to a dedicated service account such as `hugegraph`.
+- For PD or Store, apply the same permission to `conf/rocksdb_pd.yaml` or
+  `conf/rocksdb_store.yaml`.
 
 ---
 
 ## 2. Network Access Control
 
-Restrict network exposure by binding services to localhost or specific interfaces:
+Restrict network exposure by binding services to localhost or specific
+interfaces:
 
 ```yaml
 # Localhost-only access

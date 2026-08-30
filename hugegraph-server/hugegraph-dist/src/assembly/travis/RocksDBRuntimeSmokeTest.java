@@ -47,6 +47,7 @@ public final class RocksDBRuntimeSmokeTest {
         String dbPath = args[1];
         String expectedNativePath = args[2];
         verifyProvider(provider);
+        verifyEasyMigrateConfig(provider);
         RocksDB.loadLibrary();
         verifyNativeLibrary(expectedNativePath);
 
@@ -59,7 +60,8 @@ public final class RocksDBRuntimeSmokeTest {
     private static void verifyProvider(String provider) {
         boolean hasToplingApi;
         try {
-            Class.forName("org.rocksdb.SidePluginRepo");
+            Class.forName("org.rocksdb.SidePluginRepo", false,
+                          RocksDBRuntimeSmokeTest.class.getClassLoader());
             hasToplingApi = true;
         } catch (ClassNotFoundException ignored) {
             hasToplingApi = false;
@@ -74,6 +76,27 @@ public final class RocksDBRuntimeSmokeTest {
         if ("topling".equals(provider) && !hasToplingApi) {
             throw new IllegalStateException("Topling provider loaded no Topling API");
         }
+    }
+
+    private static void verifyEasyMigrateConfig(String provider) {
+        String config = System.getenv("TOPLINGDB_EASY_MIGRATE_CONF");
+        if ("rocksdb".equals(provider)) {
+            if (config != null && !config.isEmpty()) {
+                throw new IllegalStateException(
+                        "Standard RocksDB test must not enable Easy Migrate");
+            }
+            return;
+        }
+        if (config == null || config.isEmpty()) {
+            throw new IllegalStateException(
+                    "ToplingDB functional test requires Easy Migrate config");
+        }
+        if (!Files.isReadable(Paths.get(config))) {
+            throw new IllegalStateException(
+                    "Easy Migrate config is not readable: " + config);
+        }
+        System.out.println("Verified Easy Migrate config: " +
+                           Paths.get(config).toAbsolutePath().normalize());
     }
 
     private static void verifyNativeLibrary(String expectedNativePath)

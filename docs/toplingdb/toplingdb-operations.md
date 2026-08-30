@@ -1,87 +1,68 @@
 # ToplingDB Operations Guide
 
-This guide outlines key operational practices for deploying, monitoring, tuning, and upgrading ToplingDB in production environments. It is intended for system administrators, DevOps engineers, and database maintainers seeking to ensure stability, performance, and scalability.
+## Preflight
 
----
+Before startup:
 
-## Monitoring Metrics
+1. Confirm the component configuration selects `topling`.
+2. Run the installation step for that component.
+3. Confirm its Easy Migrate YAML and prepared native library are readable.
+4. Check that the configured HTTP port is available and restricted to a
+   trusted interface.
+5. Create and verify a complete pre-migration RocksDB checkpoint or backup.
 
-- **Key Performance Indicators (KPI)**
-  - Write throughput (bytes/sec, ops/sec)
-  - Read latency (P95/P99)
-  - MemTable usage and flush frequency
-  - Block cache hit ratio
+The expected configuration files are:
 
-- **Alert Thresholds**
-  - L0 file count exceeding `level0_stop_writes_trigger`
-  - Background job saturation (`max_background_jobs`)
-  - WAL size growth beyond expected limits
-  - Cache eviction rate anomalies
+| Component | File |
+|---|---|
+| Standalone Server | `conf/toplingdb.yaml` |
+| PD | `conf/rocksdb_pd.yaml` |
+| Store | `conf/rocksdb_store.yaml` |
 
-- **Monitoring Tool Integration**
-  - Export metrics via HTTP endpoints
-  - Integrate with Prometheus using custom exporters
-  - Visualize trends and thresholds in Grafana dashboards
-  - Use SidePlugin’s web server (`listening_ports`) for live inspection
+## Monitoring
 
----
+Monitor read/write latency, compaction backlog, cache usage, WAL growth, disk
+space, native memory, and process health. The optional Topling HTTP endpoint can
+show native state, but it has no authentication and must not be exposed
+directly to untrusted networks.
 
-## Performance Tuning
+Use the component logs to confirm the selected configuration path and native
+library. Do not infer ToplingDB activation from the JAR name alone.
 
-- **Cache Size Optimization**
-  - Adjust `capacity` in `lru_cache` based on workload and memory budget
-  - Tune `high_pri_pool_ratio` to prioritize index/filter caching
+## Tuning
 
-- **Compression Algorithm Selection**
-  - Use `kSnappyCompression` for balanced speed and space
-  - Disable compression (`kNoCompression`) for latency-sensitive workloads
+Change one YAML setting group at a time and benchmark with a representative
+workload. Preserve:
 
-- **Compaction Strategy Adjustment**
-  - Set `level0_file_num_compaction_trigger` to control L0 flush frequency
-  - Use `level_compaction_dynamic_file_size: true` to adapt SST sizing
-  - Tune `max_subcompactions` and `max_background_jobs` for parallelism
+- `DBOptions.default` as the global fallback;
+- the dedicated `DBOptions.log` profile;
+- component-specific HTTP ports;
+- a memory budget that includes JVM heap, block cache, memtables, native
+  allocations, and background jobs.
 
-- **I/O Tuning Parameters**
-  - Evaluate `convert_to_sst: kFileMmap` to bypass traditional flush
-  - Set `sync_sst_file: false` for performance, with caution on durability
-  - Adjust `compaction_readahead_size` for sequential disk access
+## Graceful Stop and Restart
 
----
+Use the normal stop script or SIGTERM. Do not stop a separate “ToplingDB
+process”; none exists.
 
-## Capacity Planning
+```text
+SIGTERM
+  -> HugeGraph/PD/Store graceful shutdown
+  -> normal CF/DB close
+  -> native MaybeForgetCF / MaybeForgetDB
+  -> JVM exit
+```
 
-- **Disk Space Estimation**
-  - Base on `write_buffer_size`, `target_file_size_base`, and compaction amplification
-  - Include space for WAL, MANIFEST, and temporary files
+Do not invoke `SidePluginRepo.closeAllDB()`. Store's stop script already has a
+bounded wait. If it reports a timeout, collect thread dumps and component logs
+and investigate the ordinary Store shutdown path before any restart.
 
-- **Memory Requirement Calculation**
-  - Sum of MemTable (`mem_cap`), block cache (`capacity`), and background buffers
-  - Consider `max_write_buffer_number` and `min_write_buffer_number_to_merge`
+## Upgrade and Rollback
 
-- **CPU Resource Planning**
-  - Allocate cores for compaction (`max_background_compactions`)
-  - Reserve CPU for Hugegraph query threads and SidePlugin HTTP services
-  - Monitor mutex contention (`use_adaptive_mutex`) and shard parallelism
+Drain traffic and stop the component cleanly before changing the runtime or
+YAML. Validate JAR/native compatibility and the YAML schema in staging first.
 
----
-
-## Upgrade Procedure
-
-- **Version Compatibility Check**
-  - Review changelogs and YAML schema changes
-  - Validate plugin compatibility (e.g., `cspp`, `DispatcherTable`)
-
-- **Data Backup Strategy**
-  - Snapshot SST files and MANIFEST
-  - Backup column family metadata and configuration files
-
-- **Rolling Upgrade Steps**
-  - Drain traffic from target node
-  - Stop ToplingDB process and apply new binary
-  - Validate startup with `create_if_missing: false`
-  - Rejoin cluster and monitor metrics
-
-- **Rollback Plan**
-  - Restore previous binary and configuration
-  - Revert SST and MANIFEST from backup
-  - Disable incompatible plugins if needed
+A provider switch is not a data rollback. If the upgraded Topling runtime has
+written data and rollback is required, stop all writers and restore the full
+pre-upgrade snapshot into an empty data directory with the matching previous
+runtime.

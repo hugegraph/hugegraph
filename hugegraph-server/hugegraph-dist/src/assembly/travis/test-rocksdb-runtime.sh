@@ -75,9 +75,39 @@ if [ -z "$JAR" ]; then
     exit 1
 fi
 
-# This test exercises the RocksDB JNI API directly. Do not let Easy Migrate
-# auto-import a SidePluginRepo configuration, whose DB/CF ownership contract
-# requires opening the database through SidePluginRepo instead of RocksDB.open().
-env -u TOPLINGDB_EASY_MIGRATE_CONF \
-    java -cp "$JAR" "$SCRIPT_DIR/RocksDBRuntimeSmokeTest.java" \
-    "$PROVIDER" "$TEST_ROOT/db" "$EXPECTED_NATIVE_PATH"
+if [ "$PROVIDER" = "topling" ]; then
+    EASY_MIGRATE_CONF="${TOPLINGDB_EASY_MIGRATE_CONF:-}"
+    if [ -z "$EASY_MIGRATE_CONF" ]; then
+        for candidate in \
+            "$COMPONENT_DIR/conf/toplingdb.yaml" \
+            "$COMPONENT_DIR/conf/rocksdb_store.yaml" \
+            "$COMPONENT_DIR/conf/rocksdb_pd.yaml"; do
+            if [ -f "$candidate" ]; then
+                EASY_MIGRATE_CONF="$candidate"
+                break
+            fi
+        done
+    fi
+    if [ -z "$EASY_MIGRATE_CONF" ] || [ ! -r "$EASY_MIGRATE_CONF" ]; then
+        echo "Error: readable ToplingDB Easy Migrate config is required" >&2
+        exit 1
+    fi
+
+    NATIVE_DIR="$(dirname "$EXPECTED_NATIVE_PATH")"
+    TEST_LD_LIBRARY_PATH="$NATIVE_DIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+    TEST_LD_PRELOAD="${LD_PRELOAD:-}"
+    case ":$TEST_LD_PRELOAD:" in
+        *":$EXPECTED_NATIVE_PATH:"*) ;;
+        *) TEST_LD_PRELOAD="$EXPECTED_NATIVE_PATH${TEST_LD_PRELOAD:+:$TEST_LD_PRELOAD}" ;;
+    esac
+
+    TOPLINGDB_EASY_MIGRATE_CONF="$EASY_MIGRATE_CONF" \
+        LD_LIBRARY_PATH="$TEST_LD_LIBRARY_PATH" \
+        LD_PRELOAD="$TEST_LD_PRELOAD" \
+        java -cp "$JAR" "$SCRIPT_DIR/RocksDBRuntimeSmokeTest.java" \
+        "$PROVIDER" "$TEST_ROOT/db" "$EXPECTED_NATIVE_PATH"
+else
+    env -u TOPLINGDB_EASY_MIGRATE_CONF \
+        java -cp "$JAR" "$SCRIPT_DIR/RocksDBRuntimeSmokeTest.java" \
+        "$PROVIDER" "$TEST_ROOT/db" "$EXPECTED_NATIVE_PATH"
+fi

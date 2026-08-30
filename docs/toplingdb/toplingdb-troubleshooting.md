@@ -1,138 +1,89 @@
 # ToplingDB Troubleshooting
 
-## Issues
+## Startup Rejects the Easy Migrate Configuration
 
-### Issue 1: Startup Failure Due to YAML Format Error
+Confirm that the startup log prints the expected component path:
 
-Sample log output:
-
-```java
-2025-10-15 01:55:50 [db-open-1] [INFO] o.a.h.b.s.r.RocksDBStdSessions - SidePluginRepo found. Will attempt to open multi CFs RocksDB using Topling plugin.
-21:1: (891B):ERROR: 
-sideplugin/rockside/3rdparty/rapidyaml/src/c4/yml/parse.cpp:3310: ERROR parsing yml: parse error: incorrect indentation?
+```text
+[preload-topling] TOPLINGDB_EASY_MIGRATE_CONF=/path/to/config.yaml
 ```
 
-**Solution**:
+Then check:
 
-1. Check that YAML indentation is correct (must use spaces, not tabs).
-2. Validate YAML syntax:
+- the file exists and is readable by the service user;
+- the YAML uses valid indentation and supported Topling option names;
+- `DBOptions.default` exists as the fallback;
+- the dedicated `DBOptions.log` mapping is still present.
 
-   ```bash
-   python -c "import yaml; yaml.safe_load(open('conf/graphs/rocksdb_plus.yaml'))"
-   ```
+Do not diagnose configuration loading by calling `SidePluginRepo` from Java.
 
-3. Review the specific error message in the logs for further clues.
+## Wrong or Missing Native Runtime
 
----
+Verify the prepared library and the process mapping:
 
-### Issue 2: Web Server Port Conflict
-
-Sample log output:
-
-```java
-2025-10-15 01:57:34 [db-open-1] [INFO] o.a.h.b.s.r.RocksDBStdSessions - SidePluginRepo found. Will attempt to open multi CFs RocksDB using Topling plugin.
-2025-10-15 01:57:34 [db-open-1] [ERROR] o.a.h.b.s.r.RocksDBStore - Failed to open RocksDB 'rocksdb-data/data/g'
-org.rocksdb.RocksDBException: rocksdb::Status rocksdb::SidePluginRepo::StartHttpServer(): null context when constructing CivetServer. Possible problem binding to port.
-    at org.rocksdb.SidePluginRepo.startHttpServer(Native Method) ~[rocksdbjni-8.10.2-20250804.074027-4.jar:?]
+```bash
+test -r /path/to/component/library/librocksdbjni-linux64.so
+grep librocksdbjni /proc/$PID/maps
 ```
 
-**Solution**:
+Only the selected component library should be mapped. A Topling class marker in
+the JAR is useful for ABI diagnosis, but it does not prove that Easy Migrate
+options were applied or that DB/CF operations work.
 
-1. Check if the port is already in use:
+## HTTP Port Conflict
 
-   ```bash
-   lsof -i :2011
-   ```
+Check the component-specific `http.listening_ports` value and whether another
+process already owns it:
 
-2. Modify the `listening_ports` setting in the YAML configuration file.
-3. Restart the HugeGraph Server.
-
----
-
-### Issue 3: Database Initialization Failure
-
-This error indicates the database lock file cannot be acquired, possibly due to insufficient write permissions or another process holding the lock:
-
-```java
-Caused by: org.rocksdb.RocksDBException: While lock file: rocksdb-data/data/m/LOCK: Resource temporarily unavailable
-        at org.rocksdb.SidePluginRepo.nativeOpenDBMultiCF(Native Method)
-        at org.rocksdb.SidePluginRepo.openDB(SidePluginRepo.java:22)
+```bash
+lsof -i :<PORT>
 ```
 
-**Solution**:
+The provided configurations use 2011 for Server, 2012 for PD, and 2013 for
+Store. Confirm the actual value in the selected YAML. Components on one host
+must not share a port. Keep the endpoint on a trusted interface because it has
+no built-in authentication.
 
-1. Confirm the configuration file path is correct:
+## Database Lock Failure
 
-   ```properties
-   rocksdb.option_path=./conf/graphs/rocksdb_plus.yaml
-   ```
+A lock error normally means another process owns the database or the service
+user cannot access the data directory.
 
-2. Check permissions on the data directory to ensure the running user has read/write access.
-3. Review detailed logs:
+1. Confirm there is only one owner for the database path.
+2. Confirm directory permissions.
+3. Confirm the component uses its own Easy Migrate configuration.
+4. Inspect the component and RocksDB logs.
 
-   ```bash
-   bin/init-store.sh 2>&1 | tee init.log
-   ```
+Do not bypass the normal RocksDB open path and do not attempt a reflected
+`openDB`.
 
----
+## Shutdown Timeout
 
-## Log Analysis
+The expected lifecycle is:
 
-### Enable Debug Logging
-
-```properties
-# conf/log4j2.xml
-<Logger name="org.apache.hugegraph.backend.store.rocksdb" 
-        level="DEBUG"/>
+```text
+SIGTERM -> graceful shutdown -> CF/DB close
+        -> native MaybeForgetCF/MaybeForgetDB -> exit
 ```
 
-### Key Log Locations
+If Store exceeds its existing timeout:
 
-- Application logs: `logs/hugegraph-server.log`
-- RocksDB logs: `data/rocksdb/LOG`
-- Web Server logs: check the `access_log` setting in the YAML configuration
+1. capture thread dumps before forcing termination;
+2. inspect Store shutdown and background-thread logs;
+3. confirm CF handles and RocksDB reached their normal close paths;
+4. treat the result as a general Store lifecycle issue.
 
-Additional notes:
+Do not call `SidePluginRepo.closeAllDB()`. This integration does not provide a
+second Java-side owner and does not expand the scope of general thread-exit
+repairs.
 
-- Enable debug logging only during troubleshooting, as it may generate large log files and impact performance.
-- Rotate and archive logs regularly to prevent disk space exhaustion.
+## DB/CF Test Gives a False Positive
 
----
+A ToplingDB test that unsets `TOPLINGDB_EASY_MIGRATE_CONF` before opening a
+database proves only RocksDB Java ABI compatibility. It does not test ToplingDB
+configuration or native lifecycle hooks.
 
-## Performance Diagnostics
-
-### High CPU Usage
-
-1. Review and tune **compaction** configuration (e.g., compaction style, trigger thresholds).
-2. Adjust **thread pool size** to match available CPU cores and workload characteristics.
-3. Optimize **write batching** to reduce per-operation overhead.
-4. Monitor for **hot keys** or skewed workloads that may cause uneven CPU usage.
-5. Use performance profiling tools (e.g., `perf`, `async-profiler`) to identify hotspots.
-
----
-
-### Excessive Memory Usage
-
-1. Adjust **block cache size** to balance between read performance and memory footprint.
-2. Review **write buffer** (memtable) configuration, including number and size.
-3. Monitor for **memory leaks** in the application layer or plugins.
-4. Enable **JVM GC logging** to analyze garbage collection behavior.
-
----
-
-### Disk I/O Bottlenecks
-
-1. Use **SSD storage** for RocksDB data directories to improve latency and throughput.
-2. Tune **WAL (Write-Ahead Log)** configuration, such as enabling `wal_dir` on a separate disk.
-3. Optimize **compaction strategy** (e.g., level-based vs. universal compaction) based on workload.
-4. Monitor **disk utilization** and IOPS using tools like `iostat` or `dstat`.
-5. Separate **data, WAL, and log directories** onto different physical devices if possible.
-
----
-
-### General Recommendations
-
-- Always benchmark configuration changes in a staging environment before applying them to production.
-- Use monitoring systems (e.g., Prometheus + Grafana) to track CPU, memory, and I/O metrics over time.
-- Regularly review RocksDB’s internal statistics (`rocksdb.stats`) for deeper insights into performance.
-- Automate log collection and alerting to quickly detect anomalies.
+For a functional test, keep a readable component configuration in the
+environment and exercise create, write, close, reopen, drop, and recreate
+operations. Reserve no-configuration checks for ABI diagnostics that do not
+open a database.
