@@ -5,6 +5,10 @@ integration uses ToplingDB Easy Migrate: HugeGraph keeps its existing RocksDB
 Java API, while a native hook applies ToplingDB configuration and tracks the
 DB/column-family lifecycle.
 
+New users should start with the [ToplingDB quickstart](toplingdb-quickstart.md).
+Contributors should use the
+[ToplingDB developer guide](toplingdb-development.md).
+
 ## Architecture
 
 ```text
@@ -121,6 +125,9 @@ with the matching standard RocksDB runtime.
 
 ## Related Guides
 
+- [Documentation index](README.md)
+- [Quickstart](toplingdb-quickstart.md)
+- [Developer guide](toplingdb-development.md)
 - [ToplingDB and HStore integration](toplingdb-hstore-integration.md)
 - [Operations guide](toplingdb-operations.md)
 - [Troubleshooting](toplingdb-troubleshooting.md)
