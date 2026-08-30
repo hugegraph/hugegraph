@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 #
 # Licensed to the Apache Software Foundation (ASF) under one or more
 # contributor license agreements.  See the NOTICE file distributed with
@@ -24,9 +25,10 @@ WORKDIR /pkg
 COPY . .
 
 ARG MAVEN_ARGS
+ARG SOURCE_REVISION=local
 
-RUN --mount=type=cache,target=/root/.m2 \
-    mvn package $MAVEN_ARGS -e -B -ntp -Dmaven.test.skip=true -Dmaven.javadoc.skip=true \
+RUN --mount=type=cache,id=hugegraph-maven-${SOURCE_REVISION},target=/root/.m2,sharing=locked \
+    mvn install $MAVEN_ARGS -e -B -ntp -Dmaven.test.skip=true -Dmaven.javadoc.skip=true \
     && rm ./hugegraph-server/*.tar.gz ./hugegraph-pd/*.tar.gz ./hugegraph-store/*.tar.gz
 
 # Prepare the optional ToplingDB runtime in a dedicated build target. The
