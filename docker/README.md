@@ -325,10 +325,10 @@ The single-node Compose files also accept these deployment-level overrides:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `HUGEGRAPH_SERVER_IMAGE` | `hugegraph/server:<version>` | HStore Server image reference |
-| `HUGEGRAPH_SERVER_PULL_POLICY` | `missing` (`build` for dev) | HStore Server pull policy |
-| `HUBBLE_IMAGE` | `hugegraph/hubble:<version>` | Complete Hubble image reference |
-| `HUBBLE_PULL_POLICY` | `always` (`missing` for dev) | Hubble pull policy |
+| `HUGEGRAPH_SERVER_IMAGE` | `hugegraph/hugegraph:<version>` (standalone); `hugegraph/server:<version>` (HStore) | Server image reference |
+| `HUGEGRAPH_SERVER_PULL_POLICY` | `missing` (`build` for dev) | Server pull policy |
+| `HUBBLE_IMAGE` | `hugegraph/hubble:latest` | Complete Hubble image reference |
+| `HUBBLE_PULL_POLICY` | `missing` | Hubble pull policy |
 | `HUBBLE_PUBLISH_HOST` | `127.0.0.1` | Hubble host bind address; remote access requires an HTTPS reverse proxy |
 | `HUGEGRAPH_ADMIN_PASSWORD` | required (`docker/.env`) | Initial admin password; no public default is provided |
 | `HUGEGRAPH_AUTH_TOKEN_SECRET` | generated | JWT signing secret; explicit values must be at least 32 bytes |
