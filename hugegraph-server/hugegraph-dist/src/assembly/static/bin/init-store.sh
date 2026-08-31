@@ -60,7 +60,7 @@ fi
 CP="$CP":$(find_standard_lib_jars "${LIB}" '*.jar' 'hugegraph*' |
     sort | tr '\n' ':')
 CP="$CP":$(find -L "${PLUGINS}" -name '*.jar' | sort | tr '\n' ':')
-$JAVA -cp $CP ${DEFAULT_JAVA_OPTIONS} \
+$JAVA -cp "$CP" ${DEFAULT_JAVA_OPTIONS} \
 org.apache.hugegraph.cmd.InitStore "${CONF}"/rest-server.properties
 INIT_STORE_STATUS=$?
 if [[ ${INIT_STORE_STATUS} -ne 0 ]]; then

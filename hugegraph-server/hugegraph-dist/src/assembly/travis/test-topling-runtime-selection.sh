@@ -160,7 +160,7 @@ echo "PASS: provider override selects standard RocksDB without Topling preload"
 # putting its optional runtime JAR on the HugeGraph Server classpath. Exercise
 # the launcher with a fake JVM and inspect the actual -cp argument rather than
 # relying on a source-text assertion.
-SERVER_LAUNCHER_ROOT="$TEST_ROOT/server-launcher"
+SERVER_LAUNCHER_ROOT="$TEST_ROOT/server launcher"
 SERVER_JAVA_CAPTURE="$TEST_ROOT/server-java-classpath"
 mkdir -p "$SERVER_LAUNCHER_ROOT/bin" "$SERVER_LAUNCHER_ROOT/conf" \
          "$SERVER_LAUNCHER_ROOT/lib/topling" "$SERVER_LAUNCHER_ROOT/ext" \
