@@ -134,7 +134,7 @@ function download_and_verify() {
     if [[ -f $filepath ]]; then
         echo "File $filepath exists. Verifying SHA-256 checksum..."
         actual_sha256=$(sha256sum "$filepath" | awk '{ print $1 }')
-        if [[ $actual_sha256 != $expected_sha256 ]]; then
+        if [[ "$actual_sha256" != "$expected_sha256" ]]; then
             echo "SHA-256 checksum verification failed for $filepath. Expected: $expected_sha256, but got: $actual_sha256"
             echo "Deleting $filepath..."
             rm -f "$filepath"
@@ -153,7 +153,7 @@ function download_and_verify() {
     fi
 
     actual_sha256=$(sha256sum "$filepath" | awk '{ print $1 }')
-    if [[ $actual_sha256 != $expected_sha256 ]]; then
+    if [[ "$actual_sha256" != "$expected_sha256" ]]; then
         echo "SHA-256 checksum verification failed for $filepath after download. Expected: $expected_sha256, but got: $actual_sha256"
         rm -f "$filepath"
         return 1

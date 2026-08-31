@@ -90,7 +90,7 @@ fi
 
 # check jdk version
 JAVA_VERSION=$($JAVA -version 2>&1 | awk 'NR==1{gsub(/"/,""); print $3}'  | awk -F'_' '{print $1}')
-if [[ $? -ne 0 || $JAVA_VERSION < $EXPECT_JDK_VERSION ]]; then
+if [[ $? -ne 0 || $JAVA_VERSION -lt $EXPECT_JDK_VERSION ]]; then
     echo "Please make sure that the JDK is installed and the version >= $EXPECT_JDK_VERSION"  >> ${OUTPUT}
     exit 1
 fi
@@ -170,7 +170,7 @@ fi
 #if [ "${JMX_EXPORT_PORT}" != "" ] && [ ${JMX_EXPORT_PORT} -ne 0 ] ; then
 #  JAVA_OPTIONS="${JAVA_OPTIONS} -javaagent:${LIB}/jmx_prometheus_javaagent-0.16.1.jar=${JMX_EXPORT_PORT}:${CONF}/jmx_exporter.yml"
 #fi
-if [ $(ps -ef|grep -v grep| grep java|grep -cE ${CONF}) -ne 0 ]; then
+if [ "$(ps -ef | grep -v grep | grep java | grep -cE "${CONF}")" -ne 0 ]; then
    echo "HugeGraphPDServer is already running..."
    exit 0
 fi
