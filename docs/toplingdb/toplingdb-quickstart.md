@@ -15,8 +15,10 @@ standard HugeGraph distribution when you want standard RocksDB.
 PD and Store select their providers independently. An HStore-backed Server does
 not load a Topling JAR or native library.
 
-Set standalone data with `rocksdb.data_path`, PD metadata with `pd.data-path`,
-and Store data with `app.data-path` in `conf/application.yml`.
+Set standalone data with `rocksdb.data_path` in
+`conf/graphs/hugegraph.properties`, PD metadata with `pd.data-path` in
+`conf/application.yml`, and Store data with `app.data-path` in
+`conf/application-pd.yml`.
 
 ## Prerequisites
 
@@ -263,7 +265,7 @@ Set a provider-specific Store data directory in the Store service
 configuration:
 
 ```yaml
-# conf/application.yml
+# conf/application-pd.yml
 app:
   data-path: /srv/hugegraph/topling/store
 ```
