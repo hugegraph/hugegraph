@@ -19,6 +19,7 @@ package org.apache.hugegraph.unit.rocksdb;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.apache.commons.io.FileUtils;
 import org.apache.hugegraph.backend.store.rocksdb.RocksDBMetrics;
@@ -28,6 +29,7 @@ import org.apache.hugegraph.backend.store.rocksdb.RocksDBStdSessions;
 import org.apache.hugegraph.backend.store.rocksdbsst.RocksDBSstSessions;
 import org.apache.hugegraph.config.HugeConfig;
 import org.apache.hugegraph.testutil.Assert;
+import org.apache.hugegraph.testutil.Whitebox;
 import org.apache.hugegraph.unit.FakeObjects;
 import org.junit.Test;
 import org.rocksdb.RocksDBException;
@@ -36,6 +38,23 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
 public class RocksDBSessionsTest extends BaseRocksDBUnitTest {
+
+    @Test
+    public void testDatabaseOpenedDoesNotCreateSession() throws RocksDBException {
+        HugeConfig config = FakeObjects.newConfig();
+        String path = DB_PATH + "/opened";
+        RocksDBSessions sessions =
+                new RocksDBStdSessions(config, "db", "store", path, path);
+        AtomicInteger sessionCount =
+                Whitebox.getInternalState(sessions, "sessionCount");
+
+        Assert.assertEquals(0, sessionCount.get());
+        Assert.assertTrue(sessions.databaseOpened());
+        Assert.assertEquals(0, sessionCount.get());
+
+        sessions.forceCloseRocksDB();
+        Assert.assertFalse(sessions.databaseOpened());
+    }
 
     @Test
     public void testTable() throws RocksDBException {

@@ -410,6 +410,10 @@ public class StandardHugeGraph implements HugeGraph {
         }
     }
 
+    void closeCurrentThreadTransaction() {
+        this.closeTx();
+    }
+
     @Override
     public GraphMode mode() {
         return this.mode;
@@ -1697,6 +1701,7 @@ public class StandardHugeGraph implements HugeGraph {
                 super.commit();
             } finally {
                 this.setClosed();
+                this.destroyTransaction();
             }
         }
 
@@ -1706,6 +1711,7 @@ public class StandardHugeGraph implements HugeGraph {
                 super.rollback();
             } finally {
                 this.setClosed();
+                this.destroyTransaction();
             }
         }
 

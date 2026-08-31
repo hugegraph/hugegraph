@@ -17,11 +17,13 @@
 
 package org.apache.hugegraph.unit;
 
-import org.apache.hugegraph.backend.tx.GraphIndexTransactionTest;
+import org.apache.hugegraph.HugeFactoryTest;
 import org.apache.hugegraph.api.auth.GraphSpaceAuthPayloadTest;
 import org.apache.hugegraph.api.auth.GraphSpaceGroupAPITest;
+import org.apache.hugegraph.auth.ContextTaskTest;
 import org.apache.hugegraph.auth.StandardAuthManagerV2Test;
 import org.apache.hugegraph.auth.WsAndHttpBasicAuthHandlerTest;
+import org.apache.hugegraph.backend.tx.GraphIndexTransactionTest;
 import org.apache.hugegraph.core.RoleElectionStateMachineTest;
 import org.apache.hugegraph.meta.EtcdMetaDriverTest;
 import org.apache.hugegraph.meta.MetaManagerSchemaCacheClearEventTest;
@@ -116,6 +118,8 @@ import org.junit.runners.Suite;
         GraphSpaceGroupAPITest.class,
         GraphSpaceAuthPayloadTest.class,
         StandardAuthManagerV2Test.class,
+        ContextTaskTest.class,
+        HugeFactoryTest.class,
         AuthMetaManagerTest.class,
 
         /* api space */
