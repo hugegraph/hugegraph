@@ -3,6 +3,11 @@
 This guide describes the Topling integration maintained in this repository.
 Read the [quickstart](toplingdb-quickstart.md) first if you only need to run it.
 
+The runtime support target is native Linux x86_64 and Linux containers on
+macOS (Docker Desktop or OrbStack). Native macOS execution, including Intel,
+is deliberately outside the ToplingDB matrix; do not treat that CI job as a
+Topling image or container failure.
+
 ## Runtime Contract
 
 HugeGraph keeps the RocksDB Java API. Topling Easy Migrate supplies the native

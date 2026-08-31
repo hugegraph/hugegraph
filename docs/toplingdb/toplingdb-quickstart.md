@@ -1,7 +1,10 @@
 # ToplingDB Quickstart
 
-This guide covers a source-built ToplingDB distribution on Linux x86_64. Use a
-standard HugeGraph distribution when you want standard RocksDB.
+This guide covers a source-built ToplingDB distribution on Linux x86_64. On
+macOS, run the published Linux image through Docker Desktop or OrbStack
+container mode. Native macOS execution (including Intel) is outside this
+ToplingDB support matrix. Use a standard HugeGraph distribution when you want
+standard RocksDB.
 
 ## Choose the Correct Component
 
@@ -22,9 +25,11 @@ Set standalone data with `rocksdb.data_path` in
 
 ## Prerequisites
 
-Topling images and distributions currently support Linux x86_64 only. The
-native packages required by the bundled library are installed in the images.
-The preparation script reports any unresolved dependency and stops.
+Topling distributions and images currently target Linux x86_64. The published
+images use the `linux/amd64` platform, so macOS container mode may need
+`--platform linux/amd64`; the native packages required by the bundled library
+are installed in the images. The preparation script reports any unresolved
+dependency and stops.
 
 ## Docker Images
 

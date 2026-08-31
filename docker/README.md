@@ -22,10 +22,13 @@ topologies use the matching `hugegraph/pd`, `hugegraph/store`, and
 `${HUBBLE_IMAGE:-hugegraph/hubble:latest}`.
 
 ToplingDB is selected by injecting the documented image, provider, data-root,
-marker, volume, and pull-policy variables in the Developers section. It is
-Linux x86_64-only: standalone selects Topling for the Server, while HStore
-selects it only for PD and Store. The HStore Server remains the standard image
-and never loads a local ToplingDB runtime.
+marker, volume, and pull-policy variables in the Developers section. Its
+published images target Linux x86_64 (`linux/amd64`); on macOS, use Docker
+Desktop or OrbStack container mode and set `--platform linux/amd64` when the
+engine does not select it automatically. Native macOS execution, including
+Intel, is outside this ToplingDB matrix. Standalone selects Topling for the
+Server, while HStore selects it only for PD and Store. The HStore Server
+remains the standard image and never loads a local ToplingDB runtime.
 
 ### Create the authentication environment
 
