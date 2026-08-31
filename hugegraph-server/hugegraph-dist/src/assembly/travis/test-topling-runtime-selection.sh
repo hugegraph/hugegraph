@@ -167,9 +167,15 @@ mkdir -p "$SERVER_LAUNCHER_ROOT/bin" "$SERVER_LAUNCHER_ROOT/conf" \
          "$SERVER_LAUNCHER_ROOT/plugins" "$SERVER_LAUNCHER_ROOT/logs"
 cp "$DIST_ROOT/src/assembly/static/bin/hugegraph-server.sh" \
    "$SERVER_LAUNCHER_ROOT/bin/hugegraph-server.sh"
+cp "$DIST_ROOT/src/assembly/static/bin/init-store.sh" \
+   "$SERVER_LAUNCHER_ROOT/bin/init-store.sh"
+cp "$DIST_ROOT/src/assembly/static/bin/preload-topling.sh" \
+   "$SERVER_LAUNCHER_ROOT/bin/preload-topling.sh"
 cp "$DIST_ROOT/src/assembly/static/bin/util.sh" \
    "$SERVER_LAUNCHER_ROOT/bin/util.sh"
 touch "$SERVER_LAUNCHER_ROOT/lib/hugegraph-server-bootstrap.jar" \
+      "$SERVER_LAUNCHER_ROOT/lib/topling/log4j-slf4j-impl-topling.jar" \
+      "$SERVER_LAUNCHER_ROOT/lib/topling/hugegraph-topling.jar" \
       "$SERVER_LAUNCHER_ROOT/lib/topling/rocksdbjni-topling.jar"
 printf '%s\n' \
     'gremlinserver.url=http://127.0.0.1:43123' \
@@ -191,7 +197,9 @@ printf '%s\n' \
     'done' \
     'exit 0' \
     > "$FAKE_BIN/java"
-chmod +x "$FAKE_BIN/java" "$SERVER_LAUNCHER_ROOT/bin/hugegraph-server.sh"
+chmod +x "$FAKE_BIN/java" "$SERVER_LAUNCHER_ROOT/bin/hugegraph-server.sh" \
+          "$SERVER_LAUNCHER_ROOT/bin/init-store.sh" \
+          "$SERVER_LAUNCHER_ROOT/bin/preload-topling.sh"
 JAVA_HOME='' JAVA_OPTIONS=-Xmx64m STDOUT_MODE=true CLASSPATH='' \
     JAVA_CAPTURE="$SERVER_JAVA_CAPTURE" PATH="$FAKE_BIN:$PATH" \
     bash "$SERVER_LAUNCHER_ROOT/bin/hugegraph-server.sh" \
@@ -205,3 +213,15 @@ if grep -Fq "$SERVER_LAUNCHER_ROOT/lib/topling/" "$SERVER_JAVA_CAPTURE"; then
     fail "standard provider launcher leaked the optional Topling classpath"
 fi
 echo "PASS: standard provider launcher excludes Topling JARs"
+
+SERVER_INIT_CAPTURE="$TEST_ROOT/server-init-classpath"
+JAVA_HOME='' CLASSPATH='' JAVA_CAPTURE="$SERVER_INIT_CAPTURE" \
+    PATH="$FAKE_BIN:$PATH" bash "$SERVER_LAUNCHER_ROOT/bin/init-store.sh" \
+    >/dev/null 2>&1
+grep -Fq "$SERVER_LAUNCHER_ROOT/lib/hugegraph-server-bootstrap.jar" \
+    "$SERVER_INIT_CAPTURE" ||
+    fail "init-store omitted the standard bootstrap JAR"
+if grep -Fq "$SERVER_LAUNCHER_ROOT/lib/topling/" "$SERVER_INIT_CAPTURE"; then
+    fail "standard provider init-store leaked the optional Topling classpath"
+fi
+echo "PASS: standard provider init-store excludes Topling JARs"
