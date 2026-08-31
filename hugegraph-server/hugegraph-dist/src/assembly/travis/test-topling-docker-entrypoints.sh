@@ -195,6 +195,9 @@ if output=$(
 fi
 grep -Fq "provider marker mismatch" <<<"$output" ||
     fail "PD provider mismatch error is not actionable"
+grep -qx "provider=topling" \
+    "$SHARED_DATA/.hugegraph-rocksdb-provider" ||
+    fail "provider mismatch changed the existing data marker"
 
 NONEMPTY_DATA="$TEST_ROOT/nonempty-data"
 mkdir -p "$NONEMPTY_DATA"
@@ -204,6 +207,10 @@ if "$PROVIDER_HELPER" \
        store topling "$NONEMPTY_DATA" false >/dev/null 2>&1; then
     fail "ToplingDB accepted a non-empty unmarked data path"
 fi
+[ -f "$NONEMPTY_DATA/existing.sst" ] ||
+    fail "failed provider validation removed existing data"
+[ ! -e "$NONEMPTY_DATA/.hugegraph-rocksdb-provider" ] ||
+    fail "failed provider validation created a marker"
 
 OUTSIDE_DATA="$TEST_ROOT/outside-data"
 mkdir -p "$OUTSIDE_DATA"
