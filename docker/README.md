@@ -244,6 +244,11 @@ docker compose -f docker-compose-hstore.yml up -d
 
 Configuration is injected via environment variables. The old `docker/configs/application-pd*.yml` and `docker/configs/application-store*.yml` files are no longer used.
 
+The generic Compose files pass explicit `rocksdb` defaults to each local
+RocksDB owner. Selecting a `:topling` image therefore requires setting its
+provider, data-root, marker, and provider-specific volume together; changing
+only the image tag is intentionally not a provider switch.
+
 ### PD Environment Variables
 
 | Variable | Required | Default | Maps To (`application.yml`) | Description |
@@ -254,7 +259,7 @@ Configuration is injected via environment variables. The old `docker/configs/app
 | `HG_PD_INITIAL_STORE_LIST` | Yes | — | `pd.initial-store-list` | Expected stores (e.g. `store0:8500,store1:8500,store2:8500`) |
 | `HG_PD_GRPC_PORT` | No | `8686` | `grpc.port` | gRPC server port |
 | `HG_PD_REST_PORT` | No | `8620` | `server.port` | REST API port |
-| `HG_PD_ROCKSDB_PROVIDER` | No | Image default | `rocksdb.provider` | `rocksdb` or `topling`; Topling images default to `topling` |
+| `HG_PD_ROCKSDB_PROVIDER` | No | `rocksdb` | `rocksdb.provider` | `rocksdb` or `topling`; set `topling` explicitly with a Topling image |
 | `HG_PD_DATA_PATH` | No | Provider-specific path | `pd.data-path` | `/hugegraph-pd/pd_data` for RocksDB or `/hugegraph-pd/topling-pd-data` for ToplingDB |
 | `HG_PD_ENFORCE_PROVIDER_MARKER` | No | `false` | Startup safety gate | Rejects an unmarked non-empty data path when `true`; enabled by Topling images |
 | `HG_PD_INITIAL_STORE_COUNT` | No | `1` | `pd.initial-store-count` | Min stores for cluster availability |
@@ -277,7 +282,7 @@ Configuration is injected via environment variables. The old `docker/configs/app
 | `HG_STORE_RAFT_ADDRESS` | Yes | — | `raft.address` | This node's Raft address (e.g. `store0:8510`) |
 | `HG_STORE_GRPC_PORT` | No | `8500` | `grpc.port` | gRPC server port |
 | `HG_STORE_REST_PORT` | No | `8520` | `server.port` | REST API port |
-| `HG_STORE_ROCKSDB_PROVIDER` | No | Image default | `rocksdb.provider` | `rocksdb` or `topling`; Topling images default to `topling` |
+| `HG_STORE_ROCKSDB_PROVIDER` | No | `rocksdb` | `rocksdb.provider` | `rocksdb` or `topling`; set `topling` explicitly with a Topling image |
 | `HG_STORE_DATA_PATH` | No | Provider-specific path | `app.data-path` | `/hugegraph-store/storage` for RocksDB or `/hugegraph-store/topling-storage` for ToplingDB |
 | `HG_STORE_ENFORCE_PROVIDER_MARKER` | No | `false` | Startup safety gate | Rejects an unmarked non-empty data path when `true`; enabled by Topling images |
 
@@ -294,7 +299,7 @@ Configuration is injected via environment variables. The old `docker/configs/app
 | Variable | Required | Default | Maps To | Description |
 |----------|----------|---------|-----------------------------|-------------|
 | `HG_SERVER_BACKEND` | Yes | — | `backend` in `hugegraph.properties` | Storage backend (e.g. `hstore`) |
-| `HG_SERVER_ROCKSDB_PROVIDER` | No | Image/config default | `rocksdb.provider` | RocksDB JNI provider (`rocksdb` or `topling`); the Topling image defaults to `topling` |
+| `HG_SERVER_ROCKSDB_PROVIDER` | No | `rocksdb` | `rocksdb.provider` | RocksDB JNI provider (`rocksdb` or `topling`); set `topling` explicitly with a Topling image |
 | `HG_SERVER_DATA_PATH` | No | Provider-specific image path | `rocksdb.data_path`, `rocksdb.wal_path` | RocksDB data root; standard uses `/hugegraph-server/rocksdb-data`, Topling uses `/hugegraph-server/topling-data` |
 | `HG_SERVER_ENFORCE_PROVIDER_MARKER` | No | `false` | Startup safety gate | Rejects an unmarked non-empty data root when `true`; enabled by the Topling image |
 | `HG_SERVER_PD_PEERS` | Yes | — | `pd.peers` | PD cluster addresses (e.g. `pd0:8686,pd1:8686,pd2:8686`) |
