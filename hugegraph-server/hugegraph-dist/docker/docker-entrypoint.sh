@@ -55,8 +55,25 @@ set_prop_encoded() {
     key_re="^[[:space:]]*${esc_key}([[:space:]]*[:=]|[[:space:]]+|[[:space:]]*$)"
 
     if grep -qE "${key_re}" "${file}"; then
-        sed -ri "0,/${key_re}/!{/${key_re}/d;}" "${file}"
-        sed -ri "0,/${key_re}/s~${key_re}.*~${key}=${esc_val}~" "${file}"
+        if sed --version >/dev/null 2>&1; then
+            # GNU sed supports the 0,/regexp/ address used by the Linux
+            # images. Keep the first property and remove later duplicates.
+            sed -ri "0,/${key_re}/!{/${key_re}/d;}" "${file}"
+            sed -ri "0,/${key_re}/s~${key_re}.*~${key}=${esc_val}~" "${file}"
+        else
+            # BSD sed (macOS) has neither -r nor the GNU line-0 address. Find
+            # the matching lines explicitly, delete duplicates from the end,
+            # then replace the first line in place.
+            first_line=$(grep -nE "${key_re}" "${file}" | head -n 1 | cut -d: -f1)
+            duplicate_lines=$(grep -nE "${key_re}" "${file}" |
+                              cut -d: -f1 | tail -n +2 | sort -rn)
+            while IFS= read -r duplicate; do
+                [[ -z "${duplicate}" ]] || \
+                    sed -E -i '' "${duplicate}d" "${file}"
+            done <<< "${duplicate_lines}"
+            sed -E -i '' "${first_line}s~${key_re}.*~${key}=${esc_val}~" \
+                "${file}"
+        fi
     else
         printf '%s=%s\n' "$key" "$encoded_val" >> "${file}"
     fi
@@ -146,6 +163,13 @@ if [[ -n "${HG_SERVER_AUTH_TOKEN_SECRET:-}" ]]; then
         log "ERROR: HG_SERVER_AUTH_TOKEN_SECRET must be at least 32 bytes"
         exit 1
     fi
+fi
+
+if [[ -n "${PASSWORD:-}" &&
+      "${HG_SERVER_REQUIRE_AUTH_TOKEN_SECRET:-false}" == "true" &&
+      -z "${HG_SERVER_AUTH_TOKEN_SECRET:-}" ]]; then
+    log "ERROR: HG_SERVER_AUTH_TOKEN_SECRET is required when authentication is enabled"
+    exit 1
 fi
 
 AUTH_TOKEN_SECRET_ENCODED=""

@@ -48,30 +48,30 @@ x-topling-store: &topling-store
 services:
   pd0:
     <<: *topling-pd
-    volumes:
+    volumes: !override
       - hg-pd0-topling-data:/hugegraph-pd/topling-pd-data
 
   pd1:
     <<: *topling-pd
-    volumes:
+    volumes: !override
       - hg-pd1-topling-data:/hugegraph-pd/topling-pd-data
 
   pd2:
     <<: *topling-pd
-    volumes:
+    volumes: !override
       - hg-pd2-topling-data:/hugegraph-pd/topling-pd-data
 
   store0:
     <<: *topling-store
-    volumes:
+    volumes: !override
       - hg-store0-topling-data:/hugegraph-store/topling-storage
 
   store1:
     <<: *topling-store
-    volumes:
+    volumes: !override
       - hg-store1-topling-data:/hugegraph-store/topling-storage
 
   store2:
     <<: *topling-store
-    volumes:
+    volumes: !override
       - hg-store2-topling-data:/hugegraph-store/topling-storage

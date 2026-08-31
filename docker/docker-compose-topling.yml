@@ -15,9 +15,10 @@
 # limitations under the License.
 #
 
-# Apply this file after docker-compose.dev.yml. It replaces only the local
-# RocksDB owners. The HStore Server stays on Dockerfile-hstore.
-name: hugegraph-single-topling
+# Apply this file after docker-compose-hstore.yml and docker-compose.dev.yml.
+# It replaces only the local RocksDB owners. The HStore Server stays on its
+# standard Dockerfile-hstore runtime.
+name: hugegraph-hstore-topling
 
 volumes:
   hg-pd-topling-data:
@@ -36,7 +37,7 @@ services:
       HG_PD_ROCKSDB_PROVIDER: topling
       HG_PD_DATA_PATH: /hugegraph-pd/topling-pd-data
       HG_PD_ENFORCE_PROVIDER_MARKER: "true"
-    volumes:
+    volumes: !override
       - hg-pd-topling-data:/hugegraph-pd/topling-pd-data
 
   store:
@@ -51,5 +52,5 @@ services:
       HG_STORE_ROCKSDB_PROVIDER: topling
       HG_STORE_DATA_PATH: /hugegraph-store/topling-storage
       HG_STORE_ENFORCE_PROVIDER_MARKER: "true"
-    volumes:
+    volumes: !override
       - hg-store-topling-data:/hugegraph-store/topling-storage

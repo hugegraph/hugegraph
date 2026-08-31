@@ -15,28 +15,25 @@
 # limitations under the License.
 #
 
+# Apply this file after docker-compose.yml. It replaces only the standalone
+# Server runtime and data root; HStore services are not part of this topology.
+name: hugegraph-standalone-topling
+
+volumes:
+  server-topling-data:
+
 services:
-  pd:
-    image: hugegraph/pd:dev
-    pull_policy: build
-    build:
-      context: ..
-      dockerfile: hugegraph-pd/Dockerfile
-    healthcheck:
-      start_period: 20s
-
-  store:
-    image: hugegraph/store:dev
-    pull_policy: build
-    build:
-      context: ..
-      dockerfile: hugegraph-store/Dockerfile
-    healthcheck:
-      start_period: 30s
-
   server:
-    image: ${HUGEGRAPH_SERVER_IMAGE:-hugegraph/server:dev}
-    pull_policy: ${HUGEGRAPH_SERVER_PULL_POLICY:-build}
+    image: ${TOPLING_SERVER_IMAGE:-local/hugegraph:topling}
+    pull_policy: ${TOPLING_IMAGE_PULL_POLICY:-build}
+    platform: linux/amd64
     build:
       context: ..
-      dockerfile: hugegraph-server/Dockerfile-hstore
+      dockerfile: hugegraph-server/Dockerfile
+      target: topling
+    environment:
+      HG_SERVER_ROCKSDB_PROVIDER: topling
+      HG_SERVER_DATA_PATH: /hugegraph-server/topling-data
+      HG_SERVER_ENFORCE_PROVIDER_MARKER: "true"
+    volumes: !override
+      - server-topling-data:/hugegraph-server/topling-data

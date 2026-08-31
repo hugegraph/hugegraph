@@ -132,16 +132,34 @@ jobs:
           set -euo pipefail
 
           docker compose \
+            -f docker/docker-compose.yml \
+            -f docker/docker-compose-standalone-topling.yml \
+            config --format json > /tmp/topling-standalone.json
+          docker compose \
+            -f docker/docker-compose-hstore.yml \
             -f docker/docker-compose.dev.yml \
             -f docker/docker-compose-topling.yml \
-            config --format json > /tmp/topling-single.json
+            config --format json > /tmp/topling-hstore.json
           docker compose \
             -f docker/docker-compose-3pd-3store-3server.yml \
             -f docker/docker-compose-3pd-3store-3server-topling.yml \
             config --format json > /tmp/topling-3x3.json
 
           jq -e '
-            .name == "hugegraph-single-topling" and
+            .name == "hugegraph-standalone-topling" and
+            .services.server.image == "local/hugegraph:topling" and
+            .services.server.build.target == "topling" and
+            .services.server.platform == "linux/amd64" and
+            .services.server.environment.HG_SERVER_ROCKSDB_PROVIDER == "topling" and
+            .services.server.environment.HG_SERVER_DATA_PATH == "/hugegraph-server/topling-data" and
+            .services.server.environment.HG_SERVER_ENFORCE_PROVIDER_MARKER == "true" and
+            (.services.server.volumes |
+              any(.source == "server-topling-data" and
+                  .target == "/hugegraph-server/topling-data"))
+          ' /tmp/topling-standalone.json
+
+          jq -e '
+            .name == "hugegraph-hstore-topling" and
             .services.pd.build.target == "topling" and
             .services.store.build.target == "topling" and
             .services.pd.environment.HG_PD_ROCKSDB_PROVIDER == "topling" and
@@ -157,7 +175,7 @@ jobs:
               any(.source == "hg-pd-topling-data")) and
             (.services.store.volumes |
               any(.source == "hg-store-topling-data"))
-          ' /tmp/topling-single.json
+          ' /tmp/topling-hstore.json
 
           jq -e '
             .name == "hugegraph-3x3-topling" and

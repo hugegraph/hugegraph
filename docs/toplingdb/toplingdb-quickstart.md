@@ -50,6 +50,18 @@ docker run -d \
 curl --fail http://127.0.0.1:8080/versions
 ```
 
+The same standalone image can be run with the repository Compose overlay. The
+overlay keeps Topling data in a separate named volume:
+
+```bash
+export TOPLING_SERVER_IMAGE='hugegraph/hugegraph:topling'
+export TOPLING_IMAGE_PULL_POLICY='always'
+docker compose \
+  -f docker/docker-compose.yml \
+  -f docker/docker-compose-standalone-topling.yml \
+  up -d --wait
+```
+
 Run a source-checkout 1+1+1 HStore stack with the published images:
 
 ```bash
@@ -61,6 +73,7 @@ export TOPLING_STORE_IMAGE='hugegraph/store:topling'
 export TOPLING_IMAGE_PULL_POLICY='always'
 
 docker compose \
+  -f docker/docker-compose-hstore.yml \
   -f docker/docker-compose.dev.yml \
   -f docker/docker-compose-topling.yml \
   up -d --wait pd store server
