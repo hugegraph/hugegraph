@@ -165,6 +165,8 @@ SERVER_JAVA_CAPTURE="$TEST_ROOT/server-java-classpath"
 mkdir -p "$SERVER_LAUNCHER_ROOT/bin" "$SERVER_LAUNCHER_ROOT/conf" \
          "$SERVER_LAUNCHER_ROOT/lib/topling" "$SERVER_LAUNCHER_ROOT/ext" \
          "$SERVER_LAUNCHER_ROOT/plugins" "$SERVER_LAUNCHER_ROOT/logs"
+mkdir -p "$SERVER_LAUNCHER_ROOT/lib/hugegraph-shadow/classes"
+mkdir -p "$SERVER_LAUNCHER_ROOT/lib/hugegraph-shadow.jar"
 cp "$DIST_ROOT/src/assembly/static/bin/hugegraph-server.sh" \
    "$SERVER_LAUNCHER_ROOT/bin/hugegraph-server.sh"
 cp "$DIST_ROOT/src/assembly/static/bin/init-store.sh" \
@@ -221,7 +223,8 @@ fi
 for leaked in \
     "$SERVER_LAUNCHER_ROOT/lib/log4j-slf4j-impl-topling-alias.jar" \
     "$SERVER_LAUNCHER_ROOT/lib/hugegraph-topling-alias.jar" \
-    "$SERVER_LAUNCHER_ROOT/lib/topling-alias/"; do
+    "$SERVER_LAUNCHER_ROOT/lib/topling-alias/" \
+    "$SERVER_LAUNCHER_ROOT/lib/hugegraph-shadow"; do
     if grep -Fq "$leaked" "$SERVER_JAVA_CAPTURE"; then
         fail "standard provider launcher followed a Topling symlink: $leaked"
     fi
@@ -241,7 +244,8 @@ fi
 for leaked in \
     "$SERVER_LAUNCHER_ROOT/lib/log4j-slf4j-impl-topling-alias.jar" \
     "$SERVER_LAUNCHER_ROOT/lib/hugegraph-topling-alias.jar" \
-    "$SERVER_LAUNCHER_ROOT/lib/topling-alias/"; do
+    "$SERVER_LAUNCHER_ROOT/lib/topling-alias/" \
+    "$SERVER_LAUNCHER_ROOT/lib/hugegraph-shadow"; do
     if grep -Fq "$leaked" "$SERVER_INIT_CAPTURE"; then
         fail "standard provider init-store followed a Topling symlink: $leaked"
     fi

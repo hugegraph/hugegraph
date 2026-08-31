@@ -53,7 +53,7 @@ source "$BIN/preload-topling.sh"
 echo "Initializing HugeGraph Store..."
 
 # Build classpath with hugegraph*.jar first to avoid class loading conflicts
-CP=$(find_standard_lib_jars "${LIB}" 'hugegraph*' | sort | tr '\n' ':')
+CP=$(find_standard_lib_jars "${LIB}" 'hugegraph*.jar' | sort | tr '\n' ':')
 if [ -n "${TOPLING_RUNTIME_CLASSPATH:-}" ]; then
     CP="$TOPLING_RUNTIME_CLASSPATH:$CP"
 fi
