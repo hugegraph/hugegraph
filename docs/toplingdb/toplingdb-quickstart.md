@@ -50,56 +50,82 @@ docker run -d \
 curl --fail http://127.0.0.1:8080/versions
 ```
 
-The same standalone image can be run with the repository Compose overlay. The
-overlay keeps Topling data in a separate named volume:
+The same standalone image can be run with the generic repository Compose file.
+Inject the provider and volume parameters so the standard volume cannot be
+reused:
 
 ```bash
-export TOPLING_SERVER_IMAGE='hugegraph/hugegraph:topling'
-export TOPLING_IMAGE_PULL_POLICY='always'
-docker compose \
-  -f docker/docker-compose.yml \
-  -f docker/docker-compose-standalone-topling.yml \
+export HUGEGRAPH_SERVER_IMAGE='hugegraph/hugegraph:topling'
+export HUGEGRAPH_SERVER_PULL_POLICY='always'
+export HG_SERVER_ROCKSDB_PROVIDER='topling'
+export HG_SERVER_DATA_PATH='/hugegraph-server/topling-data'
+export HG_SERVER_ENFORCE_PROVIDER_MARKER='true'
+export HUGEGRAPH_SERVER_VOLUME='server-topling-data'
+docker compose -f docker/docker-compose.yml \
   up -d --wait
 ```
 
-Run a source-checkout 1+1+1 HStore stack with the published images:
+Run a source-checkout 1+1+1 HStore stack with Topling PD and Store images.
+The generic Compose files accept the same parameters for local builds or
+published images; the HStore Server itself remains standard:
 
 ```bash
 export HUGEGRAPH_ADMIN_PASSWORD='replace-with-a-strong-password'
+export HUGEGRAPH_PD_IMAGE='hugegraph/pd:topling'
+export HUGEGRAPH_PD_PULL_POLICY='always'
+export HUGEGRAPH_PD_VOLUME='pd-topling-data'
+export HG_PD_ROCKSDB_PROVIDER='topling'
+export HG_PD_DATA_PATH='/hugegraph-pd/topling-pd-data'
+export HG_PD_ENFORCE_PROVIDER_MARKER='true'
+export HUGEGRAPH_STORE_IMAGE='hugegraph/store:topling'
+export HUGEGRAPH_STORE_PULL_POLICY='always'
+export HUGEGRAPH_STORE_VOLUME='store-topling-data'
+export HG_STORE_ROCKSDB_PROVIDER='topling'
+export HG_STORE_DATA_PATH='/hugegraph-store/topling-storage'
+export HG_STORE_ENFORCE_PROVIDER_MARKER='true'
 export HUGEGRAPH_SERVER_IMAGE='hugegraph/server:topling'
 export HUGEGRAPH_SERVER_PULL_POLICY='always'
-export TOPLING_PD_IMAGE='hugegraph/pd:topling'
-export TOPLING_STORE_IMAGE='hugegraph/store:topling'
-export TOPLING_IMAGE_PULL_POLICY='always'
 
 docker compose \
   -f docker/docker-compose-hstore.yml \
-  -f docker/docker-compose.dev.yml \
-  -f docker/docker-compose-topling.yml \
   up -d --wait pd store server
 ```
 
-The overlay mounts separate Topling volumes for PD and Store. The HStore Server
+For source-built PD and Store images, use `local/hugegraph-{pd,store}:topling`,
+set both pull policies to `never`, add `HUGEGRAPH_{PD,STORE}_BUILD_TARGET=topling`,
+and append `-f docker/docker-compose.dev.yml`. The generic files mount the
+separate `pd-topling-data` and `store-topling-data` volumes. The HStore Server
 does not load a local Topling library.
 
 For a published 3+3+3 stack, select all three deployment images explicitly:
 
 ```bash
-export HUGEGRAPH_VERSION=topling
+export HUGEGRAPH_PD_IMAGE=hugegraph/pd:topling
+export HUGEGRAPH_PD_PULL_POLICY=always
+export HG_PD_ROCKSDB_PROVIDER=topling
+export HG_PD_DATA_PATH=/hugegraph-pd/topling-pd-data
+export HG_PD_ENFORCE_PROVIDER_MARKER=true
+export HUGEGRAPH_PD0_VOLUME=hg-pd0-topling-data
+export HUGEGRAPH_PD1_VOLUME=hg-pd1-topling-data
+export HUGEGRAPH_PD2_VOLUME=hg-pd2-topling-data
+export HUGEGRAPH_STORE_IMAGE=hugegraph/store:topling
+export HUGEGRAPH_STORE_PULL_POLICY=always
+export HG_STORE_ROCKSDB_PROVIDER=topling
+export HG_STORE_DATA_PATH=/hugegraph-store/topling-storage
+export HG_STORE_ENFORCE_PROVIDER_MARKER=true
+export HUGEGRAPH_STORE0_VOLUME=hg-store0-topling-data
+export HUGEGRAPH_STORE1_VOLUME=hg-store1-topling-data
+export HUGEGRAPH_STORE2_VOLUME=hg-store2-topling-data
+export HUGEGRAPH_SERVER_IMAGE=hugegraph/server:topling
 export HUGEGRAPH_SERVER_PULL_POLICY=always
-export TOPLING_PD_IMAGE=hugegraph/pd:topling
-export TOPLING_STORE_IMAGE=hugegraph/store:topling
-export TOPLING_IMAGE_PULL_POLICY=always
 
-docker compose \
-  -f docker/docker-compose-3pd-3store-3server.yml \
-  -f docker/docker-compose-3pd-3store-3server-topling.yml \
+docker compose -f docker/docker-compose-3pd-3store-3server.yml \
   up -d --wait
 ```
 
-`HUGEGRAPH_VERSION=topling` selects the compatible HStore Server image.
 Each PD and Store instance receives a distinct Topling volume. For local Bake
 images, use the same variables with the tags produced by `docker/bake.hcl`.
+No Topling-specific Compose file is required or maintained.
 
 The `topling` tag is mutable. The commands above force a pull so a cached image
 cannot silently stand in for the current deployment set. Pin the registry

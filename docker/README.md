@@ -462,38 +462,60 @@ RUNTIME_VARIANT=topling IMAGE_TAG=topling \
 Run standalone HugeGraph with its isolated Topling data volume:
 
 ```bash
-docker compose \
-  -f docker-compose.yml \
-  -f docker-compose-standalone-topling.yml \
-  up -d --build --wait
+HUGEGRAPH_SERVER_IMAGE=hugegraph/hugegraph:topling \
+HUGEGRAPH_SERVER_PULL_POLICY=always \
+HG_SERVER_ROCKSDB_PROVIDER=topling \
+HG_SERVER_DATA_PATH=/hugegraph-server/topling-data \
+HG_SERVER_ENFORCE_PROVIDER_MARKER=true \
+HUGEGRAPH_SERVER_VOLUME=server-topling-data \
+docker compose -f docker-compose.yml \
+  up -d --wait
 ```
 
-To use the published image instead, set
-`TOPLING_SERVER_IMAGE=hugegraph/hugegraph:topling` and
-`TOPLING_IMAGE_PULL_POLICY=always`. The standard `server-data` volume is not
-used by the overlay; Topling data is stored in `server-topling-data`.
+The same parameters work with a published image or a locally built image. The
+standard `server-data` volume is not used; Topling data is stored in the
+provider-specific `server-topling-data` volume.
 
 Run the minimal distributed 1+1+1 topology from source with Topling PD and
 Store runtimes. The HStore Server remains standard:
 
 ```bash
-docker compose \
-  -f docker-compose-hstore.yml \
-  -f docker-compose.dev.yml \
-  -f docker-compose-topling.yml \
+HUGEGRAPH_PD_IMAGE=local/hugegraph-pd:topling \
+HUGEGRAPH_PD_PULL_POLICY=never \
+HUGEGRAPH_PD_BUILD_TARGET=topling \
+HUGEGRAPH_PD_VOLUME=pd-topling-data \
+HG_PD_ROCKSDB_PROVIDER=topling \
+HG_PD_DATA_PATH=/hugegraph-pd/topling-pd-data \
+HG_PD_ENFORCE_PROVIDER_MARKER=true \
+HUGEGRAPH_STORE_IMAGE=local/hugegraph-store:topling \
+HUGEGRAPH_STORE_PULL_POLICY=never \
+HUGEGRAPH_STORE_BUILD_TARGET=topling \
+HUGEGRAPH_STORE_VOLUME=store-topling-data \
+HG_STORE_ROCKSDB_PROVIDER=topling \
+HG_STORE_DATA_PATH=/hugegraph-store/topling-storage \
+HG_STORE_ENFORCE_PROVIDER_MARKER=true \
+HUGEGRAPH_SERVER_IMAGE=hugegraph/server:dev \
+HUGEGRAPH_SERVER_PULL_POLICY=build \
+docker compose -f docker-compose-hstore.yml -f docker-compose.dev.yml \
   up -d --build --wait
 ```
 
-For published images, set `TOPLING_PD_IMAGE=hugegraph/pd:topling`,
-`TOPLING_STORE_IMAGE=hugegraph/store:topling`,
-`HUGEGRAPH_SERVER_IMAGE=hugegraph/server:topling`, and
-`TOPLING_IMAGE_PULL_POLICY=always` (plus
-`HUGEGRAPH_SERVER_PULL_POLICY=always`). The HA overlay uses the same variables
-with `docker-compose-3pd-3store-3server.yml` and
-`docker-compose-3pd-3store-3server-topling.yml`.
+For published images, replace the two local image values and `never` policies
+with `hugegraph/{pd,store}:topling` and `always`. Set
+`HUGEGRAPH_SERVER_IMAGE=hugegraph/server:topling` and
+`HUGEGRAPH_SERVER_PULL_POLICY=always` for the matching HStore Server. The
+standard `pd-data` and `store-data` volumes are not mounted.
 
-Each Topling owner uses a provider-specific named volume and marker. Do not
-reuse a standard RocksDB volume with a Topling image. See
+The HA reference uses the same parameters with
+`docker-compose-3pd-3store-3server.yml`; set
+`HUGEGRAPH_PD0_VOLUME`, `HUGEGRAPH_PD1_VOLUME`, `HUGEGRAPH_PD2_VOLUME`,
+`HUGEGRAPH_STORE0_VOLUME`, `HUGEGRAPH_STORE1_VOLUME`, and
+`HUGEGRAPH_STORE2_VOLUME` to their `*-topling-data` names.
+
+The generic Compose files inject image, provider, data-root, and volume
+parameters; no Topling-specific Compose file is maintained. Each Topling owner
+uses a provider-specific named volume and marker. Do not reuse a standard
+RocksDB volume with a Topling image. See
 [`docs/toplingdb/README.md`](../docs/toplingdb/README.md) for distribution
 configuration, provider markers, restart checks, and troubleshooting.
 

@@ -175,12 +175,16 @@ docker image inspect hugegraph/hugegraph:topling \
   --format '{{json .Config.Labels}}'
 ```
 
-Run the single-node or 3+3+3 Topling Compose overlay after the corresponding
-base file. Local development defaults to `local/hugegraph-{pd,store}:topling`.
-Set `TOPLING_PD_IMAGE`, `TOPLING_STORE_IMAGE`, and
-`TOPLING_IMAGE_PULL_POLICY=always` to test published PD and Store candidates.
-Also set `HUGEGRAPH_SERVER_IMAGE=hugegraph/server:topling` and
-`HUGEGRAPH_SERVER_PULL_POLICY=always` for the matching HStore Server.
+Run the generic standalone, minimal HStore, or 3+3+3 Compose file with
+provider parameters injected through the environment. Local development can
+use `local/hugegraph-{pd,store}:topling` with
+`HUGEGRAPH_{PD,STORE}_BUILD_TARGET=topling`; published candidates use
+`hugegraph/{pd,store}:topling` and `HUGEGRAPH_{PD,STORE}_PULL_POLICY=always`.
+Set `HUGEGRAPH_SERVER_IMAGE=hugegraph/server:topling` and
+`HUGEGRAPH_SERVER_PULL_POLICY=always` only when the matching HStore image is
+intended. Keep the provider-specific volume names and data roots explicit.
+The repository deliberately maintains one Compose topology per deployment
+shape rather than separate Topling files.
 
 Every local RocksDB owner uses a provider-specific data root. The entrypoint
 validates `.hugegraph-rocksdb-provider` before it mutates configuration or

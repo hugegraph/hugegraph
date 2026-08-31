@@ -123,33 +123,59 @@ jobs:
               all(. == ["linux/amd64"]))
           ' /tmp/hugegraph-bake-topling.json
 
-      - name: Validate ToplingDB Compose overlays
+      - name: Validate ToplingDB Compose parameters
         env:
           HUGEGRAPH_ADMIN_PASSWORD: ci-test-password
           HUGEGRAPH_SERVER_PULL_POLICY: always
-          TOPLING_IMAGE_PULL_POLICY: always
+          HUGEGRAPH_PD_PULL_POLICY: always
+          HUGEGRAPH_STORE_PULL_POLICY: always
         run: |
           set -euo pipefail
 
-          docker compose \
-            -f docker/docker-compose.yml \
-            -f docker/docker-compose-standalone-topling.yml \
+          env \
+            HUGEGRAPH_SERVER_IMAGE=local/hugegraph:topling \
+            HUGEGRAPH_SERVER_VOLUME=server-topling-data \
+            HG_SERVER_ROCKSDB_PROVIDER=topling \
+            HG_SERVER_DATA_PATH=/hugegraph-server/topling-data \
+            HG_SERVER_ENFORCE_PROVIDER_MARKER=true \
+          docker compose -f docker/docker-compose.yml \
             config --format json > /tmp/topling-standalone.json
-          docker compose \
-            -f docker/docker-compose-hstore.yml \
+          env \
+            HUGEGRAPH_PD_IMAGE=local/hugegraph-pd:topling \
+            HUGEGRAPH_PD_VOLUME=pd-topling-data \
+            HG_PD_ROCKSDB_PROVIDER=topling \
+            HG_PD_DATA_PATH=/hugegraph-pd/topling-pd-data \
+            HG_PD_ENFORCE_PROVIDER_MARKER=true \
+            HUGEGRAPH_STORE_IMAGE=local/hugegraph-store:topling \
+            HUGEGRAPH_STORE_VOLUME=store-topling-data \
+            HG_STORE_ROCKSDB_PROVIDER=topling \
+            HG_STORE_DATA_PATH=/hugegraph-store/topling-storage \
+            HG_STORE_ENFORCE_PROVIDER_MARKER=true \
+          docker compose -f docker/docker-compose-hstore.yml \
             -f docker/docker-compose.dev.yml \
-            -f docker/docker-compose-topling.yml \
             config --format json > /tmp/topling-hstore.json
-          docker compose \
-            -f docker/docker-compose-3pd-3store-3server.yml \
-            -f docker/docker-compose-3pd-3store-3server-topling.yml \
+          env \
+            HUGEGRAPH_PD_IMAGE=local/hugegraph-pd:topling \
+            HUGEGRAPH_PD0_VOLUME=hg-pd0-topling-data \
+            HUGEGRAPH_PD1_VOLUME=hg-pd1-topling-data \
+            HUGEGRAPH_PD2_VOLUME=hg-pd2-topling-data \
+            HG_PD_ROCKSDB_PROVIDER=topling \
+            HG_PD_DATA_PATH=/hugegraph-pd/topling-pd-data \
+            HG_PD_ENFORCE_PROVIDER_MARKER=true \
+            HUGEGRAPH_STORE_IMAGE=local/hugegraph-store:topling \
+            HUGEGRAPH_STORE0_VOLUME=hg-store0-topling-data \
+            HUGEGRAPH_STORE1_VOLUME=hg-store1-topling-data \
+            HUGEGRAPH_STORE2_VOLUME=hg-store2-topling-data \
+            HG_STORE_ROCKSDB_PROVIDER=topling \
+            HG_STORE_DATA_PATH=/hugegraph-store/topling-storage \
+            HG_STORE_ENFORCE_PROVIDER_MARKER=true \
+          docker compose -f docker/docker-compose-3pd-3store-3server.yml \
             config --format json > /tmp/topling-3x3.json
 
           jq -e '
-            .name == "hugegraph-standalone-topling" and
+            .name == "hugegraph-standalone" and
             .services.server.image == "local/hugegraph:topling" and
-            .services.server.build.target == "topling" and
-            .services.server.platform == "linux/amd64" and
+            .services.server.pull_policy == "always" and
             .services.server.environment.HG_SERVER_ROCKSDB_PROVIDER == "topling" and
             .services.server.environment.HG_SERVER_DATA_PATH == "/hugegraph-server/topling-data" and
             .services.server.environment.HG_SERVER_ENFORCE_PROVIDER_MARKER == "true" and
@@ -159,35 +185,39 @@ jobs:
           ' /tmp/topling-standalone.json
 
           jq -e '
-            .name == "hugegraph-hstore-topling" and
-            .services.pd.build.target == "topling" and
-            .services.store.build.target == "topling" and
+            .name == "hugegraph-hstore" and
+            .services.pd.image == "local/hugegraph-pd:topling" and
+            .services.store.image == "local/hugegraph-store:topling" and
             .services.pd.environment.HG_PD_ROCKSDB_PROVIDER == "topling" and
             .services.store.environment.HG_STORE_ROCKSDB_PROVIDER == "topling" and
             .services.server.environment.HG_SERVER_BACKEND == "hstore" and
             (.services.server.environment.HG_SERVER_ROCKSDB_PROVIDER == null) and
+            .services.server.image == "hugegraph/server:latest" and
             .services.server.pull_policy == "always" and
             .services.pd.pull_policy == "always" and
             .services.store.pull_policy == "always" and
             (.services.pd.ports | all(.target != 2012)) and
             (.services.store.ports | all(.target != 2013)) and
             (.services.pd.volumes |
-              any(.source == "hg-pd-topling-data")) and
+              any(.source == "pd-topling-data")) and
             (.services.store.volumes |
-              any(.source == "hg-store-topling-data"))
+              any(.source == "store-topling-data"))
           ' /tmp/topling-hstore.json
 
           jq -e '
-            .name == "hugegraph-3x3-topling" and
+            .name == "hugegraph-3x3" and
             ([.services.pd0, .services.pd1, .services.pd2] |
               all(.environment.HG_PD_ROCKSDB_PROVIDER == "topling" and
-                  .platform == "linux/amd64")) and
+                  .image == "local/hugegraph-pd:topling" and
+                  .pull_policy == "always")) and
             ([.services.store0, .services.store1, .services.store2] |
               all(.environment.HG_STORE_ROCKSDB_PROVIDER == "topling" and
-                  .platform == "linux/amd64")) and
+                  .image == "local/hugegraph-store:topling" and
+                  .pull_policy == "always")) and
             ([.services.server0, .services.server1, .services.server2] |
               all(.environment.HG_SERVER_BACKEND == "hstore" and
                   (.environment.HG_SERVER_ROCKSDB_PROVIDER == null) and
+                  .image == "hugegraph/server:latest" and
                   .pull_policy == "always")) and
             ([.services.pd0, .services.pd1, .services.pd2,
               .services.store0, .services.store1, .services.store2] |

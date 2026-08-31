@@ -37,6 +37,65 @@ compose_auth() {
         docker compose "$@"
 }
 
+topling_env() {
+    env HUGEGRAPH_VERSION="${VERSION}" \
+        HUBBLE_IMAGE="${RENDER_HUBBLE_IMAGE}" \
+        HUGEGRAPH_ADMIN_PASSWORD="${PASSWORD}" \
+        HUGEGRAPH_AUTH_TOKEN_SECRET="${SECRET}" \
+        HUGEGRAPH_PD_IMAGE="local/hugegraph-pd:topling" \
+        HUGEGRAPH_PD_PULL_POLICY="never" \
+        HUGEGRAPH_PD_BUILD_TARGET="topling" \
+        HUGEGRAPH_PD_VOLUME="pd-topling-data" \
+        HUGEGRAPH_PD0_VOLUME="hg-pd0-topling-data" \
+        HUGEGRAPH_PD1_VOLUME="hg-pd1-topling-data" \
+        HUGEGRAPH_PD2_VOLUME="hg-pd2-topling-data" \
+        HG_PD_ROCKSDB_PROVIDER="topling" \
+        HG_PD_DATA_PATH="/hugegraph-pd/topling-pd-data" \
+        HG_PD_ENFORCE_PROVIDER_MARKER="true" \
+        HUGEGRAPH_STORE_IMAGE="local/hugegraph-store:topling" \
+        HUGEGRAPH_STORE_PULL_POLICY="never" \
+        HUGEGRAPH_STORE_BUILD_TARGET="topling" \
+        HUGEGRAPH_STORE_VOLUME="store-topling-data" \
+        HUGEGRAPH_STORE0_VOLUME="hg-store0-topling-data" \
+        HUGEGRAPH_STORE1_VOLUME="hg-store1-topling-data" \
+        HUGEGRAPH_STORE2_VOLUME="hg-store2-topling-data" \
+        HG_STORE_ROCKSDB_PROVIDER="topling" \
+        HG_STORE_DATA_PATH="/hugegraph-store/topling-storage" \
+        HG_STORE_ENFORCE_PROVIDER_MARKER="true" \
+        "$@"
+}
+
+render_topling_standalone() {
+    local output="$1"
+    shift
+    topling_env \
+        env HUGEGRAPH_SERVER_IMAGE="local/hugegraph:topling" \
+            HUGEGRAPH_SERVER_PULL_POLICY="never" \
+            HUGEGRAPH_SERVER_VOLUME="server-topling-data" \
+            HG_SERVER_ROCKSDB_PROVIDER="topling" \
+            HG_SERVER_DATA_PATH="/hugegraph-server/topling-data" \
+            HG_SERVER_ENFORCE_PROVIDER_MARKER="true" \
+            docker compose "$@" config --format json > "${output}"
+}
+
+render_topling_hstore() {
+    local output="$1"
+    shift
+    topling_env \
+        env HUGEGRAPH_SERVER_IMAGE="hugegraph/server:${VERSION}" \
+            HUGEGRAPH_SERVER_PULL_POLICY="missing" \
+            docker compose "$@" config --format json > "${output}"
+}
+
+render_topling_ha() {
+    local output="$1"
+    shift
+    topling_env \
+        env HUGEGRAPH_SERVER_IMAGE="hugegraph/server:${VERSION}" \
+            HUGEGRAPH_SERVER_PULL_POLICY="missing" \
+            docker compose "$@" config --format json > "${output}"
+}
+
 render() {
     local output="$1"
     shift
@@ -239,11 +298,9 @@ assert_dev_override() {
 assert_topling_standalone() {
     local rendered="$1"
     jq -e '
-        .name == "hugegraph-standalone-topling" and
+        .name == "hugegraph-standalone" and
         .services.server.image == "local/hugegraph:topling" and
-        .services.server.pull_policy == "build" and
-        .services.server.platform == "linux/amd64" and
-        .services.server.build.target == "topling" and
+        .services.server.pull_policy == "never" and
         .services.server.environment.HG_SERVER_ROCKSDB_PROVIDER == "topling" and
         .services.server.environment.HG_SERVER_ENFORCE_PROVIDER_MARKER == "true" and
         .services.server.environment.HG_SERVER_DATA_PATH == "/hugegraph-server/topling-data" and
@@ -256,19 +313,17 @@ assert_topling_standalone() {
 assert_topling_hstore() {
     local rendered="$1"
     jq -e '
-        .name == "hugegraph-hstore-topling" and
+        .name == "hugegraph-hstore" and
         .services.pd.image == "local/hugegraph-pd:topling" and
         .services.store.image == "local/hugegraph-store:topling" and
-        .services.pd.pull_policy == "build" and
-        .services.store.pull_policy == "build" and
-        .services.pd.build.target == "topling" and
-        .services.store.build.target == "topling" and
+        .services.pd.pull_policy == "never" and
+        .services.store.pull_policy == "never" and
         .services.pd.environment.HG_PD_ROCKSDB_PROVIDER == "topling" and
         .services.store.environment.HG_STORE_ROCKSDB_PROVIDER == "topling" and
         (.services.pd.volumes | length == 1) and
         (.services.store.volumes | length == 1) and
-        .services.pd.volumes[0].source == "hg-pd-topling-data" and
-        .services.store.volumes[0].source == "hg-store-topling-data" and
+        .services.pd.volumes[0].source == "pd-topling-data" and
+        .services.store.volumes[0].source == "store-topling-data" and
         .services.server.environment.HG_SERVER_BACKEND == "hstore" and
         (.services.server.environment.HG_SERVER_ROCKSDB_PROVIDER == null)
     ' "${rendered}" >/dev/null
@@ -277,7 +332,7 @@ assert_topling_hstore() {
 assert_topling_ha() {
     local rendered="$1"
     jq -e '
-        .name == "hugegraph-3x3-topling" and
+        .name == "hugegraph-3x3" and
         ([.services.pd0, .services.pd1, .services.pd2] |
             all(.image == "local/hugegraph-pd:topling" and
                 .pull_policy == "never" and
@@ -315,16 +370,13 @@ run_render() {
            -f "${DOCKER_DIR}/docker-compose.dev.yml"
     render "${RENDER_DIR}/override.json" \
            -f "${DOCKER_DIR}/docker-compose.dev.yml"
-    render "${RENDER_DIR}/topling-standalone.json" \
-           -f "${DOCKER_DIR}/docker-compose.yml" \
-           -f "${DOCKER_DIR}/docker-compose-standalone-topling.yml"
-    render "${RENDER_DIR}/topling-hstore.json" \
-           -f "${DOCKER_DIR}/docker-compose-hstore.yml" \
-           -f "${DOCKER_DIR}/docker-compose.dev.yml" \
-           -f "${DOCKER_DIR}/docker-compose-topling.yml"
-    render "${RENDER_DIR}/topling-ha.json" \
-           -f "${DOCKER_DIR}/docker-compose-3pd-3store-3server.yml" \
-           -f "${DOCKER_DIR}/docker-compose-3pd-3store-3server-topling.yml"
+    render_topling_standalone "${RENDER_DIR}/topling-standalone.json" \
+                              -f "${DOCKER_DIR}/docker-compose.yml"
+    render_topling_hstore "${RENDER_DIR}/topling-hstore.json" \
+                          -f "${DOCKER_DIR}/docker-compose-hstore.yml" \
+                          -f "${DOCKER_DIR}/docker-compose.dev.yml"
+    render_topling_ha "${RENDER_DIR}/topling-ha.json" \
+                      -f "${DOCKER_DIR}/docker-compose-3pd-3store-3server.yml"
 
     assert_standalone "${RENDER_DIR}/standalone.json"
     assert_hstore "${RENDER_DIR}/hstore.json"
