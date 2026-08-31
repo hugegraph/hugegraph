@@ -21,10 +21,11 @@ topologies use the matching `hugegraph/pd`, `hugegraph/store`, and
 `hugegraph/server` tags. Hubble is selected independently with
 `${HUBBLE_IMAGE:-hugegraph/hubble:latest}`.
 
-ToplingDB is selected with the documented overlays in the Developers section.
-It is Linux x86_64-only: the standalone overlay switches the Server image,
-while the HStore overlays switch only PD and Store. The HStore Server remains
-the standard image and never loads a local ToplingDB runtime.
+ToplingDB is selected by injecting the documented image, provider, data-root,
+marker, volume, and pull-policy variables in the Developers section. It is
+Linux x86_64-only: standalone selects Topling for the Server, while HStore
+selects it only for PD and Store. The HStore Server remains the standard image
+and never loads a local ToplingDB runtime.
 
 ### Create the authentication environment
 
