@@ -38,9 +38,18 @@ backend=rocksdb
 EOF
 cat > "${TEST_HOME}/bin/start-hugegraph.sh" <<'EOF'
 #!/usr/bin/env bash
+if [[ "${START_TEST_PRE_PID_DELAY:-false}" == "true" ]]; then
+    touch ./docker/start-before-pid
+    sleep 300
+fi
 if [[ "${START_TEST_CHILD:-false}" == "true" ]]; then
     sleep 300 &
-    printf '%s\n' "$!" > ./bin/pid
+    child_pid=$!
+    printf '%s\n' "$child_pid" > ./bin/pid
+    if [[ "${START_TEST_DELAY:-false}" == "true" ]]; then
+        trap 'kill -TERM "$child_pid" 2>/dev/null || true; wait "$child_pid" 2>/dev/null || true; exit 0' TERM
+        wait "$child_pid"
+    fi
 fi
 exit 0
 EOF
@@ -318,6 +327,76 @@ if ! wait "${entrypoint_pid}"; then
 fi
 if kill -0 "${child_pid}" 2>/dev/null; then
     echo "Docker entrypoint left its Server child running" >&2
+    exit 1
+fi
+
+rm -f "${TEST_HOME}/bin/pid"
+(
+    cd "${TEST_HOME}"
+    exec setsid env \
+        START_TEST_CHILD=true \
+        START_TEST_DELAY=true \
+        HG_SERVER_BACKEND=hstore \
+        HG_SERVER_ROCKSDB_PROVIDER=rocksdb \
+        bash ./docker-entrypoint.sh
+) &
+entrypoint_pid=$!
+for _ in $(seq 1 10); do
+    [[ -s "${TEST_HOME}/bin/pid" ]] && break
+    sleep 1
+done
+[[ -s "${TEST_HOME}/bin/pid" ]]
+child_pid=$(<"${TEST_HOME}/bin/pid")
+kill -TERM "${entrypoint_pid}"
+for _ in $(seq 1 15); do
+    ! kill -0 "${entrypoint_pid}" 2>/dev/null && break
+    sleep 1
+done
+if kill -0 "${entrypoint_pid}" 2>/dev/null; then
+    kill -KILL -- "-${entrypoint_pid}" 2>/dev/null || true
+    wait "${entrypoint_pid}" 2>/dev/null || true
+    echo "Docker entrypoint did not handle SIGTERM during startup" >&2
+    exit 1
+fi
+if ! wait "${entrypoint_pid}"; then
+    echo "Docker entrypoint did not exit cleanly during startup" >&2
+    exit 1
+fi
+if kill -0 "${child_pid}" 2>/dev/null; then
+    echo "Docker entrypoint left its startup Server child running" >&2
+    exit 1
+fi
+
+printf '%s\n' '-999999' > "${TEST_HOME}/bin/pid"
+rm -f "${TEST_HOME}/docker/start-before-pid"
+(
+    cd "${TEST_HOME}"
+    exec setsid env \
+        START_TEST_PRE_PID_DELAY=true \
+        HG_SERVER_BACKEND=hstore \
+        HG_SERVER_ROCKSDB_PROVIDER=rocksdb \
+        bash ./docker-entrypoint.sh
+) &
+entrypoint_pid=$!
+for _ in $(seq 1 10); do
+    [[ -e "${TEST_HOME}/docker/start-before-pid" ]] && break
+    sleep 1
+done
+[[ -e "${TEST_HOME}/docker/start-before-pid" ]]
+[[ ! -e "${TEST_HOME}/bin/pid" ]]
+kill -TERM "${entrypoint_pid}"
+for _ in $(seq 1 15); do
+    ! kill -0 "${entrypoint_pid}" 2>/dev/null && break
+    sleep 1
+done
+if kill -0 "${entrypoint_pid}" 2>/dev/null; then
+    kill -KILL -- "-${entrypoint_pid}" 2>/dev/null || true
+    wait "${entrypoint_pid}" 2>/dev/null || true
+    echo "Docker entrypoint did not ignore a stale pid during startup" >&2
+    exit 1
+fi
+if ! wait "${entrypoint_pid}"; then
+    echo "Docker entrypoint did not exit cleanly with a stale pid" >&2
     exit 1
 fi
 

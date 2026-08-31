@@ -265,7 +265,56 @@ else
     ./bin/init-store.sh
 fi
 
-./bin/start-hugegraph.sh -j "${JAVA_OPTS:-}" -t 120
+PID_FILE="./bin/pid"
+START_PID=""
+PID=""
+
+read_server_pid() {
+    local candidate
+
+    candidate=$(cat "$PID_FILE" 2>/dev/null || true)
+    if [[ "$candidate" =~ ^[1-9][0-9]*$ ]]; then
+        printf '%s' "$candidate"
+    fi
+}
+
+# A restarted container can retain the previous process id in its writable
+# layer. Only trust a pid file created by the startup launched below.
+rm -f "$PID_FILE"
+
+# shellcheck disable=SC2329  # Invoked by the TERM/INT trap below.
+shutdown_server() {
+    local server_pid="${PID:-}"
+
+    if [[ -z "$server_pid" ]]; then
+        server_pid=$(read_server_pid)
+    fi
+    if [[ -n "$server_pid" ]]; then
+        kill -TERM -- "$server_pid" 2>/dev/null || true
+    fi
+    if [[ -n "${START_PID:-}" ]]; then
+        kill -TERM -- "$START_PID" 2>/dev/null || true
+    fi
+    while [[ -n "$server_pid" ]] && kill -0 "$server_pid" 2>/dev/null; do
+        # kill -0 remains true for an unreaped zombie. Do not keep the
+        # container alive after the JVM has already completed shutdown.
+        if [[ -r "/proc/$server_pid/stat" ]]; then
+            PROCESS_STATE=$(awk '{ print $3 }' "/proc/$server_pid/stat" \
+                            2>/dev/null || true)
+            if [[ "$PROCESS_STATE" == "Z" ]]; then
+                break
+            fi
+        fi
+        sleep 1
+    done
+    exit 0
+}
+trap shutdown_server TERM INT
+
+./bin/start-hugegraph.sh -j "${JAVA_OPTS:-}" -t 120 &
+START_PID=$!
+wait "$START_PID"
+START_PID=""
 
 # Post-startup cluster stabilization check (hstore only — rocksdb has no partitions)
 ACTUAL_BACKEND=$(grep -E '^[[:space:]]*backend[[:space:]]*=' "${GRAPH_CONF}" | head -n 1 | sed 's/.*=//' | tr -d '[:space:]' || true)
@@ -275,26 +324,8 @@ if [[ "${ACTUAL_BACKEND}" == "hstore" ]]; then
     ./bin/wait-partition.sh || log "WARN: partitions not assigned yet"
 fi
 
-PID=$(cat ./bin/pid 2>/dev/null || true)
+PID=$(read_server_pid)
 if [[ -n "$PID" ]]; then
-    # shellcheck disable=SC2329  # Invoked by the TERM/INT trap below.
-    shutdown_server() {
-        kill -TERM "$PID" 2>/dev/null || true
-        while kill -0 "$PID" 2>/dev/null; do
-            # kill -0 remains true for an unreaped zombie. Do not keep the
-            # container alive after the JVM has already completed shutdown.
-            if [[ -r "/proc/$PID/stat" ]]; then
-                PROCESS_STATE=$(awk '{ print $3 }' "/proc/$PID/stat" \
-                                2>/dev/null || true)
-                if [[ "$PROCESS_STATE" == "Z" ]]; then
-                    break
-                fi
-            fi
-            sleep 1
-        done
-        exit 0
-    }
-    trap shutdown_server TERM INT
     tail --pid="$PID" -f /dev/null
     exit 1
 fi

@@ -20,6 +20,7 @@ package org.apache.hugegraph.unit.rocksdb;
 import java.io.File;
 import java.io.IOException;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.apache.commons.io.FileUtils;
 import org.apache.hugegraph.backend.store.rocksdb.RocksDBMetrics;
@@ -38,6 +39,40 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
 public class RocksDBSessionsTest extends BaseRocksDBUnitTest {
+
+    @Test
+    public void testClearTablesWithoutRecreatingColumnFamilies()
+            throws RocksDBException, InterruptedException {
+        final String table2 = "test-table2";
+        this.rocks.createTable(table2);
+        this.rocks.session().put(TABLE, getBytes("person:1"),
+                                 getBytes("James"));
+        this.rocks.session().put(table2, getBytes("person:2"),
+                                 getBytes("Tom"));
+        this.commit();
+
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        Thread thread = new Thread(() -> {
+            try {
+                this.rocks.clearTables(ImmutableList.of(TABLE, table2));
+            } catch (Throwable e) {
+                failure.set(e);
+            }
+        });
+        thread.start();
+        thread.join();
+
+        Assert.assertNull(failure.get());
+        Assert.assertNull(this.rocks.session().get(TABLE,
+                                                  getBytes("person:1")));
+        Assert.assertNull(this.rocks.session().get(table2,
+                                                  getBytes("person:2")));
+        Assert.assertTrue(this.rocks.existsTable(TABLE));
+        Assert.assertTrue(this.rocks.existsTable(table2));
+        AtomicInteger sessionCount =
+                Whitebox.getInternalState(this.rocks, "sessionCount");
+        Assert.assertEquals(1, sessionCount.get());
+    }
 
     @Test
     public void testDatabaseOpenedDoesNotCreateSession() throws RocksDBException {
