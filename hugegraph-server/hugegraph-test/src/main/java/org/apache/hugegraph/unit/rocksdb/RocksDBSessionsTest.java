@@ -19,6 +19,8 @@ package org.apache.hugegraph.unit.rocksdb;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.apache.commons.io.FileUtils;
 import org.apache.hugegraph.backend.store.rocksdb.RocksDBMetrics;
@@ -28,6 +30,7 @@ import org.apache.hugegraph.backend.store.rocksdb.RocksDBStdSessions;
 import org.apache.hugegraph.backend.store.rocksdbsst.RocksDBSstSessions;
 import org.apache.hugegraph.config.HugeConfig;
 import org.apache.hugegraph.testutil.Assert;
+import org.apache.hugegraph.testutil.Whitebox;
 import org.apache.hugegraph.unit.FakeObjects;
 import org.junit.Test;
 import org.rocksdb.RocksDBException;
@@ -36,6 +39,57 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
 public class RocksDBSessionsTest extends BaseRocksDBUnitTest {
+
+    @Test
+    public void testClearTablesWithoutRecreatingColumnFamilies()
+            throws RocksDBException, InterruptedException {
+        final String table2 = "test-table2";
+        this.rocks.createTable(table2);
+        this.rocks.session().put(TABLE, getBytes("person:1"),
+                                 getBytes("James"));
+        this.rocks.session().put(table2, getBytes("person:2"),
+                                 getBytes("Tom"));
+        this.commit();
+
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        Thread thread = new Thread(() -> {
+            try {
+                this.rocks.clearTables(ImmutableList.of(TABLE, table2));
+            } catch (Throwable e) {
+                failure.set(e);
+            }
+        });
+        thread.start();
+        thread.join();
+
+        Assert.assertNull(failure.get());
+        Assert.assertNull(this.rocks.session().get(TABLE,
+                                                  getBytes("person:1")));
+        Assert.assertNull(this.rocks.session().get(table2,
+                                                  getBytes("person:2")));
+        Assert.assertTrue(this.rocks.existsTable(TABLE));
+        Assert.assertTrue(this.rocks.existsTable(table2));
+        AtomicInteger sessionCount =
+                Whitebox.getInternalState(this.rocks, "sessionCount");
+        Assert.assertEquals(1, sessionCount.get());
+    }
+
+    @Test
+    public void testDatabaseOpenedDoesNotCreateSession() throws RocksDBException {
+        HugeConfig config = FakeObjects.newConfig();
+        String path = DB_PATH + "/opened";
+        RocksDBSessions sessions =
+                new RocksDBStdSessions(config, "db", "store", path, path);
+        AtomicInteger sessionCount =
+                Whitebox.getInternalState(sessions, "sessionCount");
+
+        Assert.assertEquals(0, sessionCount.get());
+        Assert.assertTrue(sessions.databaseOpened());
+        Assert.assertEquals(0, sessionCount.get());
+
+        sessions.forceCloseRocksDB();
+        Assert.assertFalse(sessions.databaseOpened());
+    }
 
     @Test
     public void testTable() throws RocksDBException {
@@ -190,7 +244,8 @@ public class RocksDBSessionsTest extends BaseRocksDBUnitTest {
         Assert.assertFalse(sstSessions.existsTable(TABLE1));
         Assert.assertFalse(sstSessions.existsTable(TABLE2));
 
-        RocksDBSessions rocks = new RocksDBStdSessions(config, "db", "store", sstPath, sstPath);
+        RocksDBSessions rocks =
+                new RocksDBStdSessions(config, "db", "store", sstPath, sstPath);
         // Will ingest sst file of TABLE1
         rocks.createTable(TABLE1);
         Assert.assertEquals(ImmutableList.of("1000"),

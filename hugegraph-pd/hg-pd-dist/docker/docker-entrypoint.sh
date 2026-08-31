@@ -54,11 +54,33 @@ require_env "HG_PD_INITIAL_STORE_LIST"
 
 : "${HG_PD_GRPC_PORT:=8686}"
 : "${HG_PD_REST_PORT:=8620}"
-: "${HG_PD_DATA_PATH:=/hugegraph-pd/pd_data}"
 : "${HG_PD_INITIAL_STORE_COUNT:=1}"
+: "${HG_PD_ROCKSDB_PROVIDER:=rocksdb}"
+
+case "${HG_PD_ROCKSDB_PROVIDER}" in
+    rocksdb | topling) ;;
+    *)
+        log "ERROR: HG_PD_ROCKSDB_PROVIDER must be rocksdb or topling"
+        exit 2
+        ;;
+esac
+if [[ -z "${HG_PD_DATA_PATH:-}" ]]; then
+    if [[ "${HG_PD_ROCKSDB_PROVIDER}" == "topling" ]]; then
+        HG_PD_DATA_PATH="$(pwd)/topling-pd-data"
+    else
+        HG_PD_DATA_PATH="$(pwd)/pd_data"
+    fi
+fi
+export TOPLINGDB_ROCKSDB_PROVIDER="${HG_PD_ROCKSDB_PROVIDER}"
+./bin/verify-rocksdb-provider.sh \
+    pd \
+    "${HG_PD_ROCKSDB_PROVIDER}" \
+    "${HG_PD_DATA_PATH}" \
+    "${HG_PD_ENFORCE_PROVIDER_MARKER:-false}"
 
 SPRING_APPLICATION_JSON="$(cat <<JSON
 {
+  "rocksdb": { "provider": "$(json_escape "${HG_PD_ROCKSDB_PROVIDER}")" },
   "grpc":   { "host": "$(json_escape "${HG_PD_GRPC_HOST}")",
               "port": "$(json_escape "${HG_PD_GRPC_PORT}")" },
   "server": { "port": "$(json_escape "${HG_PD_REST_PORT}")" },
@@ -81,5 +103,6 @@ log "  raft.peers-list=${HG_PD_RAFT_PEERS_LIST}"
 log "  pd.initial-store-list=${HG_PD_INITIAL_STORE_LIST}"
 log "  pd.initial-store-count=${HG_PD_INITIAL_STORE_COUNT}"
 log "  pd.data-path=${HG_PD_DATA_PATH}"
+log "  rocksdb.provider=${HG_PD_ROCKSDB_PROVIDER}"
 
 ./bin/start-hugegraph-pd.sh -d false -j "${JAVA_OPTS:-}"

@@ -29,7 +29,7 @@ ARG SOURCE_REVISION=local
 
 RUN --mount=type=cache,id=hugegraph-maven-${SOURCE_REVISION},target=/root/.m2,sharing=locked \
     mvn install $MAVEN_ARGS -e -B -ntp -Dmaven.test.skip=true -Dmaven.javadoc.skip=true \
-    && rm ./hugegraph-server/*.tar.gz ./hugegraph-pd/*.tar.gz ./hugegraph-store/*.tar.gz
+    && rm -f ./hugegraph-server/*.tar.gz ./hugegraph-pd/*.tar.gz ./hugegraph-store/*.tar.gz
 
 # 2nd stage: runtime env
 # Note: ZGC (The Z Garbage Collector) is only supported on ARM-Mac with java > 13
@@ -40,7 +40,12 @@ COPY --from=build /pkg/hugegraph-server/apache-hugegraph-server-*/ /hugegraph-se
 RUN cd /hugegraph-server/conf/graphs \
     && rm hugegraph.properties && mv hstore.properties.template hugegraph.properties
 
-LABEL maintainer="HugeGraph Docker Maintainers <dev@hugegraph.apache.org>"
+ARG SOURCE_REPOSITORY=https://github.com/apache/hugegraph
+ARG SOURCE_REVISION=local
+LABEL maintainer="HugeGraph Docker Maintainers <dev@hugegraph.apache.org>" \
+      org.opencontainers.image.source="${SOURCE_REPOSITORY}" \
+      org.opencontainers.image.revision="${SOURCE_REVISION}" \
+      org.apache.hugegraph.rocksdb-runtime="hstore"
 
 # TODO: use g1gc or zgc as default
 ENV JAVA_OPTS="-XX:+UnlockExperimentalVMOptions -XX:+UseContainerSupport -XX:MaxRAMPercentage=50 -XshowSettings:vm" \

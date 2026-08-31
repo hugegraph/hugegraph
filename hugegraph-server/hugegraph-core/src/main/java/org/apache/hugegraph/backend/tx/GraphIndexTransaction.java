@@ -857,6 +857,18 @@ public class GraphIndexTransaction extends AbstractTransaction {
 
     private ConditionQuery constructSearchQuery(ConditionQuery query, MatchedIndex index) {
         ConditionQuery newQuery = query;
+        ConditionQuery filterQuery = query;
+        Query rootQuery = query.rootOriginQuery();
+        if (rootQuery instanceof ConditionQuery) {
+            /*
+             * Index queries can be flattened before reaching this method. Keep
+             * the filter on the original query so that an IN condition is
+             * checked as a whole instead of only against the current EQ
+             * sub-query.
+             */
+            filterQuery = (ConditionQuery) rootQuery;
+        }
+        final ConditionQuery originalQuery = filterQuery;
         Set<Id> indexFields = new HashSet<>();
         // Convert has(key, text) to has(key, textContainsAny(word1, word2))
         for (IndexLabel il : index.indexLabels()) {
@@ -876,7 +888,7 @@ public class GraphIndexTransaction extends AbstractTransaction {
         // Register results filter to compare property value and search text
         newQuery.registerResultsFilter(element -> {
             assert element != null;
-            for (Condition cond : query.conditions()) {
+            for (Condition cond : originalQuery.conditions()) {
                 Object key = cond.isRelation() ?
                              ((Relation) cond).key() : null;
                 if (key instanceof Id && indexFields.contains(key)) {
@@ -884,7 +896,8 @@ public class GraphIndexTransaction extends AbstractTransaction {
                     Id field = (Id) key;
                     HugeProperty<?> property = element.getProperty(field);
                     String propValue = propertyValueToString(property.value());
-                    String fieldValue = (String) query.userpropValue(field);
+                    String fieldValue =
+                            (String) originalQuery.userpropValue(field);
                     if (this.matchSearchIndexWords(propValue, fieldValue)) {
                         continue;
                     }

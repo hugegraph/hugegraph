@@ -27,6 +27,30 @@ Use Docker to quickly start a standalone HugeGraph Server with RocksDB.
           - 8080:8080
     ```
 
+### ToplingDB image
+
+The same Server Dockerfile has a `topling` target. It copies the checked-in
+ToplingDB JAR into the Server distribution and prepares its native runtime at
+image build time, so starting a container needs no GitHub token or download.
+
+```bash
+docker build --platform linux/amd64 --target topling \
+  -f hugegraph-server/Dockerfile \
+  -t hugegraph/hugegraph:1.8.0-topling .
+docker run -itd --name=graph -p 8080:8080 \
+  hugegraph/hugegraph:1.8.0-topling
+```
+
+The `-topling` image selects ToplingDB by default. Set
+`HG_SERVER_ROCKSDB_PROVIDER=rocksdb` to use the standard RocksDB provider from
+the same image. ToplingDB currently supports only Linux x86-64. Do not switch
+an existing data volume between providers without a supported migration.
+Before changing providers, stop writes and take a verified snapshot of the
+current volume. Start the target provider with a new empty volume, or restore a
+snapshot that was created by that provider. A provider setting change is not a
+data migration; never mount a ToplingDB data directory into standard RocksDB
+for rollback.
+
 ## 2. Create Sample Graph on Server Startup
 
 To preload sample data on startup, set `PRELOAD=true`.
