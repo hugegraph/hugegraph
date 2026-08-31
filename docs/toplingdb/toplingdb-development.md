@@ -69,6 +69,10 @@ The standard distributions contain the selection helpers but no
 `lib/topling/rocksdbjni*.jar` or prepared Topling native library. Selecting
 Topling from a standard distribution must fail.
 
+When a Topling distribution is switched back to `rocksdb`, the Server launcher
+excludes `lib/topling/` from its classpath; the optional Topling JAR is only
+added after the startup selector accepts `topling`.
+
 The Topling distributions add only build-time runtime files. The generator
 excludes PID files, logs, data directories, and prepared runtime state from the
 standard distribution before creating the Topling tarball. It writes

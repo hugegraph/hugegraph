@@ -155,3 +155,53 @@ TOPLINGDB_ROCKSDB_PROVIDER=rocksdb PATH="$FAKE_BIN:$PATH" bash -c '
     test -z "${TOPLINGDB_EASY_MIGRATE_CONF:-}"
 ' _ "$COMPONENT_ROOT/bin/preload-topling.sh"
 echo "PASS: provider override selects standard RocksDB without Topling preload"
+
+# A Topling distribution must also be able to select standard RocksDB without
+# putting its optional runtime JAR on the HugeGraph Server classpath. Exercise
+# the launcher with a fake JVM and inspect the actual -cp argument rather than
+# relying on a source-text assertion.
+SERVER_LAUNCHER_ROOT="$TEST_ROOT/server-launcher"
+SERVER_JAVA_CAPTURE="$TEST_ROOT/server-java-classpath"
+mkdir -p "$SERVER_LAUNCHER_ROOT/bin" "$SERVER_LAUNCHER_ROOT/conf" \
+         "$SERVER_LAUNCHER_ROOT/lib/topling" "$SERVER_LAUNCHER_ROOT/ext" \
+         "$SERVER_LAUNCHER_ROOT/plugins" "$SERVER_LAUNCHER_ROOT/logs"
+cp "$DIST_ROOT/src/assembly/static/bin/hugegraph-server.sh" \
+   "$SERVER_LAUNCHER_ROOT/bin/hugegraph-server.sh"
+cp "$DIST_ROOT/src/assembly/static/bin/util.sh" \
+   "$SERVER_LAUNCHER_ROOT/bin/util.sh"
+touch "$SERVER_LAUNCHER_ROOT/lib/hugegraph-server-bootstrap.jar" \
+      "$SERVER_LAUNCHER_ROOT/lib/topling/rocksdbjni-topling.jar"
+printf '%s\n' \
+    'gremlinserver.url=http://127.0.0.1:43123' \
+    'restserver.url=http://127.0.0.1:43124' \
+    > "$SERVER_LAUNCHER_ROOT/conf/rest-server.properties"
+printf '%s\n' \
+    '#!/bin/sh' \
+    'if [ "${1:-}" = "-server" ]; then shift; fi' \
+    'if [ "${1:-}" = "-version" ]; then' \
+    '  echo '\''openjdk version "11.0.32"'\'' >&2' \
+    '  exit 0' \
+    'fi' \
+    'while [ "$#" -gt 0 ]; do' \
+    '  if [ "$1" = "-cp" ]; then' \
+    '    printf "%s\\n" "$2" > "$JAVA_CAPTURE"' \
+    '    exit 0' \
+    '  fi' \
+    '  shift' \
+    'done' \
+    'exit 0' \
+    > "$FAKE_BIN/java"
+chmod +x "$FAKE_BIN/java" "$SERVER_LAUNCHER_ROOT/bin/hugegraph-server.sh"
+JAVA_HOME='' JAVA_OPTIONS=-Xmx64m STDOUT_MODE=true CLASSPATH='' \
+    JAVA_CAPTURE="$SERVER_JAVA_CAPTURE" PATH="$FAKE_BIN:$PATH" \
+    bash "$SERVER_LAUNCHER_ROOT/bin/hugegraph-server.sh" \
+         "$SERVER_LAUNCHER_ROOT/conf/gremlin-server.yaml" \
+         "$SERVER_LAUNCHER_ROOT/conf/rest-server.properties" true \
+         >/dev/null 2>&1
+grep -Fq "$SERVER_LAUNCHER_ROOT/lib/hugegraph-server-bootstrap.jar" \
+    "$SERVER_JAVA_CAPTURE" ||
+    fail "Server launcher omitted the standard bootstrap JAR"
+if grep -Fq "$SERVER_LAUNCHER_ROOT/lib/topling/" "$SERVER_JAVA_CAPTURE"; then
+    fail "standard provider launcher leaked the optional Topling classpath"
+fi
+echo "PASS: standard provider launcher excludes Topling JARs"

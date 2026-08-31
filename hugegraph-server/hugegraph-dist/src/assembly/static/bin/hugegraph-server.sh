@@ -70,13 +70,16 @@ MIN_JAVA_VERSION=11
 MAX_SECURITY_JAVA_VERSION=23
 
 # Add the slf4j-log4j12 binding
-CP=$(find -L $LIB -name 'log4j-slf4j-impl*.jar' | sort | tr '\n' ':')
+CP=$(find -L $LIB -name 'log4j-slf4j-impl*.jar' \
+    ! -path "$LIB/topling/*" | sort | tr '\n' ':')
 # Add the jars in lib that start with "hugegraph"
-CP="$CP":$(find -L $LIB -name 'hugegraph*.jar' | sort | tr '\n' ':')
+CP="$CP":$(find -L $LIB -name 'hugegraph*.jar' \
+    ! -path "$LIB/topling/*" | sort | tr '\n' ':')
 # Add the remaining jars in lib.
 CP="$CP":$(find -L $LIB -name '*.jar' \
     \! -name 'hugegraph*' \
-    \! -name 'log4j-slf4j-impl*.jar' | sort | tr '\n' ':')
+    \! -name 'log4j-slf4j-impl*.jar' \
+    \! -path "$LIB/topling/*" | sort | tr '\n' ':')
 # Add the jars in ext (at any subdirectory depth)
 CP="$CP":$(find -L $EXT -name '*.jar' | sort | tr '\n' ':')
 # Add the jars in plugins (at any subdirectory depth), check "javaagent" related jars carefully
