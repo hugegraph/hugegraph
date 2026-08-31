@@ -5423,8 +5423,10 @@ public class VertexCoreTest extends BaseCoreTest {
                         "confirmType", 2, "type", 1, "kid", 2);
         graph.addVertex(T.label, "test", "name", "诚信文明",
                         "confirmType", 3, "type", 1, "kid", 3);
+        graph.addVertex(T.label, "test", "name", "诚信",
+                        "confirmType", 4, "type", 1, "kid", 4);
 
-        this.mayCommitTx();
+        this.commitTx();
 
         List<Vertex> vertices;
         vertices = graph().traversal().V()
