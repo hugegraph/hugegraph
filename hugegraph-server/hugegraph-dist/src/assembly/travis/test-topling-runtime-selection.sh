@@ -177,6 +177,12 @@ touch "$SERVER_LAUNCHER_ROOT/lib/hugegraph-server-bootstrap.jar" \
       "$SERVER_LAUNCHER_ROOT/lib/topling/log4j-slf4j-impl-topling.jar" \
       "$SERVER_LAUNCHER_ROOT/lib/topling/hugegraph-topling.jar" \
       "$SERVER_LAUNCHER_ROOT/lib/topling/rocksdbjni-topling.jar"
+ln -s "$SERVER_LAUNCHER_ROOT/lib/topling/log4j-slf4j-impl-topling.jar" \
+      "$SERVER_LAUNCHER_ROOT/lib/log4j-slf4j-impl-topling-alias.jar"
+ln -s "$SERVER_LAUNCHER_ROOT/lib/topling/hugegraph-topling.jar" \
+      "$SERVER_LAUNCHER_ROOT/lib/hugegraph-topling-alias.jar"
+ln -s "$SERVER_LAUNCHER_ROOT/lib/topling" \
+      "$SERVER_LAUNCHER_ROOT/lib/topling-alias"
 printf '%s\n' \
     'gremlinserver.url=http://127.0.0.1:43123' \
     'restserver.url=http://127.0.0.1:43124' \
@@ -212,6 +218,14 @@ grep -Fq "$SERVER_LAUNCHER_ROOT/lib/hugegraph-server-bootstrap.jar" \
 if grep -Fq "$SERVER_LAUNCHER_ROOT/lib/topling/" "$SERVER_JAVA_CAPTURE"; then
     fail "standard provider launcher leaked the optional Topling classpath"
 fi
+for leaked in \
+    "$SERVER_LAUNCHER_ROOT/lib/log4j-slf4j-impl-topling-alias.jar" \
+    "$SERVER_LAUNCHER_ROOT/lib/hugegraph-topling-alias.jar" \
+    "$SERVER_LAUNCHER_ROOT/lib/topling-alias/"; do
+    if grep -Fq "$leaked" "$SERVER_JAVA_CAPTURE"; then
+        fail "standard provider launcher followed a Topling symlink: $leaked"
+    fi
+done
 echo "PASS: standard provider launcher excludes Topling JARs"
 
 SERVER_INIT_CAPTURE="$TEST_ROOT/server-init-classpath"
@@ -224,4 +238,12 @@ grep -Fq "$SERVER_LAUNCHER_ROOT/lib/hugegraph-server-bootstrap.jar" \
 if grep -Fq "$SERVER_LAUNCHER_ROOT/lib/topling/" "$SERVER_INIT_CAPTURE"; then
     fail "standard provider init-store leaked the optional Topling classpath"
 fi
+for leaked in \
+    "$SERVER_LAUNCHER_ROOT/lib/log4j-slf4j-impl-topling-alias.jar" \
+    "$SERVER_LAUNCHER_ROOT/lib/hugegraph-topling-alias.jar" \
+    "$SERVER_LAUNCHER_ROOT/lib/topling-alias/"; do
+    if grep -Fq "$leaked" "$SERVER_INIT_CAPTURE"; then
+        fail "standard provider init-store followed a Topling symlink: $leaked"
+    fi
+done
 echo "PASS: standard provider init-store excludes Topling JARs"
