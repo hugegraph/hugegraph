@@ -22,9 +22,10 @@ The expected configuration files are:
 ## Monitoring
 
 Monitor read/write latency, compaction backlog, cache usage, WAL growth, disk
-space, native memory, and process health. The optional Topling HTTP endpoint can
-show native state, but it has no authentication and must not be exposed
-directly to untrusted networks.
+space, native memory, and process health. The sample configurations keep the
+Topling HTTP endpoint disabled by default (`auto_start_http: false`). If it is
+needed, enable it explicitly; it can show native state but has no
+authentication and must not be exposed directly to untrusted networks.
 
 Use the component logs to confirm the selected configuration path and native
 library. Do not infer ToplingDB activation from the JAR name alone.

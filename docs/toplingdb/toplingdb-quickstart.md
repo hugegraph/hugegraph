@@ -290,9 +290,10 @@ Check each PD and Store log for its own Easy Migrate path. PD must use
 `conf/rocksdb_pd.yaml`; Store must use `conf/rocksdb_store.yaml`. The HStore
 Server must not report a local Topling runtime.
 
-## Optional Topling HTTP Monitor
+## Topling HTTP Monitor
 
-The sample Easy Migrate files bind their HTTP monitors to loopback:
+The sample Easy Migrate files bind their HTTP monitors to loopback, but set
+`auto_start_http: false`, so the monitor is disabled by default:
 
 | Component | Configuration | Default address |
 |---|---|---|
@@ -300,13 +301,15 @@ The sample Easy Migrate files bind their HTTP monitors to loopback:
 | PD | `conf/rocksdb_pd.yaml` | `127.0.0.1:2012` |
 | Store | `conf/rocksdb_store.yaml` | `127.0.0.1:2013` |
 
-The endpoint has no authentication. Keep the loopback binding. Disable it when
-you do not need it:
+The endpoint has no authentication. Keep the loopback binding. Enable it only
+when you need it:
 
 ```yaml
 http:
-  auto_start_http: false
+  auto_start_http: true
 ```
+
+Leave `auto_start_http: false` to keep the monitor disabled.
 
 ## Return to Standard RocksDB
 
