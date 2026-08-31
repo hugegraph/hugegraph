@@ -15,12 +15,43 @@ permissions:
 # TODO: consider merge to one ci.yml file
 jobs:
   distributed-rocksdb-runtime:
-    runs-on: ubuntu-24.04
+    name: distributed-rocksdb-runtime (${{ matrix.check_name }})
+    runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ matrix.experimental }}
     strategy:
       fail-fast: false
       matrix:
-        component: [ pd, store ]
-        provider: [ rocksdb, topling ]
+        include:
+          - os: ubuntu-24.04
+            component: pd
+            provider: rocksdb
+            check_name: pd, rocksdb
+            experimental: false
+          - os: ubuntu-24.04
+            component: pd
+            provider: topling
+            check_name: pd, topling
+            experimental: false
+          - os: ubuntu-24.04
+            component: store
+            provider: rocksdb
+            check_name: store, rocksdb
+            experimental: false
+          - os: ubuntu-24.04
+            component: store
+            provider: topling
+            check_name: store, topling
+            experimental: false
+          - os: ubuntu-26.04
+            component: pd
+            provider: topling
+            check_name: pd, topling, ubuntu-26.04
+            experimental: true
+          - os: ubuntu-26.04
+            component: store
+            provider: topling
+            check_name: store, topling, ubuntu-26.04
+            experimental: true
     env:
       TRAVIS_DIR: hugegraph-server/hugegraph-dist/src/assembly/travis
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

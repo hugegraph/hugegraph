@@ -10,14 +10,28 @@ on:
 
 jobs:
   server-rocksdb-runtime:
-    runs-on: ubuntu-24.04
+    name: server-rocksdb-runtime (${{ matrix.check_name }})
+    runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ matrix.experimental }}
     permissions:
       contents: read
       packages: read
     strategy:
       fail-fast: false
       matrix:
-        provider: [ rocksdb, topling ]
+        include:
+          - os: ubuntu-24.04
+            provider: rocksdb
+            check_name: rocksdb
+            experimental: false
+          - os: ubuntu-24.04
+            provider: topling
+            check_name: topling
+            experimental: false
+          - os: ubuntu-26.04
+            provider: topling
+            check_name: topling, ubuntu-26.04
+            experimental: true
     env:
       TRAVIS_DIR: hugegraph-server/hugegraph-dist/src/assembly/travis
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
