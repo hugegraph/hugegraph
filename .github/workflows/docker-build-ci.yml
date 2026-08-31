@@ -192,7 +192,7 @@ jobs:
             .services.store.environment.HG_STORE_ROCKSDB_PROVIDER == "topling" and
             .services.server.environment.HG_SERVER_BACKEND == "hstore" and
             (.services.server.environment.HG_SERVER_ROCKSDB_PROVIDER == null) and
-            .services.server.image == "hugegraph/server:latest" and
+            .services.server.image == "hugegraph/server:dev" and
             .services.server.pull_policy == "always" and
             .services.pd.pull_policy == "always" and
             .services.store.pull_policy == "always" and
