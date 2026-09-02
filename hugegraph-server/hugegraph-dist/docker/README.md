@@ -144,3 +144,20 @@ native `HEALTHCHECK` instructions. `docker ps` shows real health status:
 | `hugegraph/hugegraph-store` | `GET /v1/health` on port 8520 |
 
 The entrypoints supervise the Java process directly — when Java exits, the container exits. If started with a restart policy (the provided compose files use `restart: unless-stopped`), Docker will bring it back automatically. The old cron-based monitor (`-m true`) is for VM/bare-metal deployments only and is not used in Docker images.
+
+## 7. Server Startup Timeout
+
+The entrypoint gives the Server a fixed budget to answer on its REST port and
+ends the container when the budget runs out. It is 120 seconds by default. Set
+`HG_SERVER_STARTUP_TIMEOUT_S` to a positive whole number of seconds to change
+it:
+
+```bash
+docker run -itd --name=graph -p 8080:8080 -e HG_SERVER_STARTUP_TIMEOUT_S=450 hugegraph/hugegraph:1.7.0
+```
+
+Raise it on slow or contended hosts, and wherever an orchestrator already owns
+the startup budget through a probe of its own: a startup probe cannot extend a
+container that has already ended the JVM it was waiting for. A value that is
+not a positive whole number stops the container at startup instead of silently
+falling back to the default.

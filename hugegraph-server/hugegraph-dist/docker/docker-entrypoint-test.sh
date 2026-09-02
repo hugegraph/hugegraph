@@ -35,6 +35,7 @@ backend=rocksdb
 EOF
 cat > "${TEST_HOME}/bin/start-hugegraph.sh" <<'EOF'
 #!/usr/bin/env bash
+printf '%s\n' "$*" >> ./docker/start-hugegraph-args
 exit 0
 EOF
 cat > "${TEST_HOME}/bin/init-store.sh" <<'EOF'
@@ -231,5 +232,26 @@ rm -f "${TEST_HOME}/docker/init_complete"
     PASSWORD=-n bash ./docker-entrypoint.sh
 )
 grep -Fqx -- '-n' "${TEST_HOME}/docker/init-store-password"
+
+last_start_args() { tail -n 1 "${TEST_HOME}/docker/start-hugegraph-args"; }
+
+[[ "$(last_start_args)" == *"-t 120"* ]]
+
+(
+    cd "${TEST_HOME}"
+    HG_SERVER_STARTUP_TIMEOUT_S=450 bash ./docker-entrypoint.sh
+)
+[[ "$(last_start_args)" == *"-t 450"* ]]
+
+start_calls_before_invalid_timeout=$(wc -l < "${TEST_HOME}/docker/start-hugegraph-args")
+if (
+    cd "${TEST_HOME}"
+    HG_SERVER_STARTUP_TIMEOUT_S=2m bash ./docker-entrypoint.sh
+); then
+    echo "invalid startup timeout unexpectedly succeeded" >&2
+    exit 1
+fi
+[[ "$(wc -l < "${TEST_HOME}/docker/start-hugegraph-args")" -eq \
+   "${start_calls_before_invalid_timeout}" ]]
 
 echo "PASS: Docker entrypoint configures HStore discovery and authentication"

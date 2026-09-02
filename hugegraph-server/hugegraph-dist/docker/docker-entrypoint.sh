@@ -98,6 +98,19 @@ if [[ -n "${HG_SERVER_AUTH_TOKEN_SECRET:-}" ]]; then
     fi
 fi
 
+# How long the entrypoint lets the server take to answer on its REST port
+# before it gives up and ends the container. An orchestrator that already
+# owns this budget through a startup probe needs to raise it, otherwise the
+# container terminates a JVM that is still starting and the probe never gets
+# to decide. Validated here so a typo fails before init-store runs, rather
+# than reaching the arithmetic in wait_for_startup.
+SERVER_STARTUP_TIMEOUT_S="${HG_SERVER_STARTUP_TIMEOUT_S:-120}"
+if [[ ! "${SERVER_STARTUP_TIMEOUT_S}" =~ ^[1-9][0-9]*$ ]]; then
+    log "ERROR: HG_SERVER_STARTUP_TIMEOUT_S must be a positive whole number" \
+        "of seconds, got '${SERVER_STARTUP_TIMEOUT_S}'"
+    exit 1
+fi
+
 if [[ -n "${PASSWORD:-}" &&
       "${HG_SERVER_REQUIRE_AUTH_TOKEN_SECRET:-false}" == "true" &&
       -z "${HG_SERVER_AUTH_TOKEN_SECRET:-}" ]]; then
@@ -217,7 +230,7 @@ else
     ./bin/init-store.sh
 fi
 
-./bin/start-hugegraph.sh -j "${JAVA_OPTS:-}" -t 120
+./bin/start-hugegraph.sh -j "${JAVA_OPTS:-}" -t "${SERVER_STARTUP_TIMEOUT_S}"
 
 # Post-startup cluster stabilization check (hstore only — rocksdb has no partitions)
 ACTUAL_BACKEND=$(grep -E '^[[:space:]]*backend[[:space:]]*=' "${GRAPH_CONF}" | head -n 1 | sed 's/.*=//' | tr -d '[:space:]' || true)
