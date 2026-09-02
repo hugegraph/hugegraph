@@ -719,7 +719,7 @@ environment:
 ```
 
 **Startup ordering** is enforced via `depends_on` with `condition: service_healthy`:
-1. PD nodes start first and must pass healthchecks (`/v1/health`)
+1. PD nodes start first and must pass healthchecks (`/v1/ready`, answered `200` only once the PD sees a raft leader)
 2. Store nodes start after all PD nodes are healthy
 3. Server nodes start after all Store nodes are healthy
 
@@ -855,8 +855,11 @@ kubectl port-forward svc/hugegraph-store 8500:8500 -n hugegraph
 ### Health Check
 
 ```bash
-# PD health
+# PD liveness (REST listener up)
 curl http://192.168.1.10:8620/v1/health
+
+# PD readiness (200 only while the PD sees a raft leader, 503 otherwise)
+curl -i http://192.168.1.10:8620/v1/ready
 
 # Store health
 curl http://192.168.1.20:8520/v1/health

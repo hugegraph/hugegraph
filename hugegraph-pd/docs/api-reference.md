@@ -774,11 +774,53 @@ curl http://localhost:8620/actuator/health
 }
 ```
 
+### Liveness and Readiness
+
+Two unauthenticated endpoints are meant for probes and startup gates:
+
+| Endpoint | Meaning | Status |
+|----------|---------|--------|
+| `GET /v1/health` | Liveness: the REST listener is up. Does not consult raft. | always `200` |
+| `GET /v1/ready` | Readiness: the raft node is active and sees a leader, so this PD is inside a quorum. | `200` when ready, `503` otherwise |
+
+```bash
+curl -i http://localhost:8620/v1/ready
+```
+
+**Response** (leader of a healthy cluster):
+```json
+{
+  "ready": true,
+  "state": "STATE_LEADER",
+  "leader": "192.168.1.1:8610",
+  "isLeader": true
+}
+```
+
+A follower reports `"state": "STATE_FOLLOWER"` with the leader's raft address.
+When the quorum is lost the PD keeps answering `/v1/health` with `200` but
+`/v1/ready` turns into `503` with `"ready": false` and `"leader": null`.
+Point Kubernetes readiness probes, `depends_on` healthchecks and any
+"wait for PD" script at `/v1/ready`; keep liveness probes on `/v1/health`
+so a PD that merely lost its leader is not restarted.
+
 ### Metrics
 
 ```bash
 curl http://localhost:8620/actuator/metrics
 ```
+
+Raft membership gauges (Prometheus names, scraped from `/actuator/prometheus`)
+for alerting on quorum loss:
+
+| Gauge | Value |
+|-------|-------|
+| `hg_raft_leader` | `1` on the raft leader, `0` elsewhere |
+| `hg_raft_has_leader` | `1` while this PD sees a leader (is inside a quorum), `0` otherwise |
+| `hg_raft_alive_peers` | On the leader, the number of peers (itself included) heard from within the election timeout; `NaN` on other nodes |
+
+A cluster has lost its quorum when `sum(hg_raft_leader) == 0` or when
+`hg_raft_has_leader == 0` on every member.
 
 **Response** (Prometheus format):
 ```

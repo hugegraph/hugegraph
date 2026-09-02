@@ -46,6 +46,7 @@ import com.alipay.sofa.jraft.RaftGroupService;
 import com.alipay.sofa.jraft.Status;
 import com.alipay.sofa.jraft.conf.Configuration;
 import com.alipay.sofa.jraft.core.Replicator;
+import com.alipay.sofa.jraft.core.State;
 import com.alipay.sofa.jraft.entity.PeerId;
 import com.alipay.sofa.jraft.entity.Task;
 import com.alipay.sofa.jraft.error.RaftError;
@@ -203,7 +204,67 @@ public class RaftEngine {
     }
 
     public boolean isLeader() {
-        return this.raftNode.isLeader(true);
+        Node node = this.raftNode;
+        return node != null && node.isLeader(true);
+    }
+
+    /**
+     * Whether this node currently knows a raft leader.
+     * <p>
+     * A follower only keeps its leader id while heartbeats keep arriving inside the election
+     * timeout, and a leader only keeps its role while it can reach a quorum. A non-null leader
+     * therefore means this node is part of a quorum from its own point of view, which is the
+     * signal a readiness probe needs.
+     */
+    public boolean hasLeader() {
+        Node node = this.raftNode;
+        if (node == null) {
+            return false;
+        }
+        PeerId leader = node.getLeaderId();
+        return leader != null && !leader.isEmpty();
+    }
+
+    /**
+     * Whether this node can take part in serving requests: the raft node has been started,
+     * is in an active state (leader, follower or transferring leadership) and sees a leader.
+     * Unlike a plain liveness check this turns false as soon as the quorum is lost.
+     */
+    public boolean isReady() {
+        Node node = this.raftNode;
+        if (node == null) {
+            return false;
+        }
+        State state = node.getNodeState();
+        if (state == null || !state.isActive()) {
+            return false;
+        }
+        return hasLeader();
+    }
+
+    /**
+     * @return the jraft node state, or null before the raft node has been started
+     */
+    public State getNodeState() {
+        Node node = this.raftNode;
+        return node == null ? null : node.getNodeState();
+    }
+
+    /**
+     * Number of raft peers, this node included, that the leader has heard from within the
+     * election timeout. Only the leader tracks replication state, so any other node returns -1.
+     */
+    public int getAlivePeerCount() {
+        Node node = this.raftNode;
+        if (node == null || !node.isLeader(true)) {
+            return -1;
+        }
+        try {
+            return node.listAlivePeers().size();
+        } catch (IllegalStateException e) {
+            // Lost leadership between the check and the call
+            return -1;
+        }
     }
 
     /**
@@ -232,7 +293,8 @@ public class RaftEngine {
     }
 
     public PeerId getLeader() {
-        return raftNode.getLeaderId();
+        Node node = this.raftNode;
+        return node == null ? null : node.getLeaderId();
     }
 
     /**

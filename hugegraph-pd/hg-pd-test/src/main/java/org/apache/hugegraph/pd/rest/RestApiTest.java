@@ -63,6 +63,51 @@ public class RestApiTest extends BaseServerTest {
     }
 
     @Test
+    public void testHealthNeedsNoAuth() throws URISyntaxException, IOException,
+                                             InterruptedException {
+        String url = pdRestAddr + "/v1/health";
+        HttpRequest request = HttpRequest.newBuilder().uri(new URI(url)).GET().build();
+        HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+        assert response.statusCode() == 200;
+    }
+
+    @Test
+    public void testReadyNeedsNoAuthAndReflectsRaft() throws URISyntaxException, IOException,
+                                                            InterruptedException, JSONException {
+        // The CI PD is a single-node raft group, so it is its own leader and must be ready
+        String url = pdRestAddr + "/v1/ready";
+        HttpRequest request = HttpRequest.newBuilder().uri(new URI(url)).GET().build();
+        HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+        assert response.statusCode() == 200 : "expected 200, got " + response.statusCode() +
+                                              " body=" + response.body();
+        JSONObject obj = new JSONObject(response.body());
+        assert obj.getBoolean("ready");
+        assert obj.getBoolean("isLeader");
+        assert "STATE_LEADER".equals(obj.getString("state"));
+        assert !obj.isNull("leader") && !obj.getString("leader").isEmpty();
+    }
+
+    @Test
+    public void testRaftGaugesExported() throws URISyntaxException, IOException,
+                                                 InterruptedException {
+        String url = pdRestAddr + "/actuator/prometheus";
+        HttpRequest request = HttpRequest.newBuilder().uri(new URI(url)).GET().build();
+        HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+        assert response.statusCode() == 200;
+        String body = response.body();
+        assert body.contains("hg_raft_leader{") : "missing hg_raft_leader gauge";
+        assert body.contains("hg_raft_has_leader{") : "missing hg_raft_has_leader gauge";
+        assert body.contains("hg_raft_alive_peers{") : "missing hg_raft_alive_peers gauge";
+        // Single-node CI cluster: this PD is the leader and hears from itself
+        assert body.matches("(?s).*hg_raft_leader\\{[^}]*\\} 1\\.0.*") :
+                "hg_raft_leader should be 1 on a single-node leader";
+        assert body.matches("(?s).*hg_raft_has_leader\\{[^}]*\\} 1\\.0.*") :
+                "hg_raft_has_leader should be 1 on a single-node leader";
+        assert body.matches("(?s).*hg_raft_alive_peers\\{[^}]*\\} 1\\.0.*") :
+                "hg_raft_alive_peers should be 1 on a single-node leader";
+    }
+
+    @Test
     public void testQueryClusterMembers() throws URISyntaxException, IOException,
                                                  InterruptedException, JSONException {
         String url = pdRestAddr + "/v1/members";

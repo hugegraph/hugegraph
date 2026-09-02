@@ -22,6 +22,7 @@ import java.util.ArrayList;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -31,11 +32,14 @@ import org.apache.hugegraph.pd.grpc.Pdpb;
 import org.apache.hugegraph.pd.model.RestApiResponse;
 import org.apache.hugegraph.pd.model.StoreRestRequest;
 import org.apache.hugegraph.pd.model.TimeRangeRequest;
+import org.apache.hugegraph.pd.raft.RaftEngine;
 import org.apache.hugegraph.pd.service.PDRestService;
 import org.apache.hugegraph.pd.util.DateUtil;
 import org.apache.hugegraph.pd.util.StoreRestAddressUtil;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -45,6 +49,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseBody;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.alipay.sofa.jraft.core.State;
+import com.alipay.sofa.jraft.entity.PeerId;
 import com.google.protobuf.util.JsonFormat;
 
 import lombok.Data;
@@ -378,6 +384,10 @@ public class StoreAPI extends API {
      * Check Service Health Status
      * This interface is used to check the health status of the service by accessing the /health
      * path via a GET request.
+     * <p>
+     * This is a liveness signal only: it answers 200 as soon as the REST listener is up and
+     * does not consult the raft state. Use {@link #checkReady()} to find out whether this PD
+     * can actually serve.
      *
      * @return Returns a string indicating the service's health status. Typically, an empty
      * string indicates the service is healthy.
@@ -385,5 +395,31 @@ public class StoreAPI extends API {
     @GetMapping(value = "/health", produces = MediaType.TEXT_PLAIN_VALUE)
     public Serializable checkHealthy() {
         return "";
+    }
+
+    /**
+     * Check Service Readiness
+     * Answers 200 only when this PD is part of a raft quorum, that is, the raft node is active
+     * and knows the current leader. Otherwise answers 503 so that anything gating on PD
+     * (a Store waiting to register, the Server's wait-storage.sh, a Kubernetes readiness probe)
+     * is held back until the PD can serve. Like /health this endpoint needs no authentication.
+     *
+     * @return JSON with the readiness flag, the local raft state and the raft address of the
+     * leader (null when there is none)
+     */
+    @GetMapping(value = "/ready", produces = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<Map<String, Object>> checkReady() {
+        RaftEngine raft = RaftEngine.getInstance();
+        boolean ready = raft.isReady();
+        State state = raft.getNodeState();
+        PeerId leader = raft.getLeader();
+
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("ready", ready);
+        body.put("state", state == null ? State.STATE_UNINITIALIZED.name() : state.name());
+        body.put("leader", leader == null || leader.isEmpty() ? null : leader.toString());
+        body.put("isLeader", raft.isLeader());
+        HttpStatus status = ready ? HttpStatus.OK : HttpStatus.SERVICE_UNAVAILABLE;
+        return ResponseEntity.status(status).body(body);
     }
 }

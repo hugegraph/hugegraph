@@ -131,7 +131,7 @@ docker compose -f docker-compose-hstore.yml ps
 Verify PD, Store, Server authentication, and Hubble:
 
 ```bash
-curl -fsS http://localhost:8620/v1/health
+curl -fsS http://localhost:8620/v1/ready
 curl -fsS http://localhost:8520/v1/health
 curl -fsS http://localhost:8080/versions
 test "$(curl -sS -o /dev/null -w '%{http_code}' \
@@ -186,7 +186,7 @@ and Hubble:
 
 ```bash
 for port in 8620 8621 8622; do
-  curl -fsS "http://localhost:${port}/v1/health"
+  curl -fsS "http://localhost:${port}/v1/ready"
 done
 for port in 8520 8521 8522; do
   curl -fsS "http://localhost:${port}/v1/health"
@@ -201,6 +201,14 @@ for port in 8080 8081 8082; do
 done
 curl -fsS http://localhost:8088/about
 ```
+
+PD answers two unauthenticated probe endpoints. `/v1/health` is liveness only:
+it returns `200` as soon as the REST listener is up, even when the PD has no
+raft leader. `/v1/ready` returns `200` only while the PD sees a leader and
+`503` otherwise, so the compose healthchecks gate Stores on `/v1/ready`. A
+single PD elects itself; three PDs become ready once two can talk to each
+other.
+
 
 Open `http://localhost:8088` and sign in as `admin` with the password from
 `.env`.

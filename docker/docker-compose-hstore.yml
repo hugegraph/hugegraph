@@ -44,7 +44,7 @@ services:
     volumes:
       - pd-data:/hugegraph-pd/pd_data
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://localhost:8620/v1/health >/dev/null"]
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8620/v1/ready >/dev/null"]
       interval: 10s
       timeout: 5s
       retries: 12

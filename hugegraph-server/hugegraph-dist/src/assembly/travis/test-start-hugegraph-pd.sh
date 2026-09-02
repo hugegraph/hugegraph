@@ -111,6 +111,24 @@ wait_for_pd() {
     return 1
 }
 
+# Wait until PD readiness endpoint answers 200 with ready=true, or timeout.
+# /v1/ready must need no credentials and must reflect raft: a single-node
+# raft group elects itself, so it has to become ready shortly after /v1/health.
+wait_for_pd_ready() {
+    local elapsed=0
+    while (( elapsed < STARTUP_WAIT )); do
+        local body status
+        body=$(curl -s -w '\n%{http_code}' "$PD_URL/v1/ready" 2>/dev/null || echo "000")
+        status=${body##*$'\n'}
+        if [[ "$status" == "200" ]] && [[ "$body" == *'"ready":true'* ]]; then
+            return 0
+        fi
+        sleep 2
+        elapsed=$((elapsed + 2))
+    done
+    return 1
+}
+
 # Wait until bin/pid is non-empty or timeout
 wait_for_pid_file() {
     local elapsed=0
@@ -197,6 +215,13 @@ if wait_for_pd; then
     pass "PD health endpoint responding at $PD_URL/v1/health"
 else
     fail "PD health endpoint not responding after ${STARTUP_WAIT}s"
+fi
+
+info "Waiting up to ${STARTUP_WAIT}s for PD readiness endpoint..."
+if wait_for_pd_ready; then
+    pass "PD readiness endpoint reports a raft leader at $PD_URL/v1/ready"
+else
+    fail "PD readiness endpoint did not report ready=true after ${STARTUP_WAIT}s"
 fi
 
 cleanup

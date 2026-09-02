@@ -37,7 +37,7 @@ x-pd-common: &pd-common
   restart: unless-stopped
   networks: [hg-net]
   healthcheck:
-    test: ["CMD-SHELL", "curl -fsS http://localhost:8620/v1/health >/dev/null || exit 1"]
+    test: ["CMD-SHELL", "curl -fsS http://localhost:8620/v1/ready >/dev/null || exit 1"]
     interval: 15s
     timeout: 10s
     retries: 30
