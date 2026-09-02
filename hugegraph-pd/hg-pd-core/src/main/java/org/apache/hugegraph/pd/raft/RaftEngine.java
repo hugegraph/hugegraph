@@ -70,7 +70,7 @@ public class RaftEngine {
     private PDConfig.Raft config;
     private RaftGroupService raftGroupService;
     private RpcServer rpcServer;
-    private Node raftNode;
+    private volatile Node raftNode;
     private RaftRpcClient raftRpcClient;
 
     public RaftEngine() {
@@ -217,7 +217,10 @@ public class RaftEngine {
      * signal a readiness probe needs.
      */
     public boolean hasLeader() {
-        Node node = this.raftNode;
+        return hasLeader(this.raftNode);
+    }
+
+    private static boolean hasLeader(Node node) {
         if (node == null) {
             return false;
         }
@@ -239,7 +242,7 @@ public class RaftEngine {
         if (state == null || !state.isActive()) {
             return false;
         }
-        return hasLeader();
+        return hasLeader(node);
     }
 
     /**

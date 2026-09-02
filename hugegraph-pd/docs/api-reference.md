@@ -810,18 +810,6 @@ so a PD that merely lost its leader is not restarted.
 curl http://localhost:8620/actuator/metrics
 ```
 
-Raft membership gauges (Prometheus names, scraped from `/actuator/prometheus`)
-for alerting on quorum loss:
-
-| Gauge | Value |
-|-------|-------|
-| `hg_raft_leader` | `1` on the raft leader, `0` elsewhere |
-| `hg_raft_has_leader` | `1` while this PD sees a leader (is inside a quorum), `0` otherwise |
-| `hg_raft_alive_peers` | On the leader, the number of peers (itself included) heard from within the election timeout; `NaN` on other nodes |
-
-A cluster has lost its quorum when `sum(hg_raft_leader) == 0` or when
-`hg_raft_has_leader == 0` on every member.
-
 **Response** (Prometheus format):
 ```
 # HELP pd_raft_state Raft state (0=Follower, 1=Candidate, 2=Leader)
@@ -837,6 +825,21 @@ pd_store_count{state="Offline"} 0.0
 # TYPE pd_partition_count gauge
 pd_partition_count 36.0
 ```
+
+#### Raft membership gauges
+
+Exported on `/actuator/prometheus` for alerting on quorum loss:
+
+| Gauge | Value |
+|-------|-------|
+| `hg_raft_leader` | `1` on the raft leader, `0` elsewhere |
+| `hg_raft_has_leader` | `1` while this PD sees a leader (is inside a quorum), `0` otherwise |
+| `hg_raft_alive_peers` | On the leader, the number of peers (itself included) heard from within the election timeout; `NaN` on other nodes |
+
+A cluster has lost its quorum when `sum(hg_raft_leader) == 0` or when
+`hg_raft_has_leader == 0` on every member. Both are briefly true during a
+normal election, so alert on them with a `for:` clause longer than the
+election timeout rather than on the instantaneous value.
 
 ### Partition API
 

@@ -207,8 +207,9 @@ it returns `200` as soon as the REST listener is up, even when the PD has no
 raft leader. `/v1/ready` returns `200` only while the PD sees a leader and
 `503` otherwise, so the compose healthchecks gate Stores on `/v1/ready`. A
 single PD elects itself; three PDs become ready once two can talk to each
-other.
-
+other. `/v1/ready` first ships in 1.8.0: with an older `HUGEGRAPH_VERSION`
+the PD healthcheck never passes and the Stores never start, so pin 1.8.0
+or newer, or build the images from source with `docker-compose.dev.yml`.
 
 Open `http://localhost:8088` and sign in as `admin` with the password from
 `.env`.

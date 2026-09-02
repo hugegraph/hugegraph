@@ -401,7 +401,7 @@ public class StoreAPI extends API {
      * Check Service Readiness
      * Answers 200 only when this PD is part of a raft quorum, that is, the raft node is active
      * and knows the current leader. Otherwise answers 503 so that anything gating on PD
-     * (a Store waiting to register, the Server's wait-storage.sh, a Kubernetes readiness probe)
+     * (the compose healthcheck in front of Stores, a Kubernetes readiness probe)
      * is held back until the PD can serve. Like /health this endpoint needs no authentication.
      *
      * @return JSON with the readiness flag, the local raft state and the raft address of the
