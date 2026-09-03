@@ -102,12 +102,22 @@ fi
 # before it gives up and ends the container. An orchestrator that already
 # owns this budget through a startup probe needs to raise it, otherwise the
 # container terminates a JVM that is still starting and the probe never gets
-# to decide. Validated here so a typo fails before init-store runs, rather
-# than reaching the arithmetic in wait_for_startup.
-SERVER_STARTUP_TIMEOUT_S="${HG_SERVER_STARTUP_TIMEOUT_S:-120}"
-if [[ ! "${SERVER_STARTUP_TIMEOUT_S}" =~ ^[1-9][0-9]*$ ]]; then
-    log "ERROR: HG_SERVER_STARTUP_TIMEOUT_S must be a positive whole number" \
-        "of seconds, got '${SERVER_STARTUP_TIMEOUT_S}'"
+# to decide. Validated here so a bad value fails before init-store runs,
+# rather than reaching the arithmetic in wait_for_startup: that deadline is
+# $((now_s + timeout_s)), which wraps negative near the 64-bit ceiling and
+# makes the wait exit before its first probe, the very failure this variable
+# exists to avoid. The five-digit bound keeps this comparison in range too,
+# and a day is already far past any real start. Plain '-' rather than ':-',
+# so an explicitly empty value is rejected instead of quietly becoming the
+# default: Compose interpolation such as ${SOME_VAR:-} yields empty, not
+# unset, whenever the host variable is missing.
+SERVER_STARTUP_TIMEOUT_MAX_S=86400
+SERVER_STARTUP_TIMEOUT_S="${HG_SERVER_STARTUP_TIMEOUT_S-120}"
+if [[ ! "${SERVER_STARTUP_TIMEOUT_S}" =~ ^[1-9][0-9]{0,4}$ ]] ||
+   (( SERVER_STARTUP_TIMEOUT_S > SERVER_STARTUP_TIMEOUT_MAX_S )); then
+    log "ERROR: HG_SERVER_STARTUP_TIMEOUT_S must be a whole number of" \
+        "seconds from 1 to ${SERVER_STARTUP_TIMEOUT_MAX_S}," \
+        "got '${SERVER_STARTUP_TIMEOUT_S}'"
     exit 1
 fi
 

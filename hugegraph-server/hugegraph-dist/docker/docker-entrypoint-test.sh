@@ -243,15 +243,50 @@ last_start_args() { tail -n 1 "${TEST_HOME}/docker/start-hugegraph-args"; }
 )
 [[ "$(last_start_args)" == *"-t 450"* ]]
 
-start_calls_before_invalid_timeout=$(wc -l < "${TEST_HOME}/docker/start-hugegraph-args")
-if (
+(
     cd "${TEST_HOME}"
-    HG_SERVER_STARTUP_TIMEOUT_S=2m bash ./docker-entrypoint.sh
-); then
-    echo "invalid startup timeout unexpectedly succeeded" >&2
-    exit 1
-fi
-[[ "$(wc -l < "${TEST_HOME}/docker/start-hugegraph-args")" -eq \
-   "${start_calls_before_invalid_timeout}" ]]
+    HG_SERVER_STARTUP_TIMEOUT_S=86400 bash ./docker-entrypoint.sh
+)
+[[ "$(last_start_args)" == *"-t 86400"* ]]
+
+# An empty value is a set value, not an absent one: Compose writes it whenever
+# an interpolated host variable is missing. 2m is the shape of a typo, and the
+# two large values bracket the point where the deadline arithmetic in
+# wait_for_startup would wrap negative and end the wait before its first probe.
+for invalid_timeout in "" " " 0 +5 2m 86401 9223372036854775807; do
+    start_calls_before_invalid=$(wc -l < "${TEST_HOME}/docker/start-hugegraph-args")
+    init_calls_before_invalid=$(wc -l < "${TEST_HOME}/docker/init-store-calls")
+    if (
+        cd "${TEST_HOME}"
+        HG_SERVER_STARTUP_TIMEOUT_S="${invalid_timeout}" \
+            bash ./docker-entrypoint.sh
+    ); then
+        echo "startup timeout '${invalid_timeout}' unexpectedly succeeded" >&2
+        exit 1
+    fi
+    # The server must not have started, and the guard must have run ahead of
+    # init-store, as the comment above it in the entrypoint claims. Spelled
+    # with an explicit exit rather than a bare [[ ]]: bash 3.2, still the
+    # /bin/bash of macOS, does not apply set -e to a failing [[ ]], so a bare
+    # assertion passes silently there while CI catches the regression.
+    [[ "$(wc -l < "${TEST_HOME}/docker/start-hugegraph-args")" -eq \
+       "${start_calls_before_invalid}" ]] || {
+        echo "startup timeout '${invalid_timeout}' started the server" >&2
+        exit 1
+    }
+    [[ "$(wc -l < "${TEST_HOME}/docker/init-store-calls")" -eq \
+       "${init_calls_before_invalid}" ]] || {
+        echo "startup timeout '${invalid_timeout}' was rejected only after" \
+             "init-store ran" >&2
+        exit 1
+    }
+done
+
+# An unset variable still keeps the historical default.
+(
+    cd "${TEST_HOME}"
+    bash ./docker-entrypoint.sh
+)
+[[ "$(last_start_args)" == *"-t 120"* ]]
 
 echo "PASS: Docker entrypoint configures HStore discovery and authentication"

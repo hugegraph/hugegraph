@@ -149,8 +149,8 @@ The entrypoints supervise the Java process directly — when Java exits, the con
 
 The entrypoint gives the Server a fixed budget to answer on its REST port and
 ends the container when the budget runs out. It is 120 seconds by default. Set
-`HG_SERVER_STARTUP_TIMEOUT_S` to a positive whole number of seconds to change
-it:
+`HG_SERVER_STARTUP_TIMEOUT_S` to a whole number of seconds between 1 and 86400
+to change it:
 
 ```bash
 docker run -itd --name=graph -p 8080:8080 -e HG_SERVER_STARTUP_TIMEOUT_S=450 hugegraph/hugegraph:1.7.0
@@ -158,6 +158,16 @@ docker run -itd --name=graph -p 8080:8080 -e HG_SERVER_STARTUP_TIMEOUT_S=450 hug
 
 Raise it on slow or contended hosts, and wherever an orchestrator already owns
 the startup budget through a probe of its own: a startup probe cannot extend a
-container that has already ended the JVM it was waiting for. A value that is
-not a positive whole number stops the container at startup instead of silently
-falling back to the default.
+container that has already ended the JVM it was waiting for. Anything outside
+the accepted range, an empty value included, stops the container at startup
+instead of silently falling back to the default.
+
+Raising this budget does not move the health check described in section 6,
+which runs on a clock of its own. The images set `--interval=15s
+--start-period=90s --retries=3`, so a container given a longer startup budget
+is reported `unhealthy` around 135 seconds while the entrypoint is still
+legitimately waiting; raise it with `--health-start-period` on `docker run`.
+The Compose files replace those values with their own (`start_period: 60s`,
+`interval: 10s`, `retries: 30`, so roughly 360 seconds), and anything gated on
+`depends_on: condition: service_healthy`, Hubble included, waits on that budget
+rather than on this variable. Move the two together.
