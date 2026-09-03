@@ -39,7 +39,9 @@ log() {
   echo "[wait-storage] $1"
 }
 
-PD_AUTH_ARGS="-u ${PD_AUTH_USER:-store}:${PD_AUTH_PASSWORD:-admin}"
+# PD validates the password against its auth.secret-key; the default below
+# matches PD's shipped default. Override both when the PD secret is changed.
+PD_AUTH_ARGS="-u ${PD_AUTH_USER:-store}:${PD_AUTH_PASSWORD:-FXQXbJtbCLxODc6tGci732pkH1cyf8Qg}"
 
 function key_exists {
     local key=$1

@@ -43,6 +43,12 @@ license:
 server:
   port: 8620
 
+auth:
+  # Shared secret checked against the password of the Basic credential on every
+  # authenticated REST request. Change it in production and keep it in sync
+  # with every client that calls the PD REST API.
+  secret-key: FXQXbJtbCLxODc6tGci732pkH1cyf8Qg
+
 pd:
   # Periodically check whether the cluster is healthy at intervals, in seconds
   patrol-interval: 300

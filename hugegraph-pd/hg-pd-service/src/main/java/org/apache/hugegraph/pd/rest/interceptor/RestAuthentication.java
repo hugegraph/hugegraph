@@ -59,6 +59,7 @@ public class RestAuthentication extends Authentication implements HandlerInterce
             authority = authority.replace("Basic ", "");
             return authenticate(authority, token, tokenCall, DEFAULT_HANDLE);
         } catch (Exception e) {
+            response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
             response.setContentType("application/json");
             response.getWriter().println(new API().toJSON(e));
             response.getWriter().flush();

@@ -18,12 +18,15 @@
 package org.apache.hugegraph.pd.service.interceptor;
 
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.util.Base64;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
 import org.apache.commons.lang3.StringUtils;
+import org.apache.hugegraph.pd.config.PDConfig;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.stereotype.Component;
@@ -31,9 +34,10 @@ import org.springframework.stereotype.Component;
 /**
  * Simple internal authentication component for PD service.
  * <p>
- * <b>WARNING:</b> This class currently implements only basic internal authentication
- * validation for internal modules (hg, store, hubble, vermeer). The authentication mechanism
- * is designed for internal service-to-service communication only.
+ * <b>WARNING:</b> This class validates a Basic credential for internal modules
+ * (hg, store, hubble, vermeer): the service name must be one of the four and the
+ * password must match the shared secret configured via `auth.secret-key`. The
+ * mechanism is designed for internal service-to-service communication only.
  * </p>
  *
  * <p><b>Important SEC Considerations:</b></p>
@@ -61,6 +65,9 @@ import org.springframework.stereotype.Component;
 public class Authentication {
     private static final Set<String> innerModules = Set.of("hg", "store", "hubble", "vermeer");
 
+    @Autowired
+    private PDConfig pdConfig;
+
     protected <T> T authenticate(String authority, String token, Function<String, T> tokenCall,
                                  Supplier<T> call) {
         try {
@@ -77,17 +84,31 @@ public class Authentication {
             }
 
             String name = info.substring(0, delim);
-            // TODO: password validation is skipped — only service name is checked against
-            // innerModules. Full credential validation should be added as part of the auth refactor.
-            //String pwd = info.substring(delim + 1);
-            if (innerModules.contains(name)) {
-                return call.get();
-            } else {
+            String pwd = info.substring(delim + 1);
+            if (!innerModules.contains(name)) {
                 throw new AccessDeniedException("invalid service name");
             }
+            if (!verifySecret(pwd)) {
+                throw new BadCredentialsException("invalid credential");
+            }
+            return call.get();
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
+    }
+
+    /**
+     * Compare the password of the Basic credential with the shared secret
+     * configured via `auth.secret-key`. A missing or empty secret refuses every
+     * request instead of falling back to name-only authentication.
+     */
+    private boolean verifySecret(String pwd) {
+        String secret = this.pdConfig == null ? null : this.pdConfig.getSecretKey();
+        if (StringUtils.isEmpty(secret)) {
+            return false;
+        }
+        return MessageDigest.isEqual(pwd.getBytes(StandardCharsets.UTF_8),
+                                     secret.getBytes(StandardCharsets.UTF_8));
     }
 
     public static String getTokenKey(String name) {

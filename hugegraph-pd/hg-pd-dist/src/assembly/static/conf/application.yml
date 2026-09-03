@@ -44,6 +44,15 @@ server:
   # REST service port number
   port: 8620
 
+auth:
+  # Shared secret checked against the password of the Basic credential on every
+  # authenticated REST request. Clients must send one of the internal service
+  # names (hg, store, hubble, vermeer) with this value as the password.
+  # CHANGE THIS IN PRODUCTION and keep it in sync with every client that calls
+  # the PD REST API (e.g. Hubble's operations.pd.password). Do not expose the
+  # REST port (8620) outside a trusted network.
+  secret-key: FXQXbJtbCLxODc6tGci732pkH1cyf8Qg
+
 pd:
   # Storage path
   data-path: ./pd_data

@@ -57,8 +57,16 @@ require_env "HG_PD_INITIAL_STORE_LIST"
 : "${HG_PD_DATA_PATH:=/hugegraph-pd/pd_data}"
 : "${HG_PD_INITIAL_STORE_COUNT:=1}"
 
+# Optional secret for REST Basic authentication (auth.secret-key). When unset,
+# the value from conf/application.yml applies. Never logged.
+AUTH_JSON=""
+if [[ -n "${HG_PD_AUTH_SECRET_KEY:-}" ]]; then
+    AUTH_JSON="\"auth\": { \"secret-key\": \"$(json_escape "${HG_PD_AUTH_SECRET_KEY}")\" },"
+fi
+
 SPRING_APPLICATION_JSON="$(cat <<JSON
 {
+  ${AUTH_JSON}
   "grpc":   { "host": "$(json_escape "${HG_PD_GRPC_HOST}")",
               "port": "$(json_escape "${HG_PD_GRPC_PORT}")" },
   "server": { "port": "$(json_escape "${HG_PD_REST_PORT}")" },

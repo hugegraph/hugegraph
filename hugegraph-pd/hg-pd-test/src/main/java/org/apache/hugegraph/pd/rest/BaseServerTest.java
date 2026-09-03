@@ -18,14 +18,27 @@
 package org.apache.hugegraph.pd.rest;
 
 import java.net.http.HttpClient;
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
 
 import org.junit.After;
 import org.junit.BeforeClass;
 
 public class BaseServerTest {
 
+    // Matches the auth.secret-key default that the PD under test runs with
+    protected static final String SECRET = "FXQXbJtbCLxODc6tGci732pkH1cyf8Qg";
+    protected static final String AUTH_HEADER = "Authorization";
+    protected static final String VALID_AUTH = basicAuth("store", SECRET);
+
     protected static HttpClient client;
     protected static String pdRestAddr;
+
+    protected static String basicAuth(String name, String pwd) {
+        String credential = name + ":" + pwd;
+        return "Basic " + Base64.getEncoder()
+                                .encodeToString(credential.getBytes(StandardCharsets.UTF_8));
+    }
 
     @BeforeClass
     public static void init() {

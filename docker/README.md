@@ -66,6 +66,22 @@ For the verification commands below, set the password in your current shell:
 ADMIN_PASSWORD='the-same-password-used-in-.env'
 ```
 
+The PD REST API (port 8620, HStore topologies only) has its own credential:
+requests other than health probes need HTTP Basic auth with an internal
+service name (for example `hg`) and the PD secret as the password. PD ships
+with a default secret in `conf/application.yml` (`auth.secret-key`), and the
+Hubble files under `conf/hubble/` carry the matching `operations.pd.password`.
+With the shipped default, list registered stores like this:
+
+```bash
+curl -u hg:FXQXbJtbCLxODc6tGci732pkH1cyf8Qg http://localhost:8620/v1/stores
+```
+
+The default secret is public (it is in the source tree), so it only keeps
+casual traffic out. On any shared network, change it: set
+`HG_PD_AUTH_SECRET_KEY` on the PD services and put the same value in the
+Hubble properties files, or do not publish port 8620 at all.
+
 ### Standalone
 
 This is the recommended quickstart.
@@ -312,7 +328,9 @@ docker compose -f docker-compose-hstore.yml up -d --wait
 ### Hubble configuration
 
 The three small files under `conf/hubble/` contain only topology-specific
-discovery settings and container paths:
+discovery settings, the PD REST credential (`operations.pd.username` and
+`operations.pd.password`, which must match PD's `auth.secret-key`), and
+container paths:
 
 - `conf/hubble/standalone.properties` uses direct Server mode.
 - `conf/hubble/hstore.properties` uses one PD and one Store REST target.

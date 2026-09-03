@@ -100,6 +100,7 @@ Key configuration file: `conf/application.yml`
 | `raft.address` | `127.0.0.1:8610` | Raft service address for this PD node |
 | `raft.peers-list` | `127.0.0.1:8610` | Comma-separated list of all PD nodes in the Raft cluster |
 | `pd.data-path` | `./pd_data` | Directory for storing PD metadata and Raft logs |
+| `auth.secret-key` | (public default) | Password required by the REST API with an internal service name (`hg`, `store`, `hubble`, `vermeer`) via HTTP Basic auth. Change it in production and configure every REST client (e.g. Hubble's `operations.pd.password`) with the same value |
 
 #### Single-Node Example
 
@@ -279,6 +280,19 @@ docker/docker-compose-3pd-3store-3server.yml
 
 - Ensure low latency (<5ms) between PD nodes for Raft consensus
 - Open required ports: `8620` (REST), `8686` (gRPC), `8610` (Raft)
+
+### Security
+
+- Keep all three ports on a trusted network. The REST API on `8620` includes
+  management endpoints that mutate the cluster (peer changes, store removal,
+  data movement), and the gRPC and Raft ports carry no authentication.
+- REST requests need HTTP Basic auth: one of the internal service names
+  (`hg`, `store`, `hubble`, `vermeer`) with the `auth.secret-key` value as
+  the password. Health probes (`/v1/health`, `/actuator/*`,
+  `/v1/prom/targets/*`) stay unauthenticated.
+- The shipped `auth.secret-key` default is public. Change it in production
+  (config file, or `HG_PD_AUTH_SECRET_KEY` for the Docker image) and update
+  every REST client with the same value.
 
 ### Monitoring
 
