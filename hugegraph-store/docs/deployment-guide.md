@@ -719,9 +719,14 @@ environment:
 ```
 
 **Startup ordering** is enforced via `depends_on` with `condition: service_healthy`:
-1. PD nodes start first and must pass healthchecks (`/v1/ready`, answered `200` only once the PD sees a raft leader)
+1. PD nodes start first and must pass healthchecks (`/v1/health`, liveness only)
 2. Store nodes start after all PD nodes are healthy
 3. Server nodes start after all Store nodes are healthy
+
+`/v1/health` answers `200` as soon as the PD REST listener is up, so step 1 does
+not wait for a raft quorum to form. PD also serves `/v1/ready`, which answers
+`200` only while the PD sees a raft leader; `docker/README.md` covers what
+pointing the healthchecks at it requires.
 
 > **Note**: The deprecated env var names (`GRPC_HOST`, `RAFT_ADDRESS`, `RAFT_PEERS`, `PD_ADDRESS`, `BACKEND`, `PD_PEERS`) still work but log a warning. Use the `HG_*` prefixed names for new deployments.
 
