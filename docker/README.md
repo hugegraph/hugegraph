@@ -78,9 +78,26 @@ curl -u hg:FXQXbJtbCLxODc6tGci732pkH1cyf8Qg http://localhost:8620/v1/stores
 ```
 
 The default secret is public (it is in the source tree), so it only keeps
-casual traffic out. On any shared network, change it: set
-`HG_PD_AUTH_SECRET_KEY` on the PD services and put the same value in the
-Hubble properties files, or do not publish port 8620 at all.
+casual traffic out. On any shared network, change it, or do not publish port
+8620 at all. Three consumers read this credential, and all three have to
+agree or startup fails:
+
+- PD itself, through `HG_PD_AUTH_SECRET_KEY`.
+- The Server, whose `bin/wait-storage.sh` polls `/v1/stores` before the
+  Server starts. Both Compose files pass `PD_AUTH_PASSWORD` to it from the
+  same variable, so setting `HG_PD_AUTH_SECRET_KEY` in `.env` covers it. If
+  the Server sends the wrong secret it retries until
+  `WAIT_STORAGE_TIMEOUT_S` (300s) expires and the container exits with
+  `ERROR: Timeout waiting for storage backend`.
+- Hubble, through `operations.pd.password` in the file under `conf/hubble/`.
+  That file is mounted read-only and is not templated, so edit it by hand to
+  match.
+
+Set the secret once in `.env` before the first start:
+
+```bash
+printf "HG_PD_AUTH_SECRET_KEY='%s'\n" "$(openssl rand -hex 24)" >> .env
+```
 
 ### Standalone
 

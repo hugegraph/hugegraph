@@ -79,6 +79,31 @@ server:
 - Metrics: `http://<host>:8620/actuator/metrics`
 - Prometheus: `http://<host>:8620/actuator/prometheus`
 
+### REST Authentication Settings
+
+Every REST request except the probes below must carry HTTP Basic auth: one of
+the internal service names (`hg`, `store`, `hubble`, `vermeer`) as the user,
+and the shared secret as the password. A missing or wrong credential gets
+HTTP 401. Unauthenticated paths: `/v1/health`, `/actuator/*` and
+`/v1/prom/targets/*`.
+
+```yaml
+auth:
+  secret-key: FXQXbJtbCLxODc6tGci732pkH1cyf8Qg
+```
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `auth.secret-key` | String | (public default in the shipped `conf/application.yml`) | Password checked against the Basic credential. The shipped value is public, so change it in production. If the key is absent PD starts with an empty secret and refuses every authenticated REST request, logging an error that names this parameter. |
+
+Every REST client needs the same value: the Server's `bin/wait-storage.sh`
+reads it from `PD_AUTH_PASSWORD`, Hubble from `operations.pd.password`, and
+the Docker image takes `HG_PD_AUTH_SECRET_KEY`.
+
+```bash
+curl -u hg:<secret> http://<host>:8620/v1/stores
+```
+
 ### Raft Consensus Settings
 
 Controls Raft consensus for PD cluster coordination.
@@ -253,13 +278,13 @@ management:
   endpoints:
     web:
       exposure:
-        include: "*"     # Expose all actuator endpoints
+        include: "health,metrics,prometheus"   # Allowlist; see note below
 ```
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `management.metrics.export.prometheus.enabled` | Boolean | `true` | Enable Prometheus-compatible metrics at `/actuator/prometheus`. |
-| `management.endpoints.web.exposure.include` | String | `"*"` | Actuator endpoints to expose. `"*"` = all, or specify comma-separated list (e.g., `"health,metrics"`). |
+| `management.endpoints.web.exposure.include` | String | `"health,metrics,prometheus"` | Actuator endpoints to expose. `/actuator/*` is excluded from the REST authentication interceptor, so every endpoint listed here is reachable without a credential on port 8620. Prefer an allowlist over `"*"`. |
 
 ## Deployment Scenarios
 

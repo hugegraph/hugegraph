@@ -21,6 +21,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.Base64;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
@@ -30,6 +31,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.stereotype.Component;
+
+import lombok.extern.slf4j.Slf4j;
 
 /**
  * Simple internal authentication component for PD service.
@@ -61,9 +64,12 @@ import org.springframework.stereotype.Component;
  * and regular security audits.
  * </p>
  */
+@Slf4j
 @Component
 public class Authentication {
     private static final Set<String> innerModules = Set.of("hg", "store", "hubble", "vermeer");
+
+    private static final AtomicBoolean missingSecretLogged = new AtomicBoolean();
 
     @Autowired
     private PDConfig pdConfig;
@@ -105,6 +111,12 @@ public class Authentication {
     private boolean verifySecret(String pwd) {
         String secret = this.pdConfig == null ? null : this.pdConfig.getSecretKey();
         if (StringUtils.isEmpty(secret)) {
+            // Logged once: this path is reachable by unauthenticated callers
+            if (missingSecretLogged.compareAndSet(false, true)) {
+                log.error("auth.secret-key is not configured, so every authenticated REST " +
+                          "request is refused. Add it to conf/application.yml (or set " +
+                          "HG_PD_AUTH_SECRET_KEY) and give every REST client the same value.");
+            }
             return false;
         }
         return MessageDigest.isEqual(pwd.getBytes(StandardCharsets.UTF_8),

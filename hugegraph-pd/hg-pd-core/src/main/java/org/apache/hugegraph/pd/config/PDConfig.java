@@ -69,7 +69,11 @@ public class PDConfig {
     @Autowired
     private ThreadPoolGrpc threadPoolGrpc;
 
-    @Value("${auth.secret-key: 'FXQXbJtbCLxODc6tGci732pkH1cyf8Qg'}")
+    // No default: Spring takes the text after the first ':' literally, so a
+    // quoted default would resolve to a value including the quotes and the
+    // leading space, and no client would ever match it. An absent key must
+    // yield "" so the REST interceptor can refuse every request and say why.
+    @Value("${auth.secret-key:}")
     @ToString.Exclude
     private String secretKey;
 

@@ -60,6 +60,9 @@ public class RestAuthentication extends Authentication implements HandlerInterce
             return authenticate(authority, token, tokenCall, DEFAULT_HANDLE);
         } catch (Exception e) {
             response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+            // RFC 7235 requires a challenge on a 401; without it clients that
+            // authenticate reactively never retry with credentials
+            response.setHeader("WWW-Authenticate", "Basic realm=\"hugegraph-pd\"");
             response.setContentType("application/json");
             response.getWriter().println(new API().toJSON(e));
             response.getWriter().flush();

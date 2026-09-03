@@ -292,7 +292,15 @@ docker/docker-compose-3pd-3store-3server.yml
   `/v1/prom/targets/*`) stay unauthenticated.
 - The shipped `auth.secret-key` default is public. Change it in production
   (config file, or `HG_PD_AUTH_SECRET_KEY` for the Docker image) and update
-  every REST client with the same value.
+  every REST client with the same value: the Server's `bin/wait-storage.sh`
+  reads `PD_AUTH_PASSWORD` (and `PD_AUTH_USER`, default `store`), and Hubble
+  reads `operations.pd.password`. A client left on the old secret gets 401,
+  and for `wait-storage.sh` that means Server startup aborts after
+  `WAIT_STORAGE_TIMEOUT_S`.
+- An existing `conf/application.yml` carried over from an earlier release has
+  no `auth` block. PD then starts with an empty secret and refuses every
+  authenticated REST request, logging an error that names `auth.secret-key`.
+  Add the key to the file before upgrading.
 
 ### Monitoring
 
