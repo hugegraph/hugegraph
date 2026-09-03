@@ -97,7 +97,7 @@ public final class PDMetrics {
                  return alive < 0 ? Double.NaN : alive;
              })
              .description("Number of raft peers, itself included, the leader has heard from " +
-                          "within the election timeout; NaN on non-leader nodes")
+                          "within the leader lease timeout; NaN on non-leader nodes")
              .register(registry);
     }
 

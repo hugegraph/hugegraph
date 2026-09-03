@@ -234,28 +234,63 @@ public class RaftEngine {
      * Unlike a plain liveness check this turns false as soon as the quorum is lost.
      */
     public boolean isReady() {
-        Node node = this.raftNode;
-        if (node == null) {
-            return false;
-        }
-        State state = node.getNodeState();
-        if (state == null || !state.isActive()) {
-            return false;
-        }
-        return hasLeader(node);
+        return getRaftStatus().isReady();
     }
 
     /**
-     * @return the jraft node state, or null before the raft node has been started
+     * Take a consistent view of the local raft state. Every field is derived from one
+     * {@link Node} reference and a single {@code getLeaderId()} read, so a step-down while
+     * the view is being built cannot report a ready node that knows no leader.
      */
-    public State getNodeState() {
+    public RaftStatus getRaftStatus() {
         Node node = this.raftNode;
-        return node == null ? null : node.getNodeState();
+        if (node == null) {
+            return new RaftStatus(false, State.STATE_UNINITIALIZED.name(), false);
+        }
+        State state = node.getNodeState();
+        boolean active = state != null && state.isActive();
+        return new RaftStatus(active && hasLeader(node),
+                              state == null ? State.STATE_UNINITIALIZED.name() : state.name(),
+                              node.isLeader(true));
+    }
+
+    /**
+     * Immutable view of the raft state behind {@code GET /v1/ready}. It carries no cluster
+     * addresses: the endpoint is unauthenticated, and the leader's address stays on the
+     * authenticated {@code /v1/members}.
+     */
+    public static final class RaftStatus {
+
+        private final boolean ready;
+        private final String state;
+        private final boolean localLeader;
+
+        RaftStatus(boolean ready, String state, boolean localLeader) {
+            this.ready = ready;
+            this.state = state;
+            this.localLeader = localLeader;
+        }
+
+        public boolean isReady() {
+            return this.ready;
+        }
+
+        /**
+         * @return the jraft node state name, never null
+         */
+        public String getState() {
+            return this.state;
+        }
+
+        public boolean isLocalLeader() {
+            return this.localLeader;
+        }
     }
 
     /**
      * Number of raft peers, this node included, that the leader has heard from within the
-     * election timeout. Only the leader tracks replication state, so any other node returns -1.
+     * leader lease timeout, which jraft derives as 90% of the election timeout by default.
+     * Only the leader tracks replication state, so any other node returns -1.
      */
     public int getAlivePeerCount() {
         Node node = this.raftNode;

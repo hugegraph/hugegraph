@@ -49,8 +49,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseBody;
 import org.springframework.web.bind.annotation.RestController;
 
-import com.alipay.sofa.jraft.core.State;
-import com.alipay.sofa.jraft.entity.PeerId;
 import com.google.protobuf.util.JsonFormat;
 
 import lombok.Data;
@@ -404,22 +402,19 @@ public class StoreAPI extends API {
      * (the compose healthcheck in front of Stores, a Kubernetes readiness probe)
      * is held back until the PD can serve. Like /health this endpoint needs no authentication.
      *
-     * @return JSON with the readiness flag, the local raft state and the raft address of the
-     * leader (null when there is none)
+     * @return JSON with the readiness flag, the local raft state and whether this node is the
+     * leader. It carries no cluster addresses, since the endpoint is unauthenticated.
      */
     @GetMapping(value = "/ready", produces = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<Map<String, Object>> checkReady() {
-        RaftEngine raft = RaftEngine.getInstance();
-        boolean ready = raft.isReady();
-        State state = raft.getNodeState();
-        PeerId leader = raft.getLeader();
+        RaftEngine.RaftStatus status = RaftEngine.getInstance().getRaftStatus();
 
         Map<String, Object> body = new LinkedHashMap<>();
-        body.put("ready", ready);
-        body.put("state", state == null ? State.STATE_UNINITIALIZED.name() : state.name());
-        body.put("leader", leader == null || leader.isEmpty() ? null : leader.toString());
-        body.put("isLeader", raft.isLeader());
-        HttpStatus status = ready ? HttpStatus.OK : HttpStatus.SERVICE_UNAVAILABLE;
-        return ResponseEntity.status(status).body(body);
+        body.put("ready", status.isReady());
+        body.put("state", status.getState());
+        body.put("isLeader", status.isLocalLeader());
+        HttpStatus httpStatus = status.isReady() ? HttpStatus.OK
+                                                 : HttpStatus.SERVICE_UNAVAILABLE;
+        return ResponseEntity.status(httpStatus).body(body);
     }
 }

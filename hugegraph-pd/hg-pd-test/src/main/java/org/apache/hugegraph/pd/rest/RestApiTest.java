@@ -69,6 +69,9 @@ public class RestApiTest extends BaseServerTest {
         HttpRequest request = HttpRequest.newBuilder().uri(new URI(url)).GET().build();
         HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
         assert response.statusCode() == 200;
+        // The auth interceptor rejects with 200 and an error envelope, so the status alone
+        // cannot tell "anonymous" from "rejected". checkHealthy() returns an empty body.
+        assert response.body().isEmpty() : "expected an empty body, got " + response.body();
     }
 
     @Test
@@ -84,7 +87,8 @@ public class RestApiTest extends BaseServerTest {
         assert obj.getBoolean("ready");
         assert obj.getBoolean("isLeader");
         assert "STATE_LEADER".equals(obj.getString("state"));
-        assert !obj.isNull("leader") && !obj.getString("leader").isEmpty();
+        // Unauthenticated, so it must not disclose cluster addresses
+        assert !obj.has("leader") : "the anonymous body must not carry the leader address";
     }
 
     @Test

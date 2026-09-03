@@ -792,17 +792,27 @@ curl -i http://localhost:8620/v1/ready
 {
   "ready": true,
   "state": "STATE_LEADER",
-  "leader": "192.168.1.1:8610",
   "isLeader": true
 }
 ```
 
-A follower reports `"state": "STATE_FOLLOWER"` with the leader's raft address.
-When the quorum is lost the PD keeps answering `/v1/health` with `200` but
-`/v1/ready` turns into `503` with `"ready": false` and `"leader": null`.
+A follower reports `"state": "STATE_FOLLOWER"` with `"isLeader": false`. When
+the quorum is lost the PD keeps answering `/v1/health` with `200` but
+`/v1/ready` turns into `503` with `"ready": false`. Being unauthenticated, the
+body carries no cluster addresses; the leader's address stays on `/v1/members`.
+
 Point Kubernetes readiness probes, `depends_on` healthchecks and any
 "wait for PD" script at `/v1/ready`; keep liveness probes on `/v1/health`
 so a PD that merely lost its leader is not restarted.
+
+Match on the body rather than on the status code alone. PD's auth interceptor
+rejects a request it does not exclude by writing an error envelope without
+setting a status, so any unknown path answers `200` with
+`{"status":-1,"error":"Unauthorized!"}`. A status-only probe therefore reads a
+PD older than this endpoint as ready. A shell gate should use
+`curl -fsS http://<pd-host>:8620/v1/ready | grep -q '"ready":true'`, and a
+Kubernetes `httpGet` probe should be paired with a PD image that carries the
+endpoint.
 
 ### Metrics
 
@@ -834,7 +844,7 @@ Exported on `/actuator/prometheus` for alerting on quorum loss:
 |-------|-------|
 | `hg_raft_leader` | `1` on the raft leader, `0` elsewhere |
 | `hg_raft_has_leader` | `1` while this PD sees a leader (is inside a quorum), `0` otherwise |
-| `hg_raft_alive_peers` | On the leader, the number of peers (itself included) heard from within the election timeout; `NaN` on other nodes |
+| `hg_raft_alive_peers` | On the leader, the number of peers (itself included) heard from within the leader lease timeout (90% of the election timeout by default); `NaN` on other nodes |
 
 A cluster has lost its quorum when `sum(hg_raft_leader) == 0` or when
 `hg_raft_has_leader == 0` on every member. Both are briefly true during a

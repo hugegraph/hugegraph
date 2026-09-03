@@ -131,7 +131,7 @@ docker compose -f docker-compose-hstore.yml ps
 Verify PD, Store, Server authentication, and Hubble:
 
 ```bash
-curl -fsS http://localhost:8620/v1/ready
+curl -fsS http://localhost:8620/v1/health
 curl -fsS http://localhost:8520/v1/health
 curl -fsS http://localhost:8080/versions
 test "$(curl -sS -o /dev/null -w '%{http_code}' \
@@ -186,7 +186,7 @@ and Hubble:
 
 ```bash
 for port in 8620 8621 8622; do
-  curl -fsS "http://localhost:${port}/v1/ready"
+  curl -fsS "http://localhost:${port}/v1/health"
 done
 for port in 8520 8521 8522; do
   curl -fsS "http://localhost:${port}/v1/health"
@@ -204,12 +204,21 @@ curl -fsS http://localhost:8088/about
 
 PD answers two unauthenticated probe endpoints. `/v1/health` is liveness only:
 it returns `200` as soon as the REST listener is up, even when the PD has no
-raft leader. `/v1/ready` returns `200` only while the PD sees a leader and
-`503` otherwise, so the compose healthchecks gate Stores on `/v1/ready`. A
-single PD elects itself; three PDs become ready once two can talk to each
-other. `/v1/ready` first ships in 1.8.0: with an older `HUGEGRAPH_VERSION`
-the PD healthcheck never passes and the Stores never start, so pin 1.8.0
-or newer, or build the images from source with `docker-compose.dev.yml`.
+raft leader. `/v1/ready` returns `200` only while the PD sees a raft leader,
+and `503` otherwise. A single PD elects itself; three PDs become ready once
+two of them can talk to each other.
+
+The healthchecks in these files still gate on `/v1/health`, because
+`/v1/ready` ships from the next release onwards while the files run published
+images. Two things to know before pointing them at readiness:
+
+- Match on the body, not the status code. PD answers `200` with
+  `{"status":-1,"error":"Unauthorized!"}` on every path its auth interceptor
+  does not exclude, a path that does not exist included, so a status-only
+  probe reads a PD too old to have `/v1/ready` as ready. Gate with
+  `curl -fsS http://localhost:8620/v1/ready | grep -q '"ready":true'` instead.
+- Pin `HUGEGRAPH_VERSION` to a release that carries the endpoint, or build the
+  images from source with `docker-compose.dev.yml`.
 
 Open `http://localhost:8088` and sign in as `admin` with the password from
 `.env`.

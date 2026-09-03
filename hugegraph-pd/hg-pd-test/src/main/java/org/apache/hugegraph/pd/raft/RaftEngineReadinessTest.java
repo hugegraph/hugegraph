@@ -72,9 +72,13 @@ public class RaftEngineReadinessTest {
         Assert.assertFalse(engine.isReady());
         Assert.assertFalse(engine.hasLeader());
         Assert.assertFalse(engine.isLeader());
-        Assert.assertNull(engine.getNodeState());
         Assert.assertNull(engine.getLeader());
         Assert.assertEquals(-1, engine.getAlivePeerCount());
+
+        RaftEngine.RaftStatus status = engine.getRaftStatus();
+        Assert.assertFalse(status.isReady());
+        Assert.assertFalse(status.isLocalLeader());
+        Assert.assertEquals(State.STATE_UNINITIALIZED.name(), status.getState());
     }
 
     @Test
@@ -86,8 +90,12 @@ public class RaftEngineReadinessTest {
         Assert.assertTrue(engine.isReady());
         Assert.assertTrue(engine.hasLeader());
         Assert.assertTrue(engine.isLeader());
-        Assert.assertEquals(State.STATE_LEADER, engine.getNodeState());
         Assert.assertEquals(3, engine.getAlivePeerCount());
+
+        RaftEngine.RaftStatus status = engine.getRaftStatus();
+        Assert.assertTrue(status.isReady());
+        Assert.assertTrue(status.isLocalLeader());
+        Assert.assertEquals(State.STATE_LEADER.name(), status.getState());
     }
 
     @Test
@@ -142,6 +150,22 @@ public class RaftEngineReadinessTest {
             Assert.assertFalse("state " + state + " must not be ready",
                                RaftEngine.getInstance().isReady());
         }
+    }
+
+    @Test
+    public void testStatusNeverReportsReadyWithoutALeader() {
+        // One snapshot, one getLeaderId() read: a step-down cannot yield ready with no leader
+        stub(State.STATE_FOLLOWER, null, false);
+        RaftEngine.RaftStatus status = RaftEngine.getInstance().getRaftStatus();
+        Assert.assertFalse(status.isReady());
+        Assert.assertEquals(State.STATE_FOLLOWER.name(), status.getState());
+        Assert.assertFalse(status.isLocalLeader());
+
+        stub(State.STATE_FOLLOWER, LEADER, false);
+        status = RaftEngine.getInstance().getRaftStatus();
+        Assert.assertTrue(status.isReady());
+        Assert.assertEquals(State.STATE_FOLLOWER.name(), status.getState());
+        Assert.assertFalse(status.isLocalLeader());
     }
 
     @Test
