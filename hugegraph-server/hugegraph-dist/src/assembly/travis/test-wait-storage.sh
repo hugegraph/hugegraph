@@ -25,6 +25,7 @@ DIST_ROOT="${TMP_DIR}/dist"
 MOCK_BIN="${TMP_DIR}/mock-bin"
 CALL_LOG="${TMP_DIR}/curl-calls"
 ARGS_LOG="${TMP_DIR}/curl-args"
+CONFIG_LOG="${TMP_DIR}/curl-config"
 COUNT_FILE="${TMP_DIR}/store-call-count"
 TIMEOUT_LOG="${TMP_DIR}/timeout-arg"
 CASE_OUTPUT=""
@@ -54,8 +55,12 @@ assert_contract() {
     ! grep -q '/v1/health' "${CALL_LOG}" || \
         fail "/v1/health must not gate readiness"
     [[ -s "${ARGS_LOG}" ]] || fail "curl was not called"
-    if grep -Fv -- '-u test-user:test-password' "${ARGS_LOG}" | grep -q .; then
-        fail "authentication arguments were not preserved"
+    if grep -Fq -- 'test-password' "${ARGS_LOG}"; then
+        fail "credential leaked into curl argv"
+    fi
+    [[ -s "${CONFIG_LOG}" ]] || fail "curl was not given a credential config"
+    if grep -Fv -- 'user = "test-user:test-password"' "${CONFIG_LOG}" | grep -q .; then
+        fail "authentication credential was not preserved"
     fi
     if grep -Fv -- '--connect-timeout 2' "${ARGS_LOG}" | grep -q .; then
         fail "per-peer connect timeout was not preserved"
@@ -70,6 +75,7 @@ run_case() {
     local scenario="$1" peers="$2" abort_after="$3"
     : > "${CALL_LOG}"
     : > "${ARGS_LOG}"
+    : > "${CONFIG_LOG}"
     : > "${COUNT_FILE}"
     : > "${TIMEOUT_LOG}"
     : > "${DIST_ROOT}/conf/graphs/hugegraph.properties"
@@ -80,6 +86,7 @@ run_case() {
         MOCK_ABORT_AFTER="${abort_after}" \
         MOCK_CALL_LOG="${CALL_LOG}" \
         MOCK_ARGS_LOG="${ARGS_LOG}" \
+        MOCK_CONFIG_LOG="${CONFIG_LOG}" \
         MOCK_COUNT_FILE="${COUNT_FILE}" \
         MOCK_TIMEOUT_LOG="${TIMEOUT_LOG}" \
         HG_SERVER_PD_REST_ENDPOINT="${peers}" \
@@ -131,6 +138,14 @@ set -u
 url="${!#}"
 printf '%s\n' "$*" >> "${MOCK_ARGS_LOG}"
 printf '%s\n' "${url}" >> "${MOCK_CALL_LOG}"
+
+# The credential must arrive as a config file on stdin, never in argv
+for arg in "$@"; do
+    if [[ "${arg}" == "-K" ]]; then
+        cat >> "${MOCK_CONFIG_LOG}"
+        break
+    fi
+done
 
 if [[ "${url}" == */v1/health ]]; then
     printf '{}\n'

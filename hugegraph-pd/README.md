@@ -100,7 +100,7 @@ Key configuration file: `conf/application.yml`
 | `raft.address` | `127.0.0.1:8610` | Raft service address for this PD node |
 | `raft.peers-list` | `127.0.0.1:8610` | Comma-separated list of all PD nodes in the Raft cluster |
 | `pd.data-path` | `./pd_data` | Directory for storing PD metadata and Raft logs |
-| `auth.secret-key` | (public default) | Password required by the REST API with an internal service name (`hg`, `store`, `hubble`, `vermeer`) via HTTP Basic auth. Change it in production and configure every REST client (e.g. Hubble's `operations.pd.password`) with the same value |
+| `auth.secret-key` | none (required) | Password required by the REST API with an internal service name (`hg`, `store`, `hubble`, `vermeer`) via HTTP Basic auth. No default is shipped; generate one per deployment and configure every REST client (e.g. Hubble's `operations.pd.password`) with the same value |
 
 #### Single-Node Example
 
@@ -242,6 +242,7 @@ docker run -d \
   -p 8620:8620 \
   -p 8686:8686 \
   -p 8610:8610 \
+  -e HG_PD_AUTH_SECRET_KEY="$(openssl rand -hex 24)" \
   -e HG_PD_GRPC_HOST=<your-ip> \
   -e HG_PD_RAFT_ADDRESS=<your-ip>:8610 \
   -e HG_PD_RAFT_PEERS_LIST=<your-ip>:8610 \
@@ -290,17 +291,20 @@ docker/docker-compose-3pd-3store-3server.yml
   (`hg`, `store`, `hubble`, `vermeer`) with the `auth.secret-key` value as
   the password. Health probes (`/v1/health`, `/actuator/*`,
   `/v1/prom/targets/*`) stay unauthenticated.
-- The shipped `auth.secret-key` default is public. Change it in production
-  (config file, or `HG_PD_AUTH_SECRET_KEY` for the Docker image) and update
-  every REST client with the same value: the Server's `bin/wait-storage.sh`
-  reads `PD_AUTH_PASSWORD` (and `PD_AUTH_USER`, default `store`), and Hubble
-  reads `operations.pd.password`. A client left on the old secret gets 401,
-  and for `wait-storage.sh` that means Server startup aborts after
+- `auth.secret-key` has no shipped default, because a secret in the source
+  tree is published to everyone. Generate one per deployment (`openssl rand
+  -hex 24`) and set it in the config file, or through
+  `HG_PD_AUTH_SECRET_KEY`, which the Docker image requires. Give every REST
+  client the same value: the Server's `bin/wait-storage.sh` reads
+  `PD_AUTH_PASSWORD` (and `PD_AUTH_USER`, default `store`), and Hubble reads
+  `operations.pd.password`. A client left on a stale secret gets 401, and for
+  `wait-storage.sh` that means Server startup aborts after
   `WAIT_STORAGE_TIMEOUT_S`.
 - An existing `conf/application.yml` carried over from an earlier release has
   no `auth` block. PD then starts with an empty secret and refuses every
   authenticated REST request, logging an error that names `auth.secret-key`.
-  Add the key to the file before upgrading.
+  Add the key before upgrading. PD refuses to start if the key is set to the
+  placeholder value that earlier revisions of this repository carried.
 
 ### Monitoring
 

@@ -47,9 +47,11 @@ server:
 
 auth:
   # Shared secret checked against the password of the Basic credential on every
-  # authenticated REST request. Change it in production and keep it in sync
-  # with every client that calls the PD REST API.
-  secret-key: FXQXbJtbCLxODc6tGci732pkH1cyf8Qg
+  # authenticated REST request. Required and deliberately empty: a secret in
+  # the source tree is published to everyone. Set a deployment-specific value
+  # here (or via HG_PD_AUTH_SECRET_KEY) and give every REST client the same
+  # value. While empty, PD refuses every authenticated REST request.
+  secret-key:
 
 pd:
   # Periodically check whether the cluster is healthy at intervals, in seconds

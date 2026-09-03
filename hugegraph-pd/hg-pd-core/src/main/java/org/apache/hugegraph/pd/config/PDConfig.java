@@ -25,6 +25,7 @@ import java.util.regex.Pattern;
 
 import org.apache.hugegraph.pd.ConfigService;
 import org.apache.hugegraph.pd.IdService;
+import org.springframework.beans.factory.InitializingBean;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
@@ -38,7 +39,15 @@ import lombok.ToString;
  */
 @Data
 @Component
-public class PDConfig {
+public class PDConfig implements InitializingBean {
+
+    /**
+     * The secret that earlier revisions carried as the placeholder default for
+     * `auth.secret-key`. It is published in this repository, so a deployment
+     * still using it authenticates anyone who can read the source. Refuse to
+     * start rather than let a well-known string look like authentication.
+     */
+    private static final String PUBLISHED_SECRET_KEY = "FXQXbJtbCLxODc6tGci732pkH1cyf8Qg";
 
     // cluster ID
     @Value("${pd.cluster_id:1}")
@@ -88,6 +97,17 @@ public class PDConfig {
     private Map<String, String> initialStoreMap = null;
     private ConfigService configService;
     private IdService idService;
+
+    @Override
+    public void afterPropertiesSet() {
+        if (PUBLISHED_SECRET_KEY.equals(this.secretKey)) {
+            throw new IllegalStateException(
+                    "auth.secret-key is set to the value published in the HugeGraph source " +
+                    "tree, which authenticates anyone who can read it. Set a " +
+                    "deployment-specific secret in conf/application.yml, or through the " +
+                    "HG_PD_AUTH_SECRET_KEY environment variable for the Docker image.");
+        }
+    }
 
     public Map<String, String> getInitialStoreMap() {
         if (initialStoreMap == null) {

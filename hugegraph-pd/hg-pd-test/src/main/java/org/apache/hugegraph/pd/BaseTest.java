@@ -27,8 +27,9 @@ public class BaseTest {
     protected static String pdGrpcAddr = "127.0.0.1:8686";
     protected static String pdRestAddr = "http://127.0.0.1:8620";
     protected static String user = "store";
-    // Matches the auth.secret-key default that the PD under test runs with
-    protected static String pwd = "FXQXbJtbCLxODc6tGci732pkH1cyf8Qg";
+    // Must match the auth.secret-key that travis/start-pd.sh gives the PD
+    // under test; the shipped config carries no secret by design
+    protected static String pwd = "pd-ci-test-secret-not-for-production";
     protected static String key = "Authorization";
     protected static String value = "Basic " + Base64.getEncoder().encodeToString(
             (user + ":" + pwd).getBytes(StandardCharsets.UTF_8));

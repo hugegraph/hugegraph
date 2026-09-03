@@ -51,18 +51,18 @@ require_env "HG_PD_GRPC_HOST"
 require_env "HG_PD_RAFT_ADDRESS"
 require_env "HG_PD_RAFT_PEERS_LIST"
 require_env "HG_PD_INITIAL_STORE_LIST"
+# The REST API refuses every authenticated request without this, and the image
+# ships no default because a published secret is not a secret.
+require_env "HG_PD_AUTH_SECRET_KEY"
 
 : "${HG_PD_GRPC_PORT:=8686}"
 : "${HG_PD_REST_PORT:=8620}"
 : "${HG_PD_DATA_PATH:=/hugegraph-pd/pd_data}"
 : "${HG_PD_INITIAL_STORE_COUNT:=1}"
 
-# Optional secret for REST Basic authentication (auth.secret-key). When unset,
-# the value from conf/application.yml applies. Never logged.
-AUTH_JSON=""
-if [[ -n "${HG_PD_AUTH_SECRET_KEY:-}" ]]; then
-    AUTH_JSON="\"auth\": { \"secret-key\": \"$(json_escape "${HG_PD_AUTH_SECRET_KEY}")\" },"
-fi
+# Secret for REST Basic authentication (auth.secret-key). Required above and
+# never logged.
+AUTH_JSON="\"auth\": { \"secret-key\": \"$(json_escape "${HG_PD_AUTH_SECRET_KEY}")\" },"
 
 SPRING_APPLICATION_JSON="$(cat <<JSON
 {

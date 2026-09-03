@@ -39,8 +39,9 @@ contains a single quote or newline.
     echo ".env already exists; edit it instead of overwriting it" >&2
     exit 1
   }
-  printf "HUGEGRAPH_ADMIN_PASSWORD='%s'\nHUGEGRAPH_AUTH_TOKEN_SECRET='%s'\n" \
-    'replace-with-your-password' "${jwt_secret}" > .env
+  pd_secret="$(openssl rand -hex 24)"
+  printf "HUGEGRAPH_ADMIN_PASSWORD='%s'\nHUGEGRAPH_AUTH_TOKEN_SECRET='%s'\nHG_PD_AUTH_SECRET_KEY='%s'\n" \
+    'replace-with-your-password' "${jwt_secret}" "${pd_secret}" > .env
 )
 ```
 
@@ -69,18 +70,16 @@ ADMIN_PASSWORD='the-same-password-used-in-.env'
 The PD REST API (port 8620, HStore topologies only) has its own credential:
 requests other than health probes need HTTP Basic auth with an internal
 service name (for example `hg`) and the PD secret as the password. PD ships
-with a default secret in `conf/application.yml` (`auth.secret-key`), and the
-Hubble files under `conf/hubble/` carry the matching `operations.pd.password`.
-With the shipped default, list registered stores like this:
+no default secret, so `HG_PD_AUTH_SECRET_KEY` is required and the HStore
+Compose files refuse to start without it. The `.env` command above generates
+one. To list registered stores:
 
 ```bash
-curl -u hg:FXQXbJtbCLxODc6tGci732pkH1cyf8Qg http://localhost:8620/v1/stores
+curl -u "hg:${HG_PD_AUTH_SECRET_KEY}" http://localhost:8620/v1/stores
 ```
 
-The default secret is public (it is in the source tree), so it only keeps
-casual traffic out. On any shared network, change it, or do not publish port
-8620 at all. Three consumers read this credential, and all three have to
-agree or startup fails:
+Three consumers read this credential, and all three have to agree or startup
+fails:
 
 - PD itself, through `HG_PD_AUTH_SECRET_KEY`.
 - The Server, whose `bin/wait-storage.sh` polls `/v1/stores` before the
@@ -90,13 +89,13 @@ agree or startup fails:
   `WAIT_STORAGE_TIMEOUT_S` (300s) expires and the container exits with
   `ERROR: Timeout waiting for storage backend`.
 - Hubble, through `operations.pd.password` in the file under `conf/hubble/`.
-  That file is mounted read-only and is not templated, so edit it by hand to
-  match.
-
-Set the secret once in `.env` before the first start:
+  That file is mounted read-only and is not templated, so write the same value
+  into it by hand. Until you do, Hubble's PD-backed views get 401 from PD;
+  everything else in Hubble works.
 
 ```bash
-printf "HG_PD_AUTH_SECRET_KEY='%s'\n" "$(openssl rand -hex 24)" >> .env
+sed -i.bak "s#^operations.pd.password=.*#operations.pd.password=${HG_PD_AUTH_SECRET_KEY}#" \
+  conf/hubble/hstore.properties
 ```
 
 ### Standalone

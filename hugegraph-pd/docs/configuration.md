@@ -89,12 +89,12 @@ HTTP 401. Unauthenticated paths: `/v1/health`, `/actuator/*` and
 
 ```yaml
 auth:
-  secret-key: FXQXbJtbCLxODc6tGci732pkH1cyf8Qg
+  secret-key: <a value you generate, e.g. `openssl rand -hex 24`>
 ```
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `auth.secret-key` | String | (public default in the shipped `conf/application.yml`) | Password checked against the Basic credential. The shipped value is public, so change it in production. If the key is absent PD starts with an empty secret and refuses every authenticated REST request, logging an error that names this parameter. |
+| `auth.secret-key` | String | none (required) | Password checked against the Basic credential. There is no default: a secret shipped in the source tree would be published to everyone. While it is empty PD refuses every authenticated REST request and logs an error naming this parameter, and PD refuses to start at all if it is set to the value that earlier revisions carried as a placeholder. |
 
 Every REST client needs the same value: the Server's `bin/wait-storage.sh`
 reads it from `PD_AUTH_PASSWORD`, Hubble from `operations.pd.password`, and

@@ -48,12 +48,19 @@ server:
 
 auth:
   # Shared secret checked against the password of the Basic credential on every
-  # authenticated REST request. Clients must send one of the internal service
-  # names (hg, store, hubble, vermeer) with this value as the password.
-  # CHANGE THIS IN PRODUCTION and keep it in sync with every client that calls
-  # the PD REST API (e.g. Hubble's operations.pd.password). Do not expose the
-  # REST port (8620) outside a trusted network.
-  secret-key: FXQXbJtbCLxODc6tGci732pkH1cyf8Qg
+  # authenticated REST request. Clients send one of the internal service names
+  # (hg, store, hubble, vermeer) with this value as the password.
+  #
+  # REQUIRED, and deliberately empty: a secret shipped in the source tree is
+  # published to everyone, so there is no safe default to give you. Generate
+  # one per deployment, for example with `openssl rand -hex 24`, and set the
+  # same value on every client that calls the PD REST API (the Server's
+  # PD_AUTH_PASSWORD, Hubble's operations.pd.password).
+  #
+  # While this is empty PD refuses every authenticated REST request and logs
+  # an error naming this key. Do not expose port 8620 outside a trusted
+  # network even once it is set.
+  secret-key:
 
 pd:
   # Storage path

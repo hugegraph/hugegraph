@@ -21,6 +21,7 @@ set -Eeuo pipefail
 DOCKER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PASSWORD="ci-compose-password"
 SECRET="0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+PD_SECRET="ci-compose-pd-secret"
 VERSION="ci-version"
 RENDER_HUBBLE_IMAGE="example.invalid/hugegraph/hubble:ci"
 DATASOURCE="jdbc:h2:file:/hubble/data/hubble;DB_CLOSE_ON_EXIT=FALSE"
@@ -34,6 +35,7 @@ compose_auth() {
         HUBBLE_IMAGE="${RENDER_HUBBLE_IMAGE}" \
         HUGEGRAPH_ADMIN_PASSWORD="${PASSWORD}" \
         HUGEGRAPH_AUTH_TOKEN_SECRET="${SECRET}" \
+        HG_PD_AUTH_SECRET_KEY="${PD_SECRET}" \
         docker compose "$@"
 }
 

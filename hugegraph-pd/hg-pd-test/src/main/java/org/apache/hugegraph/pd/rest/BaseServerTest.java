@@ -26,8 +26,9 @@ import org.junit.BeforeClass;
 
 public class BaseServerTest {
 
-    // Matches the auth.secret-key default that the PD under test runs with
-    protected static final String SECRET = "FXQXbJtbCLxODc6tGci732pkH1cyf8Qg";
+    // Must match the auth.secret-key that travis/start-pd.sh gives the PD
+    // under test; the shipped config carries no secret by design
+    protected static final String SECRET = "pd-ci-test-secret-not-for-production";
     protected static final String AUTH_HEADER = "Authorization";
     protected static final String VALID_AUTH = basicAuth("store", SECRET);
 
