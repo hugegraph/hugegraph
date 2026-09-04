@@ -26,10 +26,31 @@ require_env() {
     fi
 }
 
+# Escape a value for use inside a JSON string: backslash and quote, then every
+# remaining C0 control character as \uXXXX. Dropping only LF, as an earlier
+# version did, left CR and TAB to produce invalid JSON and a container that
+# failed before startup.
 json_escape() {
-    local s="$1"
-    s=${s//\\/\\\\}; s=${s//\"/\\\"}; s=${s//$'\n'/}
-    printf "%s" "$s"
+    local s="$1" out="" i c
+    s=${s//\\/\\\\}
+    s=${s//\"/\\\"}
+    for (( i = 0; i < ${#s}; i++ )); do
+        c=${s:i:1}
+        case "$c" in
+            $'\n') out+='\n' ;;
+            $'\r') out+='\r' ;;
+            $'\t') out+='\t' ;;
+            $'\b') out+='\b' ;;
+            $'\f') out+='\f' ;;
+            *)
+                if [[ "$c" < $'\x20' || "$c" == $'\x7f' ]]; then
+                    printf -v c '\\u%04x' "'$c"
+                fi
+                out+="$c"
+                ;;
+        esac
+    done
+    printf "%s" "$out"
 }
 
 migrate_env() {

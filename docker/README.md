@@ -61,11 +61,16 @@ behind an HTTPS reverse proxy and trusted network controls.
 first authenticated startup. Changing `.env` does not rotate an existing
 administrator password; use the HugeGraph user API for credential changes.
 
-For the verification commands below, set the password in your current shell:
+For the verification commands below, load `.env` into your current shell and
+set the password:
 
 ```bash
+set -a; . ./.env; set +a
 ADMIN_PASSWORD='the-same-password-used-in-.env'
 ```
+
+Compose reads `.env` on its own; the line above is so that the `curl` and
+`sed` commands on this page can use `${HG_PD_AUTH_SECRET_KEY}` too.
 
 The PD REST API (port 8620, HStore topologies only) has its own credential:
 requests other than health probes need HTTP Basic auth with an internal
@@ -93,9 +98,17 @@ fails:
   into it by hand. Until you do, Hubble's PD-backed views get 401 from PD;
   everything else in Hubble works.
 
+Write it in, after loading `.env` as above. Use `hstore.properties` for the
+Minimal HStore topology and `hstore-ha.properties` for HA:
+
 ```bash
-sed -i.bak "s#^operations.pd.password=.*#operations.pd.password=${HG_PD_AUTH_SECRET_KEY}#" \
-  conf/hubble/hstore.properties
+if [ -n "${HG_PD_AUTH_SECRET_KEY:-}" ]; then
+  sed -i.bak \
+    "s#^operations.pd.password=.*#operations.pd.password=${HG_PD_AUTH_SECRET_KEY}#" \
+    conf/hubble/hstore.properties
+else
+  echo 'HG_PD_AUTH_SECRET_KEY is empty; load .env first' >&2
+fi
 ```
 
 ### Standalone

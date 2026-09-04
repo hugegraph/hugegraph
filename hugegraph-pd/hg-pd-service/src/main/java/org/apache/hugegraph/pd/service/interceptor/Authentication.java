@@ -83,7 +83,10 @@ public class Authentication {
             }
             byte[] bytes = authority.getBytes(StandardCharsets.UTF_8);
             byte[] decode = Base64.getDecoder().decode(bytes);
-            String info = new String(decode);
+            // RFC 7617: Basic credentials are UTF-8. Decoding with the platform
+            // default would compare against a UTF-8 secret only when the host
+            // locale happens to agree.
+            String info = new String(decode, StandardCharsets.UTF_8);
             int delim = info.indexOf(':');
             if (delim == -1) {
                 throw new BadCredentialsException(invalidBasicInfo);

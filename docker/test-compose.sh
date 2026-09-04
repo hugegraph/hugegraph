@@ -273,6 +273,7 @@ compose_active() {
         HUBBLE_IMAGE="${HUBBLE_IMAGE:-hugegraph/hubble:latest}" \
         HUGEGRAPH_ADMIN_PASSWORD="${PASSWORD}" \
         HUGEGRAPH_AUTH_TOKEN_SECRET="${SECRET}" \
+        HG_PD_AUTH_SECRET_KEY="${PD_SECRET}" \
         COMPOSE_PROGRESS=plain \
         docker compose -p "${ACTIVE_PROJECT}" "${ACTIVE_FILES[@]}" "$@"
 }

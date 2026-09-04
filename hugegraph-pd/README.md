@@ -237,12 +237,17 @@ Build PD Docker image:
 # From project root
 docker build -f hugegraph-pd/Dockerfile -t hugegraph/pd:latest .
 
+# Generate the REST secret once and keep it: every PD REST client needs this
+# same value, and a new one silently breaks the clients already using the old
+# one. Store it somewhere durable rather than only in this shell.
+export HG_PD_AUTH_SECRET_KEY="$(openssl rand -hex 24)"
+
 # Run container
 docker run -d \
   -p 8620:8620 \
   -p 8686:8686 \
   -p 8610:8610 \
-  -e HG_PD_AUTH_SECRET_KEY="$(openssl rand -hex 24)" \
+  -e HG_PD_AUTH_SECRET_KEY="${HG_PD_AUTH_SECRET_KEY}" \
   -e HG_PD_GRPC_HOST=<your-ip> \
   -e HG_PD_RAFT_ADDRESS=<your-ip>:8610 \
   -e HG_PD_RAFT_PEERS_LIST=<your-ip>:8610 \
