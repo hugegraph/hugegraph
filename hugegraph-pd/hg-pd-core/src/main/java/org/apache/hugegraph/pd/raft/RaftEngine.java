@@ -229,19 +229,14 @@ public class RaftEngine {
     }
 
     /**
-     * Whether this node can take part in serving requests: the raft node has been started,
-     * is in an active state, which jraft's {@code State.isActive()} takes to mean leader,
-     * transferring, candidate or follower, and sees a leader.
-     * Unlike a plain liveness check this turns false as soon as the quorum is lost.
-     */
-    public boolean isReady() {
-        return getRaftStatus().isReady();
-    }
-
-    /**
      * Take a consistent view of the local raft state. Every field is derived from one
      * {@link Node} reference and a single {@code getLeaderId()} read, so a step-down while
      * the view is being built cannot report a ready node that knows no leader.
+     * <p>
+     * A node is ready when it has been started, is in an active state, which jraft's
+     * {@code State.isActive()} takes to mean leader, transferring, candidate or follower,
+     * and sees a leader. Unlike a plain liveness check this turns false as soon as the
+     * quorum is lost.
      */
     public RaftStatus getRaftStatus() {
         Node node = this.raftNode;

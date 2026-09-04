@@ -111,18 +111,13 @@ wait_for_pd() {
     return 1
 }
 
-# Wait until PD readiness endpoint answers 200 with ready=true, or timeout.
-# /v1/ready must need no credentials and must reflect raft: a single-node
-# raft group elects itself, so it has to become ready shortly after /v1/health.
+# Wait until PD readiness answers, or timeout. This is the gate the docs recommend:
+# -f rejects the 503, the body match rejects a 200 that is an auth envelope rather
+# than a readiness answer. No credentials, and a single-node group elects itself.
 wait_for_pd_ready() {
     local elapsed=0
     while (( elapsed < STARTUP_WAIT )); do
-        local body status
-        body=$(curl -s -w '\n%{http_code}' "$PD_URL/v1/ready" 2>/dev/null || echo "000")
-        status=${body##*$'\n'}
-        if [[ "$status" == "200" ]] && [[ "$body" == *'"ready":true'* ]]; then
-            return 0
-        fi
+        curl -fsS "$PD_URL/v1/ready" 2>/dev/null | grep -q '"ready":true' && return 0
         sleep 2
         elapsed=$((elapsed + 2))
     done

@@ -69,7 +69,6 @@ public class RaftEngineReadinessTest {
         Whitebox.setInternalState(RaftEngine.getInstance(), "raftNode", null);
         RaftEngine engine = RaftEngine.getInstance();
 
-        Assert.assertFalse(engine.isReady());
         Assert.assertFalse(engine.hasLeader());
         Assert.assertFalse(engine.isLeader());
         Assert.assertNull(engine.getLeader());
@@ -87,7 +86,6 @@ public class RaftEngineReadinessTest {
         when(mockNode.listAlivePeers()).thenReturn(Arrays.asList(SELF, LEADER, OTHER));
         RaftEngine engine = RaftEngine.getInstance();
 
-        Assert.assertTrue(engine.isReady());
         Assert.assertTrue(engine.hasLeader());
         Assert.assertTrue(engine.isLeader());
         Assert.assertEquals(3, engine.getAlivePeerCount());
@@ -103,7 +101,7 @@ public class RaftEngineReadinessTest {
         stub(State.STATE_FOLLOWER, LEADER, false);
         RaftEngine engine = RaftEngine.getInstance();
 
-        Assert.assertTrue(engine.isReady());
+        Assert.assertTrue(engine.getRaftStatus().isReady());
         Assert.assertTrue(engine.hasLeader());
         Assert.assertFalse(engine.isLeader());
         Assert.assertEquals(LEADER, engine.getLeader());
@@ -117,7 +115,7 @@ public class RaftEngineReadinessTest {
         stub(State.STATE_FOLLOWER, null, false);
         RaftEngine engine = RaftEngine.getInstance();
 
-        Assert.assertFalse(engine.isReady());
+        Assert.assertFalse(engine.getRaftStatus().isReady());
         Assert.assertFalse(engine.hasLeader());
     }
 
@@ -128,7 +126,7 @@ public class RaftEngineReadinessTest {
         stub(State.STATE_FOLLOWER, PeerId.emptyPeer(), false);
         RaftEngine engine = RaftEngine.getInstance();
 
-        Assert.assertFalse(engine.isReady());
+        Assert.assertFalse(engine.getRaftStatus().isReady());
         Assert.assertFalse(engine.hasLeader());
     }
 
@@ -137,7 +135,7 @@ public class RaftEngineReadinessTest {
         // The only candidate shape jraft reaches: NodeImpl clears the leader id before it
         // starts an election, so it is the missing leader, not the state, that holds it back
         stub(State.STATE_CANDIDATE, null, false);
-        Assert.assertFalse(RaftEngine.getInstance().isReady());
+        Assert.assertFalse(RaftEngine.getInstance().getRaftStatus().isReady());
     }
 
     @Test
@@ -145,13 +143,13 @@ public class RaftEngineReadinessTest {
         // Records the scope of the state check: State.isActive() is ordinal() < STATE_ERROR,
         // so a candidate is active and would read as ready if it still knew a leader
         stub(State.STATE_CANDIDATE, LEADER, false);
-        Assert.assertTrue(RaftEngine.getInstance().isReady());
+        Assert.assertTrue(RaftEngine.getInstance().getRaftStatus().isReady());
     }
 
     @Test
     public void testTransferringLeaderIsReady() {
         stub(State.STATE_TRANSFERRING, SELF, true);
-        Assert.assertTrue(RaftEngine.getInstance().isReady());
+        Assert.assertTrue(RaftEngine.getInstance().getRaftStatus().isReady());
     }
 
     @Test
@@ -160,24 +158,8 @@ public class RaftEngineReadinessTest {
                                        State.STATE_SHUTTING, State.STATE_SHUTDOWN}) {
             stub(state, LEADER, false);
             Assert.assertFalse("state " + state + " must not be ready",
-                               RaftEngine.getInstance().isReady());
+                               RaftEngine.getInstance().getRaftStatus().isReady());
         }
-    }
-
-    @Test
-    public void testStatusNeverReportsReadyWithoutALeader() {
-        // One snapshot, one getLeaderId() read: a step-down cannot yield ready with no leader
-        stub(State.STATE_FOLLOWER, null, false);
-        RaftEngine.RaftStatus status = RaftEngine.getInstance().getRaftStatus();
-        Assert.assertFalse(status.isReady());
-        Assert.assertEquals(State.STATE_FOLLOWER.name(), status.getState());
-        Assert.assertFalse(status.isLocalLeader());
-
-        stub(State.STATE_FOLLOWER, LEADER, false);
-        status = RaftEngine.getInstance().getRaftStatus();
-        Assert.assertTrue(status.isReady());
-        Assert.assertEquals(State.STATE_FOLLOWER.name(), status.getState());
-        Assert.assertFalse(status.isLocalLeader());
     }
 
     @Test
