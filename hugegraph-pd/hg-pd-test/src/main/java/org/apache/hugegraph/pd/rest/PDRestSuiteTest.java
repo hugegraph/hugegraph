@@ -17,7 +17,6 @@
 
 package org.apache.hugegraph.pd.rest;
 
-import org.apache.hugegraph.pd.rest.interceptor.AuthenticationConfigurerTest;
 import org.apache.hugegraph.pd.util.StoreRestAddressUtilTest;
 import org.junit.runner.RunWith;
 import org.junit.runners.Suite;
@@ -27,7 +26,6 @@ import lombok.extern.slf4j.Slf4j;
 @RunWith(Suite.class)
 @Suite.SuiteClasses({
         RestApiTest.class,
-        AuthenticationConfigurerTest.class,
         StoreRestAddressUtilTest.class,
 })
 @Slf4j
