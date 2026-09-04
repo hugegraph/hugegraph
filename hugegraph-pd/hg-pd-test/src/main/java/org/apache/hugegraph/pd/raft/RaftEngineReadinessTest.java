@@ -123,6 +123,8 @@ public class RaftEngineReadinessTest {
 
     @Test
     public void testEmptyLeaderIdIsNotReady() {
+        // Defensive: NodeImpl.getLeaderId() maps an empty peer to null, so this guards the
+        // Node contract rather than a value the real implementation returns
         stub(State.STATE_FOLLOWER, PeerId.emptyPeer(), false);
         RaftEngine engine = RaftEngine.getInstance();
 
@@ -131,9 +133,19 @@ public class RaftEngineReadinessTest {
     }
 
     @Test
-    public void testCandidateIsNotReady() {
+    public void testCandidateWithoutLeaderIsNotReady() {
+        // The only candidate shape jraft reaches: NodeImpl clears the leader id before it
+        // starts an election, so it is the missing leader, not the state, that holds it back
         stub(State.STATE_CANDIDATE, null, false);
         Assert.assertFalse(RaftEngine.getInstance().isReady());
+    }
+
+    @Test
+    public void testCandidateCountsAsActive() {
+        // Records the scope of the state check: State.isActive() is ordinal() < STATE_ERROR,
+        // so a candidate is active and would read as ready if it still knew a leader
+        stub(State.STATE_CANDIDATE, LEADER, false);
+        Assert.assertTrue(RaftEngine.getInstance().isReady());
     }
 
     @Test

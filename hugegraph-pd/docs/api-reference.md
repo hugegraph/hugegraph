@@ -805,11 +805,13 @@ Point Kubernetes readiness probes, `depends_on` healthchecks and any
 "wait for PD" script at `/v1/ready`; keep liveness probes on `/v1/health`
 so a PD that merely lost its leader is not restarted.
 
-Match on the body rather than on the status code alone. PD's auth interceptor
-rejects a request it does not exclude by writing an error envelope without
-setting a status, so any unknown path answers `200` with
-`{"status":-1,"error":"Unauthorized!"}`. A status-only probe therefore reads a
-PD older than this endpoint as ready. A shell gate should use
+Match on the body rather than on the status code alone. A PD that predates this
+endpoint does not reliably answer `404` for it: `RestAuthentication` refuses a
+request it does not exclude by writing an error envelope, and as of 1.7.0 it
+does so without setting a status, so an unknown path answers `200` with
+`{"status":-1,"error":"Unauthorized!"}`. A status-only probe therefore reads
+such a PD as ready. The body match holds whichever status a refusal carries: a
+shell gate should use
 `curl -fsS http://<pd-host>:8620/v1/ready | grep -q '"ready":true'`, and a
 Kubernetes `httpGet` probe should be paired with a PD image that carries the
 endpoint.

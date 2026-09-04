@@ -69,8 +69,9 @@ public class RestApiTest extends BaseServerTest {
         HttpRequest request = HttpRequest.newBuilder().uri(new URI(url)).GET().build();
         HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
         assert response.statusCode() == 200;
-        // The auth interceptor rejects with 200 and an error envelope, so the status alone
-        // cannot tell "anonymous" from "rejected". checkHealthy() returns an empty body.
+        // A 200 alone does not prove the path is anonymous: as of 1.7.0 the auth interceptor
+        // refuses with 200 and an error envelope. checkHealthy() returns an empty body, which
+        // separates the two whichever status a refusal carries.
         assert response.body().isEmpty() : "expected an empty body, got " + response.body();
     }
 

@@ -230,7 +230,8 @@ public class RaftEngine {
 
     /**
      * Whether this node can take part in serving requests: the raft node has been started,
-     * is in an active state (leader, follower or transferring leadership) and sees a leader.
+     * is in an active state, which jraft's {@code State.isActive()} takes to mean leader,
+     * transferring, candidate or follower, and sees a leader.
      * Unlike a plain liveness check this turns false as soon as the quorum is lost.
      */
     public boolean isReady() {
