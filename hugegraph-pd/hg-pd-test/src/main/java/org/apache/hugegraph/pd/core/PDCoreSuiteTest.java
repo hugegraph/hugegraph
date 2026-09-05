@@ -17,7 +17,6 @@
 
 package org.apache.hugegraph.pd.core;
 
-import org.apache.hugegraph.pd.service.interceptor.AuthenticationTest;
 import org.apache.hugegraph.pd.core.meta.MetadataKeyHelperTest;
 import org.apache.hugegraph.pd.core.store.HgKVStoreImplTest;
 import org.apache.hugegraph.pd.raft.IpAuthHandlerTest;
@@ -33,7 +32,6 @@ import lombok.extern.slf4j.Slf4j;
         MetadataKeyHelperTest.class,
         HgKVStoreImplTest.class,
         PDConfigTest.class,
-        AuthenticationTest.class,
         ConfigServiceTest.class,
         IdServiceTest.class,
         KvServiceTest.class,

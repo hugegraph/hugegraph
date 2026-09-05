@@ -183,6 +183,31 @@ public class RestApiTest extends BaseServerTest {
         assert response.statusCode() == 401;
     }
 
+    private int statusWithoutCredential(String path) throws URISyntaxException, IOException,
+                                                            InterruptedException {
+        HttpRequest request = HttpRequest.newBuilder()
+                                         .uri(new URI(pdRestAddr + path))
+                                         .GET()
+                                         .build();
+        return client.send(request, HttpResponse.BodyHandlers.ofString()).statusCode();
+    }
+
+    @Test
+    public void testProbePathsNeedNoCredential() throws URISyntaxException, IOException,
+                                                        InterruptedException {
+        assert statusWithoutCredential("/v1/health") == 200;
+        assert statusWithoutCredential("/actuator/health") == 200;
+        // nested actuator paths are probe surface too; /actuator/* would 401 them
+        assert statusWithoutCredential("/actuator/metrics/jvm.memory.used") == 200;
+    }
+
+    @Test
+    public void testUnexposedActuatorEndpointIsClosed() throws URISyntaxException, IOException,
+                                                               InterruptedException {
+        // not in management.endpoints.web.exposure.include, so it must never serve data
+        assert statusWithoutCredential("/actuator/env") != 200;
+    }
+
     @Test
     public void testUnknownServiceNameGets401() throws URISyntaxException, IOException,
                                                        InterruptedException {

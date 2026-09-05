@@ -158,11 +158,12 @@ For detailed configuration options and production tuning, see [Configuration Gui
 
 #### Docker Bridge Network Example
 
-When running PD in Docker with bridge networking (e.g., `docker/docker-compose-3pd-3store-3server.yml`), configuration is injected via environment variables instead of editing `application.yml` directly. Container hostnames are used instead of IP addresses:
+When running PD in Docker with bridge networking (e.g., `docker/docker-compose-3pd-3store-3server.yml`), configuration is injected via environment variables instead of editing `application.yml` directly. Container hostnames are used instead of IP addresses. `HG_PD_AUTH_SECRET_KEY` is required by the image and must be the same value on every PD node and every PD REST client; generate it once (`openssl rand -hex 24`) and keep it:
 
 **pd0** container:
 ```bash
 HG_PD_GRPC_HOST=pd0
+HG_PD_AUTH_SECRET_KEY=<the same secret on every node>
 HG_PD_RAFT_ADDRESS=pd0:8610
 HG_PD_RAFT_PEERS_LIST=pd0:8610,pd1:8610,pd2:8610
 HG_PD_INITIAL_STORE_LIST=store0:8500,store1:8500,store2:8500
@@ -171,6 +172,7 @@ HG_PD_INITIAL_STORE_LIST=store0:8500,store1:8500,store2:8500
 **pd1** container:
 ```bash
 HG_PD_GRPC_HOST=pd1
+HG_PD_AUTH_SECRET_KEY=<the same secret on every node>
 HG_PD_RAFT_ADDRESS=pd1:8610
 HG_PD_RAFT_PEERS_LIST=pd0:8610,pd1:8610,pd2:8610
 HG_PD_INITIAL_STORE_LIST=store0:8500,store1:8500,store2:8500
@@ -179,6 +181,7 @@ HG_PD_INITIAL_STORE_LIST=store0:8500,store1:8500,store2:8500
 **pd2** container:
 ```bash
 HG_PD_GRPC_HOST=pd2
+HG_PD_AUTH_SECRET_KEY=<the same secret on every node>
 HG_PD_RAFT_ADDRESS=pd2:8610
 HG_PD_RAFT_PEERS_LIST=pd0:8610,pd1:8610,pd2:8610
 HG_PD_INITIAL_STORE_LIST=store0:8500,store1:8500,store2:8500

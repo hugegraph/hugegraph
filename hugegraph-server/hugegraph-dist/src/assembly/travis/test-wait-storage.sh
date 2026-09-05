@@ -72,7 +72,7 @@ assert_contract() {
 }
 
 run_case() {
-    local scenario="$1" peers="$2" abort_after="$3"
+    local scenario="$1" peers="$2" abort_after="$3" password="${4:-test-password}"
     : > "${CALL_LOG}"
     : > "${ARGS_LOG}"
     : > "${CONFIG_LOG}"
@@ -91,7 +91,7 @@ run_case() {
         MOCK_TIMEOUT_LOG="${TIMEOUT_LOG}" \
         HG_SERVER_PD_REST_ENDPOINT="${peers}" \
         PD_AUTH_USER="test-user" \
-        PD_AUTH_PASSWORD="test-password" \
+        PD_AUTH_PASSWORD="${password}" \
         'hugegraph.backend=hstore' \
         'hugegraph.pd.peers=config-only:8686' \
         "${DIST_ROOT}/bin/wait-storage.sh" 2>&1)
@@ -225,4 +225,12 @@ assert_output "ERROR: Timeout waiting for storage backend"
 assert_contract
 echo "  PASS all-unready timeout"
 
-echo "5 passed, 0 failed"
+# A secret with CR/LF must reach curl as one escaped config line, not two.
+run_case "pd1-up" "pd0:8620,pd1:8620" 6 "$(printf 'a\r\nb\\c"d')"
+assert_equal "line-break secret rc" "0" "${CASE_RC}"
+if grep -Fv -- 'user = "test-user:a\r\nb\\c\"d"' "${CONFIG_LOG}" | grep -q .; then
+    fail "line break or quote in the secret was not escaped for curl -K"
+fi
+echo "  PASS line break in secret"
+
+echo "6 passed, 0 failed"

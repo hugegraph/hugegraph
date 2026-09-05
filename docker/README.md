@@ -69,8 +69,8 @@ set -a; . ./.env; set +a
 ADMIN_PASSWORD='the-same-password-used-in-.env'
 ```
 
-Compose reads `.env` on its own; the line above is so that the `curl` and
-`sed` commands on this page can use `${HG_PD_AUTH_SECRET_KEY}` too.
+Compose reads `.env` on its own; the line above is so that the `curl` command and
+the Hubble helper on this page can use `${HG_PD_AUTH_SECRET_KEY}` too.
 
 The PD REST API (port 8620, HStore topologies only) has its own credential:
 requests other than health probes need HTTP Basic auth with an internal
@@ -98,18 +98,18 @@ fails:
   into it by hand. Until you do, Hubble's PD-backed views get 401 from PD;
   everything else in Hubble works.
 
-Write it in, after loading `.env` as above. Use `hstore.properties` for the
-Minimal HStore topology and `hstore-ha.properties` for HA:
+Write it in with the helper, after loading `.env` as above. Use
+`hstore.properties` for the Minimal HStore topology and `hstore-ha.properties`
+for HA:
 
 ```bash
-if [ -n "${HG_PD_AUTH_SECRET_KEY:-}" ]; then
-  sed -i.bak \
-    "s#^operations.pd.password=.*#operations.pd.password=${HG_PD_AUTH_SECRET_KEY}#" \
-    conf/hubble/hstore.properties
-else
-  echo 'HG_PD_AUTH_SECRET_KEY is empty; load .env first' >&2
-fi
+./set-hubble-pd-password.sh conf/hubble/hstore.properties
 ```
+
+The helper refuses an empty value, writes the secret without passing it
+through a `sed` replacement (where `&`, `#` and backslashes are special), and
+doubles backslashes for the `.properties` format. The generated hex secret
+needs none of that, but a hand-chosen one might.
 
 ### Standalone
 

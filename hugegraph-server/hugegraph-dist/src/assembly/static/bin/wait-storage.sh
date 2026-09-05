@@ -49,11 +49,19 @@ PD_AUTH_PASSWORD="${PD_AUTH_PASSWORD:-}"
 if [ -z "${PD_AUTH_PASSWORD}" ]; then
   log "WARN: PD_AUTH_PASSWORD is empty; PD will answer 401 unless it runs without auth"
 fi
-# curl -K takes a quoted string, so escape backslash first and then quote
+# curl -K reads one option per line and takes the value as a quoted string
+# whose only escapes are \\ \" \t \n \r \v. Backslash first, then the rest;
+# an unescaped line break would end the option early and send a truncated
+# credential (curl then warns that the remainder is an unknown option).
 escape_curlrc() {
   local v=$1
   v=${v//\\/\\\\}
-  printf '%s' "${v//\"/\\\"}"
+  v=${v//\"/\\\"}
+  v=${v//$'\n'/\\n}
+  v=${v//$'\r'/\\r}
+  v=${v//$'\t'/\\t}
+  v=${v//$'\v'/\\v}
+  printf '%s' "$v"
 }
 PD_AUTH_CURL_USER=$(escape_curlrc "${PD_AUTH_USER}")
 PD_AUTH_CURL_PASSWORD=$(escape_curlrc "${PD_AUTH_PASSWORD}")

@@ -245,6 +245,29 @@ cleanup() {
     [[ -z "${RENDER_DIR}" ]] || rm -rf "${RENDER_DIR}"
 }
 
+# set-hubble-pd-password.sh must survive the characters a sed replacement
+# would mangle, keep the rest of the file, and keep the file's mode.
+hubble_password_helper_check() {
+    local tmp
+    tmp=$(mktemp "${TMPDIR:-/tmp}/hubble-props.XXXXXX")
+    cp "${DOCKER_DIR}/conf/hubble/hstore.properties" "${tmp}"
+    chmod 644 "${tmp}"
+    "${DOCKER_DIR}/set-hubble-pd-password.sh" "${tmp}" 'a&b#c\d' >/dev/null
+    local line mode
+    line=$(grep '^operations\.pd\.password=' "${tmp}")
+    mode=$(stat -c '%a' "${tmp}" 2>/dev/null || stat -f '%Lp' "${tmp}")
+    rm -f "${tmp}"
+    [[ "${line}" == 'operations.pd.password=a&b#c\\d' ]] || {
+        echo "set-hubble-pd-password.sh mangled the secret: ${line}" >&2; exit 1; }
+    [[ "${mode}" == "644" ]] || {
+        echo "set-hubble-pd-password.sh changed the file mode to ${mode}" >&2; exit 1; }
+    if ! "${DOCKER_DIR}/set-hubble-pd-password.sh" "${DOCKER_DIR}/conf/hubble/hstore.properties" '' 2>/dev/null; then
+        :
+    else
+        echo "set-hubble-pd-password.sh accepted an empty secret" >&2; exit 1
+    fi
+}
+
 run_render() {
     RENDER_DIR="$(mktemp -d)"
     trap cleanup EXIT INT TERM
@@ -265,6 +288,7 @@ run_render() {
     assert_ha "${RENDER_DIR}/ha.json"
     assert_dev_override "${RENDER_DIR}/dev.json" \
                         "${RENDER_DIR}/override.json"
+    hubble_password_helper_check
     echo "Compose render contracts passed"
 }
 

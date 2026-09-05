@@ -32,6 +32,10 @@ public class AuthenticationConfigurer implements WebMvcConfigurer {
     public void addInterceptors(InterceptorRegistry registry) {
         registry.addInterceptor(restAuthentication)
                 .addPathPatterns("/**")
-                .excludePathPatterns("/actuator/*", "/v1/health", "/v1/prom/targets/*");
+                // /actuator/** rather than /actuator/*: Spring's matcher does not
+                // treat /actuator/metrics/{name} or /actuator/health/{group} as one
+                // segment, and both are legitimate probe paths. What is reachable
+                // there is bounded by management.endpoints.web.exposure.include.
+                .excludePathPatterns("/actuator/**", "/v1/health", "/v1/prom/targets/*");
     }
 }
