@@ -89,10 +89,10 @@ public final class PDMetrics {
         Gauge.builder(PREFIX + ".raft.leader", () -> raft.isLeader() ? 1 : 0)
              .description("1 if this PD is the raft leader, 0 otherwise")
              .register(registry);
-        Gauge.builder(PREFIX + ".raft.has_leader", () -> raft.hasLeader() ? 1 : 0)
+        Gauge.builder(PREFIX + ".raft.has.leader", () -> raft.hasLeader() ? 1 : 0)
              .description("1 if this PD sees a raft leader, i.e. is part of a quorum, 0 otherwise")
              .register(registry);
-        Gauge.builder(PREFIX + ".raft.alive_peers", () -> {
+        Gauge.builder(PREFIX + ".raft.alive.peers", () -> {
                  int alive = raft.getAlivePeerCount();
                  return alive < 0 ? Double.NaN : alive;
              })

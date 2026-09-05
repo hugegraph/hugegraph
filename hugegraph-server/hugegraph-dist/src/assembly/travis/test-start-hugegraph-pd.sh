@@ -111,13 +111,17 @@ wait_for_pd() {
     return 1
 }
 
-# Wait until PD readiness answers, or timeout. This is the gate the docs recommend:
+# Wait until PD readiness answers, or timeout. Same gate the docs recommend:
 # -f rejects the 503, the body match rejects a 200 that is an auth envelope rather
 # than a readiness answer. No credentials, and a single-node group elects itself.
+# Captured rather than piped: under pipefail a grep -q SIGPIPE could misread a
+# ready PD, and wait_for_pd() above uses the same shape.
 wait_for_pd_ready() {
     local elapsed=0
     while (( elapsed < STARTUP_WAIT )); do
-        curl -fsS "$PD_URL/v1/ready" 2>/dev/null | grep -q '"ready":true' && return 0
+        local body
+        body=$(curl -fsS "$PD_URL/v1/ready" 2>/dev/null || true)
+        grep -q '"ready":true' <<<"$body" && return 0
         sleep 2
         elapsed=$((elapsed + 2))
     done

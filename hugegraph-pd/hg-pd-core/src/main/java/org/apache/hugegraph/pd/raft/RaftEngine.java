@@ -229,9 +229,12 @@ public class RaftEngine {
     }
 
     /**
-     * Take a consistent view of the local raft state. Every field is derived from one
-     * {@link Node} reference and a single {@code getLeaderId()} read, so a step-down while
-     * the view is being built cannot report a ready node that knows no leader.
+     * Take a consistent view of the local raft state: one {@link Node} reference, one
+     * {@code getNodeState()} read and one {@code getLeaderId()} read, with the leader flag
+     * derived from that same state, so a step-down while the view is being built cannot
+     * report a ready node that knows no leader or a leader that is not in leader state.
+     * The derivation matches jraft, whose {@code isLeader(true)} is exactly
+     * {@code state == STATE_LEADER}.
      * <p>
      * A node is ready when it has been started, is in an active state, which jraft's
      * {@code State.isActive()} takes to mean leader, transferring, candidate or follower,
@@ -247,7 +250,7 @@ public class RaftEngine {
         boolean active = state != null && state.isActive();
         return new RaftStatus(active && hasLeader(node),
                               state == null ? State.STATE_UNINITIALIZED.name() : state.name(),
-                              node.isLeader(true));
+                              State.STATE_LEADER == state);
     }
 
     /**
