@@ -19,10 +19,12 @@ suite: Image reference and digest pinning
 tests:
   - it: renders repository and tag when no digest is set
     template: pd-statefulset.yaml
+    set:
+      pd.image.tag: pinned-for-test
     asserts:
       - equal:
           path: spec.template.spec.containers[0].image
-          value: hugegraph/pd:helm-dev
+          value: hugegraph/pd:pinned-for-test
 
   - it: pins by digest when one is supplied, ignoring the tag
     template: pd-statefulset.yaml

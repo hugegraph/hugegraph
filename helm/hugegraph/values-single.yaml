@@ -15,17 +15,11 @@
 # limitations under the License.
 #
 
-# Convenience preset: single-node development.
-# PD, Store, and Server pull the published Docker Hub images by default.
-#
+# Convenience preset: single-node / local kind-minikube development.
 # Usage: helm install hg ./helm/hugegraph -f values-single.yaml
 
 pd:
   replicas: 1
-  image:
-    repository: hugegraph/pd
-    tag: helm-dev
-    pullPolicy: IfNotPresent
   antiAffinity: disabled
   pdb:
     enabled: false
@@ -34,10 +28,6 @@ pd:
 
 store:
   replicas: 1
-  image:
-    repository: hugegraph/store
-    tag: helm-dev
-    pullPolicy: IfNotPresent
   antiAffinity: disabled
   pdb:
     enabled: false
@@ -46,10 +36,6 @@ store:
 
 server:
   replicas: 1
-  image:
-    repository: hugegraph/server
-    tag: helm-dev
-    pullPolicy: IfNotPresent
   hpa:
     enabled: false
   auth:
@@ -58,7 +44,3 @@ server:
       autoGenerate: true
     token:
       autoGenerate: true
-
-hubble:
-  enabled: true
-  mode: pd

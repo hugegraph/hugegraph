@@ -66,6 +66,7 @@ tests:
   - it: rejects Hubble without Server auth
     set:
       server.auth.enabled: false
+      hubble.enabled: true
     asserts:
       - failedTemplate:
           errorPattern: "hubble.enabled requires server.auth"
@@ -73,6 +74,7 @@ tests:
   - it: rejects a plain-HTTP Hubble Ingress
     set:
       hubble.ingress.enabled: true
+      hubble.enabled: true
     asserts:
       - failedTemplate:
           errorPattern: "publishes the plain-HTTP, unauthenticated Hubble UI"
@@ -80,6 +82,7 @@ tests:
   - it: rejects an empty Hubble image tag
     set:
       hubble.image.tag: ""
+      hubble.enabled: true
     asserts:
       - failedTemplate:
           errorPattern: "hubble.image.tag must not be empty"

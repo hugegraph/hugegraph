@@ -21,10 +21,6 @@
 
 pd:
   replicas: 3
-  image:
-    repository: hugegraph/pd
-    tag: helm-dev
-    pullPolicy: IfNotPresent
   javaOpts: >-
     -Xms256m -Xmx512m
     -XX:MaxMetaspaceSize=256m
@@ -47,10 +43,6 @@ pd:
 
 store:
   replicas: 3
-  image:
-    repository: hugegraph/store
-    tag: helm-dev
-    pullPolicy: IfNotPresent
   javaOpts: >-
     -Xms512m -Xmx1024m
     -XX:MaxMetaspaceSize=256m
@@ -80,10 +72,6 @@ store:
 
 server:
   replicas: 3
-  image:
-    repository: hugegraph/server
-    tag: helm-dev
-    pullPolicy: IfNotPresent
   javaOpts: >-
     -Xms512m -Xmx1024m
     -XX:MaxMetaspaceSize=256m
@@ -98,7 +86,8 @@ server:
       memory: 2Gi
   hpa:
     enabled: false
-
+  # Auth is on by default (chart-managed admin Secret). Pin it here so a
+  # production overlay cannot accidentally drop authentication.
   auth:
     enabled: true
     admin:
