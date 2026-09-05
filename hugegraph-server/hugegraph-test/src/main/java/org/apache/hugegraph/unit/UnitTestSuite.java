@@ -17,6 +17,8 @@
 
 package org.apache.hugegraph.unit;
 
+import org.apache.hugegraph.backend.tx.GraphIndexTransactionTest;
+import org.apache.hugegraph.backend.tx.GraphTransactionTest;
 import org.apache.hugegraph.api.auth.GraphSpaceAuthPayloadTest;
 import org.apache.hugegraph.api.auth.GraphSpaceGroupAPITest;
 import org.apache.hugegraph.auth.StandardAuthManagerV2Test;
@@ -27,6 +29,7 @@ import org.apache.hugegraph.meta.MetaManagerSchemaCacheClearEventTest;
 import org.apache.hugegraph.meta.managers.AuthMetaManagerTest;
 import org.apache.hugegraph.traversal.optimize.TraversalUtilOptimizeTest;
 import org.apache.hugegraph.unit.api.auth.LoginAPITest;
+import org.apache.hugegraph.unit.api.filter.AccessLogFilterTest;
 import org.apache.hugegraph.unit.api.filter.LoadDetectFilterTest;
 import org.apache.hugegraph.unit.api.filter.PathFilterTest;
 import org.apache.hugegraph.unit.api.gremlin.GremlinQueryAPITest;
@@ -49,8 +52,11 @@ import org.apache.hugegraph.unit.core.DirectionsTest;
 import org.apache.hugegraph.unit.core.ExceptionTest;
 import org.apache.hugegraph.unit.core.GraphManagerAdminInitTest;
 import org.apache.hugegraph.unit.core.GraphManagerConfigTest;
+import org.apache.hugegraph.unit.core.HstoreSessionsTest;
+import org.apache.hugegraph.unit.core.IdHolderTest;
 import org.apache.hugegraph.unit.core.LocksTableTest;
 import org.apache.hugegraph.unit.core.PageStateTest;
+import org.apache.hugegraph.unit.core.QueryResultsTest;
 import org.apache.hugegraph.unit.core.QueryTest;
 import org.apache.hugegraph.unit.core.StandardHugeGraphClearBackendTest;
 import org.apache.hugegraph.unit.core.RangeTest;
@@ -99,6 +105,7 @@ import org.junit.runners.Suite;
 @RunWith(Suite.class)
 @Suite.SuiteClasses({
         /* api filter */
+        AccessLogFilterTest.class,
         LoadDetectFilterTest.class,
         LoginAPITest.class,
         PathFilterTest.class,
@@ -145,16 +152,21 @@ import org.junit.runners.Suite;
         ConditionTest.class,
         StandardHugeGraphClearBackendTest.class,
         ConditionQueryFlattenTest.class,
+        GraphIndexTransactionTest.class,
+        GraphTransactionTest.class,
         QueryTest.class,
+        QueryResultsTest.class,
         RangeTest.class,
         SecurityManagerTest.class,
         RolePermissionTest.class,
         ExceptionTest.class,
         GraphManagerAdminInitTest.class,
         GraphManagerConfigTest.class,
+        HstoreSessionsTest.class,
         BackendStoreInfoTest.class,
         TraversalUtilTest.class,
         TraversalUtilOptimizeTest.class,
+        IdHolderTest.class,
         PageStateTest.class,
         SystemSchemaStoreTest.class,
         ServerInfoManagerTest.class,
