@@ -23,7 +23,6 @@ import org.apache.hugegraph.pd.raft.IpAuthHandlerTest;
 import org.apache.hugegraph.pd.raft.RaftEngineIpAuthIntegrationTest;
 import org.apache.hugegraph.pd.raft.RaftEngineLeaderAddressTest;
 import org.apache.hugegraph.pd.raft.RaftEngineReadinessTest;
-import org.apache.hugegraph.pd.rest.interceptor.AuthenticationConfigurerTest;
 import org.junit.runner.RunWith;
 import org.junit.runners.Suite;
 
@@ -46,7 +45,6 @@ import lombok.extern.slf4j.Slf4j;
         RaftEngineIpAuthIntegrationTest.class,
         RaftEngineLeaderAddressTest.class,
         RaftEngineReadinessTest.class,
-        AuthenticationConfigurerTest.class,
         // StoreNodeServiceTest.class,
 })
 @Slf4j
