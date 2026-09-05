@@ -30,7 +30,8 @@ ACTIVE_FILES=()
 RENDER_DIR=""
 
 compose_auth() {
-    env HUGEGRAPH_VERSION="${VERSION}" \
+    env -u HG_SERVER_STARTUP_TIMEOUT_S \
+        HUGEGRAPH_VERSION="${VERSION}" \
         HUBBLE_IMAGE="${RENDER_HUBBLE_IMAGE}" \
         HUGEGRAPH_ADMIN_PASSWORD="${PASSWORD}" \
         HUGEGRAPH_AUTH_TOKEN_SECRET="${SECRET}" \
@@ -41,6 +42,33 @@ render() {
     local output="$1"
     shift
     compose_auth "$@" config --format json > "${output}"
+}
+
+# Same render with an explicit host value, to prove the variable reaches the
+# Server environment rather than only defaulting there.
+render_with_timeout() {
+    local output="$1" timeout="$2"
+    shift 2
+    env HG_SERVER_STARTUP_TIMEOUT_S="${timeout}" \
+        HUGEGRAPH_VERSION="${VERSION}" \
+        HUBBLE_IMAGE="${RENDER_HUBBLE_IMAGE}" \
+        HUGEGRAPH_ADMIN_PASSWORD="${PASSWORD}" \
+        HUGEGRAPH_AUTH_TOKEN_SECRET="${SECRET}" \
+        docker compose "$@" config --format json > "${output}"
+}
+
+assert_startup_timeout() {
+    local rendered="$1" expected="$2" service
+    shift 2
+    for service in "$@"; do
+        jq -e --arg s "${service}" --arg v "${expected}" \
+           '.services[$s].environment.HG_SERVER_STARTUP_TIMEOUT_S == $v' \
+           "${rendered}" >/dev/null || {
+            echo "expected ${service} HG_SERVER_STARTUP_TIMEOUT_S=${expected}" \
+                 "in ${rendered}" >&2
+            return 1
+        }
+    done
 }
 
 assert_file_property() {
@@ -263,6 +291,23 @@ run_render() {
     assert_ha "${RENDER_DIR}/ha.json"
     assert_dev_override "${RENDER_DIR}/dev.json" \
                         "${RENDER_DIR}/override.json"
+
+    # An absent host value renders the entrypoint default in every topology,
+    # and a host value overrides it, so the container budget can be aligned
+    # with the healthcheck start period without editing the Compose files.
+    assert_startup_timeout "${RENDER_DIR}/standalone.json" 120 server
+    assert_startup_timeout "${RENDER_DIR}/hstore.json" 120 server
+    assert_startup_timeout "${RENDER_DIR}/ha.json" 120 server0 server1 server2
+    render_with_timeout "${RENDER_DIR}/standalone-timeout.json" 450 \
+                        -f "${DOCKER_DIR}/docker-compose.yml"
+    render_with_timeout "${RENDER_DIR}/hstore-timeout.json" 450 \
+                        -f "${DOCKER_DIR}/docker-compose-hstore.yml"
+    render_with_timeout "${RENDER_DIR}/ha-timeout.json" 450 \
+                        -f "${DOCKER_DIR}/docker-compose-3pd-3store-3server.yml"
+    assert_startup_timeout "${RENDER_DIR}/standalone-timeout.json" 450 server
+    assert_startup_timeout "${RENDER_DIR}/hstore-timeout.json" 450 server
+    assert_startup_timeout "${RENDER_DIR}/ha-timeout.json" 450 \
+                           server0 server1 server2
     echo "Compose render contracts passed"
 }
 

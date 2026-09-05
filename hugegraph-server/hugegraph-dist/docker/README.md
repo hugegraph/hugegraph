@@ -156,6 +156,11 @@ to change it:
 docker run -itd --name=graph -p 8080:8080 -e HG_SERVER_STARTUP_TIMEOUT_S=450 hugegraph/hugegraph:1.7.0
 ```
 
+The Compose topologies under `docker/` pass the variable through to every
+Server with an unset-only default, so `HG_SERVER_STARTUP_TIMEOUT_S=450 docker
+compose up -d` raises the budget without editing a Compose file, while leaving
+it unset renders the same 120.
+
 Raise it on slow or contended hosts, and wherever an orchestrator already owns
 the startup budget through a probe of its own: a startup probe cannot extend a
 container that has already ended the JVM it was waiting for. Anything outside
