@@ -147,6 +147,18 @@ for arg in "$@"; do
     fi
 done
 
+# Honour -w like curl: append the write-out with %{http_code} substituted
+fmt=""
+prev=""
+for arg in "$@"; do
+    [[ "${prev}" == "-w" ]] && fmt="${arg}"
+    prev="${arg}"
+done
+respond() {
+    printf '%s\n' "$1"
+    [[ -z "${fmt}" ]] || printf '%s' "${fmt//\\n/$'\n'}" | sed "s/%{http_code}/$2/"
+}
+
 if [[ "${url}" == */v1/health ]]; then
     printf '{}\n'
     exit 0
@@ -156,9 +168,11 @@ count=$(cat "${MOCK_COUNT_FILE}" 2>/dev/null || true)
 count=$((${count:-0} + 1))
 printf '%s\n' "${count}" > "${MOCK_COUNT_FILE}"
 
-if [[ "${MOCK_SCENARIO}" == "pd1-up" && \
+if [[ "${MOCK_SCENARIO}" == "auth-401" ]]; then
+    respond '{"status":-1,"error":"Unauthorized"}' 401
+elif [[ "${MOCK_SCENARIO}" == "pd1-up" && \
       "${url}" == "http://pd1:8620/v1/stores" ]]; then
-    printf '{"stores":[{"state":"Up"}]}\n'
+    respond '{"stores":[{"state":"Up"}]}' 200
 elif [[ "${MOCK_SCENARIO}" == "hanging-first" && \
         "${url}" == "http://pd0:8620/v1/stores" ]]; then
     if [[ " $* " == *" --connect-timeout 2 "* && \
@@ -170,15 +184,15 @@ elif [[ "${MOCK_SCENARIO}" == "hanging-first" && \
     exit 28
 elif [[ "${MOCK_SCENARIO}" == "hanging-first" && \
         "${url}" == "http://pd1:8620/v1/stores" ]]; then
-    printf '{"stores":[{"state":"Up"}]}\n'
+    respond '{"stores":[{"state":"Up"}]}' 200
 elif [[ "${MOCK_SCENARIO}" == "retry" && "${count}" -eq 3 && \
         "${url}" == "http://pd0:8620/v1/stores" ]]; then
     exit 7
 elif [[ "${MOCK_SCENARIO}" == "retry" && "${count}" -eq 4 && \
         "${url}" == "http://pd1:8620/v1/stores" ]]; then
-    printf '{"stores":[{"state":"Up"}]}\n'
+    respond '{"stores":[{"state":"Up"}]}' 200
 else
-    printf '{"stores":[]}\n'
+    respond '{"stores":[]}' 200
 fi
 EOF
 
@@ -233,4 +247,12 @@ if grep -Fv -- 'user = "test-user:a\r\nb\\c\"d"' "${CONFIG_LOG}" | grep -q .; th
 fi
 echo "  PASS line break in secret"
 
-echo "6 passed, 0 failed"
+# A 401 is a wrong secret, not a storage problem: abort at once, name the cause.
+run_case "auth-401" "pd0:8620,pd1:8620" 9
+[[ "${CASE_RC}" -ne 0 ]] || fail "a 401 from PD must abort"
+assert_output "refused the credential (401)"
+assert_equal "no retry after 401" "${PD0}" "$(cat "${CALL_LOG}")"
+[[ "${CASE_OUTPUT}" != *"Timeout waiting"* ]] || fail "401 was reported as a timeout"
+echo "  PASS 401 aborts without retry"
+
+echo "7 passed, 0 failed"

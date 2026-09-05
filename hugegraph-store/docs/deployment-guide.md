@@ -682,6 +682,9 @@ cd docker
 # it. Generate it once and keep it, every PD node and PD client needs the
 # same value (docker/README.md has the full .env recipe).
 export HG_PD_AUTH_SECRET_KEY="$(openssl rand -hex 24)"
+# Hubble reads the secret from a generated, untracked properties file that the
+# Compose file mounts; create it before `up` or Hubble starts unconfigured.
+./set-hubble-pd-password.sh hstore-ha
 HUGEGRAPH_VERSION=1.7.0 docker compose -f docker-compose-3pd-3store-3server.yml up -d
 ```
 

@@ -15,29 +15,42 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-# Write PD's REST secret into a Hubble properties file as operations.pd.password.
+# Generate the Hubble properties file a Compose topology mounts, with PD's
+# REST secret written in as operations.pd.password.
 #
-#   usage: set-hubble-pd-password.sh <hubble.properties> [secret]
+#   usage: set-hubble-pd-password.sh <hstore|hstore-ha> [secret]
 #
-# The secret defaults to $HG_PD_AUTH_SECRET_KEY. The value never goes through a
-# sed replacement, where & # and backslash are special, and backslashes are
-# doubled for the .properties format. The file keeps its mode, which matters
-# because Compose mounts it read-only into the Hubble container.
+# Reads conf/hubble/<name>.properties.example (tracked) and writes
+# conf/hubble/<name>.local.properties (ignored by git), so the secret never
+# lands in a tracked file. The secret defaults to $HG_PD_AUTH_SECRET_KEY. The
+# value never goes through a sed replacement, where & # and backslash are
+# special, and backslashes are doubled for the .properties format. Run this
+# before `docker compose up`: if the target is missing Docker creates an empty
+# directory at the bind path and Hubble starts with no configuration.
 set -euo pipefail
 
-file=${1:?usage: $0 <hubble.properties> [secret]}
+name=${1:?usage: $0 <hstore|hstore-ha> [secret]}
 secret=${2:-${HG_PD_AUTH_SECRET_KEY:-}}
+dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/conf/hubble"
+example="${dir}/${name}.properties.example"
+out="${dir}/${name}.local.properties"
 
-[[ -f "$file" ]] || { echo "no such file: $file" >&2; exit 1; }
+[[ -f "$example" ]] || { echo "no such topology: ${name} (expected ${example})" >&2; exit 1; }
 [[ -n "$secret" ]] || { echo "secret is empty; load .env first (set -a; . ./.env; set +a)" >&2; exit 1; }
 case "$secret" in
     *$'\n'*|*$'\r'*) echo "secret contains a line break, which a .properties value cannot hold" >&2; exit 1 ;;
 esac
 
 escaped=${secret//\\/\\\\}
-tmp=$(mktemp "${file}.XXXXXX")
+tmp=$(mktemp "${out}.XXXXXX")
 trap 'rm -f "$tmp"' EXIT
-grep -v '^operations\.pd\.password=' "$file" > "$tmp" || true
-printf 'operations.pd.password=%s\n' "$escaped" >> "$tmp"
-# cat, not mv: keep the file's inode and mode
-cat "$tmp" > "$file"
+{
+    printf '# Generated from %s by set-hubble-pd-password.sh; not tracked by git.\n' "$(basename "$example")"
+    grep -v '^operations\.pd\.password=' "$example" || true
+    printf 'operations.pd.password=%s\n' "$escaped"
+} > "$tmp"
+# Hubble runs unprivileged and the mount is read-only, so the file must be world-readable
+chmod 644 "$tmp"
+mv "$tmp" "$out"
+trap - EXIT
+echo "wrote ${out}"

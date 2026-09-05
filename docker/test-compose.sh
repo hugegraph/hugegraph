@@ -138,7 +138,7 @@ assert_hstore() {
     assert_common "${rendered}" \
                   '["hubble","pd","server","store"]' \
                   '["hubble-data","pd-data","store-data"]'
-    assert_hubble "${rendered}" "hstore.properties" server
+    assert_hubble "${rendered}" "hstore.local.properties" server
     jq -e '
         .services.pd.image == "hugegraph/pd:ci-version" and
         .services.store.image == "hugegraph/store:ci-version" and
@@ -160,9 +160,9 @@ assert_hstore() {
             .source == "store-data" and
             .target == "/hugegraph-store/storage")
     ' "${rendered}" >/dev/null
-    assert_file_property "${DOCKER_DIR}/conf/hubble/hstore.properties" \
+    assert_file_property "${DOCKER_DIR}/conf/hubble/hstore.local.properties" \
                          "pd.peers=pd:8686"
-    assert_file_property "${DOCKER_DIR}/conf/hubble/hstore.properties" \
+    assert_file_property "${DOCKER_DIR}/conf/hubble/hstore.local.properties" \
                          "operations.store.allowed_targets=[http://store:8520]"
 }
 
@@ -171,7 +171,7 @@ assert_ha() {
     assert_common "${rendered}" \
         '["hubble","pd0","pd1","pd2","server0","server1","server2","store0","store1","store2"]' \
         '["hg-pd0-data","hg-pd1-data","hg-pd2-data","hg-store0-data","hg-store1-data","hg-store2-data","hubble-data"]'
-    assert_hubble "${rendered}" "hstore-ha.properties" \
+    assert_hubble "${rendered}" "hstore-ha.local.properties" \
                   server0 server1 server2
     jq -e '
         all([.services.pd0, .services.pd1, .services.pd2][];
@@ -205,9 +205,9 @@ assert_ha() {
             .healthcheck.retries == 30 and
             .healthcheck.start_period == "1m0s")
     ' "${rendered}" >/dev/null
-    assert_file_property "${DOCKER_DIR}/conf/hubble/hstore-ha.properties" \
+    assert_file_property "${DOCKER_DIR}/conf/hubble/hstore-ha.local.properties" \
                          "pd.peers=pd0:8686,pd1:8686,pd2:8686"
-    assert_file_property "${DOCKER_DIR}/conf/hubble/hstore-ha.properties" \
+    assert_file_property "${DOCKER_DIR}/conf/hubble/hstore-ha.local.properties" \
         "operations.store.allowed_targets=[http://store0:8520,http://store1:8520,http://store2:8520]"
 }
 
@@ -242,35 +242,66 @@ cleanup() {
     if [[ -n "${ACTIVE_PROJECT}" ]]; then
         compose_active down -v --remove-orphans >/dev/null 2>&1 || true
     fi
+    restore_hubble_configs
     [[ -z "${RENDER_DIR}" ]] || rm -rf "${RENDER_DIR}"
 }
 
+# The HStore topologies mount conf/hubble/<name>.local.properties, which is
+# generated and untracked. Generate both with the CI secret before any render
+# or `up`; a missing file would make Docker create an empty directory at the
+# bind path. A developer's own local files are put back afterwards.
+HUBBLE_BACKUP_DIR=""
+prepare_hubble_configs() {
+    local name
+    HUBBLE_BACKUP_DIR="$(mktemp -d)"
+    for name in hstore hstore-ha; do
+        local f="${DOCKER_DIR}/conf/hubble/${name}.local.properties"
+        [[ ! -f "${f}" ]] || cp -p "${f}" "${HUBBLE_BACKUP_DIR}/${name}.local.properties"
+        "${DOCKER_DIR}/set-hubble-pd-password.sh" "${name}" "${PD_SECRET}" >/dev/null
+    done
+}
+restore_hubble_configs() {
+    [[ -n "${HUBBLE_BACKUP_DIR}" ]] || return 0
+    local name
+    for name in hstore hstore-ha; do
+        local f="${DOCKER_DIR}/conf/hubble/${name}.local.properties"
+        if [[ -f "${HUBBLE_BACKUP_DIR}/${name}.local.properties" ]]; then
+            cp -p "${HUBBLE_BACKUP_DIR}/${name}.local.properties" "${f}"
+        else
+            rm -f "${f}"
+        fi
+    done
+    rm -rf "${HUBBLE_BACKUP_DIR}"
+    HUBBLE_BACKUP_DIR=""
+}
+
 # set-hubble-pd-password.sh must survive the characters a sed replacement
-# would mangle, keep the rest of the file, and keep the file's mode.
+# would mangle, keep the rest of the example, produce a world-readable file
+# for the read-only mount, and refuse an empty secret or unknown topology.
 hubble_password_helper_check() {
-    local tmp
-    tmp=$(mktemp "${TMPDIR:-/tmp}/hubble-props.XXXXXX")
-    cp "${DOCKER_DIR}/conf/hubble/hstore.properties" "${tmp}"
-    chmod 644 "${tmp}"
-    "${DOCKER_DIR}/set-hubble-pd-password.sh" "${tmp}" 'a&b#c\d' >/dev/null
+    local f="${DOCKER_DIR}/conf/hubble/hstore.local.properties"
+    "${DOCKER_DIR}/set-hubble-pd-password.sh" hstore 'a&b#c\d' >/dev/null
     local line mode
-    line=$(grep '^operations\.pd\.password=' "${tmp}")
-    mode=$(stat -c '%a' "${tmp}" 2>/dev/null || stat -f '%Lp' "${tmp}")
-    rm -f "${tmp}"
+    line=$(grep '^operations\.pd\.password=' "${f}")
+    mode=$(stat -c '%a' "${f}" 2>/dev/null || stat -f '%Lp' "${f}")
     [[ "${line}" == 'operations.pd.password=a&b#c\\d' ]] || {
         echo "set-hubble-pd-password.sh mangled the secret: ${line}" >&2; exit 1; }
     [[ "${mode}" == "644" ]] || {
-        echo "set-hubble-pd-password.sh changed the file mode to ${mode}" >&2; exit 1; }
-    if ! "${DOCKER_DIR}/set-hubble-pd-password.sh" "${DOCKER_DIR}/conf/hubble/hstore.properties" '' 2>/dev/null; then
-        :
-    else
-        echo "set-hubble-pd-password.sh accepted an empty secret" >&2; exit 1
-    fi
+        echo "set-hubble-pd-password.sh wrote mode ${mode}, Hubble could not read it" >&2; exit 1; }
+    grep -q '^pd.server=pd:8620$' "${f}" || {
+        echo "set-hubble-pd-password.sh dropped the example's other properties" >&2; exit 1; }
+    ! "${DOCKER_DIR}/set-hubble-pd-password.sh" hstore '' 2>/dev/null || {
+        echo "set-hubble-pd-password.sh accepted an empty secret" >&2; exit 1; }
+    ! "${DOCKER_DIR}/set-hubble-pd-password.sh" nope 'x' 2>/dev/null || {
+        echo "set-hubble-pd-password.sh accepted an unknown topology" >&2; exit 1; }
+    # put the CI value back for the render/smoke that follows
+    "${DOCKER_DIR}/set-hubble-pd-password.sh" hstore "${PD_SECRET}" >/dev/null
 }
 
 run_render() {
     RENDER_DIR="$(mktemp -d)"
     trap cleanup EXIT INT TERM
+    prepare_hubble_configs
     render "${RENDER_DIR}/standalone.json" \
            -f "${DOCKER_DIR}/docker-compose.yml"
     render "${RENDER_DIR}/hstore.json" \
@@ -400,6 +431,7 @@ smoke() {
 
 run_smoke() {
     trap cleanup EXIT INT TERM
+    prepare_hubble_configs
     smoke standalone false true "${DOCKER_DIR}/docker-compose.yml"
     smoke hstore true true "${DOCKER_DIR}/docker-compose-hstore.yml"
 }
@@ -407,6 +439,7 @@ run_smoke() {
 run_smoke_auth_off() {
     PASSWORD=""
     trap cleanup EXIT INT TERM
+    prepare_hubble_configs
     smoke standalone-anon false false "${DOCKER_DIR}/docker-compose.yml"
     smoke hstore-anon true false "${DOCKER_DIR}/docker-compose-hstore.yml"
 }

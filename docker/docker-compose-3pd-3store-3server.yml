@@ -241,7 +241,7 @@ services:
       - "${HUBBLE_PUBLISH_HOST:-127.0.0.1}:8088:8088"
     volumes:
       - hubble-data:/hubble/data
-      - ./conf/hubble/hstore-ha.properties:/hubble/conf/hugegraph-hubble.properties:ro
+      - ./conf/hubble/hstore-ha.local.properties:/hubble/conf/hugegraph-hubble.properties:ro
     healthcheck:
       test:
         - CMD-SHELL

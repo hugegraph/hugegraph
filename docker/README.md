@@ -42,10 +42,15 @@ contains a single quote or newline.
   pd_secret="$(openssl rand -hex 24)"
   printf "HUGEGRAPH_ADMIN_PASSWORD='%s'\nHUGEGRAPH_AUTH_TOKEN_SECRET='%s'\nHG_PD_AUTH_SECRET_KEY='%s'\n" \
     'replace-with-your-password' "${jwt_secret}" "${pd_secret}" > .env
+  # Hubble reads the PD secret from a file, not from .env: generate the
+  # untracked properties files the HStore topologies mount
+  ./set-hubble-pd-password.sh hstore "${pd_secret}"
+  ./set-hubble-pd-password.sh hstore-ha "${pd_secret}"
 )
 ```
 
-Do not commit `.env`. Keeping the same JWT secret preserves authentication
+Do not commit `.env` or `conf/hubble/*.local.properties`; both are in
+`.gitignore`. Keeping the same JWT secret preserves authentication
 tokens when containers are recreated. For authenticated topologies with
 multiple Server replicas, all replicas receive this same secret. The HA
 topology fails fast if authentication is enabled without this shared secret.
@@ -93,23 +98,26 @@ fails:
   the Server sends the wrong secret it retries until
   `WAIT_STORAGE_TIMEOUT_S` (300s) expires and the container exits with
   `ERROR: Timeout waiting for storage backend`.
-- Hubble, through `operations.pd.password` in the file under `conf/hubble/`.
-  That file is mounted read-only and is not templated, so write the same value
-  into it by hand. Until you do, Hubble's PD-backed views get 401 from PD;
-  everything else in Hubble works.
-
-Write it in with the helper, after loading `.env` as above. Use
-`hstore.properties` for the Minimal HStore topology and `hstore-ha.properties`
-for HA:
+- Hubble, through `operations.pd.password` in
+  `conf/hubble/hstore.local.properties` (Minimal HStore) or
+  `conf/hubble/hstore-ha.local.properties` (HA). Compose mounts those files
+  read-only and does not template them, and the Hubble image has no
+  entrypoint that reads the environment, so they are generated from the
+  tracked `*.properties.example` files by `set-hubble-pd-password.sh`. The
+  `.env` recipe above already runs it. To regenerate after loading `.env`:
 
 ```bash
-./set-hubble-pd-password.sh conf/hubble/hstore.properties
+./set-hubble-pd-password.sh hstore      # or hstore-ha
 ```
 
+Run it before `docker compose up`: if the file is missing, Docker creates an
+empty directory at the bind path and Hubble starts with no configuration.
 The helper refuses an empty value, writes the secret without passing it
 through a `sed` replacement (where `&`, `#` and backslashes are special), and
 doubles backslashes for the `.properties` format. The generated hex secret
-needs none of that, but a hand-chosen one might.
+needs none of that, but a hand-chosen one might. Until the file carries the
+right value, Hubble's PD-backed views get 401 from PD; everything else in
+Hubble works.
 
 ### Standalone
 
@@ -362,9 +370,14 @@ discovery settings, the PD REST credential (`operations.pd.username` and
 container paths:
 
 - `conf/hubble/standalone.properties` uses direct Server mode.
-- `conf/hubble/hstore.properties` uses one PD and one Store REST target.
-- `conf/hubble/hstore-ha.properties` uses all three PD peers and all three
-  allowed Store REST targets.
+- `conf/hubble/hstore.properties.example` uses one PD and one Store REST
+  target.
+- `conf/hubble/hstore-ha.properties.example` uses all three PD peers and all
+  three allowed Store REST targets.
+
+The two HStore topologies mount the generated `*.local.properties` next to
+these examples (see `set-hubble-pd-password.sh`), never the examples
+themselves, so the PD secret stays out of tracked files.
 
 Hubble detects Server authentication through the Server API. Do not add an
 `auth.enabled` property or duplicate auth-on/auth-off configurations.

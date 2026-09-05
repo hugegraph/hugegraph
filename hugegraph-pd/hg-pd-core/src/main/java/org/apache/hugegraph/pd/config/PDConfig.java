@@ -33,10 +33,12 @@ import org.springframework.stereotype.Component;
 
 import lombok.Data;
 import lombok.ToString;
+import lombok.extern.slf4j.Slf4j;
 
 /**
  * PD profile
  */
+@Slf4j
 @Data
 @Component
 public class PDConfig implements InitializingBean {
@@ -106,6 +108,14 @@ public class PDConfig implements InitializingBean {
                     "tree, which authenticates anyone who can read it. Set a " +
                     "deployment-specific secret in conf/application.yml, or through the " +
                     "HG_PD_AUTH_SECRET_KEY environment variable for the Docker image.");
+        }
+        // The shipped configs leave this empty on purpose. Say so in the boot log:
+        // the REST interceptor also logs it, but only on the first refused request,
+        // and /v1/health keeps answering 200 in the meantime.
+        if (this.secretKey == null || this.secretKey.isEmpty()) {
+            log.error("auth.secret-key is not configured, so every authenticated REST " +
+                      "request will be refused. Add it to conf/application.yml (or set " +
+                      "HG_PD_AUTH_SECRET_KEY) and give every REST client the same value.");
         }
     }
 

@@ -24,7 +24,6 @@ import java.util.function.Supplier;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
-import org.apache.hugegraph.pd.rest.API;
 import org.apache.hugegraph.pd.service.interceptor.Authentication;
 import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Service;
@@ -38,6 +37,7 @@ import lombok.extern.slf4j.Slf4j;
 public class RestAuthentication extends Authentication implements HandlerInterceptor {
 
     private static final String TOKEN_KEY = "Pd-Token";
+    private static final String UNAUTHORIZED_BODY = "{\"status\":-1,\"error\":\"Unauthorized\"}";
     private static final Supplier<Boolean> DEFAULT_HANDLE = () -> true;
 
     @Override
@@ -64,8 +64,13 @@ public class RestAuthentication extends Authentication implements HandlerInterce
             // authenticate reactively never retry with credentials
             response.setHeader("WWW-Authenticate", "Basic realm=\"hugegraph-pd\"");
             response.setContentType("application/json");
-            response.getWriter().println(new API().toJSON(e));
+            // Constant body: the exception text named internal classes and told an
+            // unauthenticated caller whether the name or the password was wrong.
+            response.getWriter().println(UNAUTHORIZED_BODY);
             response.getWriter().flush();
+            Throwable reason = e.getCause() != null ? e.getCause() : e;
+            log.debug("REST authentication refused for {} {}: {}", request.getMethod(),
+                      request.getRequestURI(), reason.getMessage());
             return false;
         }
     }
