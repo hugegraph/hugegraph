@@ -198,6 +198,14 @@ public class RaftEngine {
     public void shutDown() {
         if (this.alivePeersRefresher != null) {
             this.alivePeersRefresher.shutdownNow();
+            try {
+                // shutdownNow only interrupts; a refresh already inside
+                // listAlivePeers could otherwise publish a positive count
+                // after the reset below.
+                this.alivePeersRefresher.awaitTermination(1, TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
             this.alivePeersRefresher = null;
         }
         this.alivePeerCount = -1;
@@ -339,8 +347,10 @@ public class RaftEngine {
         } catch (IllegalStateException e) {
             // Lost leadership between the check and the call
             this.alivePeerCount = -1;
-        } catch (Exception e) {
-            // Never let the refresh schedule die on an unexpected failure
+        } catch (Throwable e) {
+            // scheduleWithFixedDelay cancels every later run if the task throws,
+            // and an Error escaping here would leave the gauge serving its last
+            // value forever, so this catch has to be wider than Exception.
             log.warn("Failed to refresh the raft alive peer count", e);
             this.alivePeerCount = -1;
         }
