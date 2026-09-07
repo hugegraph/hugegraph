@@ -25,6 +25,7 @@ import java.net.http.HttpResponse;
 
 import org.json.JSONException;
 import org.json.JSONObject;
+import org.junit.Assert;
 import org.junit.Test;
 
 public class RestApiTest extends BaseServerTest {
@@ -68,11 +69,12 @@ public class RestApiTest extends BaseServerTest {
         String url = pdRestAddr + "/v1/health";
         HttpRequest request = HttpRequest.newBuilder().uri(new URI(url)).GET().build();
         HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
-        assert response.statusCode() == 200;
+        Assert.assertEquals(200, response.statusCode());
         // A 200 alone does not prove the path is anonymous: as of 1.7.0 the auth interceptor
         // refuses with 200 and an error envelope. checkHealthy() returns an empty body, which
         // separates the two whichever status a refusal carries.
-        assert response.body().isEmpty() : "expected an empty body, got " + response.body();
+        Assert.assertTrue("expected an empty body, got " + response.body(),
+                          response.body().isEmpty());
     }
 
     @Test
@@ -82,14 +84,14 @@ public class RestApiTest extends BaseServerTest {
         String url = pdRestAddr + "/v1/ready";
         HttpRequest request = HttpRequest.newBuilder().uri(new URI(url)).GET().build();
         HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
-        assert response.statusCode() == 200 : "expected 200, got " + response.statusCode() +
-                                              " body=" + response.body();
+        Assert.assertEquals("expected 200, body=" + response.body(), 200, response.statusCode());
         JSONObject obj = new JSONObject(response.body());
-        assert obj.getBoolean("ready");
-        assert obj.getBoolean("isLeader");
-        assert "STATE_LEADER".equals(obj.getString("state"));
+        Assert.assertTrue(obj.getBoolean("ready"));
+        Assert.assertTrue(obj.getBoolean("isLeader"));
+        Assert.assertEquals("STATE_LEADER", obj.getString("state"));
         // Unauthenticated, so it must not disclose cluster addresses
-        assert !obj.has("leader") : "the anonymous body must not carry the leader address";
+        Assert.assertFalse("the anonymous body must not carry the leader address",
+                           obj.has("leader"));
     }
 
     @Test
@@ -98,18 +100,23 @@ public class RestApiTest extends BaseServerTest {
         String url = pdRestAddr + "/actuator/prometheus";
         HttpRequest request = HttpRequest.newBuilder().uri(new URI(url)).GET().build();
         HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
-        assert response.statusCode() == 200;
+        Assert.assertEquals(200, response.statusCode());
         String body = response.body();
-        assert body.contains("hg_raft_leader{") : "missing hg_raft_leader gauge";
-        assert body.contains("hg_raft_has_leader{") : "missing hg_raft_has_leader gauge";
-        assert body.contains("hg_raft_alive_peers{") : "missing hg_raft_alive_peers gauge";
+        // Micrometer only writes a {...} block when the meter carries tags, and the sample
+        // line is the one that starts with the metric name, unlike its HELP and TYPE lines
+        Assert.assertTrue("missing hg_raft_leader gauge",
+                          body.matches("(?sm).*^hg_raft_leader(\\{[^}]*\\})? .*"));
+        Assert.assertTrue("missing hg_raft_has_leader gauge",
+                          body.matches("(?sm).*^hg_raft_has_leader(\\{[^}]*\\})? .*"));
+        Assert.assertTrue("missing hg_raft_alive_peers gauge",
+                          body.matches("(?sm).*^hg_raft_alive_peers(\\{[^}]*\\})? .*"));
         // Single-node CI cluster: this PD is the leader and hears from itself
-        assert body.matches("(?s).*hg_raft_leader\\{[^}]*\\} 1\\.0.*") :
-                "hg_raft_leader should be 1 on a single-node leader";
-        assert body.matches("(?s).*hg_raft_has_leader\\{[^}]*\\} 1\\.0.*") :
-                "hg_raft_has_leader should be 1 on a single-node leader";
-        assert body.matches("(?s).*hg_raft_alive_peers\\{[^}]*\\} 1\\.0.*") :
-                "hg_raft_alive_peers should be 1 on a single-node leader";
+        Assert.assertTrue("hg_raft_leader should be 1 on a single-node leader",
+                          body.matches("(?sm).*^hg_raft_leader(\\{[^}]*\\})? 1\\.0.*"));
+        Assert.assertTrue("hg_raft_has_leader should be 1 on a single-node leader",
+                          body.matches("(?sm).*^hg_raft_has_leader(\\{[^}]*\\})? 1\\.0.*"));
+        Assert.assertTrue("hg_raft_alive_peers should be 1 on a single-node leader",
+                          body.matches("(?sm).*^hg_raft_alive_peers(\\{[^}]*\\})? 1\\.0.*"));
     }
 
     @Test
