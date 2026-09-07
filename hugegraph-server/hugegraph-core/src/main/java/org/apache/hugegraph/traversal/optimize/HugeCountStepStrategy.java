@@ -33,7 +33,6 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.map.NoOpBarrierStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.sideEffect.AggregateStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.sideEffect.IdentityStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.sideEffect.SideEffectStep;
-import org.apache.tinkerpop.gremlin.process.traversal.step.util.CollectingBarrierStep;
 import org.apache.tinkerpop.gremlin.process.traversal.strategy.AbstractTraversalStrategy;
 import org.apache.tinkerpop.gremlin.process.traversal.util.TraversalHelper;
 import org.apache.tinkerpop.gremlin.structure.Element;
@@ -72,11 +71,12 @@ public final class HugeCountStepStrategy
         HugeGraphStep<?, ? extends Element> graphStep = null;
         Step<?, ?> step = originStep;
         do {
+            // Collecting barriers can filter inputs (for example, unproductive order().by()).
+            // Only skip steps that preserve the number of traversers.
             if (!(step instanceof CountGlobalStep ||
                   step instanceof GraphStep ||
                   step instanceof IdentityStep ||
-                  step instanceof NoOpBarrierStep ||
-                  step instanceof CollectingBarrierStep) ||
+                  step instanceof NoOpBarrierStep) ||
                 (step instanceof TraversalParent &&
                  TraversalHelper.anyStepRecursively(s -> {
                      return s instanceof SideEffectStep ||

@@ -190,6 +190,38 @@ public class CountStrategyCoreTest extends BaseCoreTest {
     }
 
     @Test
+    public void testCountAfterOrderByMissingProperty() {
+        this.initSchema();
+        this.initGraph();
+
+        long count = graph().traversal().V().order().by("none").count().next();
+
+        Assert.assertEquals(0L, count);
+    }
+
+    @Test
+    public void testCountAfterOrderByFilteringTraversal() {
+        this.initSchema();
+        this.initGraph();
+
+        long count = graph().traversal().V().order()
+                            .by(__.hasLabel("person").values("name"))
+                            .count().next();
+
+        Assert.assertEquals(2L, count);
+    }
+
+    @Test
+    public void testCountAfterOrderByPresentProperty() {
+        this.initSchema();
+        this.initGraph();
+
+        long count = graph().traversal().V().order().by("name").count().next();
+
+        Assert.assertEquals(3L, count);
+    }
+
+    @Test
     public void testWhereCountLtNegativeIsAlwaysFalse() {
         this.initSchema();
         this.initGraph();
