@@ -46,9 +46,6 @@ log() {
 # curl on stdin as a config file.
 PD_AUTH_USER="${PD_AUTH_USER:-store}"
 PD_AUTH_PASSWORD="${PD_AUTH_PASSWORD:-}"
-if [ -z "${PD_AUTH_PASSWORD}" ]; then
-  log "WARN: PD_AUTH_PASSWORD is empty; PD will answer 401 unless it runs without auth"
-fi
 # curl -K reads one option per line and takes the value as a quoted string
 # whose only escapes are \\ \" \t \n \r \v. Backslash first, then the rest;
 # an unescaped line break would end the option early and send a truncated
@@ -119,6 +116,11 @@ if env | grep '^hugegraph\.' > /dev/null; then
 
             export PD_REST_LIST
             log "PD REST peers = $PD_REST_LIST"
+            # Only worth saying where PD is actually polled: topologies without
+            # pd.peers never send this credential anywhere.
+            if [ -z "${PD_AUTH_PASSWORD}" ]; then
+              log "WARN: PD_AUTH_PASSWORD is empty; PD will answer 401 unless it runs without auth"
+            fi
             log "Timeout = ${WAIT_STORAGE_TIMEOUT_S}s"
 
             timeout "${WAIT_STORAGE_TIMEOUT_S}s" bash -c "
@@ -150,7 +152,11 @@ if env | grep '^hugegraph\.' > /dev/null; then
               }
 
               until PD_REST=\$(check_any_pd_stores); do
-                if [ \$? -eq 2 ]; then exit 2; fi
+                # Must stay the first statement in the loop: any command in
+                # front of it would overwrite \$? and turn the 401 abort back
+                # into a 300s retry.
+                rc=\$?
+                if [ \"\$rc\" -eq 2 ]; then exit 2; fi
                 log 'No Up store yet, retrying in 5s'
                 sleep 5
               done

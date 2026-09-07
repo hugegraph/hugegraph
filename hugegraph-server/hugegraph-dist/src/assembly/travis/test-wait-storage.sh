@@ -255,4 +255,18 @@ assert_equal "no retry after 401" "${PD0}" "$(cat "${CALL_LOG}")"
 [[ "${CASE_OUTPUT}" != *"Timeout waiting"* ]] || fail "401 was reported as a timeout"
 echo "  PASS 401 aborts without retry"
 
-echo "7 passed, 0 failed"
+# The standalone RocksDB topology never reaches PD, so it must not warn about
+# a PD credential it will not send.
+: > "${DIST_ROOT}/conf/graphs/hugegraph.properties"
+CASE_OUTPUT=$(env \
+    PD_AUTH_PASSWORD="" \
+    'hugegraph.backend=rocksdb' \
+    "${DIST_ROOT}/bin/wait-storage.sh" 2>&1)
+CASE_RC=$?
+assert_equal "no-PD topology rc" "0" "${CASE_RC}"
+assert_output "No pd.peers configured, skipping storage wait"
+[[ "${CASE_OUTPUT}" != *"PD_AUTH_PASSWORD is empty"* ]] || \
+    fail "warned about an unused PD credential with no pd.peers configured"
+echo "  PASS no credential warning without pd.peers"
+
+echo "8 passed, 0 failed"
