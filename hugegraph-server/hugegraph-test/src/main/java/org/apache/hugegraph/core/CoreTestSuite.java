@@ -42,6 +42,7 @@ import org.slf4j.Logger;
         EdgeCoreTest.class,
         CountStrategyCoreTest.class,
         TinkerPop37StepsCoreTest.class,
+        PrimaryKeyStrategyCoreTest.class,
         ParentAndSubEdgeCoreTest.class,
         PropertyCoreTest.VertexPropertyCoreTest.class,
         PropertyCoreTest.EdgePropertyCoreTest.class,

@@ -19,7 +19,6 @@ package org.apache.hugegraph.traversal.optimize;
 
 import java.util.LinkedList;
 import java.util.List;
-import java.util.Map;
 
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
@@ -77,14 +76,15 @@ public class HugePrimaryKeyStrategy
 
                 curAddStep.addProperty(propertyStep.getKey(),
                                        propertyStep.getValue());
-                for (Map.Entry<Object, List<Object>> entry :
-                     propertyStep.getProperties().entrySet()) {
-                    for (Object value : entry.getValue()) {
-                        curAddStep.addProperty(entry.getKey(), value);
-                    }
+                if (!propertyStep.getProperties().isEmpty()) {
+                    /*
+                     * Keep metadata for HugeVertex.property() to reject only
+                     * when this branch executes, including in coalesce/choose.
+                     */
+                    curAddStep = null;
+                } else {
+                    removeSteps.add(step);
                 }
-
-                removeSteps.add(step);
             } else {
                 curAddStep = null;
             }

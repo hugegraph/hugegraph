@@ -75,6 +75,7 @@
                 <groupId>org.jacoco</groupId>
                 <artifactId>jacoco-maven-plugin</artifactId>
                 <configuration>
+                    <append>true</append>
                     <excludes>
                         <exclude>**/grpc/**.*</exclude>
                         <exclude>**/config/**.*</exclude>

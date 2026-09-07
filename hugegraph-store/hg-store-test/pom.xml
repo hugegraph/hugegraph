@@ -39,6 +39,13 @@
             <activation>
                 <activeByDefault>false</activeByDefault>
             </activation>
+            <dependencies>
+                <dependency>
+                    <groupId>org.apache.hugegraph</groupId>
+                    <artifactId>hg-store-rocksdb</artifactId>
+                    <version>${revision}</version>
+                </dependency>
+            </dependencies>
             <build>
                 <plugins>
                     <plugin>
@@ -47,13 +54,14 @@
 
                         <executions>
                             <execution>
-                                <id>default</id>
+                                <id>coverage-report</id>
                                 <phase>verify</phase>
                                 <goals>
                                     <goal>report-aggregate</goal>
                                 </goals>
                                 <configuration>
-                                    <outputDirectory>${project.basedir}/../target/site/jacoco
+                                    <outputDirectory>
+                                        ${project.basedir}/target/site/jacoco
                                     </outputDirectory>
                                 </configuration>
                             </execution>
@@ -308,25 +316,6 @@
             <plugin>
                 <groupId>org.jacoco</groupId>
                 <artifactId>jacoco-maven-plugin</artifactId>
-                <executions>
-                    <execution>
-                        <id>pre-test</id>
-
-                        <goals>
-                            <goal>prepare-agent</goal>
-                        </goals>
-                    </execution>
-                    <execution>
-                        <id>post-test</id>
-                        <phase>test</phase>
-                        <goals>
-                            <goal>report-aggregate</goal>
-                        </goals>
-                        <configuration>
-                            <outputDirectory>${basedir}/target/site/jacoco</outputDirectory>
-                        </configuration>
-                    </execution>
-                </executions>
                 <configuration>
                     <excludes>
                         <exclude>**/grpc/**/*</exclude>
