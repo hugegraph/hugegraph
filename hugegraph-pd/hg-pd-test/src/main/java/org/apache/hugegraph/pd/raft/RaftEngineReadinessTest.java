@@ -40,7 +40,9 @@ import static org.mockito.Mockito.when;
  * Covers the raft-aware readiness signal behind {@code GET /v1/ready} and the
  * {@code hg.raft.*} gauges. The signal is served from the volatile copies the state machine
  * callbacks maintain, never from the raft node, so the probe stays prompt while an election
- * holds the node lock; these tests drive the callbacks the way jraft does.
+ * holds the node lock; these tests drive the callbacks the way jraft does. The alive peer
+ * count is the one value that has to come off the node, so it is refreshed explicitly here,
+ * the way the refresher thread does it in a running PD.
  */
 public class RaftEngineReadinessTest {
 
@@ -63,6 +65,8 @@ public class RaftEngineReadinessTest {
         stateMachine = new RaftStateMachine();
         Whitebox.setInternalState(engine, "raftNode", mockNode);
         Whitebox.setInternalState(engine, "stateMachine", stateMachine);
+        // The count is cached on the singleton, so clear what an earlier test published
+        engine.refreshAlivePeerCount();
     }
 
     @After
@@ -80,6 +84,7 @@ public class RaftEngineReadinessTest {
     public void testNotReadyBeforeRaftNodeStarts() {
         Whitebox.setInternalState(RaftEngine.getInstance(), "raftNode", null);
         RaftEngine engine = RaftEngine.getInstance();
+        engine.refreshAlivePeerCount();
 
         RaftEngine.RaftStatus status = engine.getRaftStatus();
         Assert.assertFalse(status.isReady());
@@ -102,6 +107,7 @@ public class RaftEngineReadinessTest {
         when(mockNode.listAlivePeers()).thenReturn(Arrays.asList(LEADER, new PeerId("b", 1),
                                                                  new PeerId("c", 1)));
         RaftEngine engine = RaftEngine.getInstance();
+        engine.refreshAlivePeerCount();
 
         RaftEngine.RaftStatus status = engine.getRaftStatus();
         Assert.assertTrue(status.isReady());
@@ -115,6 +121,7 @@ public class RaftEngineReadinessTest {
     public void testFollowerWithLeaderIsReady() {
         stateMachine.onStartFollowing(ctx());
         RaftEngine engine = RaftEngine.getInstance();
+        engine.refreshAlivePeerCount();
 
         RaftEngine.RaftStatus status = engine.getRaftStatus();
         Assert.assertTrue(status.isReady());
@@ -143,6 +150,7 @@ public class RaftEngineReadinessTest {
         stateMachine.onLeaderStart(5);
         stateMachine.onLeaderStop(Status.OK());
         RaftEngine engine = RaftEngine.getInstance();
+        engine.refreshAlivePeerCount();
 
         RaftEngine.RaftStatus status = engine.getRaftStatus();
         Assert.assertFalse(status.isReady());
@@ -168,7 +176,8 @@ public class RaftEngineReadinessTest {
     @Test
     public void testProbeNeverTouchesTheRaftNode() {
         // The point of serving from callbacks: an election holds the node lock while jraft
-        // reconnects to peers, so the probe and the leader gauges must not read the node
+        // reconnects to peers, so the probe and the gauges must answer without the node.
+        // getAlivePeerCount() included: it reads what the refresher thread published
         stateMachine.onStartFollowing(ctx());
         stateMachine.onStopFollowing(ctx());
         RaftEngine engine = RaftEngine.getInstance();
@@ -184,7 +193,21 @@ public class RaftEngineReadinessTest {
     public void testAlivePeerCountSurvivesLeadershipLossRace() {
         stateMachine.onLeaderStart(5);
         when(mockNode.listAlivePeers()).thenThrow(new IllegalStateException("Not leader"));
+        RaftEngine.getInstance().refreshAlivePeerCount();
 
         Assert.assertEquals(-1, RaftEngine.getInstance().getAlivePeerCount());
+    }
+
+    @Test
+    public void testAlivePeerCountOnALeaderAlsoSkipsTheNode() {
+        // Even on a leader, where the count means something, the gauge reads the published
+        // value: listAlivePeers takes the node read lock before it checks for leadership, so
+        // a scrape that called it would wait out an election that holds the write lock
+        stateMachine.onLeaderStart(5);
+        RaftEngine engine = RaftEngine.getInstance();
+
+        engine.getAlivePeerCount();
+
+        verifyNoInteractions(mockNode);
     }
 }
