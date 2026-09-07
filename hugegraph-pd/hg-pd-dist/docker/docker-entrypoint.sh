@@ -85,9 +85,18 @@ require_env "HG_PD_AUTH_SECRET_KEY"
 # never logged.
 AUTH_JSON="\"auth\": { \"secret-key\": \"$(json_escape "${HG_PD_AUTH_SECRET_KEY}")\" },"
 
+# The secret above lands in SPRING_APPLICATION_JSON, and actuator's /env
+# sanitizer keys off the property name: it redacts auth.secret-key but returns
+# the SPRING_APPLICATION_JSON environment entry verbatim, secret included. The
+# image's own conf/application.yml already narrows the exposure, but a
+# bind-mounted pre-1.8 config brings back include: "*". SPRING_APPLICATION_JSON
+# outranks the config file, so pin the allowlist here too.
+MANAGEMENT_JSON="\"management\": { \"endpoints\": { \"web\": { \"exposure\": { \"include\": \"health,metrics,prometheus\" } } } },"
+
 SPRING_APPLICATION_JSON="$(cat <<JSON
 {
   ${AUTH_JSON}
+  ${MANAGEMENT_JSON}
   "grpc":   { "host": "$(json_escape "${HG_PD_GRPC_HOST}")",
               "port": "$(json_escape "${HG_PD_GRPC_PORT}")" },
   "server": { "port": "$(json_escape "${HG_PD_REST_PORT}")" },

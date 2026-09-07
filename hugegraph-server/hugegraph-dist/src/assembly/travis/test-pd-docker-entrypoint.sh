@@ -16,8 +16,12 @@
 # limitations under the License.
 #
 # Checks that the PD Docker entrypoint turns HG_PD_AUTH_SECRET_KEY into valid
-# SPRING_APPLICATION_JSON, whatever the secret contains, and that the value
-# Spring would read back is the secret that went in.
+# SPRING_APPLICATION_JSON, whatever the secret contains, that the value Spring
+# would read back is the secret that went in, and that the same document pins
+# the actuator exposure allowlist. The allowlist has to travel with the secret:
+# SPRING_APPLICATION_JSON outranks a bind-mounted conf/application.yml, and an
+# older one exposing every actuator endpoint would otherwise serve that secret
+# back from /actuator/env.
 
 set -euo pipefail
 
@@ -65,9 +69,14 @@ want = os.environ["SECRET"]
 if got != want:
     print("  round-trip mismatch: %r != %r" % (got, want))
     sys.exit(1)
+exposure = doc.get("management", {}).get("endpoints", {}).get("web", {})
+exposure = exposure.get("exposure", {}).get("include")
+if exposure != "health,metrics,prometheus":
+    print("  actuator exposure is not pinned to the allowlist: %r" % (exposure,))
+    sys.exit(1)
 PY
     then
-        echo "  FAIL ${name}: invalid JSON or secret did not round-trip"
+        echo "  FAIL ${name}: invalid JSON, secret did not round-trip, or exposure is not pinned"
         FAIL=$((FAIL + 1))
         return
     fi

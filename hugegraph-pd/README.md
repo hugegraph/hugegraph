@@ -309,9 +309,13 @@ docker/docker-compose-3pd-3store-3server.yml
   `wait-storage.sh` aborts the Server's startup on the first one rather than
   waiting out `WAIT_STORAGE_TIMEOUT_S`.
 - An existing `conf/application.yml` carried over from an earlier release has
-  no `auth` block. PD then starts with an empty secret and refuses every
-  authenticated REST request, logging an error that names `auth.secret-key`.
-  Add the key before upgrading. PD refuses to start if the key is set to the
+  no `auth` block, and still carries
+  `management.endpoints.web.exposure.include: "*"`. PD then starts with an
+  empty secret and refuses every authenticated REST request, logging an error
+  that names `auth.secret-key`, while `/actuator/env`, `/actuator/configprops`
+  and `/actuator/beans` stay anonymously readable on `8620`. Before upgrading,
+  add `auth.secret-key` and narrow that exposure to
+  `health,metrics,prometheus`. PD refuses to start if the key is set to the
   placeholder value that earlier revisions of this repository carried.
 
 ### Monitoring
