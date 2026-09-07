@@ -15,11 +15,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-# Every PD configuration that ships in the archive or the jar must carry the
+# Every PD configuration that ships in an archive or in the jar must carry the
 # same REST hardening: no wildcard actuator exposure (that path is anonymous),
 # an auth.secret-key that is present and empty, and no copy of the secret that
 # earlier revisions published. A fix applied to one variant and not the others
-# is what this catches.
+# is what this catches, so the list below covers the PD distribution, the
+# service jar, and the template the cluster test writes onto each PD node.
 
 set -euo pipefail
 
@@ -53,7 +54,8 @@ check() {
 
 echo "PD shipped configuration hardening"
 for f in "${ROOT}"/hugegraph-pd/hg-pd-dist/src/assembly/static/conf/application.yml* \
-         "${ROOT}"/hugegraph-pd/hg-pd-service/src/main/resources/application.yml; do
+         "${ROOT}"/hugegraph-pd/hg-pd-service/src/main/resources/application.yml \
+         "${ROOT}"/hugegraph-cluster-test/hugegraph-clustertest-dist/src/assembly/static/conf/pd-application.yml.template; do
     check "$f"
 done
 [[ "$FAIL" -eq 0 ]] && echo "all shipped PD configs pass" || { echo "shipped PD config check failed"; exit 1; }
