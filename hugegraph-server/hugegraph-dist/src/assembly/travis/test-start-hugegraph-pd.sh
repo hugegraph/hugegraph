@@ -121,7 +121,7 @@ wait_for_pd_ready() {
     while (( elapsed < STARTUP_WAIT )); do
         local body
         body=$(curl -fsS "$PD_URL/v1/ready" 2>/dev/null || true)
-        grep -q '"ready":true' <<<"$body" && return 0
+        grep -Eq '"ready"[[:space:]]*:[[:space:]]*true' <<<"$body" && return 0
         sleep 2
         elapsed=$((elapsed + 2))
     done
