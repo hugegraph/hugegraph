@@ -41,6 +41,7 @@ import org.slf4j.Logger;
         VertexCoreTest.class,
         EdgeCoreTest.class,
         CountStrategyCoreTest.class,
+        GremlinLangTextContainsCoreTest.class,
         TinkerPop37StepsCoreTest.class,
         PrimaryKeyStrategyCoreTest.class,
         ParentAndSubEdgeCoreTest.class,

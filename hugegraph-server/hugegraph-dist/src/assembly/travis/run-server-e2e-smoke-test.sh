@@ -137,7 +137,7 @@ verify_graph() {
 
     request POST /gremlin 200 \
         "$(jq -cn --arg query "g.V().hasLabel('$VERTEX_LABEL').count()" \
-             '{gremlin:$query, bindings:{}, language:"gremlin-groovy",
+             '{gremlin:$query, bindings:{},
                aliases:{g:"__g_DEFAULT-hugegraph"}}')"
     assert_json '.result.data == [2]'
 }
