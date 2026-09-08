@@ -205,8 +205,10 @@ curl -fsS http://localhost:8088/about
 PD answers two unauthenticated probe endpoints. `/v1/health` is liveness only:
 it returns `200` as soon as the REST listener is up, even when the PD has no
 raft leader. `/v1/ready` returns `200` only while the PD sees a raft leader,
-and `503` otherwise. A single PD elects itself; three PDs become ready once
-two of them can talk to each other.
+and `503` otherwise. Each PD answers for itself: a single PD elects itself, and
+in a three-PD group the two that can reach each other elect a leader and turn
+ready, while a partitioned third keeps answering `503` until it sees that
+leader.
 
 The healthchecks in these files still gate on `/v1/health`, because
 `/v1/ready` ships from the next release onwards while the files run published

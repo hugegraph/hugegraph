@@ -870,6 +870,14 @@ curl -i http://192.168.1.10:8620/v1/ready
 curl http://192.168.1.20:8520/v1/health
 ```
 
+> **Note**: `/v1/ready` ships from the release after `1.7.0`, so the Docker
+> examples above, which pin `HUGEGRAPH_VERSION=1.7.0`, need a newer tag or
+> images built from source before this check means anything. On `1.7.0` the PD
+> answers `200` with `{"status":-1,"error":"Unauthorized!"}` on any path its
+> auth interceptor does not exclude, `/v1/ready` included, so match on the body
+> rather than the status code. See
+> [docker/README.md](../../docker/README.md) for the details.
+
 ### Cluster Status
 
 ```bash
