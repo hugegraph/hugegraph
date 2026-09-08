@@ -199,10 +199,15 @@ public class RaftEngine {
         if (this.alivePeersRefresher != null) {
             this.alivePeersRefresher.shutdownNow();
             try {
-                // shutdownNow only interrupts; a refresh already inside
-                // listAlivePeers could otherwise publish a positive count
-                // after the reset below.
-                this.alivePeersRefresher.awaitTermination(1, TimeUnit.SECONDS);
+                // Best effort: shutdownNow only interrupts, and a refresh parked in
+                // listAlivePeers waits on a lock acquire the interrupt does not break,
+                // for up to the raft rpc connect timeout per unreachable peer. A refresh
+                // that outlives this wait may publish one stale count over the reset
+                // below; acceptable while shutDown has no production caller.
+                if (!this.alivePeersRefresher.awaitTermination(1, TimeUnit.SECONDS)) {
+                    log.warn("Raft alive-peers refresher still running after shutdown; " +
+                             "hg_raft_alive_peers may briefly report a stale value");
+                }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             }
@@ -235,16 +240,20 @@ public class RaftEngine {
     }
 
     /**
-     * Whether this node currently sees a raft leader.
+     * Whether this PD is ready in the sense {@code GET /v1/ready} answers: the raft node
+     * is active and sees a leader.
      * <p>
      * A follower only keeps its leader while heartbeats keep arriving inside the election
      * timeout, and a leader only keeps its role while it can reach a quorum. Seeing a leader
      * therefore means this node is part of a quorum from its own point of view, which is the
      * signal a readiness probe needs. Served from the state machine callbacks, not from the
      * raft node, so it never waits on the node lock.
+     * <p>
+     * Derived from {@link #getRaftStatus()} so {@code hg_raft_has_leader} cannot drift from
+     * the endpoint it is documented to mirror.
      */
     public boolean hasLeader() {
-        return this.raftNode != null && this.stateMachine.getProbeView().seesLeader;
+        return getRaftStatus().isReady();
     }
 
     /**
@@ -256,15 +265,20 @@ public class RaftEngine {
      * each other.
      * <p>
      * The state reported is the last one a callback announced: leader, follower, error or
-     * shutdown. jraft emits no callback for candidacy or leadership transfer, so a candidate
-     * reads as a follower that sees no leader, which yields the same not-ready answer. The
-     * view trails the node by whatever sits in the FSM queue ahead of the announcement,
-     * which is the price of never waiting on the node lock.
+     * shutdown, and {@code STATE_UNINITIALIZED} until the first callback runs. jraft emits
+     * no callback for candidacy or leadership transfer, so a candidate reads as a follower
+     * that sees no leader, which yields the same not-ready answer. The view trails the node
+     * by whatever sits in the FSM queue ahead of the announcement, which is the price of
+     * never waiting on the node lock.
+     * <p>
+     * A missing raft node needs no separate branch: before {@link #init} the view still
+     * holds its initial {@code STATE_UNINITIALIZED}, and {@code shutDown()} drops the node
+     * only after {@code join()} has let the shutdown callback announce
+     * {@code STATE_SHUTDOWN}. Neither state is active, so neither reads as ready, and a
+     * branch on the node would report an uninitialized PD where the callback said error or
+     * shutdown.
      */
     public RaftStatus getRaftStatus() {
-        if (this.raftNode == null) {
-            return new RaftStatus(false, State.STATE_UNINITIALIZED.name(), false);
-        }
         RaftStateMachine.ProbeView view = this.stateMachine.getProbeView();
         return new RaftStatus(view.state.isActive() && view.seesLeader,
                               view.state.name(), State.STATE_LEADER == view.state);

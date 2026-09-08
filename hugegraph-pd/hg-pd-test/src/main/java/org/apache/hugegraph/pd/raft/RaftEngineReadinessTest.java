@@ -33,6 +33,8 @@ import com.alipay.sofa.jraft.entity.PeerId;
 import com.alipay.sofa.jraft.error.RaftException;
 
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
@@ -196,6 +198,48 @@ public class RaftEngineReadinessTest {
         RaftEngine.getInstance().refreshAlivePeerCount();
 
         Assert.assertEquals(-1, RaftEngine.getInstance().getAlivePeerCount());
+    }
+
+    @Test
+    public void testShutdownStateSurvivesTheNodeBeingDropped() {
+        // shutDown() drops the raft node after the shutdown callback ran, so the probe has
+        // to keep reporting what the callback announced rather than falling back to
+        // uninitialized, which would read as a PD that has not started yet
+        stateMachine.onLeaderStart(5);
+        stateMachine.onShutdown();
+        Whitebox.setInternalState(RaftEngine.getInstance(), "raftNode", null);
+        RaftEngine engine = RaftEngine.getInstance();
+
+        RaftEngine.RaftStatus status = engine.getRaftStatus();
+        Assert.assertFalse(status.isReady());
+        Assert.assertFalse(status.isLocalLeader());
+        Assert.assertEquals(State.STATE_SHUTDOWN.name(), status.getState());
+        Assert.assertFalse(engine.hasLeader());
+    }
+
+    @Test
+    public void testAlivePeerCountStopsAfterALeaderErrorsOrShutsDown() {
+        // The terminal callbacks clear the leader term, so the refresher stops reading the
+        // count off a node that errored or shut down and the gauge falls back to NaN
+        stateMachine.onLeaderStart(5);
+        when(mockNode.listAlivePeers()).thenReturn(Arrays.asList(LEADER, new PeerId("b", 1)));
+        RaftEngine engine = RaftEngine.getInstance();
+        engine.refreshAlivePeerCount();
+        Assert.assertEquals(2, engine.getAlivePeerCount());
+
+        stateMachine.onError(mock(RaftException.class));
+        engine.refreshAlivePeerCount();
+        Assert.assertEquals(-1, engine.getAlivePeerCount());
+
+        stateMachine.onLeaderStart(6);
+        engine.refreshAlivePeerCount();
+        Assert.assertEquals(2, engine.getAlivePeerCount());
+
+        stateMachine.onShutdown();
+        engine.refreshAlivePeerCount();
+        Assert.assertEquals(-1, engine.getAlivePeerCount());
+        // Twice, once per leader phase: the terminal states never reached the node
+        verify(mockNode, times(2)).listAlivePeers();
     }
 
     @Test

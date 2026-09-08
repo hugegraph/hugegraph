@@ -136,12 +136,16 @@ public class RaftStateMachine extends StateMachineAdapter {
 
     @Override
     public void onError(final RaftException e) {
+        // A node that errors after it was leader keeps a positive leaderTerm otherwise, and
+        // the alive-peer refresher would go on reading listAlivePeers off a broken node
+        this.leaderTerm.set(-1);
         this.probeView = new ProbeView(State.STATE_ERROR, false);
         log.error("Raft StateMachine on error {}", e);
     }
 
     @Override
     public void onShutdown() {
+        this.leaderTerm.set(-1);
         this.probeView = new ProbeView(State.STATE_SHUTDOWN, false);
         super.onShutdown();
     }
