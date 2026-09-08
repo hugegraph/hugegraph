@@ -39,12 +39,20 @@ contains a single quote or newline.
     echo ".env already exists; edit it instead of overwriting it" >&2
     exit 1
   }
-  printf "HUGEGRAPH_ADMIN_PASSWORD='%s'\nHUGEGRAPH_AUTH_TOKEN_SECRET='%s'\n" \
-    'replace-with-your-password' "${jwt_secret}" > .env
+  pd_secret="$(openssl rand -hex 24)"
+  printf "HUGEGRAPH_ADMIN_PASSWORD='%s'\nHUGEGRAPH_AUTH_TOKEN_SECRET='%s'\nHG_PD_AUTH_SECRET_KEY='%s'\n" \
+    'replace-with-your-password' "${jwt_secret}" "${pd_secret}" > .env
+  # Hubble reads the PD secret from a file, not from .env: generate the
+  # untracked properties files the HStore topologies mount. Passed in the
+  # environment rather than as an argument, which `ps` shows to every local
+  # account for as long as the helper runs.
+  HG_PD_AUTH_SECRET_KEY="${pd_secret}" ./set-hubble-pd-password.sh hstore
+  HG_PD_AUTH_SECRET_KEY="${pd_secret}" ./set-hubble-pd-password.sh hstore-ha
 )
 ```
 
-Do not commit `.env`. Keeping the same JWT secret preserves authentication
+Do not commit `.env` or `conf/hubble/*.local.properties`; both are in
+`.gitignore`. Keeping the same JWT secret preserves authentication
 tokens when containers are recreated. For authenticated topologies with
 multiple Server replicas, all replicas receive this same secret. The HA
 topology fails fast if authentication is enabled without this shared secret.
@@ -60,11 +68,65 @@ behind an HTTPS reverse proxy and trusted network controls.
 first authenticated startup. Changing `.env` does not rotate an existing
 administrator password; use the HugeGraph user API for credential changes.
 
-For the verification commands below, set the password in your current shell:
+For the verification commands below, load `.env` into your current shell and
+set the password:
 
 ```bash
+set -a; . ./.env; set +a
 ADMIN_PASSWORD='the-same-password-used-in-.env'
 ```
+
+Compose reads `.env` on its own; the line above is so that the `curl` command and
+the Hubble helper on this page can use `${HG_PD_AUTH_SECRET_KEY}` too.
+
+The PD REST API (port 8620, HStore topologies only) has its own credential:
+requests other than health probes need HTTP Basic auth with an internal
+service name (for example `hg`) and the PD secret as the password. PD ships
+no default secret, so `HG_PD_AUTH_SECRET_KEY` is required and the HStore
+Compose files refuse to start without it. The `.env` command above generates
+one. To list registered stores:
+
+```bash
+curl -u "hg:${HG_PD_AUTH_SECRET_KEY}" http://localhost:8620/v1/stores
+```
+
+Three consumers read this credential, and all three have to agree or startup
+fails:
+
+- PD itself, through `HG_PD_AUTH_SECRET_KEY`.
+- The Server, whose `bin/wait-storage.sh` polls `/v1/stores` before the
+  Server starts. Both Compose files pass `PD_AUTH_PASSWORD` to it from the
+  same variable, so setting `HG_PD_AUTH_SECRET_KEY` in `.env` covers it. If
+  the Server sends the wrong secret `wait-storage.sh` aborts on the first
+  401 rather than waiting out `WAIT_STORAGE_TIMEOUT_S`, and the container
+  exits with `ERROR: storage wait aborted, see the message above` after
+  logging `ERROR: PD at <peer> refused the credential (401)`.
+- Hubble, through `operations.pd.password` in
+  `conf/hubble/hstore.local.properties` (Minimal HStore) or
+  `conf/hubble/hstore-ha.local.properties` (HA). Compose mounts those files
+  read-only and does not template them, and the Hubble image has no
+  entrypoint that reads the environment, so they are generated from the
+  tracked `*.properties.example` files by `set-hubble-pd-password.sh`. The
+  `.env` recipe above already runs it. To regenerate after loading `.env`:
+
+```bash
+./set-hubble-pd-password.sh hstore      # or hstore-ha
+```
+
+Run it before `docker compose up`: both HStore Compose files pin the mount with `create_host_path: false`, so a missing
+file makes Compose refuse to start rather than mounting an empty directory over Hubble's config.
+
+<details><summary>What the helper guarantees, and why Hubble 401s until it has run</summary>
+
+- Refuses an empty secret.
+- Refuses a secret that is not printable ASCII. Hubble reads `.properties` as ISO-8859-1 while PD compares UTF-8 bytes,
+  so a non-ASCII secret gives a permanent 401 with nothing logged on either side. The generated hex is safe.
+- Writes the value without passing it through a `sed` replacement (where `&`, `#` and backslashes are special) and
+  doubles backslashes for the `.properties` format. The generated hex needs none of that; a hand-chosen one might.
+
+Until the file carries the right value, Hubble's PD-backed views get 401 from PD; everything else in Hubble works.
+
+</details>
 
 ### Standalone
 
@@ -202,6 +264,32 @@ done
 curl -fsS http://localhost:8088/about
 ```
 
+PD answers two unauthenticated probe endpoints. `/v1/health` is liveness only:
+it returns `200` as soon as the REST listener is up, even when the PD has no
+raft leader. `/v1/ready` returns `200` only while the PD sees a raft leader,
+and `503` otherwise. Each PD answers for itself: a single PD elects itself, and
+in a three-PD group the two that can reach each other elect a leader and turn
+ready, while a partitioned third keeps answering `503` until it sees that
+leader.
+
+The healthchecks in these files still gate on `/v1/health`, because
+`/v1/ready` ships from the next release onwards while the files run published
+images. Two things to know before pointing them at readiness:
+
+- Match on the body, not the status code. As of 1.7.0 PD answers `200` with
+  `{"status":-1,"error":"Unauthorized!"}` on every path its auth interceptor
+  does not exclude, a path that does not exist included, so a status-only
+  probe reads a PD too old to have `/v1/ready` as ready. The body match holds
+  whichever status a refusal carries. Gate with
+  `curl -fsS http://localhost:8620/v1/ready | grep -q '"ready":true'` instead.
+- Pin `HUGEGRAPH_VERSION` to a release that carries the endpoint, or build the
+  images from source with `docker-compose.dev.yml`.
+
+The `HEALTHCHECK` baked into `hugegraph-pd/Dockerfile` is `/v1/health` as well.
+Both compose files override it, so it governs `docker run` and anything else
+inheriting the image probe, and those keep reading a PD without a quorum as
+healthy.
+
 Open `http://localhost:8088` and sign in as `admin` with the password from
 `.env`.
 
@@ -323,12 +411,19 @@ docker compose -f docker-compose-hstore.yml up -d --wait
 ### Hubble configuration
 
 The three small files under `conf/hubble/` contain only topology-specific
-discovery settings and container paths:
+discovery settings, the PD REST credential (`operations.pd.username` and
+`operations.pd.password`, which must match PD's `auth.secret-key`), and
+container paths:
 
 - `conf/hubble/standalone.properties` uses direct Server mode.
-- `conf/hubble/hstore.properties` uses one PD and one Store REST target.
-- `conf/hubble/hstore-ha.properties` uses all three PD peers and all three
-  allowed Store REST targets.
+- `conf/hubble/hstore.properties.example` uses one PD and one Store REST
+  target.
+- `conf/hubble/hstore-ha.properties.example` uses all three PD peers and all
+  three allowed Store REST targets.
+
+The two HStore topologies mount the generated `*.local.properties` next to
+these examples (see `set-hubble-pd-password.sh`), never the examples
+themselves, so the PD secret stays out of tracked files.
 
 Hubble detects Server authentication through the Server API. Do not add an
 `auth.enabled` property or duplicate auth-on/auth-off configurations.
