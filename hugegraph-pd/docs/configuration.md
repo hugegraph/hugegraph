@@ -104,6 +104,16 @@ the Docker image takes `HG_PD_AUTH_SECRET_KEY`.
 curl -u hg:<secret> http://<host>:8620/v1/stores
 ```
 
+`-u` puts the secret in curl's process arguments, where any local account can
+read it while the call runs, and PD REST is plain HTTP. On a shared host, or
+across a network you do not control, keep the secret out of `argv` by reading
+it from a file mode 0600:
+
+```bash
+printf 'user = "hg:%s"\n' "${PD_SECRET}" > pd.curlrc && chmod 600 pd.curlrc
+curl -K pd.curlrc http://<host>:8620/v1/stores
+```
+
 ### Raft Consensus Settings
 
 Controls Raft consensus for PD cluster coordination.
@@ -284,7 +294,7 @@ management:
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `management.metrics.export.prometheus.enabled` | Boolean | `true` | Enable Prometheus-compatible metrics at `/actuator/prometheus`. |
-| `management.endpoints.web.exposure.include` | String | `"health,metrics,prometheus"` | Actuator endpoints to expose. Actuator is served by its own handler mapping, which the REST authentication interceptor is not attached to, so every endpoint listed here is reachable without a credential on port 8620. This allowlist is what bounds which endpoints exist there, so prefer it over `"*"`. The interceptor's `/actuator/**` exclusion records the same intent but is not what makes these paths anonymous. In the PD Docker image this key is pinned: the entrypoint emits it in `SPRING_APPLICATION_JSON`, which outranks a mounted `conf/application.yml`, so changing it there has no effect. |
+| `management.endpoints.web.exposure.include` | String | `"health,metrics,prometheus"` | Actuator endpoints to expose. Actuator is served by its own handler mapping, which the REST authentication interceptor is not attached to, so every endpoint listed here is reachable without a credential on port 8620. This allowlist is what bounds which endpoints exist there, so prefer it over `"*"`. The interceptor's `/actuator/**` exclusion records the same intent but is not what makes these paths anonymous. In the PD Docker image the entrypoint emits this key in `SPRING_APPLICATION_JSON`, which outranks a mounted `conf/application.yml`, so editing it there has no effect; set `HG_PD_ACTUATOR_EXPOSURE` on the container instead. That variable defaults to the same allowlist and refuses a value containing `*`, because `/actuator/env` returns the `SPRING_APPLICATION_JSON` entry verbatim, PD's REST secret included. |
 
 ## Deployment Scenarios
 

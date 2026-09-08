@@ -26,6 +26,11 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../../.." && pwd)"
 PUBLISHED_SECRET='FXQXbJtbCLxODc6tGci732pkH1cyf8Qg'
+# The allowlist these files must carry, spelled out. An exact comparison rather
+# than "no wildcard": a missing include:, a reordered or duplicated entry, and
+# an extra endpoint are all changes to what this port serves anonymously, and
+# each of them used to pass.
+EXPECTED_EXPOSURE='health,metrics,prometheus'
 FAIL=0
 
 check() {
@@ -36,9 +41,17 @@ check() {
     # include: above this block must not satisfy the check by accident.
     local exposure
     exposure=$(awk '/^[[:space:]]*exposure:/ {found = 1; next}
-                    found && /^[[:space:]]*include:/ {sub(/^[[:space:]]*include:[[:space:]]*/, ""); print; exit}' "$file")
-    if [[ "$exposure" == *'*'* ]]; then
-        echo "  FAIL ${rel}: actuator exposure is a wildcard (${exposure})"; FAIL=1
+                    found && /^[[:space:]]*include:/ {
+                        sub(/^[[:space:]]*include:[[:space:]]*/, "")
+                        sub(/[[:space:]]+$/, "")
+                        print; exit
+                    }' "$file")
+    # YAML quoting is the file's business, not this contract's
+    exposure=${exposure#\"}; exposure=${exposure%\"}
+    exposure=${exposure#\'}; exposure=${exposure%\'}
+    if [[ "$exposure" != "${EXPECTED_EXPOSURE}" ]]; then
+        echo "  FAIL ${rel}: actuator exposure must be exactly" \
+             "'${EXPECTED_EXPOSURE}', got '${exposure}'"; FAIL=1
     fi
     if ! grep -qE '^[[:space:]]*secret-key:[[:space:]]*$' "$file"; then
         echo "  FAIL ${rel}: auth.secret-key must be present and empty"; FAIL=1

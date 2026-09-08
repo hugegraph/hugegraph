@@ -130,7 +130,17 @@ if env | grep '^hugegraph\.' > /dev/null; then
               # curl stays out of the grep pipeline so its status code is
               # readable: a 401 is a wrong secret, not a storage problem, and
               # retrying it for 300s only hides that.
+              #
+              # A 401 is remembered rather than returned at once, so one
+              # refusing peer no longer ends the wait before the rest of
+              # PD_REST_LIST is tried. That case is real: during a rolling
+              # secret rotation, or against a pre-1.8 PD that answers 200 to
+              # any password, a Server used to die even though the next peer
+              # would have accepted it. Returning 2 only when no peer produced
+              # an Up store keeps the fail-fast for a fleet-wide wrong secret,
+              # which still aborts on the first pass instead of retrying 300s.
               check_any_pd_stores() {
+                refused=
                 for peer in \$(echo \"\$PD_REST_LIST\" | tr ',' ' '); do
                   body=\$(printf 'user = \"%s:%s\"\n' \
                            \"\$PD_AUTH_CURL_USER\" \"\$PD_AUTH_CURL_PASSWORD\" | \
@@ -140,14 +150,17 @@ if env | grep '^hugegraph\.' > /dev/null; then
                          \"http://\${peer}/v1/stores\" 2>/dev/null)
                   code=\${body##*\$'\n'}
                   if [ \"\$code\" = 401 ]; then
-                    log \"ERROR: PD at \${peer} refused the credential (401): PD_AUTH_PASSWORD must match PD's auth.secret-key\" >&2
-                    return 2
+                    log \"ERROR: PD at \${peer} refused the credential (401):\" >&2
+                    log '       PD_AUTH_PASSWORD must match PD auth.secret-key' >&2
+                    refused=1
+                    continue
                   fi
                   if printf '%s' \"\$body\" | grep -qi '\"state\"[[:space:]]*:[[:space:]]*\"Up\"'; then
                     echo \"\$peer\"
                     return 0
                   fi
                 done
+                [ -z \"\$refused\" ] || return 2
                 return 1
               }
 

@@ -195,8 +195,14 @@ public class RestApiTest extends BaseServerTest {
     @Test
     public void testProbePathsNeedNoCredential() throws URISyntaxException, IOException,
                                                         InterruptedException {
-        assert statusWithoutCredential("/v1/health") == 200;
-        assert statusWithoutCredential("/actuator/health") == 200;
+        // != 401, not == 200: /actuator/health answers 503 whenever any health
+        // indicator is DOWN (low disk space on a CI runner is the usual one)
+        // and /v1/health reflects cluster state, so == 200 would report a
+        // transient unhealthy PD as an authentication regression and send
+        // someone looking in this file. The claim here is only that these
+        // paths are reachable without a credential.
+        assert statusWithoutCredential("/v1/health") != 401;
+        assert statusWithoutCredential("/actuator/health") != 401;
         // Nested actuator paths are probe surface too. They stay open because
         // actuator has its own handler mapping that the auth interceptor is not
         // attached to, not because of the /actuator/** exclusion pattern.

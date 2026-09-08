@@ -2,6 +2,21 @@
 
 This guide provides comprehensive instructions for deploying HugeGraph Store in various environments, from development to production clusters.
 
+> **PD REST credential.** Calls to a PD REST endpoint on port 8620, other than
+> `/v1/health`, `/actuator/**` and `/v1/prom/targets/*`, need HTTP Basic auth:
+> one of the internal service names (`hg`, `store`, `hubble`, `vermeer`) and
+> PD's `auth.secret-key` value as the password. A call without it gets HTTP 401
+> and a `{"status":-1,"error":"Unauthorized"}` body, not the payloads shown
+> below. Export the secret before following a step that uses `${PD_SECRET}`:
+>
+> ```bash
+> read -rs PD_SECRET && export PD_SECRET
+> ```
+>
+> Store endpoints on port 8520 are unaffected. `-u` puts the secret in curl's
+> process arguments; on a shared host pass it in a `curl -K` file mode 0600
+> instead, as `hugegraph-pd/docs/configuration.md` shows.
+
 ## Table of Contents
 
 - [Deployment Topologies](#deployment-topologies)
@@ -472,7 +487,7 @@ curl http://localhost:8620/actuator/health
 
 ```bash
 # Check cluster members
-curl http://192.168.1.10:8620/v1/members
+curl -u hg:"${PD_SECRET}" http://192.168.1.10:8620/v1/members
 
 # Expected output:
 {
@@ -586,7 +601,7 @@ curl http://localhost:8520/v1/health
 
 ```bash
 # Query PD for registered stores
-curl http://192.168.1.10:8620/v1/stores
+curl -u hg:"${PD_SECRET}" http://192.168.1.10:8620/v1/stores
 
 # Expected output:
 {
@@ -703,7 +718,16 @@ environment:
   HG_PD_DATA_PATH: /hugegraph-pd/pd_data              # maps to pd.data-path
   HG_PD_INITIAL_STORE_COUNT: 3                         # maps to pd.initial-store-count
   HG_PD_AUTH_SECRET_KEY: ${HG_PD_AUTH_SECRET_KEY:?}    # maps to auth.secret-key; required
+  # optional; maps to management.endpoints.web.exposure.include
+  HG_PD_ACTUATOR_EXPOSURE: health,metrics,prometheus
 ```
+
+`HG_PD_ACTUATOR_EXPOSURE` is the only way to change the actuator allowlist in
+this image: the entrypoint emits it in `SPRING_APPLICATION_JSON`, which outranks
+a mounted `conf/application.yml`. Add an endpoint here to expose it, for example
+`health,metrics,prometheus,loggers`. A value containing `*` is refused, because
+every actuator endpoint is anonymous on port 8620 and `/actuator/env` returns the
+`SPRING_APPLICATION_JSON` entry verbatim, PD's REST secret included.
 
 **Store environment variables** (per node):
 
@@ -874,16 +898,16 @@ curl http://192.168.1.20:8520/v1/health
 
 ```bash
 # PD cluster members
-curl http://192.168.1.10:8620/v1/members
+curl -u hg:"${PD_SECRET}" http://192.168.1.10:8620/v1/members
 
 # Registered stores
-curl http://192.168.1.10:8620/v1/stores
+curl -u hg:"${PD_SECRET}" http://192.168.1.10:8620/v1/stores
 
 # Partitions
-curl http://192.168.1.10:8620/v1/partitions
+curl -u hg:"${PD_SECRET}" http://192.168.1.10:8620/v1/partitions
 
 # Graph list
-curl http://192.168.1.10:8620/v1/graphs
+curl -u hg:"${PD_SECRET}" http://192.168.1.10:8620/v1/graphs
 ```
 
 ### Basic Operations Test

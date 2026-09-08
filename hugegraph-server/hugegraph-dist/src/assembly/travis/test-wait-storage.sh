@@ -170,6 +170,13 @@ printf '%s\n' "${count}" > "${MOCK_COUNT_FILE}"
 
 if [[ "${MOCK_SCENARIO}" == "auth-401" ]]; then
     respond '{"status":-1,"error":"Unauthorized"}' 401
+elif [[ "${MOCK_SCENARIO}" == "one-401" && \
+        "${url}" == "http://pd0:8620/v1/stores" ]]; then
+    # One stale peer mid-rotation, or a pre-1.8 peer that took any password
+    respond '{"status":-1,"error":"Unauthorized"}' 401
+elif [[ "${MOCK_SCENARIO}" == "one-401" && \
+        "${url}" == "http://pd1:8620/v1/stores" ]]; then
+    respond '{"stores":[{"state":"Up"}]}' 200
 elif [[ "${MOCK_SCENARIO}" == "pd1-up" && \
       "${url}" == "http://pd1:8620/v1/stores" ]]; then
     respond '{"stores":[{"state":"Up"}]}' 200
@@ -247,13 +254,24 @@ if grep -Fv -- 'user = "test-user:a\r\nb\\c\"d"' "${CONFIG_LOG}" | grep -q .; th
 fi
 echo "  PASS line break in secret"
 
-# A 401 is a wrong secret, not a storage problem: abort at once, name the cause.
+# A fleet-wide wrong secret is not a storage problem: finish the pass so every
+# refusal is named, then abort rather than retrying it for the full 300s.
 run_case "auth-401" "pd0:8620,pd1:8620" 9
-[[ "${CASE_RC}" -ne 0 ]] || fail "a 401 from PD must abort"
+[[ "${CASE_RC}" -ne 0 ]] || fail "a 401 from every peer must abort"
 assert_output "refused the credential (401)"
-assert_equal "no retry after 401" "${PD0}" "$(cat "${CALL_LOG}")"
+assert_equal "one pass, no retry after 401" "${TWO_CALLS}" "$(cat "${CALL_LOG}")"
 [[ "${CASE_OUTPUT}" != *"Timeout waiting"* ]] || fail "401 was reported as a timeout"
-echo "  PASS 401 aborts without retry"
+echo "  PASS 401 from every peer aborts without retry"
+
+# One refusing peer must not cost the Server: during a rolling secret rotation,
+# or against a pre-1.8 peer that answers 200 to any password, the next peer in
+# PD_REST_LIST would have accepted it. The abort is for the fleet, not the peer.
+run_case "one-401" "pd0:8620,pd1:8620" 6
+assert_equal "one refusing peer rc" "0" "${CASE_RC}"
+assert_equal "kept going past the 401" "${TWO_CALLS}" "$(cat "${CALL_LOG}")"
+assert_output "refused the credential (401)"
+assert_output "Store registration check PASSED via pd1:8620"
+echo "  PASS one refusing peer does not end the wait"
 
 # The standalone RocksDB topology never reaches PD, so it must not warn about
 # a PD credential it will not send.
@@ -269,4 +287,4 @@ assert_output "No pd.peers configured, skipping storage wait"
     fail "warned about an unused PD credential with no pd.peers configured"
 echo "  PASS no credential warning without pd.peers"
 
-echo "8 passed, 0 failed"
+echo "9 passed, 0 failed"
