@@ -25,8 +25,8 @@
 # lands in a tracked file. The secret defaults to $HG_PD_AUTH_SECRET_KEY. The
 # value never goes through a sed replacement, where & # and backslash are
 # special, and backslashes are doubled for the .properties format. Run this
-# before `docker compose up`: if the target is missing Docker creates an empty
-# directory at the bind path and Hubble starts with no configuration.
+# before `docker compose up`: the bind pins create_host_path: false, so a
+# missing target makes Compose refuse to start.
 #
 # The secret must be printable ASCII. PD compares it as UTF-8 bytes
 # (Authentication.verifySecret), while Hubble reads this file through

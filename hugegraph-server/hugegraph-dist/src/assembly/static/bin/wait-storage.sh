@@ -131,17 +131,20 @@ if env | grep '^hugegraph\.' > /dev/null; then
               # readable: a 401 is a wrong secret, not a storage problem, and
               # retrying it for 300s only hides that.
               #
-              # A 401 is remembered rather than returned at once, so one
-              # refusing peer no longer ends the wait before the rest of
-              # PD_REST_LIST is tried. That case is real: during a rolling
-              # secret rotation, or against a pre-1.8 PD that answers 200 to
-              # any password, a Server used to die even though the next peer
-              # would have accepted it. Returning 2 only when no peer produced
-              # an Up store keeps the fail-fast for a fleet-wide wrong secret,
-              # which still aborts on the first pass instead of retrying 300s.
+              # 401s are counted, not flagged, so the abort is for the fleet
+              # and never for one peer. That distinction is real: PD serves
+              # /v1/stores well before stores finish registering, so the first
+              # pass of a rolling secret rotation can find one stale peer
+              # refusing while the healthy peers are merely storeless. A flag
+              # turned that into a dead Server. Returning 2 only when every
+              # peer polled refused keeps the fail-fast for a fleet-wide wrong
+              # secret, which still aborts on pass one instead of retrying for
+              # the full 300s.
               check_any_pd_stores() {
-                refused=
+                refused=0
+                peers=0
                 for peer in \$(echo \"\$PD_REST_LIST\" | tr ',' ' '); do
+                  peers=\$((peers + 1))
                   body=\$(printf 'user = \"%s:%s\"\n' \
                            \"\$PD_AUTH_CURL_USER\" \"\$PD_AUTH_CURL_PASSWORD\" | \
                          curl -K - -s -w '\n%{http_code}' \
@@ -152,7 +155,7 @@ if env | grep '^hugegraph\.' > /dev/null; then
                   if [ \"\$code\" = 401 ]; then
                     log \"ERROR: PD at \${peer} refused the credential (401):\" >&2
                     log '       PD_AUTH_PASSWORD must match PD auth.secret-key' >&2
-                    refused=1
+                    refused=\$((refused + 1))
                     continue
                   fi
                   if printf '%s' \"\$body\" | grep -qi '\"state\"[[:space:]]*:[[:space:]]*\"Up\"'; then
@@ -160,7 +163,7 @@ if env | grep '^hugegraph\.' > /dev/null; then
                     return 0
                   fi
                 done
-                [ -z \"\$refused\" ] || return 2
+                [ \"\$peers\" -gt 0 ] && [ \"\$refused\" -eq \"\$peers\" ] && return 2
                 return 1
               }
 

@@ -34,7 +34,7 @@ EXPECTED_EXPOSURE='health,metrics,prometheus'
 FAIL=0
 
 check() {
-    local file="$1" rel="${1#"${ROOT}/"}" before="$FAIL"
+    local file="$1" rel="${1#"${ROOT}/"}" bad=0
     [[ -f "$file" ]] || { echo "  FAIL ${rel}: missing"; FAIL=1; return; }
 
     # The actuator exposure specifically: a config that grows an unrelated
@@ -51,16 +51,19 @@ check() {
     exposure=${exposure#\'}; exposure=${exposure%\'}
     if [[ "$exposure" != "${EXPECTED_EXPOSURE}" ]]; then
         echo "  FAIL ${rel}: actuator exposure must be exactly" \
-             "'${EXPECTED_EXPOSURE}', got '${exposure}'"; FAIL=1
+             "'${EXPECTED_EXPOSURE}', got '${exposure}'"; FAIL=1; bad=1
     fi
     if ! grep -qE '^[[:space:]]*secret-key:[[:space:]]*$' "$file"; then
-        echo "  FAIL ${rel}: auth.secret-key must be present and empty"; FAIL=1
+        echo "  FAIL ${rel}: auth.secret-key must be present and empty"; FAIL=1; bad=1
     fi
     if grep -q "${PUBLISHED_SECRET}" "$file"; then
-        echo "  FAIL ${rel}: contains the published secret"; FAIL=1
+        echo "  FAIL ${rel}: contains the published secret"; FAIL=1; bad=1
     fi
-    # Only when nothing above raised FAIL, or the file contradicts its own report
-    if [[ "$FAIL" == "$before" ]]; then
+    # Per file, not the global FAIL: once an earlier file has set that, every
+    # later file matches it again and a failing file reports itself ok. Kept as
+    # an if rather than a bare test-and-echo, which would be the function's last
+    # command and return 1 on a failing file, aborting the loop under set -e.
+    if [[ "$bad" -eq 0 ]]; then
         echo "  ok   ${rel}"
     fi
 }

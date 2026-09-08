@@ -323,8 +323,9 @@ cleanup() {
 
 # The HStore topologies mount conf/hubble/<name>.local.properties, which is
 # generated and untracked. Generate both with the CI secret before any render
-# or `up`; a missing file would make Docker create an empty directory at the
-# bind path. A developer's own local files are put back afterwards.
+# or `up`; the binds pin create_host_path: false, so a missing file makes
+# Compose refuse to start. A developer's own local files are put back
+# afterwards.
 HUBBLE_BACKUP_DIR=""
 prepare_hubble_configs() {
     local name

@@ -113,14 +113,20 @@ fails:
 ./set-hubble-pd-password.sh hstore      # or hstore-ha
 ```
 
-Run it before `docker compose up`: if the file is missing, Docker creates an
-empty directory at the bind path and Hubble starts with no configuration.
-The helper refuses an empty value, writes the secret without passing it
-through a `sed` replacement (where `&`, `#` and backslashes are special), and
-doubles backslashes for the `.properties` format. The generated hex secret
-needs none of that, but a hand-chosen one might. Until the file carries the
-right value, Hubble's PD-backed views get 401 from PD; everything else in
-Hubble works.
+Run it before `docker compose up`: both HStore Compose files pin the mount with `create_host_path: false`, so a missing
+file makes Compose refuse to start rather than mounting an empty directory over Hubble's config.
+
+<details><summary>What the helper guarantees, and why Hubble 401s until it has run</summary>
+
+- Refuses an empty secret.
+- Refuses a secret that is not printable ASCII. Hubble reads `.properties` as ISO-8859-1 while PD compares UTF-8 bytes,
+  so a non-ASCII secret gives a permanent 401 with nothing logged on either side. The generated hex is safe.
+- Writes the value without passing it through a `sed` replacement (where `&`, `#` and backslashes are special) and
+  doubles backslashes for the `.properties` format. The generated hex needs none of that; a hand-chosen one might.
+
+Until the file carries the right value, Hubble's PD-backed views get 401 from PD; everything else in Hubble works.
+
+</details>
 
 ### Standalone
 
