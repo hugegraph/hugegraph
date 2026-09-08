@@ -40,6 +40,7 @@ public class AuthenticationConfigurer implements WebMvcConfigurer {
                 // mappings alone and never sees an actuator request either way.
                 // What is reachable there is bounded by
                 // management.endpoints.web.exposure.include.
-                .excludePathPatterns("/actuator/**", "/v1/health", "/v1/prom/targets/*");
+                .excludePathPatterns("/actuator/**", "/v1/health", "/v1/ready",
+                                     "/v1/prom/targets/*");
     }
 }
