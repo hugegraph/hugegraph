@@ -854,10 +854,11 @@ Exported on `/actuator/prometheus` for alerting on quorum loss:
 |-------|-------|
 | `hg_raft_leader` | `1` on the raft leader, `0` elsewhere |
 | `hg_raft_has_leader` | `1` while this PD sees a leader (is inside a quorum), `0` otherwise |
-| `hg_raft_alive_peers` | On the leader, the number of peers it has heard from recently, itself included; `NaN` on other nodes |
+| `hg_raft_alive_peers` | Number of alive peers on the leader, itself included; `NaN` elsewhere |
 
-`hg_raft_alive_peers` counts the peers heard from within the leader lease
-timeout, which jraft derives as 90% of the election timeout by default.
+`hg_raft_alive_peers` counts the peers the leader has heard from within the
+leader lease timeout, which jraft derives as 90% of the election timeout by
+default.
 
 A cluster has lost its quorum when `sum(hg_raft_leader) == 0` or when
 `hg_raft_has_leader == 0` on every member. Both are briefly true during a
