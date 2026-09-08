@@ -18,6 +18,12 @@
 
 set -Eeuo pipefail
 
+# Most assertions below are a bare `jq -e ... >/dev/null`, so `set -e` used to
+# end the run with no output at all and a CI log that said only "exit code 1".
+# Name the command and line that failed instead; the trap fires once per frame,
+# so the innermost assertion comes first and its callers follow.
+trap 'echo "FAILED at ${BASH_SOURCE[0]}:${LINENO}: ${BASH_COMMAND}" >&2' ERR
+
 DOCKER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PASSWORD="ci-compose-password"
 SECRET="0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
@@ -150,14 +156,30 @@ assert_hubble() {
 # and gitignored. Their binds must disable host-path creation, so a first
 # `docker compose up` that skipped the generator fails instead of getting an
 # empty directory mounted over Hubble's config.
+#
+# This reads the Compose file rather than the render on purpose. compose-go
+# tags ServiceVolumeBind.CreateHostPath `json:"create_host_path,omitempty"`
+# (checked in compose-go v2.7.0, the version inside the Compose 2.38.2 that
+# ubuntu-24.04 runners ship), and omitempty drops a false bool, so
+# `config --format json` emits the same `"bind": {}` for the long syntax with
+# create_host_path disabled and for the short syntax this pins away from. The
+# render simply cannot carry this contract on that version.
 assert_hubble_bind_pinned() {
-    local rendered="$1"
-    jq -e '
-        any(.services.hubble.volumes[];
-            .type == "bind" and
-            .target == "/hubble/conf/hugegraph-hubble.properties" and
-            .bind.create_host_path == false)
-    ' "${rendered}" >/dev/null
+    local file="$1" properties="$2"
+    grep -Fq "source: ./conf/hubble/${properties}" "${file}" || {
+        echo "${file}: the ${properties} mount is not in long bind syntax" >&2
+        return 1
+    }
+    grep -Fq "create_host_path: false" "${file}" || {
+        echo "${file}: the ${properties} bind does not disable" \
+             "create_host_path" >&2
+        return 1
+    }
+    if grep -Fq "./conf/hubble/${properties}:/hubble/conf" "${file}"; then
+        echo "${file}: the ${properties} mount is back on the short bind" \
+             "syntax, which lets Docker create an empty directory there" >&2
+        return 1
+    fi
 }
 
 assert_standalone() {
@@ -187,7 +209,8 @@ assert_hstore() {
                   '["hubble","pd","server","store"]' \
                   '["hubble-data","pd-data","store-data"]'
     assert_hubble "${rendered}" "hstore.local.properties" server
-    assert_hubble_bind_pinned "${rendered}"
+    assert_hubble_bind_pinned "${DOCKER_DIR}/docker-compose-hstore.yml" \
+                              "hstore.local.properties"
     jq -e '
         .services.pd.image == "hugegraph/pd:ci-version" and
         .services.store.image == "hugegraph/store:ci-version" and
@@ -222,7 +245,9 @@ assert_ha() {
         '["hg-pd0-data","hg-pd1-data","hg-pd2-data","hg-store0-data","hg-store1-data","hg-store2-data","hubble-data"]'
     assert_hubble "${rendered}" "hstore-ha.local.properties" \
                   server0 server1 server2
-    assert_hubble_bind_pinned "${rendered}"
+    assert_hubble_bind_pinned \
+        "${DOCKER_DIR}/docker-compose-3pd-3store-3server.yml" \
+        "hstore-ha.local.properties"
     jq -e '
         all([.services.pd0, .services.pd1, .services.pd2][];
             .image == "hugegraph/pd:ci-version" and
@@ -344,6 +369,17 @@ hubble_password_helper_check() {
         echo "set-hubble-pd-password.sh accepted an empty secret" >&2; exit 1; }
     ! "${DOCKER_DIR}/set-hubble-pd-password.sh" nope 'x' 2>/dev/null || {
         echo "set-hubble-pd-password.sh accepted an unknown topology" >&2; exit 1; }
+    # Hubble decodes this file as ISO-8859-1 and PD compares UTF-8 bytes, so a
+    # non-ASCII secret would be a permanent 401 with nothing in any log.
+    ! "${DOCKER_DIR}/set-hubble-pd-password.sh" hstore 'pässwörd' 2>/dev/null || {
+        echo "set-hubble-pd-password.sh accepted a non-ASCII secret" >&2; exit 1; }
+    # java.util.Properties drops whitespace after the separator, so a leading
+    # space has to survive as an escape or Hubble reads a shortened secret.
+    "${DOCKER_DIR}/set-hubble-pd-password.sh" hstore ' lead' >/dev/null
+    line=$(grep '^operations\.pd\.password=' "${f}")
+    [[ "${line}" == 'operations.pd.password=\ lead' ]] || {
+        echo "set-hubble-pd-password.sh left a leading space unescaped: ${line}" >&2
+        exit 1; }
     # put the CI value back for the render/smoke that follows
     "${DOCKER_DIR}/set-hubble-pd-password.sh" hstore "${PD_SECRET}" >/dev/null
 }

@@ -43,9 +43,11 @@ contains a single quote or newline.
   printf "HUGEGRAPH_ADMIN_PASSWORD='%s'\nHUGEGRAPH_AUTH_TOKEN_SECRET='%s'\nHG_PD_AUTH_SECRET_KEY='%s'\n" \
     'replace-with-your-password' "${jwt_secret}" "${pd_secret}" > .env
   # Hubble reads the PD secret from a file, not from .env: generate the
-  # untracked properties files the HStore topologies mount
-  ./set-hubble-pd-password.sh hstore "${pd_secret}"
-  ./set-hubble-pd-password.sh hstore-ha "${pd_secret}"
+  # untracked properties files the HStore topologies mount. Passed in the
+  # environment rather than as an argument, which `ps` shows to every local
+  # account for as long as the helper runs.
+  HG_PD_AUTH_SECRET_KEY="${pd_secret}" ./set-hubble-pd-password.sh hstore
+  HG_PD_AUTH_SECRET_KEY="${pd_secret}" ./set-hubble-pd-password.sh hstore-ha
 )
 ```
 
