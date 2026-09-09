@@ -115,15 +115,19 @@ wait_for_pd() {
 # -f rejects the 503, the body match rejects a 200 that is an auth envelope rather
 # than a readiness answer. No credentials, and a single-node group elects itself.
 # Captured rather than piped: under pipefail a grep -q SIGPIPE could misread a
-# ready PD, and wait_for_pd() above uses the same shape.
+# ready PD, and wait_for_pd() above uses the same shape. The curl timeouts bound
+# each attempt and the loop bounds itself on the wall clock, so a PD that accepts
+# the connection and then stops answering cannot park this loop past STARTUP_WAIT.
+# A per-round counter could not: an attempt costs up to --max-time plus the sleep,
+# which is more than the counter would add.
 wait_for_pd_ready() {
-    local elapsed=0
-    while (( elapsed < STARTUP_WAIT )); do
+    local deadline=$((SECONDS + STARTUP_WAIT))
+    while (( SECONDS < deadline )); do
         local body
-        body=$(curl -fsS "$PD_URL/v1/ready" 2>/dev/null || true)
-        grep -q '"ready":true' <<<"$body" && return 0
+        body=$(curl --connect-timeout 2 --max-time 5 -fsS \
+            "$PD_URL/v1/ready" 2>/dev/null || true)
+        grep -Eq '"ready"[[:space:]]*:[[:space:]]*true' <<<"$body" && return 0
         sleep 2
-        elapsed=$((elapsed + 2))
     done
     return 1
 }

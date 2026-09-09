@@ -30,7 +30,16 @@ require_env() {
 # remaining C0 control character as \uXXXX. Dropping only LF, as an earlier
 # version did, left CR and TAB to produce invalid JSON and a container that
 # failed before startup.
+#
+# LC_ALL=C is what makes the walk deterministic. eclipse-temurin:11-jre-jammy
+# sets LC_ALL=en_US.UTF-8, and under that locale `${#s}`/`${s:i:1}` iterate
+# characters rather than bytes and `<` sorts by collation rather than by code
+# point. Pinned to C, iteration is byte-wise, the comparison is ordinal, and
+# the bytes of a non-ASCII character (0x80 and up) pass through untouched,
+# which is still valid JSON. The escape branch then only sees single-byte
+# ASCII, so this pin is the only behavioral change.
 json_escape() {
+    local LC_ALL=C
     local s="$1" out="" i c
     s=${s//\\/\\\\}
     s=${s//\"/\\\"}
@@ -80,14 +89,36 @@ require_env "HG_PD_AUTH_SECRET_KEY"
 : "${HG_PD_REST_PORT:=8620}"
 : "${HG_PD_DATA_PATH:=/hugegraph-pd/pd_data}"
 : "${HG_PD_INITIAL_STORE_COUNT:=1}"
+# Actuator endpoints reachable without a credential. Hardened by default; an
+# operator who needs /actuator/info or /actuator/loggers from this image opts
+# in deliberately instead of losing the endpoint. "*" is refused: /actuator/env
+# returns the SPRING_APPLICATION_JSON entry below verbatim, secret included.
+: "${HG_PD_ACTUATOR_EXPOSURE:=health,metrics,prometheus}"
+if [[ "${HG_PD_ACTUATOR_EXPOSURE}" == *'*'* ]]; then
+    echo "ERROR: HG_PD_ACTUATOR_EXPOSURE must not be a wildcard;" \
+         "/actuator/env would publish the PD REST secret" >&2
+    exit 2
+fi
 
 # Secret for REST Basic authentication (auth.secret-key). Required above and
 # never logged.
 AUTH_JSON="\"auth\": { \"secret-key\": \"$(json_escape "${HG_PD_AUTH_SECRET_KEY}")\" },"
 
+# The secret above lands in SPRING_APPLICATION_JSON, and actuator's /env
+# sanitizer keys off the property name: it redacts auth.secret-key but returns
+# the SPRING_APPLICATION_JSON environment entry verbatim, secret included. The
+# image's own conf/application.yml already narrows the exposure, but a
+# bind-mounted pre-1.8 config brings back include: "*". SPRING_APPLICATION_JSON
+# outranks the config file, so pin the allowlist here too, from the env-driven
+# default above rather than from a literal: every other PD setting in this
+# entrypoint is env-driven, and pinning a literal took away the operator's
+# only way to expose another endpoint from this image.
+MANAGEMENT_JSON="\"management\": { \"endpoints\": { \"web\": { \"exposure\": { \"include\": \"$(json_escape "${HG_PD_ACTUATOR_EXPOSURE}")\" } } } },"
+
 SPRING_APPLICATION_JSON="$(cat <<JSON
 {
   ${AUTH_JSON}
+  ${MANAGEMENT_JSON}
   "grpc":   { "host": "$(json_escape "${HG_PD_GRPC_HOST}")",
               "port": "$(json_escape "${HG_PD_GRPC_PORT}")" },
   "server": { "port": "$(json_escape "${HG_PD_REST_PORT}")" },
@@ -110,5 +141,6 @@ log "  raft.peers-list=${HG_PD_RAFT_PEERS_LIST}"
 log "  pd.initial-store-list=${HG_PD_INITIAL_STORE_LIST}"
 log "  pd.initial-store-count=${HG_PD_INITIAL_STORE_COUNT}"
 log "  pd.data-path=${HG_PD_DATA_PATH}"
+log "  management.endpoints.web.exposure.include=${HG_PD_ACTUATOR_EXPOSURE}"
 
 ./bin/start-hugegraph-pd.sh -d false -j "${JAVA_OPTS:-}"

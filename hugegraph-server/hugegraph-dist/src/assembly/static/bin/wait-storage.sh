@@ -46,9 +46,6 @@ log() {
 # curl on stdin as a config file.
 PD_AUTH_USER="${PD_AUTH_USER:-store}"
 PD_AUTH_PASSWORD="${PD_AUTH_PASSWORD:-}"
-if [ -z "${PD_AUTH_PASSWORD}" ]; then
-  log "WARN: PD_AUTH_PASSWORD is empty; PD will answer 401 unless it runs without auth"
-fi
 # curl -K reads one option per line and takes the value as a quoted string
 # whose only escapes are \\ \" \t \n \r \v. Backslash first, then the rest;
 # an unescaped line break would end the option early and send a truncated
@@ -119,6 +116,11 @@ if env | grep '^hugegraph\.' > /dev/null; then
 
             export PD_REST_LIST
             log "PD REST peers = $PD_REST_LIST"
+            # Only worth saying where PD is actually polled: topologies without
+            # pd.peers never send this credential anywhere.
+            if [ -z "${PD_AUTH_PASSWORD}" ]; then
+              log "WARN: PD_AUTH_PASSWORD is empty; PD will answer 401 unless it runs without auth"
+            fi
             log "Timeout = ${WAIT_STORAGE_TIMEOUT_S}s"
 
             timeout "${WAIT_STORAGE_TIMEOUT_S}s" bash -c "
@@ -128,8 +130,21 @@ if env | grep '^hugegraph\.' > /dev/null; then
               # curl stays out of the grep pipeline so its status code is
               # readable: a 401 is a wrong secret, not a storage problem, and
               # retrying it for 300s only hides that.
+              #
+              # 401s are counted, not flagged, so the abort is for the fleet
+              # and never for one peer. That distinction is real: PD serves
+              # /v1/stores well before stores finish registering, so the first
+              # pass of a rolling secret rotation can find one stale peer
+              # refusing while the healthy peers are merely storeless. A flag
+              # turned that into a dead Server. Returning 2 only when every
+              # peer polled refused keeps the fail-fast for a fleet-wide wrong
+              # secret, which still aborts on pass one instead of retrying for
+              # the full 300s.
               check_any_pd_stores() {
+                refused=0
+                peers=0
                 for peer in \$(echo \"\$PD_REST_LIST\" | tr ',' ' '); do
+                  peers=\$((peers + 1))
                   body=\$(printf 'user = \"%s:%s\"\n' \
                            \"\$PD_AUTH_CURL_USER\" \"\$PD_AUTH_CURL_PASSWORD\" | \
                          curl -K - -s -w '\n%{http_code}' \
@@ -138,19 +153,26 @@ if env | grep '^hugegraph\.' > /dev/null; then
                          \"http://\${peer}/v1/stores\" 2>/dev/null)
                   code=\${body##*\$'\n'}
                   if [ \"\$code\" = 401 ]; then
-                    log \"ERROR: PD at \${peer} refused the credential (401): PD_AUTH_PASSWORD must match PD's auth.secret-key\" >&2
-                    return 2
+                    log \"ERROR: PD at \${peer} refused the credential (401):\" >&2
+                    log '       PD_AUTH_PASSWORD must match PD auth.secret-key' >&2
+                    refused=\$((refused + 1))
+                    continue
                   fi
                   if printf '%s' \"\$body\" | grep -qi '\"state\"[[:space:]]*:[[:space:]]*\"Up\"'; then
                     echo \"\$peer\"
                     return 0
                   fi
                 done
+                [ \"\$peers\" -gt 0 ] && [ \"\$refused\" -eq \"\$peers\" ] && return 2
                 return 1
               }
 
               until PD_REST=\$(check_any_pd_stores); do
-                if [ \$? -eq 2 ]; then exit 2; fi
+                # Must stay the first statement in the loop: any command in
+                # front of it would overwrite \$? and turn the 401 abort back
+                # into a 300s retry.
+                rc=\$?
+                if [ \"\$rc\" -eq 2 ]; then exit 2; fi
                 log 'No Up store yet, retrying in 5s'
                 sleep 5
               done

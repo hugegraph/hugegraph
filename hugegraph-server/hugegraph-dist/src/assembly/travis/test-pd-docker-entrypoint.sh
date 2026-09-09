@@ -16,8 +16,12 @@
 # limitations under the License.
 #
 # Checks that the PD Docker entrypoint turns HG_PD_AUTH_SECRET_KEY into valid
-# SPRING_APPLICATION_JSON, whatever the secret contains, and that the value
-# Spring would read back is the secret that went in.
+# SPRING_APPLICATION_JSON, whatever the secret contains, that the value Spring
+# would read back is the secret that went in, and that the same document pins
+# the actuator exposure allowlist. The allowlist has to travel with the secret:
+# SPRING_APPLICATION_JSON outranks a bind-mounted conf/application.yml, and an
+# older one exposing every actuator endpoint would otherwise serve that secret
+# back from /actuator/env.
 
 set -euo pipefail
 
@@ -41,9 +45,13 @@ STUB
 chmod +x "${TMP_DIR}/bin/start-hugegraph-pd.sh" "${TMP_DIR}/docker-entrypoint.sh"
 
 run_case() {
-    local name="$1" secret="$2"
+    # run_case <name> <secret> [expected exposure] [extra NAME=VALUE ...]
+    local name="$1" secret="$2" expected_exposure="${3:-health,metrics,prometheus}"
+    shift 2
+    (( $# == 0 )) || shift  # drop the exposure argument; the rest is extra env
     local out
     if ! out=$(cd "${TMP_DIR}" && env \
+        "$@" \
         HG_PD_GRPC_HOST=pd0 \
         HG_PD_RAFT_ADDRESS=pd0:8610 \
         HG_PD_RAFT_PEERS_LIST=pd0:8610 \
@@ -56,7 +64,8 @@ run_case() {
         return
     fi
 
-    if ! SECRET="${secret}" python3 - "${TMP_DIR}/spring.json" <<'PY'
+    if ! SECRET="${secret}" EXPOSURE="${expected_exposure}" \
+         python3 - "${TMP_DIR}/spring.json" <<'PY'
 import json, os, sys
 with open(sys.argv[1], encoding="utf-8") as fh:
     doc = json.load(fh)
@@ -65,9 +74,15 @@ want = os.environ["SECRET"]
 if got != want:
     print("  round-trip mismatch: %r != %r" % (got, want))
     sys.exit(1)
+exposure = doc.get("management", {}).get("endpoints", {}).get("web", {})
+exposure = exposure.get("exposure", {}).get("include")
+if exposure != os.environ["EXPOSURE"]:
+    print("  actuator exposure is %r, expected %r"
+          % (exposure, os.environ["EXPOSURE"]))
+    sys.exit(1)
 PY
     then
-        echo "  FAIL ${name}: invalid JSON or secret did not round-trip"
+        echo "  FAIL ${name}: invalid JSON, secret did not round-trip, or exposure is wrong"
         FAIL=$((FAIL + 1))
         return
     fi
@@ -84,6 +99,53 @@ run_case "backslash"           'a\b'
 run_case "backslash and quote" 'a\"b'
 run_case "non-ascii"           'sécrèt-2026'
 run_case "spaces"              'two words'
+
+# json_escape walks the secret with ${#s} and ${s:i:1} and compares with `<`.
+# Both are locale-sensitive, and the base image (eclipse-temurin:11-jre-jammy)
+# sets LC_ALL=en_US.UTF-8, so the same secret has to survive a UTF-8 locale
+# exactly as it does under C. Pick a UTF-8 locale the host actually has:
+# an ungenerated one silently falls back to C and makes the case vacuous.
+# Captured rather than piped into grep: `grep -q` exits at the first match, and
+# under pipefail the SIGPIPE that gives `locale -a` fails the whole pipeline.
+AVAILABLE_LOCALES=$(locale -a 2>/dev/null || true)
+UTF8_LOCALE=""
+for candidate in C.UTF-8 en_US.UTF-8 en_US.utf8; do
+    if grep -Fqix -- "${candidate}" <<<"${AVAILABLE_LOCALES}"; then
+        UTF8_LOCALE="${candidate}"
+        break
+    fi
+done
+if [[ -n "${UTF8_LOCALE}" ]]; then
+    run_case "non-ascii under ${UTF8_LOCALE}" 'sécrèt-2026' \
+             'health,metrics,prometheus' "LC_ALL=${UTF8_LOCALE}"
+    run_case "control chars under ${UTF8_LOCALE}" "$(printf 'a\rb\tc')" \
+             'health,metrics,prometheus' "LC_ALL=${UTF8_LOCALE}"
+else
+    echo "  SKIP UTF-8 locale cases: no UTF-8 locale on this host"
+fi
+
+# The allowlist is the default, not a pin: an operator who needs another
+# endpoint from this image opts in rather than losing the endpoint entirely.
+run_case "actuator exposure override" 'aVerySecretValue123' \
+         'health,metrics,prometheus,loggers' \
+         'HG_PD_ACTUATOR_EXPOSURE=health,metrics,prometheus,loggers'
+
+# ...but not all the way back to the hole this closed: /actuator/env returns
+# the SPRING_APPLICATION_JSON entry verbatim, secret included.
+for wildcard in '*' 'health,*'; do
+    if (cd "${TMP_DIR}" && env \
+            HG_PD_GRPC_HOST=pd0 HG_PD_RAFT_ADDRESS=pd0:8610 \
+            HG_PD_RAFT_PEERS_LIST=pd0:8610 HG_PD_INITIAL_STORE_LIST=store0:8500 \
+            HG_PD_AUTH_SECRET_KEY='aVerySecretValue123' \
+            HG_PD_ACTUATOR_EXPOSURE="${wildcard}" \
+            ./docker-entrypoint.sh >/dev/null 2>&1); then
+        echo "  FAIL wildcard exposure '${wildcard}' was accepted"
+        FAIL=$((FAIL + 1))
+    else
+        echo "  PASS wildcard exposure '${wildcard}' is refused"
+        PASS=$((PASS + 1))
+    fi
+done
 
 # The secret is required, and must never be echoed to the log
 if (cd "${TMP_DIR}" && env \

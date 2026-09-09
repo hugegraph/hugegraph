@@ -170,6 +170,20 @@ printf '%s\n' "${count}" > "${MOCK_COUNT_FILE}"
 
 if [[ "${MOCK_SCENARIO}" == "auth-401" ]]; then
     respond '{"status":-1,"error":"Unauthorized"}' 401
+elif [[ "${MOCK_SCENARIO}" == "one-401" && \
+        "${url}" == "http://pd0:8620/v1/stores" ]]; then
+    # One stale peer mid-rotation, or a pre-1.8 peer that took any password
+    respond '{"status":-1,"error":"Unauthorized"}' 401
+elif [[ "${MOCK_SCENARIO}" == "one-401" && \
+        "${url}" == "http://pd1:8620/v1/stores" ]]; then
+    respond '{"stores":[{"state":"Up"}]}' 200
+elif [[ "${MOCK_SCENARIO}" == "one-401-pending" && \
+        "${url}" == "http://pd0:8620/v1/stores" ]]; then
+    # Same stale peer, but caught before any store has finished registering
+    respond '{"status":-1,"error":"Unauthorized"}' 401
+elif [[ "${MOCK_SCENARIO}" == "one-401-pending" && \
+        "${url}" == "http://pd1:8620/v1/stores" ]]; then
+    respond '{"stores":[{"state":"Pending"}]}' 200
 elif [[ "${MOCK_SCENARIO}" == "pd1-up" && \
       "${url}" == "http://pd1:8620/v1/stores" ]]; then
     respond '{"stores":[{"state":"Up"}]}' 200
@@ -247,12 +261,52 @@ if grep -Fv -- 'user = "test-user:a\r\nb\\c\"d"' "${CONFIG_LOG}" | grep -q .; th
 fi
 echo "  PASS line break in secret"
 
-# A 401 is a wrong secret, not a storage problem: abort at once, name the cause.
+# A fleet-wide wrong secret is not a storage problem: finish the pass so every
+# refusal is named, then abort rather than retrying it for the full 300s.
 run_case "auth-401" "pd0:8620,pd1:8620" 9
-[[ "${CASE_RC}" -ne 0 ]] || fail "a 401 from PD must abort"
+[[ "${CASE_RC}" -ne 0 ]] || fail "a 401 from every peer must abort"
 assert_output "refused the credential (401)"
-assert_equal "no retry after 401" "${PD0}" "$(cat "${CALL_LOG}")"
+assert_equal "one pass, no retry after 401" "${TWO_CALLS}" "$(cat "${CALL_LOG}")"
 [[ "${CASE_OUTPUT}" != *"Timeout waiting"* ]] || fail "401 was reported as a timeout"
-echo "  PASS 401 aborts without retry"
+echo "  PASS 401 from every peer aborts without retry"
 
-echo "7 passed, 0 failed"
+# One refusing peer must not cost the Server: during a rolling secret rotation,
+# or against a pre-1.8 peer that answers 200 to any password, the next peer in
+# PD_REST_LIST accepts the same credential. Only a refusal from every peer that
+# answered is a fleet-wide wrong secret, so a lone 401 stays a retry.
+run_case "one-401" "pd0:8620,pd1:8620" 6
+assert_equal "one refusing peer rc" "0" "${CASE_RC}"
+assert_equal "kept going past the 401" "${TWO_CALLS}" "$(cat "${CALL_LOG}")"
+assert_output "refused the credential (401)"
+assert_output "Store registration check PASSED via pd1:8620"
+echo "  PASS one refusing peer does not end the wait"
+
+# The same lone 401 caught before any store is Up. PD serves /v1/stores well
+# ahead of store registration, so the first pass of a rolling rotation sees the
+# stale peer refuse and the healthy peers still storeless. That must retry, not
+# abort: the store is on its way, and the accepting peer is right there.
+run_case "one-401-pending" "pd0:8620,pd1:8620" 4
+[[ "${CASE_RC}" -ne 0 ]] || fail "a storeless fleet must still fail closed"
+assert_equal "retried past a lone 401" "${FOUR_CALLS}" "$(cat "${CALL_LOG}")"
+assert_output "refused the credential (401)"
+assert_output "No Up store yet, retrying in 5s"
+assert_output "ERROR: Timeout waiting for storage backend"
+[[ "${CASE_OUTPUT}" != *"storage wait aborted"* ]] || \
+    fail "a lone 401 aborted the wait with no Up store anywhere"
+echo "  PASS one refusing peer with no Up store retries"
+
+# The standalone RocksDB topology never reaches PD, so it must not warn about
+# a PD credential it will not send.
+: > "${DIST_ROOT}/conf/graphs/hugegraph.properties"
+CASE_OUTPUT=$(env \
+    PD_AUTH_PASSWORD="" \
+    'hugegraph.backend=rocksdb' \
+    "${DIST_ROOT}/bin/wait-storage.sh" 2>&1)
+CASE_RC=$?
+assert_equal "no-PD topology rc" "0" "${CASE_RC}"
+assert_output "No pd.peers configured, skipping storage wait"
+[[ "${CASE_OUTPUT}" != *"PD_AUTH_PASSWORD is empty"* ]] || \
+    fail "warned about an unused PD credential with no pd.peers configured"
+echo "  PASS no credential warning without pd.peers"
+
+echo "10 passed, 0 failed"

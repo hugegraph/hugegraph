@@ -25,8 +25,14 @@
 # lands in a tracked file. The secret defaults to $HG_PD_AUTH_SECRET_KEY. The
 # value never goes through a sed replacement, where & # and backslash are
 # special, and backslashes are doubled for the .properties format. Run this
-# before `docker compose up`: if the target is missing Docker creates an empty
-# directory at the bind path and Hubble starts with no configuration.
+# before `docker compose up`: the bind pins create_host_path: false, so a
+# missing target makes Compose refuse to start.
+#
+# The secret must be printable ASCII. PD compares it as UTF-8 bytes
+# (Authentication.verifySecret), while Hubble reads this file through
+# commons-configuration2, whose DEFAULT_ENCODING is ISO-8859-1, so a non-ASCII
+# secret decodes to different bytes on the two sides and gives a permanent 401
+# with no diagnostic anywhere. The README recipe generates hex, which is safe.
 set -euo pipefail
 
 name=${1:?usage: $0 <hstore|hstore-ha> [secret]}
@@ -40,8 +46,26 @@ out="${dir}/${name}.local.properties"
 case "$secret" in
     *$'\n'*|*$'\r'*) echo "secret contains a line break, which a .properties value cannot hold" >&2; exit 1 ;;
 esac
+# LC_ALL=C so the range is ordinal and the walk byte-wise: under the caller's
+# collation a non-ASCII character can sort inside \x20-\x7e and slip through.
+is_printable_ascii() {
+    local LC_ALL=C
+    case "$1" in
+        *[!$'\x20'-$'\x7e']*) return 1 ;;
+    esac
+}
+is_printable_ascii "$secret" || {
+    echo "secret must be printable ASCII: Hubble reads .properties as ISO-8859-1, PD compares as UTF-8" >&2
+    exit 1
+}
 
 escaped=${secret//\\/\\\\}
+# java.util.Properties skips whitespace between the separator and the value, so
+# a secret that starts with a space would reach Hubble shortened while PD and
+# the Server kept the original. A backslash before it keeps that first byte.
+case "$escaped" in
+    [$' \t']*) escaped="\\${escaped}" ;;
+esac
 tmp=$(mktemp "${out}.XXXXXX")
 trap 'rm -f "$tmp"' EXIT
 {
