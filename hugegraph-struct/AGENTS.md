@@ -93,7 +93,6 @@ org.apache.hugegraph/
 │   ├── JiebaAnalyzer       # Jieba segmentation
 │   ├── HanLPAnalyzer       # HanLP NLP
 │   ├── AnsjAnalyzer        # Ansj segmentation
-│   ├── WordAnalyzer        # Word-based analysis
 │   ├── JcsegAnalyzer       # Jcseg segmentation
 │   ├── MMSeg4JAnalyzer     # MMSeg4J segmentation
 │   └── SmartCNAnalyzer     # Lucene SmartCN
@@ -180,7 +179,6 @@ Multiple Chinese NLP libraries for different use cases:
 - **IKAnalyzer 2012_u6**: IK word segmentation
 - **HanLP portable-1.5.0**: Natural language processing
 - **Ansj 5.1.6**: Ansj segmentation
-- **Word 1.3**: APDPlat word segmentation
 - **Jcseg 2.2.0**: Jcseg segmentation
 - **mmseg4j-core 1.10.0**: MMSeg4J segmentation
 - **lucene-analyzers-smartcn 7.4.0**: Lucene SmartCN
