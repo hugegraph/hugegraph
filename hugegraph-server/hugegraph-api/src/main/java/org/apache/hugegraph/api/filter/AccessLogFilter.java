@@ -239,7 +239,12 @@ public class AccessLogFilter implements ContainerRequestFilter, ContainerRespons
             return DEFAULT_CHARSET;
         }
         String charset = mediaType.getParameters().get(MediaType.CHARSET_PARAMETER);
-        return charset == null ? DEFAULT_CHARSET : Charset.forName(charset);
+        try {
+            return charset == null ? DEFAULT_CHARSET : Charset.forName(charset);
+        } catch (IllegalArgumentException e) {
+            // Keep body logging independent of request charset validation by the resource.
+            return DEFAULT_CHARSET;
+        }
     }
 
     private static String preview(byte[] bytes, int length, int limit, Charset charset) {
