@@ -29,6 +29,7 @@ import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 import java.util.zip.GZIPOutputStream;
@@ -246,6 +247,34 @@ public class AccessLogFilterTest extends BaseUnitTest {
 
         Assert.assertEquals(body, this.capturedBody());
         Assert.assertEquals(body, this.replayedEntity(StandardCharsets.UTF_16LE));
+    }
+
+    @Test
+    public void testCaptureBody_UnsupportedCharsetFallsBackToUtf8() throws IOException {
+        String body = "MATCH (张三) RETURN 张三";
+        this.mockRequest("POST", "graphs/hugegraph/cypher", body);
+        Mockito.when(this.requestContext.getMediaType())
+               .thenReturn(new MediaType("application", "json",
+                                         Map.of(MediaType.CHARSET_PARAMETER, "x-unsupported-charset")));
+
+        this.filter.filter(this.requestContext);
+
+        Assert.assertEquals(body, this.capturedBody());
+        Assert.assertEquals(body, this.replayedEntity());
+    }
+
+    @Test
+    public void testCaptureBody_InvalidCharsetNameFallsBackToUtf8() throws IOException {
+        String body = "MATCH (张三) RETURN 张三";
+        this.mockRequest("POST", "graphs/hugegraph/cypher", body);
+        Mockito.when(this.requestContext.getMediaType())
+               .thenReturn(new MediaType("application", "json",
+                                         Map.of(MediaType.CHARSET_PARAMETER, "invalid[charset")));
+
+        this.filter.filter(this.requestContext);
+
+        Assert.assertEquals(body, this.capturedBody());
+        Assert.assertEquals(body, this.replayedEntity());
     }
 
     /**

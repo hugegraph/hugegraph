@@ -317,7 +317,7 @@ class KvPageScanner implements KvCloseableIterator<Kv>, HgPageSize, HgSeekAble {
             try {
                 observer.onCompleted();
             } catch (Exception e) {
-                log.warn("failed to invoke requestObserver.onCompleted(), reason:", e.getMessage());
+                log.warn("failed to invoke requestObserver.onCompleted()", e);
             }
             proxy.setError(t);
             proxy.close();
