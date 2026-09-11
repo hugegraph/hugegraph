@@ -17,33 +17,14 @@
 
 package org.apache.hugegraph.store.core;
 
-import lombok.extern.slf4j.Slf4j;
+import org.apache.hugegraph.store.meta.GraphIDManagerTest;
+import org.junit.runner.RunWith;
+import org.junit.runners.Suite;
 
-// TODO: uncomment it until all test can run free.
-//@RunWith(Suite.class)
-//@Suite.SuiteClasses({
-//        HgCmdClientTest.class,
-//        HgSnapshotHandlerTest.class,
-//        RaftUtilsTest.class,
-//        RaftOperationTest.class,
-//        UnsafeUtilTest.class,
-//        CopyOnWriteCacheTest.class,
-//        MetricServiceTest.class,
-//        TaskManagerTest.class,
-//        CleanTaskTest.class,
-//        MetadataKeyHelperTest.class,
-//        HgStoreEngineTest.class,
-//        PartitionEngineTest.class,
-//        PartitionManagerTest.class,
-//        PartitionMetaStoreWrapperTest.class,
-//        ZipUtilsTest.class,
-//        MiscUtilClassTest.class,
-//        PartitionInstructionProcessorTest.class,
-//        // Try to put it last
-//        HgBusinessImplTest.class
-//})
-
-@Slf4j
+@RunWith(Suite.class)
+@Suite.SuiteClasses({
+        BatchGraphIsolationTest.class,
+        GraphIDManagerTest.class
+})
 public class CoreSuiteTest {
-
 }
