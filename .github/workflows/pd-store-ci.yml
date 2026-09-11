@@ -448,6 +448,8 @@ jobs:
           startsWith(github.head_ref, 'test-') ||
           startsWith(github.base_ref, 'release-') ||
           startsWith(github.base_ref, 'test-') ||
+          github.base_ref == 'task/tp381-apache-integration-20260907' ||
+          github.base_ref == 'task/tp381-gremlinlang-candidate-20260907' ||
           github.base_ref == 'task/tinkerpop-3.7-upgrade' ||
           github.head_ref == 'task/tinkerpop-3.7-upgrade' ||
           github.base_ref == 'task/gsoc-phase2-java17' ||
