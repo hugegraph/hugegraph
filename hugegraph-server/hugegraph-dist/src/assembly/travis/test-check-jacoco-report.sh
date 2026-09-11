@@ -490,10 +490,13 @@ assert_order(store_job, [
     "mvn editorconfig:check -pl hugegraph-store/hg-store-test -am -ntp",
     "-P store-common-test -Djacoco.sessionId=store-common-test",
     "-P store-client-test -Djacoco.sessionId=store-client-test",
+    "-P store-core-test -Djacoco.sessionId=store-core-test",
     "-P store-rocksdb-test -Djacoco.sessionId=store-rocksdb-test",
+    "-P store-server-test -Djacoco.sessionId=store-server-test",
     "-P store-raftcore-test -Djacoco.sessionId=store-raftcore-test",
     "mvn verify", "--require-session store-common-test",
-    "--require-session store-client-test", "--require-session store-rocksdb-test",
+    "--require-session store-client-test", "--require-session store-core-test",
+    "--require-session store-server-test", "--require-session store-rocksdb-test",
     "--require-session store-raftcore-test", "codecov/codecov-action",
 ])
 assert store_job.count("mvn clean") == 1
@@ -504,9 +507,11 @@ assert "mvn verify -pl hugegraph-store/hg-store-test -am -P jacoco \\ " \
        "-DskipTests -Deditorconfig.skip=true -ntp" in " ".join(store_job.split())
 assert selected_profiles(store_job, "store") == {
     "store-common-test", "store-client-test", "store-rocksdb-test",
-    "store-raftcore-test",
+    "store-raftcore-test", "store-core-test", "store-server-test",
 }
 assert reports_for_option(store_job, "--require-test-report") == {
+    "TEST-org.apache.hugegraph.store.core.CoreSuiteTest.xml",
+    "TEST-org.apache.hugegraph.store.service.ServerSuiteTest.xml",
     "TEST-org.apache.hugegraph.store.common.CommonSuiteTest.xml",
     "TEST-org.apache.hugegraph.store.client.ClientSuiteTest.xml",
     "TEST-org.apache.hugegraph.store.rocksdb.RocksDbSuiteTest.xml",
@@ -514,11 +519,11 @@ assert reports_for_option(store_job, "--require-test-report") == {
 }
 assert not reports_for_option(store_job, "--require-suite-report")
 assert values_for_option(store_job, "--require-covered-group") == {
-    "hg-store-common", "hg-store-client", "hg-store-rocksdb",
+    "hg-store-common", "hg-store-client", "hg-store-rocksdb", "hg-store-core",
 }
 assert required_modules(store_job) == {
     "hg-store-grpc", "hg-store-common", "hg-store-client",
-    "hg-store-rocksdb",
+    "hg-store-rocksdb", "hg-store-core", "hg-store-node",
 }
 
 print("PASS: JaCoCo aggregation configuration contract")
