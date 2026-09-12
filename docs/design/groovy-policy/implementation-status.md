@@ -14,17 +14,16 @@ WebSocket Session 使用独立策略引擎，保留受检数据变量和已有�
 
 ## 构建和功能测试
 
-全部构建和测试在 `10.21.76.114` 的独立目录完成，使用 JDK 17.0.20 和 Maven 3.9.11。最终远程验证所用源码、资源和测试文件与交付工作区一致。
+全部构建和测试在 `10.21.76.114` 的独立目录完成，使用 JDK 17.0.20 和 Maven 3.9.11。最终远程验证对应代码提交 `ba6c32e03c16a3fdd60403f234573ae1c821eed2`。Server 的 52 项包含会话校验后过期的确定性回归，Store 的 12 项包含读取与发送后继任务的取消竞争回归。
 
 | 验证 | 结果与覆盖范围 |
 |---|---|
 | 整仓格式 | `mvn editorconfig:format` 通过，未产生额外格式修改 |
 | 整仓编译 | `mvn clean compile -Dmaven.javadoc.skip=true` 通过 |
-| Server 定向测试 | 51 项，失败 0、错误 0、跳过 0；覆盖编译与方法规则、绑定和结果检查、HTTP / WS / bytecode / Cypher、Session 状态及生命周期、内存与 RocksDB 图操作 |
-| Server 最终复核 | 增加超时请求携带数据及别名覆盖的断言后，`PolicyServerModeTest` 4 项再次通过；重复运行不计为新增用例 |
-| Store 定向测试 | Maven 10 项，失败 0、错误 0、跳过 0；覆盖真实二进制记录、业务属性名、缺失属性、多值日期 / Blob、扫描错误和客户端取消 |
+| Server 定向测试 | 52 项，失败 0、错误 0、跳过 0；覆盖编译与方法规则、绑定和结果检查、HTTP / WS / bytecode / Cypher、Session 状态及生命周期、内存与 RocksDB 图操作 |
+| Store 定向测试 | Maven 12 项，失败 0、错误 0、跳过 0；覆盖真实二进制记录、业务属性名、缺失属性、多值日期 / Blob、扫描错误和客户端取消 |
 
-Server 的 51 项来自 `ScriptPolicyCompilationTest`、`PolicyScriptEngineTest`、`ScriptRequestGuardTest`、`PolicyServerModeTest`、`PolicyGraphModeTest`、`PolicySessionEngineTest` 和 `PolicySessionLifecycleTest`。Store 的 10 项来自 `ScanPolicyFailureTest` 和 `StorePolicyModeTest`。
+Server 的 52 项来自 `ScriptPolicyCompilationTest`、`PolicyScriptEngineTest`、`ScriptRequestGuardTest`、`PolicyServerModeTest`、`PolicyGraphModeTest`、`PolicySessionEngineTest` 和 `PolicySessionLifecycleTest`。Store 的 12 项来自 `ScanPolicyFailureTest` 和 `StorePolicyModeTest`。
 
 Session 回归检查了隐式绑定与局部变量的区别、惰性迭代中的数据修改，以及编译、求值、序列化和超时失败后的状态隔离。图测试在内存及 RocksDB 后端验证原生和脚本事务的提交、回滚与可见性。`combined` 图测试在安装 HugeSecurityManager 的独立 JVM 中执行，包含 Schema 和 task-worker 路径；测试先完成对应的服务启动及身份准备。
 
@@ -38,4 +37,4 @@ Session 回归检查了隐式绑定与局部变量的区别、惰性迭代中的
 | 分布式后端 | 真实图测试覆盖内存与 RocksDB，Store 测试覆盖序列化及扫描链路；未完成整套 HStore 集成兼容验证 |
 | 资源生命周期 | 已有关闭、失败清理和取消回归，不足以证明持续冷编译洪峰、缓存淘汰和类加载器长期稳定性 |
 | 独立防护 | `policy-only` 保持实验状态，没有全面替代 HugeSecurityManager 的生产安全结论 |
-| 性能 | 本轮按要求暂停，未运行 benchmark，不依据历史 Java 11 / 17 数据推断本方案收益 |
+| 性能 | 引擎与最终 RocksDB WebSocket 对照各完成 20/20 轮有效运行。Session 点查存在回退，不能给出整体性能通过结论；具体数据与范围见性能实验记录 |
