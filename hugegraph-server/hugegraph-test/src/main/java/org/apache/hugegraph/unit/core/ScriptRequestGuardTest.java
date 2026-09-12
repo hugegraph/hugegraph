@@ -22,6 +22,7 @@ import java.util.Map;
 import org.apache.hugegraph.auth.ScriptRequestGuard;
 import org.apache.hugegraph.security.script.ScriptBytecodePolicy;
 import org.apache.tinkerpop.gremlin.process.traversal.Bytecode;
+import org.apache.tinkerpop.gremlin.process.traversal.GraphOp;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.util.function.Lambda;
 import org.apache.tinkerpop.gremlin.util.message.RequestMessage;
@@ -33,6 +34,21 @@ import org.junit.Test;
 import io.netty.channel.embedded.EmbeddedChannel;
 
 public class ScriptRequestGuardTest {
+
+    @Test
+    public void testPreservesCypherProcessor() {
+        EmbeddedChannel channel = new EmbeddedChannel(new ScriptRequestGuard(1000L));
+        try {
+            RequestMessage request = RequestMessage.build("eval").processor("cypher")
+                    .addArg("gremlin", "RETURN 1 AS value").create();
+            Assert.assertTrue(channel.writeInbound(request));
+            RequestMessage forwarded = channel.readInbound();
+            Assert.assertEquals("cypher", forwarded.getProcessor());
+            Assert.assertEquals(request.getRequestId(), forwarded.getRequestId());
+        } finally {
+            channel.finishAndReleaseAll();
+        }
+    }
 
     @Test
     public void testPreservesRequestAndCapsTimeout() {
@@ -52,11 +68,13 @@ public class ScriptRequestGuardTest {
     }
 
     @Test
-    public void testRejectsSessionAndReservedBindings() {
+    public void testRejectsMalformedSessionAndReservedBindings() {
         EmbeddedChannel channel = new EmbeddedChannel(new ScriptRequestGuard(1000L));
         try {
             for (RequestMessage request : new RequestMessage[]{
                     RequestMessage.build("eval").processor("session").addArg("gremlin", "1+1").create(),
+                    RequestMessage.build("eval").processor("policy-session")
+                                  .addArg("session", "s1").addArg("gremlin", "1+1").create(),
                     RequestMessage.build("bytecode").processor("traversal")
                                   .addArg("gremlin", "{\"step\":[[\"io\",\"/tmp/private\"]]}").create(),
                     RequestMessage.build("eval").addArg("gremlin", "1+1")
@@ -67,6 +85,34 @@ public class ScriptRequestGuardTest {
                 Assert.assertEquals(ResponseStatusCode.REQUEST_ERROR_INVALID_REQUEST_ARGUMENTS,
                                     response.getStatus().getCode());
             }
+        } finally {
+            channel.finishAndReleaseAll();
+        }
+    }
+
+    @Test
+    public void testRoutesSessionsAndPreservesTransactionOperations() {
+        EmbeddedChannel channel = new EmbeddedChannel(new ScriptRequestGuard(1000L));
+        try {
+            for (RequestMessage request : new RequestMessage[]{
+                    RequestMessage.build("eval").processor("session").addArg("session", "s1")
+                                  .addArg("gremlin", "x = 1; x").create(),
+                    RequestMessage.build("bytecode").processor("session").addArg("session", "s1")
+                                  .addArg("gremlin", GraphOp.TX_COMMIT.getBytecode()).create(),
+                    RequestMessage.build("bytecode").processor("session").addArg("session", "s1")
+                                  .addArg("gremlin", GraphOp.TX_ROLLBACK.getBytecode()).create(),
+                    RequestMessage.build("close").processor("session").addArg("session", "s1").create()}) {
+                Assert.assertTrue(channel.writeInbound(request));
+                RequestMessage forwarded = channel.readInbound();
+                Assert.assertEquals("policy-session", forwarded.getProcessor());
+                Assert.assertEquals(request.getRequestId(), forwarded.getRequestId());
+                Assert.assertEquals(request.getArgs().get("session"), forwarded.getArgs().get("session"));
+            }
+            Assert.assertFalse(channel.writeInbound(RequestMessage.build("bytecode").processor("traversal")
+                    .addArg("gremlin", GraphOp.TX_COMMIT.getBytecode()).create()));
+            ResponseMessage denied = channel.readOutbound();
+            Assert.assertEquals(ResponseStatusCode.REQUEST_ERROR_INVALID_REQUEST_ARGUMENTS,
+                                denied.getStatus().getCode());
         } finally {
             channel.finishAndReleaseAll();
         }

@@ -42,6 +42,7 @@ import org.codehaus.groovy.ast.expr.GStringExpression;
 import org.codehaus.groovy.ast.expr.MethodCallExpression;
 import org.codehaus.groovy.ast.expr.MethodPointerExpression;
 import org.codehaus.groovy.ast.expr.PropertyExpression;
+import org.codehaus.groovy.ast.expr.StaticMethodCallExpression;
 import org.codehaus.groovy.ast.expr.VariableExpression;
 import org.codehaus.groovy.ast.stmt.DoWhileStatement;
 import org.codehaus.groovy.ast.stmt.ForStatement;
@@ -93,6 +94,10 @@ public final class ScriptExpressionGuard extends CompilationCustomizer {
             "org.apache.hugegraph.schema.SchemaManager");
     private final int preludeLines;
     private final ScriptExecutionProfile profile;
+
+    static boolean allowsStaticImport(String type) {
+        return STATIC_TYPES.contains(type) || ENUM_TYPES.contains(type);
+    }
 
     public ScriptExpressionGuard(int preludeLines, ScriptExecutionProfile profile) {
         super(CompilePhase.INSTRUCTION_SELECTION);
@@ -192,6 +197,19 @@ public final class ScriptExpressionGuard extends CompilationCustomizer {
                     throw denied("bitwise negation or regular expression");
                 }
                 super.visitBitwiseNegationExpression(expression);
+            }
+
+            @Override
+            public void visitStaticMethodCallExpression(StaticMethodCallExpression call) {
+                String type = call.getOwnerType().redirect().getName();
+                if (type.equals(ScriptExecutionBudget.class.getName())) {
+                    if (!"check".equals(call.getMethod())) {
+                        throw denied("static method call");
+                    }
+                } else if (!STATIC_TYPES.contains(type)) {
+                    throw denied("static method call");
+                }
+                super.visitStaticMethodCallExpression(call);
             }
 
             @Override
@@ -324,6 +342,10 @@ public final class ScriptExpressionGuard extends CompilationCustomizer {
             @Override
             public void visitForLoop(ForStatement statement) {
                 this.checkLoop();
+                if (this.user(statement) &&
+                    statement.getVariable() != ForStatement.FOR_LOOP_DUMMY) {
+                    this.checkLocalType(statement.getVariable().getOriginType());
+                }
                 super.visitForLoop(statement);
             }
 

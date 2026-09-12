@@ -22,6 +22,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.apache.hugegraph.store.business.BusinessHandler;
@@ -85,7 +86,7 @@ public class ScanPolicyFailureTest {
     }
 
     @Test
-    public void testEmptyScanCompletesAndClosesOnce() {
+    public void testEmptyScanCompletesAndClosesOnce() throws Exception {
         BusinessHandler handler = Mockito.mock(BusinessHandler.class);
         GraphStoreIterator<Object> iterator = Mockito.mock(GraphStoreIterator.class);
         ScanPartitionRequest request = request();
@@ -95,6 +96,7 @@ public class ScanPolicyFailureTest {
         try {
             ScanResponseObserver<?> observer = new ScanResponseObserver<>(sender, handler, executor);
             observer.onNext(request);
+            Assert.assertTrue(sender.terminal.await(5, TimeUnit.SECONDS));
             observer.onCompleted();
             Assert.assertEquals(0, sender.errors.get());
             Assert.assertEquals(1, sender.completed.get());
@@ -215,42 +217,35 @@ public class ScanPolicyFailureTest {
     }
 
     @Test
-    public void testCancellationDoesNotCloseDuringInitialRead() throws Exception {
+    public void testClientCancelInterruptsOngoingFilterAndClosesIterator() throws Exception {
         BusinessHandler handler = Mockito.mock(BusinessHandler.class);
         GraphStoreIterator<Object> iterator = Mockito.mock(GraphStoreIterator.class);
         CountDownLatch entered = new CountDownLatch(1);
-        CountDownLatch release = new CountDownLatch(1);
+        AtomicBoolean interrupted = new AtomicBoolean();
         Mockito.when(iterator.hasNext()).thenAnswer(call -> {
             entered.countDown();
-            Assert.assertTrue(release.await(5, TimeUnit.SECONDS));
-            return true;
+            try {
+                Thread.sleep(TimeUnit.SECONDS.toMillis(30));
+                return true;
+            } catch (InterruptedException error) {
+                interrupted.set(true);
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("Store scan cancelled");
+            }
         });
         ScanPartitionRequest request = request();
         Mockito.when(handler.scan(request)).thenReturn(iterator);
         RecordingSender sender = new RecordingSender();
         ThreadPoolExecutor executor = (ThreadPoolExecutor) Executors.newFixedThreadPool(2);
-        ScanResponseObserver<?> observer = new ScanResponseObserver<>(sender, handler, executor);
-        Thread closer = new Thread(observer::onCompleted);
         try {
-            Future<?> initial = executor.submit(() -> observer.onNext(request));
+            ScanResponseObserver<?> observer = new ScanResponseObserver<>(sender, handler, executor);
+            observer.onNext(request);
             Assert.assertTrue(entered.await(5, TimeUnit.SECONDS));
-            closer.start();
-            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3);
-            while (closer.isAlive() && closer.getState() != Thread.State.BLOCKED &&
-                   System.nanoTime() < deadline) {
-                Thread.sleep(5);
-            }
-            Assert.assertEquals("close must wait for the active read", Thread.State.BLOCKED, closer.getState());
-            Mockito.verify(iterator, Mockito.never()).close();
-            release.countDown();
-            initial.get(5, TimeUnit.SECONDS);
-            closer.join(5000);
-            Assert.assertFalse(closer.isAlive());
-            Mockito.verify(iterator, Mockito.times(1)).close();
+            observer.onCompleted();
+            Mockito.verify(iterator, Mockito.timeout(5000).times(1)).close();
+            Assert.assertTrue("ongoing filter must observe interruption", interrupted.get());
             Assert.assertEquals(0, sender.rows.get());
         } finally {
-            release.countDown();
-            closer.join(5000);
             executor.shutdownNow();
         }
     }

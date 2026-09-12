@@ -22,6 +22,7 @@ import java.io.Reader;
 import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.Iterator;
 import java.util.Map;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.CompletableFuture;
@@ -44,8 +45,12 @@ import org.apache.tinkerpop.gremlin.groovy.jsr223.GremlinGroovyScriptEngineFacto
 import org.apache.tinkerpop.gremlin.jsr223.GremlinScriptChecker;
 import org.apache.tinkerpop.gremlin.jsr223.GremlinScriptEngine;
 import org.apache.tinkerpop.gremlin.jsr223.GremlinScriptEngineFactory;
+import org.apache.tinkerpop.gremlin.jsr223.JavaTranslator;
 import org.apache.tinkerpop.gremlin.process.traversal.Bytecode;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
+import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversalSource;
+import org.apache.tinkerpop.gremlin.process.traversal.util.TraversalInterruptedException;
+import org.apache.tinkerpop.gremlin.structure.util.CloseableIterator;
 import org.codehaus.groovy.control.CompilerConfiguration;
 import org.codehaus.groovy.control.customizers.ASTTransformationCustomizer;
 import org.codehaus.groovy.control.customizers.ImportCustomizer;
@@ -75,13 +80,24 @@ public final class PolicyScriptEngine extends AbstractScriptEngine
     private final ScriptPolicyMetrics metrics = new ScriptPolicyMetrics();
     private final Object lifecycle = new Object();
     private final ScriptExecutionProfile profile;
+    private final boolean session;
     private final ScriptMethodPolicy methods;
     private final Cache<CompilationKey, CompletableFuture<CompiledUnit>> cache;
     private volatile boolean closed;
+    private boolean deferredSession;
+    private final ThreadLocal<PendingSession> pendingSession = new ThreadLocal<>();
 
     public PolicyScriptEngine(ScriptExecutionProfile profile) {
+        this(profile, false);
+    }
+
+    public PolicyScriptEngine(ScriptExecutionProfile profile, boolean session) {
+        if (session && profile != ScriptExecutionProfile.QUERY) {
+            throw new IllegalArgumentException("Sessions require the query profile");
+        }
+        this.session = session;
         this.profile = profile;
-        this.methods = new ScriptMethodPolicy(profile);
+        this.methods = new ScriptMethodPolicy(profile, session);
         this.cache = Caffeine.newBuilder().maximumSize(256)
                              .expireAfterAccess(30, TimeUnit.MINUTES).executor(Runnable::run).recordStats()
                              .<CompilationKey, CompletableFuture<CompiledUnit>>removalListener(
@@ -123,20 +139,137 @@ public final class PolicyScriptEngine extends AbstractScriptEngine
             if (this.profile == ScriptExecutionProfile.STORE_FILTER && !(result instanceof Boolean)) {
                 throw new IllegalArgumentException("SCRIPT_RESULT_DENIED: condition must return Boolean");
             }
-            ScriptResults.prepare(result);
-            return result;
+            Object prepared = ScriptResults.prepare(result);
+            if (this.session) {
+                PendingSession pending = new PendingSession(bindings, isolated,
+                        context.getBindings(ScriptContext.ENGINE_SCOPE));
+                pending.validate();
+                if (this.deferredSession) {
+                    this.pendingSession.set(pending);
+                    if (prepared instanceof Iterator) {
+                        return new SessionResultIterator((Iterator<?>) prepared, pending);
+                    }
+                } else {
+                    pending.publish();
+                }
+            }
+            return prepared;
         } catch (ScriptException e) {
             this.metrics.rejected();
+            if (this.session && Thread.currentThread().isInterrupted()) {
+                throw new ScriptException(new InterruptedException("SCRIPT_EXECUTION_TIMEOUT"));
+            }
             throw e;
         } catch (ScriptExecutionBudget.ExecutionTimeoutException e) {
             this.metrics.rejected();
             this.metrics.executionTimeout();
+            if (this.session) {
+                throw new ScriptException(new InterruptedException("SCRIPT_EXECUTION_TIMEOUT"));
+            }
             throw new ScriptException("SCRIPT_EXECUTION_TIMEOUT");
         } catch (Exception e) {
             this.metrics.rejected();
             throw new ScriptException("SCRIPT_EXECUTION_FAILED: " + e.getClass().getSimpleName());
         } catch (StackOverflowError error) {
             throw new ScriptException("SCRIPT_EXECUTION_LIMIT");
+        }
+    }
+
+    /** Enabled only by the session adapter that owns the GremlinExecutor lifecycle. */
+    public void deferSessionPublication() {
+        if (!this.session) {
+            throw new IllegalStateException("Not a session engine");
+        }
+        // Load the streaming adapter before entering a SecurityManager-restricted worker.
+        new SessionResultIterator(Collections.emptyIterator(),
+                new PendingSession(new SimpleBindings(), new SimpleBindings(), new SimpleBindings()));
+        this.deferredSession = true;
+    }
+
+    /** Called after TP consumes and serializes results; validation happened before each result was delivered. */
+    public void publishSession(Bindings bindings) {
+        PendingSession pending = this.pendingSession.get();
+        if (pending != null) {
+            if (pending.target != bindings || pending.validated == null) {
+                throw new IllegalStateException("SCRIPT_SESSION_LIFECYCLE_MISMATCH");
+            }
+            pending.publish();
+            this.pendingSession.remove();
+        }
+    }
+
+    /** Always called on the session worker, including failure, cancellation, and timeout. */
+    public void abortSession() {
+        this.pendingSession.remove();
+    }
+
+    private final class SessionResultIterator implements Iterator<Object>, AutoCloseable {
+
+        private final Iterator<?> original;
+        private final PendingSession pending;
+
+        SessionResultIterator(Iterator<?> original, PendingSession pending) {
+            this.original = original;
+            this.pending = pending;
+        }
+
+        @Override
+        public boolean hasNext() {
+            try {
+                boolean more = this.original.hasNext();
+                // hasNext may execute filtering/side-effect closures, including on an empty traversal.
+                this.pending.validate();
+                return more;
+            } catch (ScriptExecutionBudget.ExecutionTimeoutException timeout) {
+                throw new TraversalInterruptedException();
+            }
+        }
+
+        @Override
+        public Object next() {
+            try {
+                Object value = this.original.next();
+                this.pending.validate();
+                return value;
+            } catch (ScriptExecutionBudget.ExecutionTimeoutException timeout) {
+                throw new TraversalInterruptedException();
+            }
+        }
+
+        @Override
+        public void close() {
+            CloseableIterator.closeIterator(this.original);
+        }
+    }
+
+    private final class PendingSession {
+
+        private final Bindings original;
+        private final Bindings candidate;
+        private final Bindings target;
+        private Bindings validated;
+
+        PendingSession(Bindings original, Bindings candidate, Bindings target) {
+            this.original = original;
+            this.candidate = candidate;
+            this.target = target;
+        }
+
+        void validate() {
+            Bindings retained = ScriptBindings.execution(this.candidate, profile);
+            for (Map.Entry<String, Object> entry : retained.entrySet()) {
+                if ((entry.getValue() instanceof GraphTraversalSource ||
+                     entry.getValue() instanceof org.apache.hugegraph.HugeGraph) &&
+                    this.original.get(entry.getKey()) != entry.getValue()) {
+                    throw new IllegalArgumentException("SCRIPT_SESSION_OBJECT_DENIED");
+                }
+            }
+            this.validated = retained;
+        }
+
+        void publish() {
+            this.target.clear();
+            this.target.putAll(this.validated);
         }
     }
 
@@ -205,13 +338,16 @@ public final class PolicyScriptEngine extends AbstractScriptEngine
         StringBuilder prelude = new StringBuilder();
         prelude.append("final long __hgDeadline = ")
                .append(ScriptExecutionBudget.class.getName()).append(".deadline();\n");
-        key.types.forEach((name, type) -> prelude.append("final ")
+        key.types.forEach((name, type) -> prelude.append(this.session ? "" : "final ")
                 .append(type.getCanonicalName()).append(' ').append(name).append(" = (")
                 .append(type.getCanonicalName()).append(") getBinding().getVariable('")
                 .append(name).append("');\n"));
         int lines = key.types.size() + 1;
         ClassLoader parent = PolicyScriptEngine.class.getClassLoader();
         CompilerConfiguration configuration = ScriptCompilerConfiguration.create(parent);
+        if (this.session) {
+            configuration.addCompilationCustomizers(new ScriptSessionCustomizer(lines, key.types.keySet()));
+        }
         ImportCustomizer imports = new ImportCustomizer();
         imports.addImports("org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__",
                            "org.apache.tinkerpop.gremlin.process.traversal.P",
@@ -295,7 +431,28 @@ public final class PolicyScriptEngine extends AbstractScriptEngine
     @Override
     public Traversal.Admin eval(Bytecode bytecode, Bindings bindings, String traversalSource)
             throws ScriptException {
-        throw new ScriptException("SCRIPT_BYTECODE_LAMBDA_DENIED");
+        if (this.closed) {
+            throw new ScriptException("SCRIPT_ENGINE_CLOSED");
+        }
+        if (this.profile != ScriptExecutionProfile.QUERY) {
+            throw new ScriptException("SCRIPT_BYTECODE_PROFILE_DENIED");
+        }
+        try {
+            ScriptBytecodePolicy.validate(bytecode);
+            Bindings isolated = ScriptBindings.execution(bindings, this.profile);
+            Object source = isolated.get(traversalSource);
+            if (!(source instanceof GraphTraversalSource)) {
+                throw new IllegalArgumentException("SCRIPT_TRAVERSAL_SOURCE_DENIED");
+            }
+            Traversal.Admin<?, ?> traversal = JavaTranslator.of((GraphTraversalSource) source)
+                    .translate(bytecode);
+            return (Traversal.Admin<?, ?>) ScriptResults.prepare(traversal);
+        } catch (IllegalArgumentException error) {
+            throw new ScriptException(error.getMessage() == null ?
+                                      "SCRIPT_BYTECODE_DENIED" : error.getMessage());
+        } catch (Exception error) {
+            throw new ScriptException("SCRIPT_BYTECODE_DENIED");
+        }
     }
 
     @Override

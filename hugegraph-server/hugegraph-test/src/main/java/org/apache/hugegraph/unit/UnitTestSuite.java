@@ -151,8 +151,10 @@ import org.apache.hugegraph.unit.util.collection.Int2IntsMapTest;
 import org.apache.hugegraph.unit.util.collection.IntMapTest;
 import org.apache.hugegraph.unit.util.collection.IntSetTest;
 import org.apache.hugegraph.unit.util.collection.ObjectIntMappingTest;
+import org.apache.hugegraph.auth.PolicySessionLifecycleTest;
 import org.apache.hugegraph.unit.core.PolicyGraphModeTest;
 import org.apache.hugegraph.unit.core.PolicyScriptEngineTest;
+import org.apache.hugegraph.unit.core.PolicySessionEngineTest;
 import org.apache.hugegraph.unit.core.PolicyServerModeTest;
 import org.apache.hugegraph.unit.core.ScriptPolicyCompilationTest;
 import org.apache.hugegraph.unit.core.ScriptRequestGuardTest;
@@ -234,6 +236,8 @@ import org.junit.runners.Suite;
         GroovyScriptEngineCompatibilityTest.class,
         ScriptPolicyCompilationTest.class,
         PolicyScriptEngineTest.class,
+        PolicySessionEngineTest.class,
+        PolicySessionLifecycleTest.class,
         ScriptRequestGuardTest.class,
         PolicyServerModeTest.class,
         PolicyGraphModeTest.class,

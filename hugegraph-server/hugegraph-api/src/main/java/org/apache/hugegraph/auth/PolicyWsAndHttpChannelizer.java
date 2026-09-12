@@ -17,11 +17,39 @@
 
 package org.apache.hugegraph.auth;
 
-import org.apache.tinkerpop.gremlin.server.channel.WsAndHttpChannelizer;
+import org.apache.tinkerpop.gremlin.server.AbstractChannelizer;
+import org.apache.tinkerpop.gremlin.server.handler.WsAndHttpChannelizerHandler;
+import org.apache.tinkerpop.gremlin.server.util.ServerGremlinExecutor;
 
 import io.netty.channel.ChannelPipeline;
 
-public final class PolicyWsAndHttpChannelizer extends WsAndHttpChannelizer {
+public final class PolicyWsAndHttpChannelizer extends AbstractChannelizer {
+
+    private WsAndHttpChannelizerHandler handler;
+
+    @Override
+    public void init(ServerGremlinExecutor executor) {
+        super.init(executor);
+        this.handler = new WsAndHttpChannelizerHandler();
+        this.handler.init(executor, new PolicyHttpGremlinEndpointHandler(
+                this.serializers, this.gremlinExecutor, this.graphManager, this.settings));
+    }
+
+    @Override
+    public void configure(ChannelPipeline pipeline) {
+        this.handler.configure(pipeline);
+        pipeline.addAfter(PIPELINE_HTTP_REQUEST_DECODER, "WsAndHttpChannelizerHandler", this.handler);
+    }
+
+    @Override
+    public boolean supportsIdleMonitor() {
+        return true;
+    }
+
+    @Override
+    public Object createIdleDetectionMessage() {
+        return this.handler.getWsChannelizer().createIdleDetectionMessage();
+    }
 
     @Override
     public void finalize(ChannelPipeline pipeline) {
