@@ -53,8 +53,11 @@ public final class PolicySessionOpProcessor extends SessionOpProcessor {
 
     @Override
     protected void evalOp(Context context) throws OpProcessorException {
-        this.ensureSession(context, true);
-        super.evalOp(new PolicySessionRequestContext(context));
+        PolicySession session = this.ensureSession(context, true);
+        synchronized (session) {
+            ensureRegistered(session, context);
+            super.evalOp(new PolicySessionRequestContext(context));
+        }
     }
 
     @Override
@@ -78,9 +81,20 @@ public final class PolicySessionOpProcessor extends SessionOpProcessor {
             if (session == null) {
                 operation.accept(current);
             } else {
-                session.execute(operation, current);
+                synchronized (session) {
+                    ensureRegistered(session, current);
+                    session.execute(operation, current);
+                }
             }
         });
+    }
+
+    private static void ensureRegistered(PolicySession session, Context context) throws OpProcessorException {
+        // TP's eval and bytecode dispatch look up the session again and create a legacy Session if absent.
+        // Hold the same monitor as kill() through dispatch; execution remains asynchronous on its worker.
+        if (sessions.get(session.getSessionId()) != session || !session.acceptingRequests()) {
+            throw denied(context, "SCRIPT_SESSION_OWNER_OR_STATE_DENIED");
+        }
     }
 
     private PolicySession ensureSession(Context context, boolean create) throws OpProcessorException {

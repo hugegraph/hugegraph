@@ -19,6 +19,7 @@ package org.apache.hugegraph.store.node.grpc.scan;
 
 import java.util.ArrayList;
 import java.util.concurrent.Future;
+import java.util.concurrent.FutureTask;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
@@ -122,30 +123,38 @@ public class ScanResponseObserver<T> implements
 
     private void startRead() {
         if (readCondition() && reading.compareAndSet(false, true)) {
-            try {
-                readTask = executor.submit(rr);
-                if (terminated.get()) {
-                    readTask.cancel(true);
-                }
-            } catch (RuntimeException error) {
-                reading.set(false);
-                fail(error);
-            }
+            FutureTask<Void> task = new FutureTask<>(rr, null);
+            readTask = task;
+            submit(task, reading);
         }
     }
 
     private void startSend() {
         if (sendCondition() && (!packages.isEmpty() || readOver.get()) &&
             sending.compareAndSet(false, true)) {
-            try {
-                sendTask = executor.submit(sr);
-                if (terminated.get()) {
-                    sendTask.cancel(true);
-                }
-            } catch (RuntimeException error) {
-                sending.set(false);
-                fail(error);
+            FutureTask<Void> task = new FutureTask<>(sr, null);
+            sendTask = task;
+            submit(task, sending);
+        }
+    }
+
+    private void submit(FutureTask<Void> task, AtomicBoolean running) {
+        // Publish the cancellation handle before execution can finish and schedule its successor.
+        // Never write the shared handle after execute() returns: it may already name that successor.
+        if (terminated.get()) {
+            task.cancel(false);
+            running.set(false);
+            return;
+        }
+        try {
+            executor.execute(task);
+            if (terminated.get()) {
+                task.cancel(true);
             }
+        } catch (RuntimeException error) {
+            task.cancel(false);
+            running.set(false);
+            fail(error);
         }
     }
 

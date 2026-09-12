@@ -17,25 +17,41 @@
 
 package org.apache.hugegraph.auth;
 
+import java.lang.management.ManagementFactory;
+import java.lang.management.ThreadInfo;
+import java.lang.management.ThreadMXBean;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.UUID;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.apache.hugegraph.auth.HugeAuthenticator.User;
 import org.apache.hugegraph.security.script.PolicyScriptEngine;
 import org.apache.hugegraph.task.TaskManager;
+import org.apache.hugegraph.testutil.Whitebox;
+import org.apache.tinkerpop.gremlin.process.traversal.Bytecode;
+import org.apache.tinkerpop.gremlin.process.traversal.GraphOp;
 import org.apache.tinkerpop.gremlin.server.Context;
 import org.apache.tinkerpop.gremlin.server.Settings;
+import org.apache.tinkerpop.gremlin.server.handler.StateKey;
+import org.apache.tinkerpop.gremlin.server.op.OpProcessorException;
 import org.apache.tinkerpop.gremlin.server.op.session.Session;
+import org.apache.tinkerpop.gremlin.server.op.session.SessionOpProcessor;
 import org.apache.tinkerpop.gremlin.server.util.DefaultGraphManager;
 import org.apache.tinkerpop.gremlin.structure.Graph;
 import org.apache.tinkerpop.gremlin.structure.Transaction;
+import org.apache.tinkerpop.gremlin.structure.util.empty.EmptyGraph;
 import org.apache.tinkerpop.gremlin.util.Tokens;
+import org.apache.tinkerpop.gremlin.util.function.ThrowingConsumer;
 import org.apache.tinkerpop.gremlin.util.message.RequestMessage;
 import org.junit.Assert;
 import org.junit.Test;
@@ -45,6 +61,117 @@ import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.channel.embedded.EmbeddedChannel;
 
 public class PolicySessionLifecycleTest {
+
+    @Test
+    public void testExpiryBetweenValidationAndDispatchDoesNotRecreateLegacySession() throws Exception {
+        Path root = Path.of("").toAbsolutePath();
+        while (root != null && !Files.isDirectory(root.resolve("hugegraph-server/hugegraph-dist"))) {
+            root = root.getParent();
+        }
+        Assert.assertNotNull("repository root", root);
+        Path output = Files.createTempFile("hg-policy-session-race-", ".log");
+        // ScriptPolicyRuntime caches the mode for the JVM: never change the surrounding suite's mode.
+        Process process = new ProcessBuilder(
+                Path.of(System.getProperty("java.home"), "bin", "java").toString(),
+                "@" + root.resolve("hugegraph-server/hugegraph-dist/src/assembly/static/bin/jvm-module.options"),
+                "-Dhugegraph.script.security.mode=policy-only",
+                "-cp", System.getProperty("java.class.path"), PolicySessionLifecycleTest.class.getName())
+                .directory(root.toFile()).redirectErrorStream(true).redirectOutput(output.toFile()).start();
+        try {
+            Assert.assertTrue("session race probe timeout", process.waitFor(90, TimeUnit.SECONDS));
+            String log = Files.readString(output, StandardCharsets.UTF_8);
+            Assert.assertEquals(log, 0, process.exitValue());
+            Assert.assertTrue(log, log.contains("POLICY_SESSION_DISPATCH_RACE_VERIFIED"));
+        } finally {
+            if (process.isAlive()) {
+                process.destroyForcibly().waitFor(5, TimeUnit.SECONDS);
+            }
+            Files.deleteIfExists(output);
+        }
+    }
+
+    public static void main(String[] args) throws Exception {
+        verifyExpiryBeforeDispatch(Tokens.OPS_EVAL, "1");
+        Bytecode traversal = new Bytecode();
+        traversal.addStep("inject", 1);
+        verifyExpiryBeforeDispatch(Tokens.OPS_BYTECODE, traversal);
+        verifyExpiryBeforeDispatch(Tokens.OPS_BYTECODE, GraphOp.TX_COMMIT.getBytecode());
+        System.out.println("POLICY_SESSION_DISPATCH_RACE_VERIFIED");
+    }
+
+    private static void verifyExpiryBeforeDispatch(String op, Object script) throws Exception {
+        Settings settings = new Settings();
+        DefaultGraphManager graphs = new DefaultGraphManager(settings);
+        graphs.putTraversalSource("g", EmptyGraph.instance().traversal());
+        ScheduledExecutorService timer = Executors.newSingleThreadScheduledExecutor();
+        EmbeddedChannel channel = new EmbeddedChannel(new ChannelInboundHandlerAdapter());
+        User user = new User("alice", HugeAuthenticator.ROLE_NONE);
+        channel.attr(StateKey.AUTHENTICATED_USER).set(user);
+        ConcurrentHashMap<String, Session> sessions = Whitebox.getInternalState(SessionOpProcessor.class, "sessions");
+        String id = UUID.randomUUID().toString();
+        RequestMessage request = RequestMessage.build(op).processor("policy-session")
+                .addArg(Tokens.ARGS_SESSION, id).addArg(Tokens.ARGS_GREMLIN, script)
+                .addArg(Tokens.ARGS_ALIASES, Map.of("g", "g")).create();
+        Context context = new Context(request, channel.pipeline().firstContext(), settings, graphs, null, timer);
+        PolicySession session = null;
+        Thread requester = null;
+        try {
+            session = new PolicySession(id, context, sessions, user);
+            sessions.put(id, session);
+            PolicySessionOpProcessor processor = new PolicySessionOpProcessor();
+            ThrowingConsumer<Context> operation = Tokens.OPS_EVAL.equals(op) ?
+                    processor.getEvalOp() : processor.selectOther(context).orElseThrow();
+            AtomicReference<Throwable> failure = new AtomicReference<>();
+            CountDownLatch started = new CountDownLatch(1);
+            requester = new Thread(() -> {
+                started.countDown();
+                try {
+                    operation.accept(context);
+                } catch (Throwable error) {
+                    failure.set(error);
+                }
+            }, "policy-session-dispatch-race");
+            requester.setDaemon(true);
+            ThreadMXBean threads = ManagementFactory.getThreadMXBean();
+            synchronized (session) {
+                requester.start();
+                Assert.assertTrue(started.await(5, TimeUnit.SECONDS));
+                long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+                while (!waitingForSession(threads, requester, session) && requester.isAlive() &&
+                       System.nanoTime() < deadline) {
+                    Thread.sleep(1L);
+                }
+                // ensureSession does not take this monitor. BLOCKED puts the request after its first
+                // validation, immediately before dispatch, without relying on the expiry timer's timing.
+                Assert.assertTrue("request must wait for its session monitor",
+                                  waitingForSession(threads, requester, session));
+                session.manualKill(true);
+                Assert.assertFalse(sessions.containsKey(id));
+            }
+            requester.join(TimeUnit.SECONDS.toMillis(5));
+            Assert.assertFalse("dispatch must return after expiry", requester.isAlive());
+            Assert.assertTrue(String.valueOf(failure.get()), failure.get() instanceof OpProcessorException);
+            Assert.assertEquals("SCRIPT_SESSION_OWNER_OR_STATE_DENIED", failure.get().getMessage());
+            Assert.assertFalse("dispatch must not recreate a raw Session", sessions.containsKey(id));
+        } finally {
+            if (session != null) {
+                session.manualKill(true);
+            }
+            channel.finishAndReleaseAll();
+            timer.shutdownNow();
+            if (requester != null) {
+                requester.interrupt();
+                requester.join(TimeUnit.SECONDS.toMillis(5));
+            }
+        }
+    }
+
+    private static boolean waitingForSession(ThreadMXBean threads, Thread requester, PolicySession session) {
+        ThreadInfo info = threads.getThreadInfo(requester.getId());
+        return info != null && info.getThreadState() == Thread.State.BLOCKED &&
+               info.getLockOwnerId() == Thread.currentThread().getId() && info.getLockInfo() != null &&
+               info.getLockInfo().getIdentityHashCode() == System.identityHashCode(session);
+    }
 
     @Test
     public void testRollbackUsesSessionThreadAndOwnerAndClosesEngine() throws Exception {
