@@ -1,0 +1,1602 @@
+[
+  {
+    "run": 1,
+    "variant": "A",
+    "workload": "sessionless-point-lookup",
+    "samples": 1000,
+    "p50_us": 2535.299,
+    "p95_us": 3820.166,
+    "p99_us": 4406.879,
+    "ops_s": 381.049
+  },
+  {
+    "run": 1,
+    "variant": "A",
+    "workload": "sessionless-two-hop",
+    "samples": 1000,
+    "p50_us": 2854.266,
+    "p95_us": 4809.417,
+    "p99_us": 5764.577,
+    "ops_s": 328.957
+  },
+  {
+    "run": 1,
+    "variant": "A",
+    "workload": "sessionless-vertex-count",
+    "samples": 1000,
+    "p50_us": 4432.82,
+    "p95_us": 7844.167,
+    "p99_us": 9932.471,
+    "ops_s": 204.067
+  },
+  {
+    "run": 1,
+    "variant": "A",
+    "workload": "sessionless-closure-query",
+    "samples": 1000,
+    "p50_us": 2114.646,
+    "p95_us": 3189.723,
+    "p99_us": 3505.503,
+    "ops_s": 462.427
+  },
+  {
+    "run": 1,
+    "variant": "A",
+    "workload": "session-point-lookup",
+    "samples": 1000,
+    "p50_us": 1976.033,
+    "p95_us": 2808.959,
+    "p99_us": 3330.953,
+    "ops_s": 505.967
+  },
+  {
+    "run": 1,
+    "variant": "A",
+    "workload": "session-two-hop",
+    "samples": 1000,
+    "p50_us": 1717.499,
+    "p95_us": 2919.194,
+    "p99_us": 3431.512,
+    "ops_s": 547.314
+  },
+  {
+    "run": 1,
+    "variant": "A",
+    "workload": "session-vertex-count",
+    "samples": 1000,
+    "p50_us": 3373.085,
+    "p95_us": 6868.865,
+    "p99_us": 7701.265,
+    "ops_s": 267.833
+  },
+  {
+    "run": 1,
+    "variant": "A",
+    "workload": "session-closure-query",
+    "samples": 1000,
+    "p50_us": 1612.976,
+    "p95_us": 2296.102,
+    "p99_us": 2656.26,
+    "ops_s": 612.287
+  },
+  {
+    "run": 2,
+    "variant": "B",
+    "workload": "sessionless-point-lookup",
+    "samples": 1000,
+    "p50_us": 2372.537,
+    "p95_us": 3916.043,
+    "p99_us": 5025.188,
+    "ops_s": 401.624
+  },
+  {
+    "run": 2,
+    "variant": "B",
+    "workload": "sessionless-two-hop",
+    "samples": 1000,
+    "p50_us": 3032.712,
+    "p95_us": 4872.338,
+    "p99_us": 5812.594,
+    "ops_s": 311.529
+  },
+  {
+    "run": 2,
+    "variant": "B",
+    "workload": "sessionless-vertex-count",
+    "samples": 1000,
+    "p50_us": 3651.884,
+    "p95_us": 7134.806,
+    "p99_us": 8412.604,
+    "ops_s": 242.114
+  },
+  {
+    "run": 2,
+    "variant": "B",
+    "workload": "sessionless-closure-query",
+    "samples": 1000,
+    "p50_us": 1684.846,
+    "p95_us": 2617.185,
+    "p99_us": 3356.408,
+    "ops_s": 565.422
+  },
+  {
+    "run": 2,
+    "variant": "B",
+    "workload": "session-point-lookup",
+    "samples": 1000,
+    "p50_us": 1516.803,
+    "p95_us": 2256.542,
+    "p99_us": 2520.073,
+    "ops_s": 640.772
+  },
+  {
+    "run": 2,
+    "variant": "B",
+    "workload": "session-two-hop",
+    "samples": 1000,
+    "p50_us": 1878.108,
+    "p95_us": 2850.591,
+    "p99_us": 3373.464,
+    "ops_s": 510.008
+  },
+  {
+    "run": 2,
+    "variant": "B",
+    "workload": "session-vertex-count",
+    "samples": 1000,
+    "p50_us": 3816.661,
+    "p95_us": 6913.203,
+    "p99_us": 9232.259,
+    "ops_s": 237.192
+  },
+  {
+    "run": 2,
+    "variant": "B",
+    "workload": "session-closure-query",
+    "samples": 1000,
+    "p50_us": 1706.944,
+    "p95_us": 2412.503,
+    "p99_us": 2683.179,
+    "ops_s": 577.434
+  },
+  {
+    "run": 3,
+    "variant": "C",
+    "workload": "sessionless-point-lookup",
+    "samples": 1000,
+    "p50_us": 2587.575,
+    "p95_us": 4029.698,
+    "p99_us": 4982.798,
+    "ops_s": 362.889
+  },
+  {
+    "run": 3,
+    "variant": "C",
+    "workload": "sessionless-two-hop",
+    "samples": 1000,
+    "p50_us": 2392.293,
+    "p95_us": 3761.315,
+    "p99_us": 4581.895,
+    "ops_s": 395.224
+  },
+  {
+    "run": 3,
+    "variant": "C",
+    "workload": "sessionless-vertex-count",
+    "samples": 1000,
+    "p50_us": 3680.913,
+    "p95_us": 7384.918,
+    "p99_us": 9106.808,
+    "ops_s": 244.363
+  },
+  {
+    "run": 3,
+    "variant": "C",
+    "workload": "sessionless-closure-query",
+    "samples": 1000,
+    "p50_us": 1819.959,
+    "p95_us": 2656.166,
+    "p99_us": 3090.176,
+    "ops_s": 539.683
+  },
+  {
+    "run": 3,
+    "variant": "C",
+    "workload": "session-point-lookup",
+    "samples": 1000,
+    "p50_us": 2247.183,
+    "p95_us": 3383.357,
+    "p99_us": 4344.324,
+    "ops_s": 424.21
+  },
+  {
+    "run": 3,
+    "variant": "C",
+    "workload": "session-two-hop",
+    "samples": 1000,
+    "p50_us": 1956.985,
+    "p95_us": 3323.983,
+    "p99_us": 3870.748,
+    "ops_s": 472.941
+  },
+  {
+    "run": 3,
+    "variant": "C",
+    "workload": "session-vertex-count",
+    "samples": 1000,
+    "p50_us": 3528.797,
+    "p95_us": 6611.984,
+    "p99_us": 8483.704,
+    "ops_s": 258.091
+  },
+  {
+    "run": 3,
+    "variant": "C",
+    "workload": "session-closure-query",
+    "samples": 1000,
+    "p50_us": 1412.833,
+    "p95_us": 2089.178,
+    "p99_us": 2357.317,
+    "ops_s": 693.649
+  },
+  {
+    "run": 4,
+    "variant": "E",
+    "workload": "sessionless-point-lookup",
+    "samples": 1000,
+    "p50_us": 2327.356,
+    "p95_us": 3640.379,
+    "p99_us": 4784.452,
+    "ops_s": 398.269
+  },
+  {
+    "run": 4,
+    "variant": "E",
+    "workload": "sessionless-two-hop",
+    "samples": 1000,
+    "p50_us": 2469.672,
+    "p95_us": 3747.2,
+    "p99_us": 4406.527,
+    "ops_s": 389.272
+  },
+  {
+    "run": 4,
+    "variant": "E",
+    "workload": "sessionless-vertex-count",
+    "samples": 1000,
+    "p50_us": 3878.046,
+    "p95_us": 6620.74,
+    "p99_us": 8947.535,
+    "ops_s": 244.19
+  },
+  {
+    "run": 4,
+    "variant": "E",
+    "workload": "sessionless-closure-query",
+    "samples": 1000,
+    "p50_us": 1715.406,
+    "p95_us": 2835.137,
+    "p99_us": 3194.139,
+    "ops_s": 549.552
+  },
+  {
+    "run": 4,
+    "variant": "E",
+    "workload": "session-point-lookup",
+    "samples": 1000,
+    "p50_us": 2158.633,
+    "p95_us": 3497.338,
+    "p99_us": 4199.326,
+    "ops_s": 435.757
+  },
+  {
+    "run": 4,
+    "variant": "E",
+    "workload": "session-two-hop",
+    "samples": 1000,
+    "p50_us": 2026.736,
+    "p95_us": 3119.262,
+    "p99_us": 3810.784,
+    "ops_s": 467.988
+  },
+  {
+    "run": 4,
+    "variant": "E",
+    "workload": "session-vertex-count",
+    "samples": 1000,
+    "p50_us": 3525.431,
+    "p95_us": 5590.633,
+    "p99_us": 7753.975,
+    "ops_s": 264.793
+  },
+  {
+    "run": 4,
+    "variant": "E",
+    "workload": "session-closure-query",
+    "samples": 1000,
+    "p50_us": 1331.546,
+    "p95_us": 2073.473,
+    "p99_us": 2362.695,
+    "ops_s": 732.429
+  },
+  {
+    "run": 5,
+    "variant": "E",
+    "workload": "sessionless-point-lookup",
+    "samples": 1000,
+    "p50_us": 2341.71,
+    "p95_us": 3778.981,
+    "p99_us": 4394.041,
+    "ops_s": 404.6
+  },
+  {
+    "run": 5,
+    "variant": "E",
+    "workload": "sessionless-two-hop",
+    "samples": 1000,
+    "p50_us": 2308.031,
+    "p95_us": 3659.25,
+    "p99_us": 4396.754,
+    "ops_s": 414.689
+  },
+  {
+    "run": 5,
+    "variant": "E",
+    "workload": "sessionless-vertex-count",
+    "samples": 1000,
+    "p50_us": 3603.309,
+    "p95_us": 7022.405,
+    "p99_us": 8410.8,
+    "ops_s": 250.115
+  },
+  {
+    "run": 5,
+    "variant": "E",
+    "workload": "sessionless-closure-query",
+    "samples": 1000,
+    "p50_us": 1506.159,
+    "p95_us": 2119.196,
+    "p99_us": 2423.179,
+    "ops_s": 652.804
+  },
+  {
+    "run": 5,
+    "variant": "E",
+    "workload": "session-point-lookup",
+    "samples": 1000,
+    "p50_us": 1738.63,
+    "p95_us": 2823.523,
+    "p99_us": 3134.228,
+    "ops_s": 554.29
+  },
+  {
+    "run": 5,
+    "variant": "E",
+    "workload": "session-two-hop",
+    "samples": 1000,
+    "p50_us": 2517.277,
+    "p95_us": 4262.154,
+    "p99_us": 4853.531,
+    "ops_s": 377.334
+  },
+  {
+    "run": 5,
+    "variant": "E",
+    "workload": "session-vertex-count",
+    "samples": 1000,
+    "p50_us": 3405.711,
+    "p95_us": 5911.629,
+    "p99_us": 7780.093,
+    "ops_s": 271.027
+  },
+  {
+    "run": 5,
+    "variant": "E",
+    "workload": "session-closure-query",
+    "samples": 1000,
+    "p50_us": 1212.086,
+    "p95_us": 2231.493,
+    "p99_us": 2641.424,
+    "ops_s": 732.267
+  },
+  {
+    "run": 6,
+    "variant": "C",
+    "workload": "sessionless-point-lookup",
+    "samples": 1000,
+    "p50_us": 2528.628,
+    "p95_us": 3680.888,
+    "p99_us": 4329.46,
+    "ops_s": 388.715
+  },
+  {
+    "run": 6,
+    "variant": "C",
+    "workload": "sessionless-two-hop",
+    "samples": 1000,
+    "p50_us": 2530.978,
+    "p95_us": 4094.863,
+    "p99_us": 4665.382,
+    "ops_s": 374.675
+  },
+  {
+    "run": 6,
+    "variant": "C",
+    "workload": "sessionless-vertex-count",
+    "samples": 1000,
+    "p50_us": 4223.763,
+    "p95_us": 8284.158,
+    "p99_us": 10056.325,
+    "ops_s": 210.953
+  },
+  {
+    "run": 6,
+    "variant": "C",
+    "workload": "sessionless-closure-query",
+    "samples": 1000,
+    "p50_us": 1513.754,
+    "p95_us": 2643.754,
+    "p99_us": 3091.081,
+    "ops_s": 607.202
+  },
+  {
+    "run": 6,
+    "variant": "C",
+    "workload": "session-point-lookup",
+    "samples": 1000,
+    "p50_us": 1738.226,
+    "p95_us": 2785.178,
+    "p99_us": 3442.133,
+    "ops_s": 551.719
+  },
+  {
+    "run": 6,
+    "variant": "C",
+    "workload": "session-two-hop",
+    "samples": 1000,
+    "p50_us": 1942.622,
+    "p95_us": 3166.297,
+    "p99_us": 4055.138,
+    "ops_s": 481.81
+  },
+  {
+    "run": 6,
+    "variant": "C",
+    "workload": "session-vertex-count",
+    "samples": 1000,
+    "p50_us": 3713.424,
+    "p95_us": 6694.889,
+    "p99_us": 9617.339,
+    "ops_s": 242.046
+  },
+  {
+    "run": 6,
+    "variant": "C",
+    "workload": "session-closure-query",
+    "samples": 1000,
+    "p50_us": 1267.047,
+    "p95_us": 2059.098,
+    "p99_us": 2626.533,
+    "ops_s": 740.927
+  },
+  {
+    "run": 7,
+    "variant": "B",
+    "workload": "sessionless-point-lookup",
+    "samples": 1000,
+    "p50_us": 2557.769,
+    "p95_us": 4139.142,
+    "p99_us": 5443.613,
+    "ops_s": 363.086
+  },
+  {
+    "run": 7,
+    "variant": "B",
+    "workload": "sessionless-two-hop",
+    "samples": 1000,
+    "p50_us": 2469.03,
+    "p95_us": 3933.67,
+    "p99_us": 4669.398,
+    "ops_s": 383.119
+  },
+  {
+    "run": 7,
+    "variant": "B",
+    "workload": "sessionless-vertex-count",
+    "samples": 1000,
+    "p50_us": 3727.284,
+    "p95_us": 7294.951,
+    "p99_us": 8906.713,
+    "ops_s": 236.778
+  },
+  {
+    "run": 7,
+    "variant": "B",
+    "workload": "sessionless-closure-query",
+    "samples": 1000,
+    "p50_us": 1481.155,
+    "p95_us": 2607.927,
+    "p99_us": 3054.951,
+    "ops_s": 624.259
+  },
+  {
+    "run": 7,
+    "variant": "B",
+    "workload": "session-point-lookup",
+    "samples": 1000,
+    "p50_us": 1756.588,
+    "p95_us": 2693.465,
+    "p99_us": 3162.94,
+    "ops_s": 545.832
+  },
+  {
+    "run": 7,
+    "variant": "B",
+    "workload": "session-two-hop",
+    "samples": 1000,
+    "p50_us": 2068.514,
+    "p95_us": 3633.07,
+    "p99_us": 4067.908,
+    "ops_s": 443.395
+  },
+  {
+    "run": 7,
+    "variant": "B",
+    "workload": "session-vertex-count",
+    "samples": 1000,
+    "p50_us": 3873.21,
+    "p95_us": 6930.101,
+    "p99_us": 8903.667,
+    "ops_s": 237.61
+  },
+  {
+    "run": 7,
+    "variant": "B",
+    "workload": "session-closure-query",
+    "samples": 1000,
+    "p50_us": 1098.894,
+    "p95_us": 2004.289,
+    "p99_us": 2409.997,
+    "ops_s": 810.746
+  },
+  {
+    "run": 8,
+    "variant": "A",
+    "workload": "sessionless-point-lookup",
+    "samples": 1000,
+    "p50_us": 2471.487,
+    "p95_us": 3938.208,
+    "p99_us": 4848.849,
+    "ops_s": 374.522
+  },
+  {
+    "run": 8,
+    "variant": "A",
+    "workload": "sessionless-two-hop",
+    "samples": 1000,
+    "p50_us": 2542.603,
+    "p95_us": 4295.817,
+    "p99_us": 5147.289,
+    "ops_s": 361.21
+  },
+  {
+    "run": 8,
+    "variant": "A",
+    "workload": "sessionless-vertex-count",
+    "samples": 1000,
+    "p50_us": 4204.863,
+    "p95_us": 8406.679,
+    "p99_us": 9988.882,
+    "ops_s": 210.633
+  },
+  {
+    "run": 8,
+    "variant": "A",
+    "workload": "sessionless-closure-query",
+    "samples": 1000,
+    "p50_us": 2127.609,
+    "p95_us": 3124.189,
+    "p99_us": 3741.674,
+    "ops_s": 455.258
+  },
+  {
+    "run": 8,
+    "variant": "A",
+    "workload": "session-point-lookup",
+    "samples": 1000,
+    "p50_us": 1659.372,
+    "p95_us": 2714.729,
+    "p99_us": 3260.829,
+    "ops_s": 560.852
+  },
+  {
+    "run": 8,
+    "variant": "A",
+    "workload": "session-two-hop",
+    "samples": 1000,
+    "p50_us": 2497.78,
+    "p95_us": 4005.836,
+    "p99_us": 4576.795,
+    "ops_s": 377.69
+  },
+  {
+    "run": 8,
+    "variant": "A",
+    "workload": "session-vertex-count",
+    "samples": 1000,
+    "p50_us": 3364.634,
+    "p95_us": 5964.617,
+    "p99_us": 7913.997,
+    "ops_s": 276.621
+  },
+  {
+    "run": 8,
+    "variant": "A",
+    "workload": "session-closure-query",
+    "samples": 1000,
+    "p50_us": 1357.392,
+    "p95_us": 1987.455,
+    "p99_us": 2323.268,
+    "ops_s": 711.525
+  },
+  {
+    "run": 9,
+    "variant": "A",
+    "workload": "sessionless-point-lookup",
+    "samples": 1000,
+    "p50_us": 2460.712,
+    "p95_us": 3944.87,
+    "p99_us": 5045.029,
+    "ops_s": 375.986
+  },
+  {
+    "run": 9,
+    "variant": "A",
+    "workload": "sessionless-two-hop",
+    "samples": 1000,
+    "p50_us": 2644.575,
+    "p95_us": 3832.142,
+    "p99_us": 4831.367,
+    "ops_s": 362.905
+  },
+  {
+    "run": 9,
+    "variant": "A",
+    "workload": "sessionless-vertex-count",
+    "samples": 1000,
+    "p50_us": 4056.007,
+    "p95_us": 7818.87,
+    "p99_us": 9140.764,
+    "ops_s": 221.038
+  },
+  {
+    "run": 9,
+    "variant": "A",
+    "workload": "sessionless-closure-query",
+    "samples": 1000,
+    "p50_us": 1909.921,
+    "p95_us": 3041.84,
+    "p99_us": 3580.008,
+    "ops_s": 498.7
+  },
+  {
+    "run": 9,
+    "variant": "A",
+    "workload": "session-point-lookup",
+    "samples": 1000,
+    "p50_us": 1548.087,
+    "p95_us": 2653.328,
+    "p99_us": 3233.978,
+    "ops_s": 601.486
+  },
+  {
+    "run": 9,
+    "variant": "A",
+    "workload": "session-two-hop",
+    "samples": 1000,
+    "p50_us": 2166.207,
+    "p95_us": 3648.399,
+    "p99_us": 4143.046,
+    "ops_s": 433.769
+  },
+  {
+    "run": 9,
+    "variant": "A",
+    "workload": "session-vertex-count",
+    "samples": 1000,
+    "p50_us": 3480.542,
+    "p95_us": 6696.822,
+    "p99_us": 7828.939,
+    "ops_s": 258.35
+  },
+  {
+    "run": 9,
+    "variant": "A",
+    "workload": "session-closure-query",
+    "samples": 1000,
+    "p50_us": 1415.95,
+    "p95_us": 1981.589,
+    "p99_us": 2268.715,
+    "ops_s": 695.864
+  },
+  {
+    "run": 10,
+    "variant": "B",
+    "workload": "sessionless-point-lookup",
+    "samples": 1000,
+    "p50_us": 2550.572,
+    "p95_us": 4263.641,
+    "p99_us": 5029.123,
+    "ops_s": 362.512
+  },
+  {
+    "run": 10,
+    "variant": "B",
+    "workload": "sessionless-two-hop",
+    "samples": 1000,
+    "p50_us": 2692.973,
+    "p95_us": 4296.595,
+    "p99_us": 4922.744,
+    "ops_s": 346.296
+  },
+  {
+    "run": 10,
+    "variant": "B",
+    "workload": "sessionless-vertex-count",
+    "samples": 1000,
+    "p50_us": 3816.657,
+    "p95_us": 6704.243,
+    "p99_us": 8998.983,
+    "ops_s": 235.104
+  },
+  {
+    "run": 10,
+    "variant": "B",
+    "workload": "sessionless-closure-query",
+    "samples": 1000,
+    "p50_us": 1792.952,
+    "p95_us": 2954.537,
+    "p99_us": 3433.07,
+    "ops_s": 526.704
+  },
+  {
+    "run": 10,
+    "variant": "B",
+    "workload": "session-point-lookup",
+    "samples": 1000,
+    "p50_us": 1538.35,
+    "p95_us": 2404.318,
+    "p99_us": 2900.608,
+    "ops_s": 616.639
+  },
+  {
+    "run": 10,
+    "variant": "B",
+    "workload": "session-two-hop",
+    "samples": 1000,
+    "p50_us": 2305.823,
+    "p95_us": 3639.227,
+    "p99_us": 4209.422,
+    "ops_s": 413.086
+  },
+  {
+    "run": 10,
+    "variant": "B",
+    "workload": "session-vertex-count",
+    "samples": 1000,
+    "p50_us": 3358.634,
+    "p95_us": 5841.408,
+    "p99_us": 7736.924,
+    "ops_s": 275.711
+  },
+  {
+    "run": 10,
+    "variant": "B",
+    "workload": "session-closure-query",
+    "samples": 1000,
+    "p50_us": 1517.478,
+    "p95_us": 2289.36,
+    "p99_us": 2554.335,
+    "ops_s": 635.193
+  },
+  {
+    "run": 11,
+    "variant": "C",
+    "workload": "sessionless-point-lookup",
+    "samples": 1000,
+    "p50_us": 2643.809,
+    "p95_us": 3978.63,
+    "p99_us": 4663.364,
+    "ops_s": 368.168
+  },
+  {
+    "run": 11,
+    "variant": "C",
+    "workload": "sessionless-two-hop",
+    "samples": 1000,
+    "p50_us": 2576.898,
+    "p95_us": 4285.136,
+    "p99_us": 4983.089,
+    "ops_s": 360.578
+  },
+  {
+    "run": 11,
+    "variant": "C",
+    "workload": "sessionless-vertex-count",
+    "samples": 1000,
+    "p50_us": 3647.0,
+    "p95_us": 5917.582,
+    "p99_us": 8657.542,
+    "ops_s": 253.591
+  },
+  {
+    "run": 11,
+    "variant": "C",
+    "workload": "sessionless-closure-query",
+    "samples": 1000,
+    "p50_us": 1543.311,
+    "p95_us": 2176.833,
+    "p99_us": 2535.07,
+    "ops_s": 632.517
+  },
+  {
+    "run": 11,
+    "variant": "C",
+    "workload": "session-point-lookup",
+    "samples": 1000,
+    "p50_us": 1774.062,
+    "p95_us": 2672.006,
+    "p99_us": 3184.867,
+    "ops_s": 547.371
+  },
+  {
+    "run": 11,
+    "variant": "C",
+    "workload": "session-two-hop",
+    "samples": 1000,
+    "p50_us": 2088.397,
+    "p95_us": 3354.071,
+    "p99_us": 3771.746,
+    "ops_s": 449.438
+  },
+  {
+    "run": 11,
+    "variant": "C",
+    "workload": "session-vertex-count",
+    "samples": 1000,
+    "p50_us": 3328.092,
+    "p95_us": 5906.084,
+    "p99_us": 8028.552,
+    "ops_s": 271.46
+  },
+  {
+    "run": 11,
+    "variant": "C",
+    "workload": "session-closure-query",
+    "samples": 1000,
+    "p50_us": 1468.14,
+    "p95_us": 2165.553,
+    "p99_us": 2421.949,
+    "ops_s": 665.104
+  },
+  {
+    "run": 12,
+    "variant": "E",
+    "workload": "sessionless-point-lookup",
+    "samples": 1000,
+    "p50_us": 2296.184,
+    "p95_us": 3407.387,
+    "p99_us": 4760.826,
+    "ops_s": 411.887
+  },
+  {
+    "run": 12,
+    "variant": "E",
+    "workload": "sessionless-two-hop",
+    "samples": 1000,
+    "p50_us": 2376.268,
+    "p95_us": 3638.461,
+    "p99_us": 4386.219,
+    "ops_s": 413.062
+  },
+  {
+    "run": 12,
+    "variant": "E",
+    "workload": "sessionless-vertex-count",
+    "samples": 1000,
+    "p50_us": 3769.585,
+    "p95_us": 7299.379,
+    "p99_us": 9073.506,
+    "ops_s": 239.885
+  },
+  {
+    "run": 12,
+    "variant": "E",
+    "workload": "sessionless-closure-query",
+    "samples": 1000,
+    "p50_us": 1854.914,
+    "p95_us": 2649.945,
+    "p99_us": 3020.032,
+    "ops_s": 533.874
+  },
+  {
+    "run": 12,
+    "variant": "E",
+    "workload": "session-point-lookup",
+    "samples": 1000,
+    "p50_us": 2266.896,
+    "p95_us": 3446.172,
+    "p99_us": 3958.47,
+    "ops_s": 423.628
+  },
+  {
+    "run": 12,
+    "variant": "E",
+    "workload": "session-two-hop",
+    "samples": 1000,
+    "p50_us": 1758.305,
+    "p95_us": 2942.955,
+    "p99_us": 3610.985,
+    "ops_s": 522.124
+  },
+  {
+    "run": 12,
+    "variant": "E",
+    "workload": "session-vertex-count",
+    "samples": 1000,
+    "p50_us": 3643.216,
+    "p95_us": 6411.377,
+    "p99_us": 8615.991,
+    "ops_s": 252.604
+  },
+  {
+    "run": 12,
+    "variant": "E",
+    "workload": "session-closure-query",
+    "samples": 1000,
+    "p50_us": 1276.364,
+    "p95_us": 2084.342,
+    "p99_us": 2421.893,
+    "ops_s": 731.721
+  },
+  {
+    "run": 13,
+    "variant": "E",
+    "workload": "sessionless-point-lookup",
+    "samples": 1000,
+    "p50_us": 2344.61,
+    "p95_us": 4150.226,
+    "p99_us": 5351.943,
+    "ops_s": 388.13
+  },
+  {
+    "run": 13,
+    "variant": "E",
+    "workload": "sessionless-two-hop",
+    "samples": 1000,
+    "p50_us": 2308.134,
+    "p95_us": 3579.112,
+    "p99_us": 4509.789,
+    "ops_s": 417.508
+  },
+  {
+    "run": 13,
+    "variant": "E",
+    "workload": "sessionless-vertex-count",
+    "samples": 1000,
+    "p50_us": 4083.936,
+    "p95_us": 6185.303,
+    "p99_us": 9012.602,
+    "ops_s": 232.402
+  },
+  {
+    "run": 13,
+    "variant": "E",
+    "workload": "sessionless-closure-query",
+    "samples": 1000,
+    "p50_us": 1697.991,
+    "p95_us": 2692.562,
+    "p99_us": 3147.549,
+    "ops_s": 576.454
+  },
+  {
+    "run": 13,
+    "variant": "E",
+    "workload": "session-point-lookup",
+    "samples": 1000,
+    "p50_us": 2212.304,
+    "p95_us": 3455.96,
+    "p99_us": 3824.975,
+    "ops_s": 428.502
+  },
+  {
+    "run": 13,
+    "variant": "E",
+    "workload": "session-two-hop",
+    "samples": 1000,
+    "p50_us": 1957.921,
+    "p95_us": 3142.732,
+    "p99_us": 3781.304,
+    "ops_s": 482.696
+  },
+  {
+    "run": 13,
+    "variant": "E",
+    "workload": "session-vertex-count",
+    "samples": 1000,
+    "p50_us": 3541.0,
+    "p95_us": 6282.235,
+    "p99_us": 7986.187,
+    "ops_s": 259.437
+  },
+  {
+    "run": 13,
+    "variant": "E",
+    "workload": "session-closure-query",
+    "samples": 1000,
+    "p50_us": 1190.522,
+    "p95_us": 1877.645,
+    "p99_us": 2353.298,
+    "ops_s": 809.666
+  },
+  {
+    "run": 14,
+    "variant": "C",
+    "workload": "sessionless-point-lookup",
+    "samples": 1000,
+    "p50_us": 2227.175,
+    "p95_us": 3445.143,
+    "p99_us": 4130.743,
+    "ops_s": 420.775
+  },
+  {
+    "run": 14,
+    "variant": "C",
+    "workload": "sessionless-two-hop",
+    "samples": 1000,
+    "p50_us": 2038.116,
+    "p95_us": 3793.004,
+    "p99_us": 4756.337,
+    "ops_s": 444.676
+  },
+  {
+    "run": 14,
+    "variant": "C",
+    "workload": "sessionless-vertex-count",
+    "samples": 1000,
+    "p50_us": 3726.004,
+    "p95_us": 7036.763,
+    "p99_us": 8965.045,
+    "ops_s": 242.987
+  },
+  {
+    "run": 14,
+    "variant": "C",
+    "workload": "sessionless-closure-query",
+    "samples": 1000,
+    "p50_us": 1773.984,
+    "p95_us": 2787.882,
+    "p99_us": 3162.181,
+    "ops_s": 543.545
+  },
+  {
+    "run": 14,
+    "variant": "C",
+    "workload": "session-point-lookup",
+    "samples": 1000,
+    "p50_us": 1922.867,
+    "p95_us": 3027.14,
+    "p99_us": 3832.424,
+    "ops_s": 497.297
+  },
+  {
+    "run": 14,
+    "variant": "C",
+    "workload": "session-two-hop",
+    "samples": 1000,
+    "p50_us": 1976.288,
+    "p95_us": 3033.543,
+    "p99_us": 3739.689,
+    "ops_s": 487.105
+  },
+  {
+    "run": 14,
+    "variant": "C",
+    "workload": "session-vertex-count",
+    "samples": 1000,
+    "p50_us": 3472.937,
+    "p95_us": 6456.644,
+    "p99_us": 8728.231,
+    "ops_s": 256.435
+  },
+  {
+    "run": 14,
+    "variant": "C",
+    "workload": "session-closure-query",
+    "samples": 1000,
+    "p50_us": 1207.555,
+    "p95_us": 2189.025,
+    "p99_us": 2782.223,
+    "ops_s": 757.693
+  },
+  {
+    "run": 15,
+    "variant": "B",
+    "workload": "sessionless-point-lookup",
+    "samples": 1000,
+    "p50_us": 2724.181,
+    "p95_us": 4308.294,
+    "p99_us": 4906.749,
+    "ops_s": 361.451
+  },
+  {
+    "run": 15,
+    "variant": "B",
+    "workload": "sessionless-two-hop",
+    "samples": 1000,
+    "p50_us": 2421.75,
+    "p95_us": 3909.611,
+    "p99_us": 4472.152,
+    "ops_s": 391.802
+  },
+  {
+    "run": 15,
+    "variant": "B",
+    "workload": "sessionless-vertex-count",
+    "samples": 1000,
+    "p50_us": 3723.96,
+    "p95_us": 7148.39,
+    "p99_us": 8686.225,
+    "ops_s": 241.999
+  },
+  {
+    "run": 15,
+    "variant": "B",
+    "workload": "sessionless-closure-query",
+    "samples": 1000,
+    "p50_us": 1871.92,
+    "p95_us": 2768.099,
+    "p99_us": 3129.986,
+    "ops_s": 519.134
+  },
+  {
+    "run": 15,
+    "variant": "B",
+    "workload": "session-point-lookup",
+    "samples": 1000,
+    "p50_us": 1529.947,
+    "p95_us": 2324.001,
+    "p99_us": 2653.585,
+    "ops_s": 629.058
+  },
+  {
+    "run": 15,
+    "variant": "B",
+    "workload": "session-two-hop",
+    "samples": 1000,
+    "p50_us": 1988.838,
+    "p95_us": 3134.242,
+    "p99_us": 3749.942,
+    "ops_s": 479.636
+  },
+  {
+    "run": 15,
+    "variant": "B",
+    "workload": "session-vertex-count",
+    "samples": 1000,
+    "p50_us": 3610.464,
+    "p95_us": 7066.223,
+    "p99_us": 8547.59,
+    "ops_s": 244.045
+  },
+  {
+    "run": 15,
+    "variant": "B",
+    "workload": "session-closure-query",
+    "samples": 1000,
+    "p50_us": 1270.742,
+    "p95_us": 2135.709,
+    "p99_us": 2391.99,
+    "ops_s": 739.737
+  },
+  {
+    "run": 16,
+    "variant": "A",
+    "workload": "sessionless-point-lookup",
+    "samples": 1000,
+    "p50_us": 2377.031,
+    "p95_us": 3691.666,
+    "p99_us": 4731.93,
+    "ops_s": 393.669
+  },
+  {
+    "run": 16,
+    "variant": "A",
+    "workload": "sessionless-two-hop",
+    "samples": 1000,
+    "p50_us": 2636.68,
+    "p95_us": 4210.602,
+    "p99_us": 5249.81,
+    "ops_s": 360.171
+  },
+  {
+    "run": 16,
+    "variant": "A",
+    "workload": "sessionless-vertex-count",
+    "samples": 1000,
+    "p50_us": 3983.857,
+    "p95_us": 6877.335,
+    "p99_us": 9078.953,
+    "ops_s": 229.672
+  },
+  {
+    "run": 16,
+    "variant": "A",
+    "workload": "sessionless-closure-query",
+    "samples": 1000,
+    "p50_us": 1686.955,
+    "p95_us": 2814.505,
+    "p99_us": 3265.35,
+    "ops_s": 548.429
+  },
+  {
+    "run": 16,
+    "variant": "A",
+    "workload": "session-point-lookup",
+    "samples": 1000,
+    "p50_us": 1953.328,
+    "p95_us": 2848.914,
+    "p99_us": 3163.358,
+    "ops_s": 509.674
+  },
+  {
+    "run": 16,
+    "variant": "A",
+    "workload": "session-two-hop",
+    "samples": 1000,
+    "p50_us": 1752.561,
+    "p95_us": 2814.558,
+    "p99_us": 3459.352,
+    "ops_s": 533.86
+  },
+  {
+    "run": 16,
+    "variant": "A",
+    "workload": "session-vertex-count",
+    "samples": 1000,
+    "p50_us": 3402.265,
+    "p95_us": 6664.689,
+    "p99_us": 7902.164,
+    "ops_s": 266.609
+  },
+  {
+    "run": 16,
+    "variant": "A",
+    "workload": "session-closure-query",
+    "samples": 1000,
+    "p50_us": 1338.011,
+    "p95_us": 2176.87,
+    "p99_us": 2533.423,
+    "ops_s": 723.128
+  },
+  {
+    "run": 17,
+    "variant": "A",
+    "workload": "sessionless-point-lookup",
+    "samples": 1000,
+    "p50_us": 2667.536,
+    "p95_us": 4369.201,
+    "p99_us": 5506.927,
+    "ops_s": 344.951
+  },
+  {
+    "run": 17,
+    "variant": "A",
+    "workload": "sessionless-two-hop",
+    "samples": 1000,
+    "p50_us": 2680.974,
+    "p95_us": 4131.601,
+    "p99_us": 5376.216,
+    "ops_s": 355.188
+  },
+  {
+    "run": 17,
+    "variant": "A",
+    "workload": "sessionless-vertex-count",
+    "samples": 1000,
+    "p50_us": 3631.255,
+    "p95_us": 7090.769,
+    "p99_us": 8458.966,
+    "ops_s": 250.208
+  },
+  {
+    "run": 17,
+    "variant": "A",
+    "workload": "sessionless-closure-query",
+    "samples": 1000,
+    "p50_us": 2213.873,
+    "p95_us": 3253.793,
+    "p99_us": 3694.784,
+    "ops_s": 444.286
+  },
+  {
+    "run": 17,
+    "variant": "A",
+    "workload": "session-point-lookup",
+    "samples": 1000,
+    "p50_us": 1969.169,
+    "p95_us": 3080.147,
+    "p99_us": 3647.62,
+    "ops_s": 483.984
+  },
+  {
+    "run": 17,
+    "variant": "A",
+    "workload": "session-two-hop",
+    "samples": 1000,
+    "p50_us": 2304.682,
+    "p95_us": 3683.625,
+    "p99_us": 4268.712,
+    "ops_s": 412.705
+  },
+  {
+    "run": 17,
+    "variant": "A",
+    "workload": "session-vertex-count",
+    "samples": 1000,
+    "p50_us": 3357.253,
+    "p95_us": 6709.021,
+    "p99_us": 8763.808,
+    "ops_s": 262.663
+  },
+  {
+    "run": 17,
+    "variant": "A",
+    "workload": "session-closure-query",
+    "samples": 1000,
+    "p50_us": 1367.648,
+    "p95_us": 2005.34,
+    "p99_us": 2295.319,
+    "ops_s": 711.711
+  },
+  {
+    "run": 18,
+    "variant": "B",
+    "workload": "sessionless-point-lookup",
+    "samples": 1000,
+    "p50_us": 2586.097,
+    "p95_us": 3947.421,
+    "p99_us": 4601.312,
+    "ops_s": 364.068
+  },
+  {
+    "run": 18,
+    "variant": "B",
+    "workload": "sessionless-two-hop",
+    "samples": 1000,
+    "p50_us": 2503.69,
+    "p95_us": 3831.797,
+    "p99_us": 4423.634,
+    "ops_s": 382.913
+  },
+  {
+    "run": 18,
+    "variant": "B",
+    "workload": "sessionless-vertex-count",
+    "samples": 1000,
+    "p50_us": 3958.054,
+    "p95_us": 7479.5,
+    "p99_us": 9251.571,
+    "ops_s": 227.693
+  },
+  {
+    "run": 18,
+    "variant": "B",
+    "workload": "sessionless-closure-query",
+    "samples": 1000,
+    "p50_us": 1482.104,
+    "p95_us": 2439.878,
+    "p99_us": 2955.009,
+    "ops_s": 630.602
+  },
+  {
+    "run": 18,
+    "variant": "B",
+    "workload": "session-point-lookup",
+    "samples": 1000,
+    "p50_us": 1385.016,
+    "p95_us": 1908.318,
+    "p99_us": 2226.734,
+    "ops_s": 713.625
+  },
+  {
+    "run": 18,
+    "variant": "B",
+    "workload": "session-two-hop",
+    "samples": 1000,
+    "p50_us": 2028.16,
+    "p95_us": 3385.052,
+    "p99_us": 4044.95,
+    "ops_s": 468.086
+  },
+  {
+    "run": 18,
+    "variant": "B",
+    "workload": "session-vertex-count",
+    "samples": 1000,
+    "p50_us": 3785.44,
+    "p95_us": 7139.962,
+    "p99_us": 8842.736,
+    "ops_s": 242.418
+  },
+  {
+    "run": 18,
+    "variant": "B",
+    "workload": "session-closure-query",
+    "samples": 1000,
+    "p50_us": 1096.337,
+    "p95_us": 1870.015,
+    "p99_us": 2397.187,
+    "ops_s": 842.37
+  },
+  {
+    "run": 19,
+    "variant": "C",
+    "workload": "sessionless-point-lookup",
+    "samples": 1000,
+    "p50_us": 2649.785,
+    "p95_us": 4167.734,
+    "p99_us": 4903.085,
+    "ops_s": 363.154
+  },
+  {
+    "run": 19,
+    "variant": "C",
+    "workload": "sessionless-two-hop",
+    "samples": 1000,
+    "p50_us": 2299.913,
+    "p95_us": 3793.408,
+    "p99_us": 4333.153,
+    "ops_s": 406.903
+  },
+  {
+    "run": 19,
+    "variant": "C",
+    "workload": "sessionless-vertex-count",
+    "samples": 1000,
+    "p50_us": 3660.366,
+    "p95_us": 6512.438,
+    "p99_us": 8817.113,
+    "ops_s": 254.252
+  },
+  {
+    "run": 19,
+    "variant": "C",
+    "workload": "sessionless-closure-query",
+    "samples": 1000,
+    "p50_us": 1865.245,
+    "p95_us": 2758.707,
+    "p99_us": 3239.197,
+    "ops_s": 521.384
+  },
+  {
+    "run": 19,
+    "variant": "C",
+    "workload": "session-point-lookup",
+    "samples": 1000,
+    "p50_us": 1992.593,
+    "p95_us": 3198.577,
+    "p99_us": 3695.195,
+    "ops_s": 476.878
+  },
+  {
+    "run": 19,
+    "variant": "C",
+    "workload": "session-two-hop",
+    "samples": 1000,
+    "p50_us": 1767.777,
+    "p95_us": 2983.628,
+    "p99_us": 3543.783,
+    "ops_s": 525.381
+  },
+  {
+    "run": 19,
+    "variant": "C",
+    "workload": "session-vertex-count",
+    "samples": 1000,
+    "p50_us": 3452.424,
+    "p95_us": 6643.076,
+    "p99_us": 7973.063,
+    "ops_s": 257.333
+  },
+  {
+    "run": 19,
+    "variant": "C",
+    "workload": "session-closure-query",
+    "samples": 1000,
+    "p50_us": 1407.512,
+    "p95_us": 2150.176,
+    "p99_us": 2435.217,
+    "ops_s": 684.524
+  },
+  {
+    "run": 20,
+    "variant": "E",
+    "workload": "sessionless-point-lookup",
+    "samples": 1000,
+    "p50_us": 2258.437,
+    "p95_us": 3521.762,
+    "p99_us": 3989.057,
+    "ops_s": 418.921
+  },
+  {
+    "run": 20,
+    "variant": "E",
+    "workload": "sessionless-two-hop",
+    "samples": 1000,
+    "p50_us": 2084.213,
+    "p95_us": 3405.492,
+    "p99_us": 4000.056,
+    "ops_s": 454.674
+  },
+  {
+    "run": 20,
+    "variant": "E",
+    "workload": "sessionless-vertex-count",
+    "samples": 1000,
+    "p50_us": 3543.705,
+    "p95_us": 5669.942,
+    "p99_us": 8016.647,
+    "ops_s": 261.289
+  },
+  {
+    "run": 20,
+    "variant": "E",
+    "workload": "sessionless-closure-query",
+    "samples": 1000,
+    "p50_us": 1719.862,
+    "p95_us": 2458.699,
+    "p99_us": 2809.798,
+    "ops_s": 575.307
+  },
+  {
+    "run": 20,
+    "variant": "E",
+    "workload": "session-point-lookup",
+    "samples": 1000,
+    "p50_us": 2077.099,
+    "p95_us": 3326.604,
+    "p99_us": 3748.156,
+    "ops_s": 451.237
+  },
+  {
+    "run": 20,
+    "variant": "E",
+    "workload": "session-two-hop",
+    "samples": 1000,
+    "p50_us": 1804.865,
+    "p95_us": 3293.511,
+    "p99_us": 4493.688,
+    "ops_s": 491.941
+  },
+  {
+    "run": 20,
+    "variant": "E",
+    "workload": "session-vertex-count",
+    "samples": 1000,
+    "p50_us": 3638.344,
+    "p95_us": 6824.06,
+    "p99_us": 8239.373,
+    "ops_s": 253.471
+  },
+  {
+    "run": 20,
+    "variant": "E",
+    "workload": "session-closure-query",
+    "samples": 1000,
+    "p50_us": 1180.755,
+    "p95_us": 1907.531,
+    "p99_us": 2318.785,
+    "ops_s": 778.958
+  }
+]

@@ -15,18 +15,23 @@
  * limitations under the License.
  */
 
-package org.apache.hugegraph.store.core;
+package org.apache.hugegraph.security.script;
 
-import org.apache.hugegraph.store.meta.GraphIDManagerTest;
-import org.junit.runner.RunWith;
-import org.junit.runners.Suite;
+import groovy.lang.Binding;
 
-@RunWith(Suite.class)
-@Suite.SuiteClasses({
-        BatchGraphIsolationTest.class,
-        ScanPolicyFailureTest.class,
-        StorePolicyModeTest.class,
-        GraphIDManagerTest.class
-})
-public class CoreSuiteTest {
+/** Compiler-only assignment bookkeeping; user calls remain outside the method policy. */
+public final class ScriptSessionState {
+
+    private ScriptSessionState() {
+    }
+
+    public static <T> T recordPostfix(Binding binding, String name, T result, Object current) {
+        binding.setVariable(name, current);
+        return result;
+    }
+
+    public static <T> T record(Binding binding, String name, T value) {
+        binding.setVariable(name, value);
+        return value;
+    }
 }

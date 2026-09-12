@@ -15,18 +15,10 @@
  * limitations under the License.
  */
 
-package org.apache.hugegraph.store.core;
+package org.apache.hugegraph.security.script;
 
-import org.apache.hugegraph.store.meta.GraphIDManagerTest;
-import org.junit.runner.RunWith;
-import org.junit.runners.Suite;
-
-@RunWith(Suite.class)
-@Suite.SuiteClasses({
-        BatchGraphIsolationTest.class,
-        ScanPolicyFailureTest.class,
-        StorePolicyModeTest.class,
-        GraphIDManagerTest.class
-})
-public class CoreSuiteTest {
+public enum ScriptExecutionProfile {
+    QUERY,
+    SCHEMA,
+    STORE_FILTER
 }

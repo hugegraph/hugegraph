@@ -17,19 +17,20 @@
 
 package org.apache.hugegraph.unit;
 
-import org.apache.hugegraph.backend.tx.GraphIndexTransactionTest;
-import org.apache.hugegraph.backend.tx.GraphTransactionTest;
 import org.apache.hugegraph.api.auth.GraphSpaceAuthPayloadTest;
 import org.apache.hugegraph.api.auth.GraphSpaceGroupAPITest;
 import org.apache.hugegraph.api.cypher.CypherClientTest;
 import org.apache.hugegraph.auth.StandardAuthManagerV2Test;
 import org.apache.hugegraph.auth.WsAndHttpBasicAuthHandlerTest;
+import org.apache.hugegraph.backend.tx.GraphIndexTransactionTest;
+import org.apache.hugegraph.backend.tx.GraphTransactionTest;
 import org.apache.hugegraph.core.RoleElectionStateMachineTest;
 import org.apache.hugegraph.meta.EtcdMetaDriverTest;
 import org.apache.hugegraph.meta.MetaManagerSchemaCacheClearEventTest;
 import org.apache.hugegraph.meta.managers.AuthMetaManagerTest;
 import org.apache.hugegraph.tinkerpop.HugeGraphTestInfrastructureTest;
 import org.apache.hugegraph.traversal.optimize.TraversalUtilOptimizeTest;
+import org.apache.hugegraph.auth.PolicySessionLifecycleTest;
 import org.apache.hugegraph.unit.api.auth.LoginAPITest;
 import org.apache.hugegraph.unit.api.filter.AccessLogFilterTest;
 import org.apache.hugegraph.unit.api.filter.LoadDetectFilterTest;
@@ -57,21 +58,27 @@ import org.apache.hugegraph.unit.core.ExceptionTest;
 import org.apache.hugegraph.unit.core.GraphManagerAdminInitTest;
 import org.apache.hugegraph.unit.core.GraphManagerConfigTest;
 import org.apache.hugegraph.unit.core.GroovyScriptEngineCompatibilityTest;
-import org.apache.hugegraph.unit.core.HugeFeaturesTest;
 import org.apache.hugegraph.unit.core.HstoreSessionsTest;
+import org.apache.hugegraph.unit.core.HugeFeaturesTest;
 import org.apache.hugegraph.unit.core.IdHolderTest;
 import org.apache.hugegraph.unit.core.LocksTableTest;
 import org.apache.hugegraph.unit.core.PageStateTest;
+import org.apache.hugegraph.unit.core.PolicyGraphModeTest;
+import org.apache.hugegraph.unit.core.PolicyScriptEngineTest;
+import org.apache.hugegraph.unit.core.PolicySessionEngineTest;
+import org.apache.hugegraph.unit.core.PolicyServerModeTest;
 import org.apache.hugegraph.unit.core.QueryResultsTest;
 import org.apache.hugegraph.unit.core.QueryTest;
-import org.apache.hugegraph.unit.core.StandardHugeGraphClearBackendTest;
 import org.apache.hugegraph.unit.core.RangeTest;
 import org.apache.hugegraph.unit.core.RolePermissionTest;
 import org.apache.hugegraph.unit.core.RowLockTest;
 import org.apache.hugegraph.unit.core.SchemaElementTest;
+import org.apache.hugegraph.unit.core.ScriptPolicyCompilationTest;
+import org.apache.hugegraph.unit.core.ScriptRequestGuardTest;
 import org.apache.hugegraph.unit.core.SecurityManagerTest;
 import org.apache.hugegraph.unit.core.SerialEnumTest;
 import org.apache.hugegraph.unit.core.ServerInfoManagerTest;
+import org.apache.hugegraph.unit.core.StandardHugeGraphClearBackendTest;
 import org.apache.hugegraph.unit.core.SystemSchemaStoreTest;
 import org.apache.hugegraph.unit.core.TaskSchedulerServerInfoTest;
 import org.apache.hugegraph.unit.core.TraversalUtilTest;
@@ -160,6 +167,13 @@ import org.junit.runners.Suite;
         BackendProviderFactoryTest.class,
         ConditionTest.class,
         GroovyScriptEngineCompatibilityTest.class,
+        ScriptPolicyCompilationTest.class,
+        PolicyScriptEngineTest.class,
+        PolicySessionEngineTest.class,
+        PolicySessionLifecycleTest.class,
+        ScriptRequestGuardTest.class,
+        PolicyServerModeTest.class,
+        PolicyGraphModeTest.class,
         HugeFeaturesTest.class,
         StandardHugeGraphClearBackendTest.class,
         ConditionQueryFlattenTest.class,

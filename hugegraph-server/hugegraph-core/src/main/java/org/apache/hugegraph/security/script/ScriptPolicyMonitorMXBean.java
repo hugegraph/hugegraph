@@ -15,18 +15,17 @@
  * limitations under the License.
  */
 
-package org.apache.hugegraph.store.core;
+package org.apache.hugegraph.security.script;
 
-import org.apache.hugegraph.store.meta.GraphIDManagerTest;
-import org.junit.runner.RunWith;
-import org.junit.runners.Suite;
+import java.util.Map;
 
-@RunWith(Suite.class)
-@Suite.SuiteClasses({
-        BatchGraphIsolationTest.class,
-        ScanPolicyFailureTest.class,
-        StorePolicyModeTest.class,
-        GraphIDManagerTest.class
-})
-public class CoreSuiteTest {
+public interface ScriptPolicyMonitorMXBean {
+
+    String getMode();
+
+    String getPolicyVersion();
+
+    int getActiveEngines();
+
+    Map<String, Long> getCounters();
 }
