@@ -65,6 +65,8 @@ import lombok.extern.slf4j.Slf4j;
         MetricSessionTest.class,
         HgSnapshotHandlerTest.class,
         StoreIdChangeTest.class,
+        ScanPolicyFailureTest.class,
+        StorePolicyModeTest.class,
         PartitionMetaCodecTest.class
 })
 @Slf4j
