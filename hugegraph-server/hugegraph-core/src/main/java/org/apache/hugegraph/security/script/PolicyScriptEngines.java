@@ -15,18 +15,25 @@
  * limitations under the License.
  */
 
-package org.apache.hugegraph.store.core;
+package org.apache.hugegraph.security.script;
 
-import org.apache.hugegraph.store.meta.GraphIDManagerTest;
-import org.junit.runner.RunWith;
-import org.junit.runners.Suite;
+import java.util.EnumMap;
+import java.util.Map;
 
-@RunWith(Suite.class)
-@Suite.SuiteClasses({
-        BatchGraphIsolationTest.class,
-        ScanPolicyFailureTest.class,
-        StorePolicyModeTest.class,
-        GraphIDManagerTest.class
-})
-public class CoreSuiteTest {
+public final class PolicyScriptEngines {
+
+    private static final Map<ScriptExecutionProfile, PolicyScriptEngine> ENGINES =
+            new EnumMap<>(ScriptExecutionProfile.class);
+
+    private PolicyScriptEngines() {
+    }
+
+    public static synchronized PolicyScriptEngine get(ScriptExecutionProfile profile) {
+        return ENGINES.computeIfAbsent(profile, PolicyScriptEngine::new);
+    }
+
+    public static synchronized void close() {
+        ENGINES.values().forEach(PolicyScriptEngine::close);
+        ENGINES.clear();
+    }
 }

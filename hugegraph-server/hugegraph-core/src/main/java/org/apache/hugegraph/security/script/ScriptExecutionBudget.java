@@ -15,18 +15,31 @@
  * limitations under the License.
  */
 
-package org.apache.hugegraph.store.core;
+package org.apache.hugegraph.security.script;
 
-import org.apache.hugegraph.store.meta.GraphIDManagerTest;
-import org.junit.runner.RunWith;
-import org.junit.runners.Suite;
+public final class ScriptExecutionBudget {
 
-@RunWith(Suite.class)
-@Suite.SuiteClasses({
-        BatchGraphIsolationTest.class,
-        ScanPolicyFailureTest.class,
-        StorePolicyModeTest.class,
-        GraphIDManagerTest.class
-})
-public class CoreSuiteTest {
+    public static final long TIMEOUT_MILLIS = 30000L;
+
+    private ScriptExecutionBudget() {
+    }
+
+    public static long deadline() {
+        return System.nanoTime() + TIMEOUT_MILLIS * 1000000L;
+    }
+
+    public static void check(long deadline) {
+        if (Thread.currentThread().isInterrupted() || System.nanoTime() - deadline >= 0) {
+            throw new ExecutionTimeoutException();
+        }
+    }
+
+    static final class ExecutionTimeoutException extends IllegalStateException {
+
+        private static final long serialVersionUID = 1L;
+
+        ExecutionTimeoutException() {
+            super("SCRIPT_EXECUTION_TIMEOUT");
+        }
+    }
 }

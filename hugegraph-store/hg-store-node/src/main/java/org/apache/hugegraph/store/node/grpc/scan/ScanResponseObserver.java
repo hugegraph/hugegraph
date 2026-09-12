@@ -24,7 +24,6 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.locks.ReentrantLock;
 
 import org.apache.hugegraph.store.business.BusinessHandler;
 import org.apache.hugegraph.store.business.GraphStoreIterator;
@@ -38,6 +37,7 @@ import org.apache.hugegraph.store.grpc.Graphpb.ScanResponse;
 
 import com.google.protobuf.Descriptors;
 
+import io.grpc.Status;
 import io.grpc.stub.StreamObserver;
 import lombok.extern.slf4j.Slf4j;
 
@@ -61,11 +61,14 @@ public class ScanResponseObserver<T> implements
             ScanResponse.getDescriptor().findFieldByNumber(3);
     private final Descriptors.FieldDescriptor edgeField =
             ScanResponse.getDescriptor().findFieldByNumber(4);
-    private final ReentrantLock readLock = new ReentrantLock();
-    private final ReentrantLock sendLock = new ReentrantLock();
+    private final AtomicBoolean reading = new AtomicBoolean();
+    private final AtomicBoolean sending = new AtomicBoolean();
     private StreamObserver<ScanResponse> sender;
     private ScanPartitionRequest scanReq;
-    private GraphStoreIterator iter;
+    private volatile GraphStoreIterator iter;
+    private final AtomicBoolean terminated = new AtomicBoolean();
+    private final AtomicBoolean iteratorClosed = new AtomicBoolean();
+    private final AtomicBoolean initialized = new AtomicBoolean();
     private volatile long leftCount;
     private volatile Future<?> sendTask;
     private volatile Future<?> readTask;
@@ -94,22 +97,17 @@ public class ScanResponseObserver<T> implements
     }
 
     private boolean readCondition() {
-        return packages.remainingCapacity() != 0 && !readOver.get();
-    }
-
-    private boolean readTaskCondition() {
-        return readCondition() && (readTask == null || readTask.isDone());
+        return iter != null && !terminated.get() && packages.remainingCapacity() != 0 && !readOver.get();
     }
 
     private boolean sendCondition() {
-        return nextSeqNo.get() - cltSeqNo.get() < MAX_PAGE;
-    }
-
-    private boolean sendTaskCondition() {
-        return sendCondition() && (sendTask == null || sendTask.isDone());
+        return !terminated.get() && nextSeqNo.get() - cltSeqNo.get() < MAX_PAGE;
     }
 
     private void offer(Iterable<T> data, boolean isVertex) {
+        if (terminated.get()) {
+            return;
+        }
         ScanResponse.Builder builder = ScanResponse.newBuilder();
         builder.setHeader(okHeader).setSeqNo(nextSeqNo.get());
         if (isVertex) {
@@ -123,40 +121,68 @@ public class ScanResponseObserver<T> implements
     }
 
     private void startRead() {
-        if (readTaskCondition()) {
-            if (readLock.tryLock()) {
-                if (readTaskCondition()) {
-                    readTask = executor.submit(rr);
-                }
-                readLock.unlock();
+        if (readCondition() && reading.compareAndSet(false, true)) {
+            try {
+                readTask = executor.submit(rr);
+            } catch (RuntimeException error) {
+                reading.set(false);
+                fail(error);
             }
         }
     }
 
     private void startSend() {
-        if (sendTaskCondition()) {
-            if (sendLock.tryLock()) {
-                if (sendTaskCondition()) {
-                    sendTask = executor.submit(sr);
-                }
-                sendLock.unlock();
+        if (sendCondition() && (!packages.isEmpty() || readOver.get()) &&
+            sending.compareAndSet(false, true)) {
+            try {
+                sendTask = executor.submit(sr);
+            } catch (RuntimeException error) {
+                sending.set(false);
+                fail(error);
             }
         }
     }
 
     @Override
     public void onNext(ScanPartitionRequest scanReq) {
+        if (terminated.get()) {
+            return;
+        }
+        try {
+            this.accept(scanReq);
+        } catch (Exception error) {
+            this.fail(error);
+        }
+    }
+
+    private void accept(ScanPartitionRequest scanReq) {
+        if (terminated.get()) {
+            return;
+        }
         if (scanReq.hasScanRequest() && !scanReq.hasReplyRequest()) {
+            if (!initialized.compareAndSet(false, true)) {
+                throw new IllegalArgumentException("A scan stream accepts one scan request");
+            }
             this.scanReq = scanReq;
             Request request = scanReq.getScanRequest();
             long rl = request.getLimit();
             leftCount = rl > 0 ? rl : Long.MAX_VALUE;
             iter = handler.scan(scanReq);
-            if (!iter.hasNext()) {
+            if (terminated.get()) {
                 close();
-                sender.onCompleted();
+                return;
+            }
+            boolean available;
+            synchronized (iter) {
+                if (terminated.get()) {
+                    return;
+                }
+                available = iter.hasNext();
+            }
+            if (!available) {
+                complete();
             } else {
-                readTask = executor.submit(rr);
+                startRead();
             }
         } else {
             cltSeqNo.getAndIncrement();
@@ -175,7 +201,40 @@ public class ScanResponseObserver<T> implements
         close();
     }
 
+    private void complete() {
+        boolean notify = terminated.compareAndSet(false, true);
+        close();
+        if (notify) {
+            synchronized (sender) {
+                sender.onCompleted();
+            }
+        }
+    }
+
+    private void fail(Throwable error) {
+        boolean notify = terminated.compareAndSet(false, true);
+        close();
+        if (notify) {
+            synchronized (sender) {
+                Status status = error instanceof IllegalArgumentException ?
+                        Status.INVALID_ARGUMENT : Status.INTERNAL;
+                sender.onError(status.withDescription("Store scan failed")
+                                     .withCause(error).asRuntimeException());
+            }
+        }
+    }
+
+    private void send(ScanResponse response) {
+        synchronized (sender) {
+            if (!terminated.get()) {
+                sender.onNext(response.toBuilder().setSeqNo(nextSeqNo.get()).build());
+                nextSeqNo.incrementAndGet();
+            }
+        }
+    }
+
     private void close() {
+        terminated.set(true);
         try {
             nextSeqNo.set(0);
             if (sendTask != null) {
@@ -185,7 +244,13 @@ public class ScanResponseObserver<T> implements
                 readTask.cancel(true);
             }
             readOver.set(true);
-            iter.close();
+            packages.clear();
+            GraphStoreIterator closing = iter;
+            if (closing != null && iteratorClosed.compareAndSet(false, true)) {
+                synchronized (closing) {
+                    closing.close();
+                }
+            }
         } catch (Exception e) {
             log.warn("on Complete with error:", e);
         }
@@ -195,72 +260,77 @@ public class ScanResponseObserver<T> implements
         @Override
         public void run() {
             try {
-                if (readCondition()) {
+                while (readCondition()) {
+                    ArrayList<T> data = new ArrayList<>(BATCH_SIZE);
+                    boolean finished;
                     synchronized (iter) {
-                        while (readCondition()) {
-                            Request r = scanReq.getScanRequest();
-                            ScanType t = r.getScanType();
-                            boolean isVertex = t.equals(ScanType.SCAN_VERTEX);
-                            ArrayList<T> data = new ArrayList<>(BATCH_SIZE);
-                            int count = 0;
-                            while (iter.hasNext() && leftCount > -1) {
-                                count++;
-                                leftCount--;
-                                T next = (T) iter.next();
-                                data.add(next);
-                                if (count >= BATCH_SIZE) {
-                                    offer(data, isVertex);
-                                    // data.clear();
-                                    break;
-                                }
-                            }
-                            if (!(iter.hasNext() && leftCount > -1)) {
-                                if (data.size() > 0 &&
-                                    data.size() < BATCH_SIZE) {
-                                    offer(data, isVertex);
-                                }
-                                readOver.set(true);
-                                data = null;
-                                //log.warn("scan complete , count: {},time: {}",
-                                //         sum, System.currentTimeMillis());
+                        if (terminated.get()) {
+                            return;
+                        }
+                        while (leftCount > 0 && data.size() < BATCH_SIZE && iter.hasNext()) {
+                            if (terminated.get()) {
                                 return;
                             }
+                            leftCount--;
+                            data.add((T) iter.next());
                         }
+                        finished = leftCount <= 0 || data.size() < BATCH_SIZE;
+                    }
+                    // Scheduling, callbacks and terminal cleanup never hold the iterator lock.
+                    if (!data.isEmpty()) {
+                        offer(data, scanReq.getScanRequest().getScanType().equals(ScanType.SCAN_VERTEX));
+                    }
+                    if (finished) {
+                        readOver.set(true);
+                        return;
                     }
                 }
             } catch (Exception e) {
                 log.warn("read data with error: ", e);
-                sender.onError(e);
+                fail(e);
+            } finally {
+                reading.set(false);
+                startRead();
+                startSend();
             }
         }
     };
 
     Runnable sr = () -> {
-        while (sendCondition()) {
-            ScanResponse response;
-            try {
-                if (readOver.get()) {
-                    if ((response = packages.poll()) == null) {
-                        sender.onCompleted();
+        try {
+            while (sendCondition()) {
+                ScanResponse response;
+                try {
+                    if (readOver.get()) {
+                        if ((response = packages.poll()) == null) {
+                            complete();
+                            return;
+                        } else {
+                            send(response);
+                        }
                     } else {
-                        sender.onNext(response);
-                        nextSeqNo.incrementAndGet();
+                        response = packages.poll(10,
+                                                 TimeUnit.MILLISECONDS);
+                        if (response != null) {
+                            send(response);
+                            startRead();
+                        } else {
+                            break;
+                        }
                     }
-                } else {
-                    response = packages.poll(10,
-                                             TimeUnit.MILLISECONDS);
-                    if (response != null) {
-                        sender.onNext(response);
-                        nextSeqNo.incrementAndGet();
-                        startRead();
-                    } else {
-                        break;
-                    }
-                }
 
-            } catch (InterruptedException e) {
-                break;
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                } catch (Exception error) {
+                    fail(error);
+                    break;
+                }
             }
+        } finally {
+            sending.set(false);
+            startRead();
+            startSend();
         }
     };
 }

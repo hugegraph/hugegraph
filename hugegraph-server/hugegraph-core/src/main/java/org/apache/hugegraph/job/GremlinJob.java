@@ -24,6 +24,9 @@ import java.util.Map;
 
 import org.apache.hugegraph.backend.query.Query;
 import org.apache.hugegraph.exception.LimitExceedException;
+import org.apache.hugegraph.security.script.ScriptBindings;
+import org.apache.hugegraph.security.script.ScriptJobContext;
+import org.apache.hugegraph.security.script.ScriptPolicyRuntime;
 import org.apache.hugegraph.traversal.optimize.HugeScriptTraversal;
 import org.apache.hugegraph.util.E;
 import org.apache.hugegraph.util.JsonUtil;
@@ -68,6 +71,9 @@ public class GremlinJob extends UserJob<Object> {
         @SuppressWarnings("unchecked")
         Map<String, String> aliases = (Map<String, String>) value;
 
+        if (ScriptPolicyRuntime.enabled()) {
+            bindings = ScriptBindings.client(bindings);
+        }
         bindings.put(TASK_BIND_NAME, new GremlinJobProxy());
 
         HugeScriptTraversal<?, ?> traversal = new HugeScriptTraversal<>(
@@ -76,6 +82,7 @@ public class GremlinJob extends UserJob<Object> {
                 bindings, aliases);
         List<Object> results = new ArrayList<>();
         long capacity = Query.defaultCapacity(Query.NO_CAPACITY);
+        boolean succeeded = false;
         try {
             while (traversal.hasNext()) {
                 Object result = traversal.next();
@@ -83,10 +90,29 @@ public class GremlinJob extends UserJob<Object> {
                 checkResultsSize(results);
                 Thread.yield();
             }
+            if (ScriptPolicyRuntime.enabled() && traversal.result() != null) {
+                checkResultsSize(traversal.result());
+            }
+            succeeded = true;
         } finally {
             Query.defaultCapacity(capacity);
-            traversal.close();
-            this.graph().tx().commit();
+            if (!ScriptPolicyRuntime.enabled()) {
+                traversal.close();
+                this.graph().tx().commit();
+            } else {
+                try {
+                    traversal.close();
+                } catch (Exception error) {
+                    succeeded = false;
+                    throw error;
+                } finally {
+                    if (succeeded) {
+                        this.graph().tx().commit();
+                    } else {
+                        this.graph().tx().rollback();
+                    }
+                }
+            }
         }
 
         Object result = traversal.result();
@@ -114,7 +140,7 @@ public class GremlinJob extends UserJob<Object> {
      * Used by gremlin script
      */
     @SuppressWarnings("unused")
-    private class GremlinJobProxy {
+    private class GremlinJobProxy implements ScriptJobContext {
 
         public void setMinSaveInterval(long seconds) {
             GremlinJob.this.setMinSaveInterval(seconds);

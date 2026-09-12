@@ -17,11 +17,21 @@
 
 package org.apache.hugegraph.store.node;
 
+import javax.script.ScriptException;
+import javax.script.SimpleBindings;
+
+import org.apache.hugegraph.security.script.PolicyScriptEngines;
+import org.apache.hugegraph.security.script.ScriptExecutionProfile;
+import org.apache.hugegraph.security.script.ScriptPolicyMonitor;
+import org.apache.hugegraph.security.script.ScriptPolicyRuntime;
 import org.apache.hugegraph.store.node.listener.ContextClosedListener;
 import org.apache.hugegraph.store.node.listener.PdConfigureListener;
+import org.apache.hugegraph.util.Log;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.context.ApplicationListener;
 import org.springframework.context.ConfigurableApplicationContext;
+import org.springframework.context.event.ContextClosedEvent;
 
 import com.alipay.remoting.util.StringUtils;
 
@@ -39,6 +49,31 @@ public class StoreNodeApplication {
     }
 
     public static void start() {
+        ScriptPolicyRuntime.validateSecurityManager();
+        if (ScriptPolicyRuntime.enabled()) {
+            try {
+                Object result = PolicyScriptEngines.get(
+                        ScriptExecutionProfile.STORE_FILTER)
+                        .eval("true", new SimpleBindings());
+                if (!Boolean.TRUE.equals(result)) {
+                    throw new IllegalStateException("Store script policy startup check failed");
+                }
+                try {
+                    PolicyScriptEngines.get(ScriptExecutionProfile.STORE_FILTER)
+                                       .eval("System.getProperty('java.version')", new SimpleBindings());
+                    throw new IllegalStateException("Store script policy rejection check failed");
+                } catch (ScriptException expected) {
+                    // The harmless probe must fail at compilation.
+                }
+            } catch (ScriptException e) {
+                throw new IllegalStateException("Store script policy startup check failed", e);
+            }
+            Log.logger(StoreNodeApplication.class).info(
+                    "Store script security mode={}, policy={}, securityManager={}",
+                    ScriptPolicyRuntime.mode().configValue(),
+                    ScriptPolicyMonitor.VERSION,
+                    System.getSecurityManager() == null ? "none" : System.getSecurityManager().getClass().getName());
+        }
         // Set the log location for the slot usage
         String logPath = System.getProperty("logging.path");
         if (StringUtils.isBlank(logPath)) {
@@ -58,6 +93,9 @@ public class StoreNodeApplication {
         ContextClosedListener closedListener = new ContextClosedListener();
         application.addListeners(listener);
         application.addListeners(closedListener);
+        application.addListeners((ApplicationListener<
+                ContextClosedEvent>) event ->
+                PolicyScriptEngines.close());
         ConfigurableApplicationContext context = application.run();
         listener.setContext(context);
         System.out.println("StoreNodeApplication started.");

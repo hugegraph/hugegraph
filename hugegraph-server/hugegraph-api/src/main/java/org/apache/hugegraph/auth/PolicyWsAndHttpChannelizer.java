@@ -15,18 +15,18 @@
  * limitations under the License.
  */
 
-package org.apache.hugegraph.store.core;
+package org.apache.hugegraph.auth;
 
-import org.apache.hugegraph.store.meta.GraphIDManagerTest;
-import org.junit.runner.RunWith;
-import org.junit.runners.Suite;
+import org.apache.tinkerpop.gremlin.server.channel.WsAndHttpChannelizer;
 
-@RunWith(Suite.class)
-@Suite.SuiteClasses({
-        BatchGraphIsolationTest.class,
-        ScanPolicyFailureTest.class,
-        StorePolicyModeTest.class,
-        GraphIDManagerTest.class
-})
-public class CoreSuiteTest {
+import io.netty.channel.ChannelPipeline;
+
+public final class PolicyWsAndHttpChannelizer extends WsAndHttpChannelizer {
+
+    @Override
+    public void finalize(ChannelPipeline pipeline) {
+        super.finalize(pipeline);
+        pipeline.addBefore(PIPELINE_OP_SELECTOR, "hugegraph-script-policy",
+                           new ScriptRequestGuard(this.settings.evaluationTimeout));
+    }
 }

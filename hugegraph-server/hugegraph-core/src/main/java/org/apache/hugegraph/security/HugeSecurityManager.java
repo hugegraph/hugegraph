@@ -40,7 +40,9 @@ public class HugeSecurityManager extends SecurityManager {
     private static final String GREMLIN_SERVER_WORKER = "gremlin-server-exec";
     private static final String TASK_WORKER = "task-worker";
     private static final Set<String> GREMLIN_EXECUTOR_CLASS = ImmutableSet.of(
-            "org.apache.tinkerpop.gremlin.groovy.jsr223.GremlinGroovyScriptEngine"
+            "org.apache.tinkerpop.gremlin.groovy.jsr223.GremlinGroovyScriptEngine",
+            "org.apache.hugegraph.security.script.PolicyScriptEngine",
+            "HugeGraphPolicyScript"
     );
 
     // TODO: add "suppressAccessChecks" (influence groovy-AST init now)
@@ -421,7 +423,9 @@ public class HugeSecurityManager extends SecurityManager {
             StackTraceElement[] elements = curThread.getStackTrace();
             for (StackTraceElement element : elements) {
                 String className = element.getClassName();
-                if (classes.contains(className)) {
+                if (classes.contains(className) ||
+                    (classes == GREMLIN_EXECUTOR_CLASS &&
+                     className.startsWith("HugeGraphPolicyScript$_"))) {
                     return true;
                 }
             }
