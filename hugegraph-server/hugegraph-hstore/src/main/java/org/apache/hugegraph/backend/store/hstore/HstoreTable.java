@@ -671,7 +671,6 @@ public class HstoreTable extends BackendTable<Session, BackendEntry> {
 
     static int rangeIndexScanType(IdRangeQuery query, int scanType) {
         if (query.paging() && !query.page().isEmpty()) {
-            scanType &= ~Session.SCAN_GTE_BEGIN;
             scanType |= Session.SCAN_GTE_BEGIN;
         }
         return scanType;
