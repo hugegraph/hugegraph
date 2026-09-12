@@ -18,8 +18,10 @@
 package org.apache.hugegraph.store.core;
 
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -31,6 +33,7 @@ import org.apache.hugegraph.store.grpc.Graphpb;
 import org.apache.hugegraph.store.grpc.Graphpb.ScanPartitionRequest;
 import org.apache.hugegraph.store.grpc.Graphpb.ScanResponse;
 import org.apache.hugegraph.store.node.grpc.scan.ScanResponseObserver;
+import org.apache.hugegraph.testutil.Whitebox;
 import org.junit.Assert;
 import org.junit.Test;
 import org.mockito.Mockito;
@@ -247,6 +250,145 @@ public class ScanPolicyFailureTest {
             Assert.assertEquals(0, sender.rows.get());
         } finally {
             executor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testReadSuccessorRemainsCancellableWhenFirstSubmissionReturnsLate() throws Exception {
+        verifySuccessorCancellation(true);
+    }
+
+    @Test
+    public void testSendSuccessorRemainsCancellableWhenFirstSubmissionReturnsLate() throws Exception {
+        verifySuccessorCancellation(false);
+    }
+
+    private static void verifySuccessorCancellation(boolean reader) throws Exception {
+        BusinessHandler handler = Mockito.mock(BusinessHandler.class);
+        GraphStoreIterator<Object> iterator = Mockito.mock(GraphStoreIterator.class);
+        ScanPartitionRequest request = request();
+        Mockito.when(handler.scan(request)).thenReturn(iterator);
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        CountDownLatch interrupted = new CountDownLatch(1);
+        Runnable block = () -> {
+            entered.countDown();
+            try {
+                Assert.assertTrue("test must release the blocked successor", release.await(30, TimeUnit.SECONDS));
+            } catch (InterruptedException error) {
+                interrupted.countDown();
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("scan cancelled", error);
+            }
+        };
+        Mockito.when(iterator.hasNext()).thenAnswer(call -> {
+            block.run();
+            return false;
+        });
+        RecordingSender sender = new RecordingSender();
+        StreamObserver<ScanResponse> output = reader ? sender : new StreamObserver<ScanResponse>() {
+            @Override
+            public void onNext(ScanResponse response) {
+                block.run();
+                sender.onNext(response);
+            }
+
+            @Override
+            public void onError(Throwable error) {
+                sender.onError(error);
+            }
+
+            @Override
+            public void onCompleted() {
+                sender.onCompleted();
+            }
+        };
+        DelayedFirstSubmission executor = new DelayedFirstSubmission();
+        ExecutorService caller = Executors.newSingleThreadExecutor();
+        try {
+            ScanResponseObserver<?> observer = new ScanResponseObserver<>(output, handler, executor);
+            LinkedBlockingQueue<ScanResponse> packages = Whitebox.getInternalState(observer, "packages");
+            String start = reader ? "startRead" : "startSend";
+            if (reader) {
+                // Backpressure ends the first reader without generating millions of fixture rows.
+                // Keep the sender at its acknowledgement window while the second reader is tested.
+                AtomicInteger next = Whitebox.getInternalState(observer, "nextSeqNo");
+                next.set(8);
+                executor.beforeFirst = () -> {
+                    while (packages.offer(ScanResponse.getDefaultInstance())) {
+                        // Fill the queue after admission but before the first reader executes.
+                    }
+                };
+            } else {
+                packages.add(ScanResponse.getDefaultInstance());
+                // The first sender observes an empty queue and exits, without completing the scan.
+                executor.beforeFirst = packages::clear;
+            }
+            Future<?> first = caller.submit(() -> {
+                if (reader) {
+                    observer.onNext(request);
+                } else {
+                    Whitebox.invoke(ScanResponseObserver.class, start, observer);
+                }
+            });
+            Assert.assertTrue("first task must finish before its submission returns",
+                              executor.firstFinished.await(5, TimeUnit.SECONDS));
+            packages.clear();
+            if (!reader) {
+                packages.add(ScanResponse.getDefaultInstance());
+            }
+            Whitebox.invoke(ScanResponseObserver.class, start, observer);
+            Assert.assertTrue("successor must be executing", entered.await(5, TimeUnit.SECONDS));
+            executor.releaseFirst.countDown();
+            first.get(5, TimeUnit.SECONDS);
+            // Old code overwrites the successor's Future at this point, losing its cancellation handle.
+            Future<?> cancel = caller.submit(observer::onCompleted);
+            Assert.assertTrue("cancel must interrupt the current successor",
+                              interrupted.await(5, TimeUnit.SECONDS));
+            cancel.get(5, TimeUnit.SECONDS);
+            if (reader) {
+                Mockito.verify(iterator, Mockito.times(1)).close();
+            }
+            Assert.assertEquals(0, sender.rows.get());
+            Assert.assertEquals(0, sender.errors.get());
+            Assert.assertEquals(0, sender.completed.get());
+        } finally {
+            release.countDown();
+            executor.releaseFirst.countDown();
+            caller.shutdownNow();
+            executor.shutdownNow();
+            Assert.assertTrue(caller.awaitTermination(5, TimeUnit.SECONDS));
+            Assert.assertTrue(executor.awaitTermination(5, TimeUnit.SECONDS));
+        }
+    }
+
+    private static final class DelayedFirstSubmission extends ThreadPoolExecutor {
+
+        private final AtomicBoolean first = new AtomicBoolean(true);
+        private final CountDownLatch firstFinished = new CountDownLatch(1);
+        private final CountDownLatch releaseFirst = new CountDownLatch(1);
+        private Runnable beforeFirst;
+
+        DelayedFirstSubmission() {
+            super(2, 2, 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<>());
+        }
+
+        @Override
+        public void execute(Runnable command) {
+            if (!this.first.compareAndSet(true, false)) {
+                super.execute(command);
+                return;
+            }
+            this.beforeFirst.run();
+            super.execute(command);
+            try {
+                ((Future<?>) command).get(5, TimeUnit.SECONDS);
+                this.firstFinished.countDown();
+                Assert.assertTrue("test must release the first submission",
+                                  this.releaseFirst.await(30, TimeUnit.SECONDS));
+            } catch (Exception error) {
+                throw new AssertionError("controlled executor failed", error);
+            }
         }
     }
 
