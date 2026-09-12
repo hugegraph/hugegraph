@@ -78,6 +78,8 @@ public class ScriptPolicyCompilationTest {
         assertRejected("def helper() { 1 }; helper()");
         assertRejected("@groovy.transform.Field int value = 1; value");
         assertRejected("@groovy.transform.CompileStatic class Hidden {}; 1");
+        assertRejected("package hidden; 1");
+        assertRejected("import static java.lang.System.exit; 1");
     }
 
     @Test

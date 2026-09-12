@@ -183,9 +183,7 @@ public class ContextGremlinServer extends GremlinServer {
                                        .getGremlinExecutor();
         try {
             Graph registered = manager.getGraph(name);
-            if (registered != graph && !(this.policyManager != null &&
-                registered instanceof HugeGraphAuthProxy &&
-                ((HugeGraphAuthProxy) registered).hugegraph() == graph)) {
+            if (registered != graph && !sameOriginGraph(registered, graph)) {
                 return;
             }
             if (manager.getTraversalSource(G_PREFIX + name) != null) {
@@ -203,6 +201,11 @@ public class ContextGremlinServer extends GremlinServer {
         }
     }
 
+    private static boolean sameOriginGraph(Graph registered, HugeGraph graph) {
+        return registered instanceof HugeGraphAuthProxy &&
+               ((HugeGraphAuthProxy) registered).originGraph() == graph;
+    }
+
     private static Settings policySettings(Settings settings) {
         if (!ScriptPolicyRuntime.enabled()) {
             return settings;
@@ -214,6 +217,7 @@ public class ContextGremlinServer extends GremlinServer {
         if (!settings.scriptEngines.keySet().equals(Set.of("gremlin-groovy"))) {
             throw new IllegalArgumentException("Script policy requires only gremlin-groovy");
         }
+        PolicyScriptEngines.initializeServer();
         settings.channelizer = PolicyWsAndHttpChannelizer.class.getName();
         if (settings.evaluationTimeout <= 0 || settings.evaluationTimeout > 30000L) {
             settings.evaluationTimeout = 30000L;

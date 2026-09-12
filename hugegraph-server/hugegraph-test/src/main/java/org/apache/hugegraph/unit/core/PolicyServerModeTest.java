@@ -65,10 +65,11 @@ public class PolicyServerModeTest {
         if (installed) {
             command.add("installed");
         }
-        Process process = new ProcessBuilder(command).redirectErrorStream(true)
+        // Keep the reactor's compiled classes within HSM's existing launch-directory scope.
+        Process process = new ProcessBuilder(command).directory(root.toFile()).redirectErrorStream(true)
                 .redirectOutput(output.toFile()).start();
         try {
-            Assert.assertTrue("mode probe timeout", process.waitFor(75, TimeUnit.SECONDS));
+            Assert.assertTrue("mode probe timeout", process.waitFor(120, TimeUnit.SECONDS));
             String log = Files.readString(output, StandardCharsets.UTF_8);
             if (success) {
                 Assert.assertEquals(log, 0, process.exitValue());

@@ -425,7 +425,10 @@ public class HugeSecurityManager extends SecurityManager {
                 String className = element.getClassName();
                 if (classes.contains(className) ||
                     (classes == GREMLIN_EXECUTOR_CLASS &&
-                     className.startsWith("HugeGraphPolicyScript$_"))) {
+                     (className.equals("HugeGraphPolicyScript") ||
+                      className.endsWith(".HugeGraphPolicyScript") ||
+                      className.startsWith("HugeGraphPolicyScript$_") ||
+                      className.contains(".HugeGraphPolicyScript$_")))) {
                     return true;
                 }
             }

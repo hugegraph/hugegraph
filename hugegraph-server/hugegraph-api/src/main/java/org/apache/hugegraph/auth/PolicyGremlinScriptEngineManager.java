@@ -17,7 +17,12 @@
 
 package org.apache.hugegraph.auth;
 
+import java.util.List;
+import java.util.HashMap;
+import java.util.Map;
+
 import javax.script.Bindings;
+import javax.script.ScriptContext;
 import javax.script.ScriptException;
 import javax.script.SimpleBindings;
 
@@ -31,22 +36,43 @@ import org.apache.tinkerpop.gremlin.server.util.LifeCycleHook;
 public final class PolicyGremlinScriptEngineManager extends CachedGremlinScriptEngineManager
         implements AutoCloseable {
 
-    private final PolicyScriptEngine engine = new PolicyScriptEngine(ScriptExecutionProfile.QUERY);
+    private final PolicyScriptEngine engine;
 
     public PolicyGremlinScriptEngineManager(Bindings globals) throws ScriptException {
-        this.setBindings(globals);
-        // Trusted lifecycle hooks have already been collected by ServerGremlinExecutor.
-        globals.entrySet().removeIf(entry -> entry.getValue() instanceof
-                LifeCycleHook);
-        Object result = this.engine.eval("1 + 1", new SimpleBindings());
-        if (!Integer.valueOf(2).equals(result)) {
-            throw new IllegalStateException("Script policy startup check failed");
-        }
+        this(globals, null);
+    }
+
+    public PolicyGremlinScriptEngineManager(Bindings globals, Bindings sessionBindings)
+            throws ScriptException {
+        this.engine = new PolicyScriptEngine(ScriptExecutionProfile.QUERY, sessionBindings != null);
+        boolean initialized = false;
         try {
-            this.engine.eval("System.getProperty('java.version')", new SimpleBindings());
-            throw new IllegalStateException("Script policy rejection check failed");
-        } catch (ScriptException expected) {
-            // The harmless probe must fail at compilation.
+            this.setBindings(globals);
+            // Trusted lifecycle hooks have already been collected by ServerGremlinExecutor.
+            globals.entrySet().stream().filter(entry -> entry.getValue() instanceof LifeCycleHook)
+                   .map(Map.Entry::getKey).toList().forEach(globals::remove);
+            // Initialize the binding validator's data paths before a restricted worker evaluates scripts.
+            String probe = sessionBindings == null ? "probe + 1" : "warmup = probe + 1; warmup";
+            Object result = this.engine.eval(probe, new SimpleBindings(new HashMap<>(Map.of(
+                    "probe", 1, "items", List.of(1), "options", Map.of("limit", 1)))));
+            if (!Integer.valueOf(2).equals(result)) {
+                throw new IllegalStateException("Script policy startup check failed");
+            }
+            try {
+                this.engine.eval("System.getProperty('java.version')", new SimpleBindings());
+                throw new IllegalStateException("Script policy rejection check failed");
+            } catch (ScriptException expected) {
+                // The harmless probe must fail at compilation.
+            }
+            this.engine.setBindings(globals, ScriptContext.GLOBAL_SCOPE);
+            if (sessionBindings != null) {
+                this.engine.setBindings(sessionBindings, ScriptContext.ENGINE_SCOPE);
+            }
+            initialized = true;
+        } finally {
+            if (!initialized) {
+                this.engine.close();
+            }
         }
     }
 

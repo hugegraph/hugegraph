@@ -18,10 +18,12 @@
 package org.apache.hugegraph.store.business;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Date;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -33,6 +35,7 @@ import javax.script.ScriptException;
 import javax.script.SimpleBindings;
 
 import org.apache.commons.lang.StringUtils;
+import org.apache.hugegraph.HugeGraphSupplier;
 import org.apache.hugegraph.backend.BackendColumn;
 import org.apache.hugegraph.id.Id;
 import org.apache.hugegraph.rocksdb.access.RocksDBSession;
@@ -142,12 +145,31 @@ public class GraphStoreIterator<T> extends AbstractSelectIterator
     }
 
     @Override
+    public BaseElement parseEntry(BackendColumn column, boolean vertex) {
+        if (this.policyEngine == null) {
+            return super.parseEntry(column, vertex);
+        }
+        HugeGraphSupplier graph = BusinessHandlerImpl.getGraphSupplier(this.request.getGraphName());
+        return vertex ? this.serializer.parseVertex(graph, column, null) :
+               this.serializer.parseEdge(graph, column, null, true);
+    }
+
+    @Override
     public boolean hasNext() {
         if (current == null) {
             while (iter.hasNext()) {
+                if (Thread.currentThread().isInterrupted()) {
+                    IllegalStateException error = new IllegalStateException("Store scan cancelled");
+                    this.stopCause = error;
+                    this.iter.close();
+                    throw error;
+                }
                 RocksDBSession.BackendColumn next = this.iter.next();
-                BaseElement element = getElement(next);
+                BaseElement element = this.policyEngine == null ? getElement(next) : null;
                 try {
+                    if (this.policyEngine != null) {
+                        element = getElement(next);
+                    }
                     boolean evalResult = true;
                     if (this.policyEngine != null) {
                         evalResult = (Boolean) this.script.eval(new SimpleBindings(
@@ -200,18 +222,30 @@ public class GraphStoreIterator<T> extends AbstractSelectIterator
         Iterator<BaseProperty<?>> properties = element.properties().iterator();
         while (properties.hasNext()) {
             BaseProperty<?> property = properties.next();
-            Object value = property.value();
-            if (value instanceof Date) {
-                value = ((Date) value).getTime();
-            }
-            if (value instanceof Blob) {
-                value = ((Blob) value).bytes();
-            }
-            values.put(property.propertyKey().name(), value);
+            values.put(property.propertyKey().name(), policyValue(property.value()));
         }
         return new ScriptElementView(
                 element.id().asString(), element.schemaLabel().name(),
                 values);
+    }
+
+    private static Object policyValue(Object value) {
+        if (value instanceof Date) {
+            return ((Date) value).getTime();
+        }
+        if (value instanceof Blob) {
+            return ((Blob) value).bytes();
+        }
+        if (value instanceof Collection) {
+            Collection<?> values = (Collection<?>) value;
+            Collection<Object> copy = value instanceof Set ?
+                                      new LinkedHashSet<>() : new ArrayList<>(values.size());
+            for (Object item : values) {
+                copy.add(policyValue(item));
+            }
+            return copy;
+        }
+        return value;
     }
 
     @Override

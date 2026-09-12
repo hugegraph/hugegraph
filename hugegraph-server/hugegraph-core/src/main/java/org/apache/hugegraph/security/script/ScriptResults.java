@@ -30,11 +30,18 @@ import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.Path;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.TraversalSource;
+import org.apache.tinkerpop.gremlin.process.traversal.Traverser;
 import org.apache.tinkerpop.gremlin.process.traversal.step.sideEffect.LambdaSideEffectStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.util.AbstractStep;
+import org.apache.tinkerpop.gremlin.process.traversal.util.DefaultTraversal;
+import org.apache.tinkerpop.gremlin.process.traversal.util.FastNoSuchElementException;
 import org.apache.tinkerpop.gremlin.structure.Graph;
 import org.apache.tinkerpop.gremlin.structure.Property;
+import org.apache.tinkerpop.gremlin.structure.Transaction;
+import org.apache.tinkerpop.gremlin.structure.util.CloseableIterator;
 
 import groovy.lang.Closure;
+import groovy.lang.MetaClass;
 import groovy.lang.Script;
 
 final class ScriptResults {
@@ -42,17 +49,116 @@ final class ScriptResults {
     private ScriptResults() {
     }
 
-    static void prepare(Object value) {
+    static Object prepare(Object value) {
         if (value instanceof Traversal.Admin) {
             Traversal.Admin<?, ?> traversal =
                     (Traversal.Admin<?, ?>) value;
             if (traversal.isLocked()) {
-                throw new IllegalArgumentException("SCRIPT_RESULT_DENIED: already consumed traversal");
+                DefaultTraversal<Object, Object> checked = new DefaultTraversal<>();
+                traversal.getGraph().ifPresent(checked::setGraph);
+                checked.setSideEffects(traversal.getSideEffects());
+                checked.addStep(new RemainingResultsStep(checked, traversal));
+                return checked;
             }
             traversal.addStep(new LambdaSideEffectStep<>(
                     traversal, traverser -> validate(traverser.get())));
+        } else if (value instanceof Iterator) {
+            return new CheckedIterator((Iterator<?>) value);
         } else {
             validate(value);
+        }
+        return value;
+    }
+
+    private static final class CheckedIterator implements CloseableIterator<Object> {
+
+        private final Iterator<?> original;
+        private boolean closed;
+
+        CheckedIterator(Iterator<?> original) {
+            this.original = original;
+        }
+
+        @Override
+        public boolean hasNext() {
+            if (this.closed) {
+                return false;
+            }
+            try {
+                ScriptExecutionBudget.check(ScriptExecutionBudget.deadline());
+                if (!this.original.hasNext()) {
+                    this.close();
+                    return false;
+                }
+                return true;
+            } catch (RuntimeException | Error failure) {
+                this.closeAfterFailure(failure);
+                throw failure;
+            }
+        }
+
+        @Override
+        public Object next() {
+            if (this.closed) {
+                throw FastNoSuchElementException.instance();
+            }
+            try {
+                ScriptExecutionBudget.check(ScriptExecutionBudget.deadline());
+                Object next = this.original.next();
+                validate(next);
+                return next;
+            } catch (RuntimeException | Error failure) {
+                this.closeAfterFailure(failure);
+                throw failure;
+            }
+        }
+
+        private void closeAfterFailure(Throwable failure) {
+            try {
+                this.close();
+            } catch (RuntimeException | Error closeFailure) {
+                failure.addSuppressed(closeFailure);
+            }
+        }
+
+        @Override
+        public void close() {
+            if (!this.closed) {
+                this.closed = true;
+                CloseableIterator.closeIterator(this.original);
+            }
+        }
+    }
+
+    private static final class RemainingResultsStep extends AbstractStep<Object, Object>
+            implements AutoCloseable {
+
+        private final Traversal.Admin<?, ?> original;
+        private boolean closed;
+
+        RemainingResultsStep(Traversal.Admin<?, ?> traversal, Traversal.Admin<?, ?> original) {
+            super(traversal);
+            this.original = original;
+        }
+
+        @Override
+        @SuppressWarnings("unchecked")
+        protected Traverser.Admin<Object> processNextStart() {
+            ScriptExecutionBudget.check(ScriptExecutionBudget.deadline());
+            if (!this.original.hasNext()) {
+                throw FastNoSuchElementException.instance();
+            }
+            Traverser.Admin<Object> next = (Traverser.Admin<Object>) this.original.nextTraverser();
+            validate(next.get());
+            return next;
+        }
+
+        @Override
+        public void close() throws Exception {
+            if (!this.closed) {
+                this.closed = true;
+                this.original.close();
+            }
         }
     }
 
@@ -70,8 +176,9 @@ final class ScriptResults {
             return;
         }
         if (depth > 64 || value instanceof Class || value instanceof ClassLoader ||
-            value instanceof Script || value instanceof Closure || value instanceof Thread ||
-            value instanceof HugeGraph || value instanceof TraversalSource ||
+            value instanceof Script || value instanceof Closure || value instanceof MetaClass ||
+            value instanceof Thread ||
+            value instanceof HugeGraph || value instanceof TraversalSource || value instanceof Transaction ||
             value instanceof SchemaManager || value instanceof ScriptJobContext ||
             value instanceof Iterator) {
             throw new IllegalArgumentException("SCRIPT_RESULT_DENIED");

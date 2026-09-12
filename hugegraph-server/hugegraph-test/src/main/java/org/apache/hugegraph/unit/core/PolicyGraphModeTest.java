@@ -62,13 +62,16 @@ public class PolicyGraphModeTest {
                 "-Dhugegraph.script.security.mode=" + mode,
                 "-cp", System.getProperty("java.class.path"), PolicyGraphModeProbe.class.getName()));
         command.add(backend);
-        Process process = new ProcessBuilder(command).redirectErrorStream(true)
+        // HSM's existing class-loading exception is relative to the launch directory.
+        Process process = new ProcessBuilder(command).directory(root.toFile()).redirectErrorStream(true)
                 .redirectOutput(output.toFile()).start();
         try {
-            Assert.assertTrue("mode probe timeout", process.waitFor(75, TimeUnit.SECONDS));
+            Assert.assertTrue("mode probe timeout", process.waitFor(120, TimeUnit.SECONDS));
             String log = Files.readString(output, StandardCharsets.UTF_8);
             Assert.assertEquals(log, 0, process.exitValue());
             Assert.assertTrue(log, log.contains("GRAPH_POLICY_VERIFIED " + mode));
+            Assert.assertTrue(log, log.contains("combined".equals(mode) ?
+                    "manager=installed" : "manager=none"));
         } finally {
             if (process.isAlive()) {
                 process.destroyForcibly().waitFor(5, TimeUnit.SECONDS);

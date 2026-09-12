@@ -36,9 +36,10 @@ public final class ScriptTypeCheckingExtension extends TypeCheckingExtension {
     @Override
     public void onMethodSelection(Expression expression, MethodNode target) {
         CompilationPolicy policy = POLICY.get();
-        // The engine owns the prelude and compiler-generated calls. User
-        // expressions retain their original positive source line numbers.
-        if (expression.getLineNumber() <= policy.preludeLines) {
+        int line = expression.getLineNumber();
+        // Only the engine prelude is trusted. Unknown/generated line numbers
+        // still have to match the method allow-list.
+        if (line > 0 && line <= policy.preludeLines) {
             return;
         }
         if (!policy.methods.allows(target)) {

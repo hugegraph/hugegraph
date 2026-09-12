@@ -20,6 +20,7 @@ package org.apache.hugegraph.security.script;
 import org.codehaus.groovy.ast.AnnotatedNode;
 import org.codehaus.groovy.ast.ClassCodeVisitorSupport;
 import org.codehaus.groovy.ast.ClassNode;
+import org.codehaus.groovy.ast.ImportNode;
 import org.codehaus.groovy.ast.MethodNode;
 import org.codehaus.groovy.classgen.GeneratorContext;
 import org.codehaus.groovy.control.CompilePhase;
@@ -50,12 +51,10 @@ public final class ScriptSyntaxGuard extends CompilationCustomizer {
         }
         source.getAST().getImports().forEach(ScriptSyntaxGuard::checkAnnotations);
         source.getAST().getStarImports().forEach(ScriptSyntaxGuard::checkAnnotations);
-        source.getAST().getStaticImports().values()
-              .forEach(ScriptSyntaxGuard::checkAnnotations);
-        source.getAST().getStaticStarImports().values()
-              .forEach(ScriptSyntaxGuard::checkAnnotations);
+        source.getAST().getStaticImports().values().forEach(ScriptSyntaxGuard::checkStaticImport);
+        source.getAST().getStaticStarImports().values().forEach(ScriptSyntaxGuard::checkStaticImport);
         if (source.getAST().getPackage() != null) {
-            checkAnnotations(source.getAST().getPackage());
+            throw rejected("package declaration");
         }
         new ClassCodeVisitorSupport() {
             @Override
@@ -69,6 +68,13 @@ public final class ScriptSyntaxGuard extends CompilationCustomizer {
                 super.visitAnnotations(annotated);
             }
         }.visitClass(node);
+    }
+
+    private static void checkStaticImport(ImportNode node) {
+        checkAnnotations(node);
+        if (!ScriptExpressionGuard.allowsStaticImport(node.getType().getName())) {
+            throw rejected("static import type");
+        }
     }
 
     private static void checkAnnotations(AnnotatedNode node) {

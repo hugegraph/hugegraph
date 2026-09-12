@@ -26,6 +26,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 
@@ -41,11 +42,19 @@ import org.apache.tinkerpop.gremlin.driver.exception.ResponseException;
 import org.apache.tinkerpop.gremlin.driver.remote.DriverRemoteConnection;
 import org.apache.tinkerpop.gremlin.groovy.jsr223.GremlinGroovyScriptEngine;
 import org.apache.tinkerpop.gremlin.process.traversal.AnonymousTraversalSource;
+import org.apache.tinkerpop.gremlin.process.traversal.Bytecode;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversalSource;
 import org.apache.tinkerpop.gremlin.server.Settings;
 import org.apache.tinkerpop.gremlin.structure.util.empty.EmptyGraph;
+import org.apache.tinkerpop.gremlin.util.MessageSerializer;
+import org.apache.tinkerpop.gremlin.util.message.RequestMessage;
 import org.apache.tinkerpop.gremlin.util.message.ResponseStatusCode;
+import org.apache.tinkerpop.gremlin.util.ser.GraphBinaryMessageSerializerV1;
+import org.apache.tinkerpop.gremlin.util.ser.GraphSONMessageSerializerV3;
 import org.junit.Assert;
+
+import io.netty.buffer.ByteBuf;
+import io.netty.buffer.UnpooledByteBufAllocator;
 
 /** Runs in its own JVM so deployment mode and installed manager cannot leak between tests. */
 public final class PolicyServerModeProbe {
@@ -74,12 +83,16 @@ public final class PolicyServerModeProbe {
         settings.serializers = new ArrayList<>();
         for (String name : new String[]{"GraphBinaryMessageSerializerV1", "GraphSONMessageSerializerV3"}) {
             Settings.SerializerSettings serializer = new Settings.SerializerSettings();
-            serializer.className = "org.apache.tinkerpop.gremlin.util.ser." + name;
+            serializer.className = name.equals("GraphBinaryMessageSerializerV1") ?
+                                   PolicySessionProtocolChecks.FailingResultSerializer.class.getName() :
+                                   "org.apache.tinkerpop.gremlin.util.ser." + name;
             settings.serializers.add(serializer);
         }
         ContextGremlinServer server = new ContextGremlinServer(settings, new EventHub("script-policy-probe"));
         server.getServerGremlinExecutor().getGraphManager()
-              .putTraversalSource("g", EmptyGraph.instance().traversal());
+              .putTraversalSource("g", EmptyGraph.instance().traversal().withSideEffect("marker", 1));
+        server.getServerGremlinExecutor().getGraphManager()
+              .putTraversalSource("gOther", EmptyGraph.instance().traversal().withSideEffect("marker", 2));
         try {
             server.start().get(20, TimeUnit.SECONDS);
             Cluster cluster = Cluster.build("127.0.0.1").port(port).create();
@@ -108,20 +121,27 @@ public final class PolicyServerModeProbe {
                     throw new AssertionError("WebSocket policy state");
                 }
                 if (mode.policyEnabled()) {
+                    RequestMessage cypher = RequestMessage.build("eval").processor("cypher")
+                            .addArg("gremlin", "RETURN 1 AS value")
+                            .addArg("aliases", Map.of("g", "g")).create();
+                    Assert.assertEquals(Map.of("value", 1L), client.submitAsync(cypher)
+                            .get(10, TimeUnit.SECONDS).all().get(10, TimeUnit.SECONDS).get(0).getObject());
                     Client session = cluster.connect("policy-session-test");
                     try {
-                        session.submit("1 + 1").all().get(10, TimeUnit.SECONDS);
-                        throw new AssertionError("session bypass");
-                    } catch (ExecutionException expected) {
-                        Assert.assertTrue(expected.getCause() instanceof ResponseException);
-                        ResponseException failure = (ResponseException) expected.getCause();
-                        Assert.assertEquals(ResponseStatusCode.REQUEST_ERROR_INVALID_REQUEST_ARGUMENTS,
-                                            failure.getResponseStatusCode());
-                        Assert.assertTrue(failure.getMessage(),
-                                          failure.getMessage().contains("SCRIPT_SESSION_OR_PROCESSOR_DENIED"));
+                        Assert.assertEquals(2, session.submit("1 + 1").all()
+                                .get(10, TimeUnit.SECONDS).get(0).getInt());
+                        Assert.assertEquals(3, session.submit("x = 3; x").all()
+                                .get(10, TimeUnit.SECONDS).get(0).getInt());
+                        Assert.assertEquals(4, session.submit("x + 1").all()
+                                .get(10, TimeUnit.SECONDS).get(0).getInt());
+                        ExecutionException denied = Assert.assertThrows(ExecutionException.class,
+                                () -> session.submit("System.getProperty('java.version')").all()
+                                             .get(10, TimeUnit.SECONDS));
+                        Assert.assertTrue(denied.getCause() instanceof ResponseException);
                     } finally {
-                        session.closeAsync();
+                        session.close();
                     }
+                    PolicySessionProtocolChecks.verify(cluster);
                 }
                 client.close();
             } finally {
@@ -159,13 +179,65 @@ public final class PolicyServerModeProbe {
                         .POST(HttpRequest.BodyPublishers.ofString(
                                 "{\"gremlin\":\"g+1\",\"bindings\":{\"g\":1}}")).build();
                 HttpResponse<String> rejected = http.send(reserved, HttpResponse.BodyHandlers.ofString());
-                Assert.assertEquals(rejected.body(), 500, rejected.statusCode());
-                Assert.assertTrue(rejected.body(), rejected.body().contains("SCRIPT_EXECUTION_FAILED"));
+                Assert.assertEquals(rejected.body(), 400, rejected.statusCode());
+                Assert.assertTrue(rejected.body(), rejected.body().contains("SCRIPT_BINDING_DENIED"));
+                verifySerializedHttp(http, request.uri());
+            }
+            HttpResponse<String> again = http.send(request, HttpResponse.BodyHandlers.ofString());
+            if (again.statusCode() != 200) {
+                throw new AssertionError("HTTP keep-alive status " + again.statusCode());
             }
             System.out.println("POLICY_MODE_VERIFIED " + mode.configValue() +
                                " manager=" + (System.getSecurityManager() == null ? "none" : "installed"));
         } finally {
             server.stop().get(20, TimeUnit.SECONDS);
         }
+    }
+
+    private static void verifySerializedHttp(HttpClient http, URI uri) throws Exception {
+        MessageSerializer<?> graphson = new GraphSONMessageSerializerV3();
+        MessageSerializer<?> binary = new GraphBinaryMessageSerializerV1();
+        UUID requestId = UUID.fromString("11111111-1111-1111-1111-111111111111");
+        HttpResponse<String> timeout = postSerialized(http, uri, graphson,
+                RequestMessage.build("eval").overrideRequestId(requestId)
+                        .addArg("gremlin", "1+1")
+                        .addArg("evaluationTimeout", 999999L).create());
+        Assert.assertEquals(timeout.body(), 400, timeout.statusCode());
+        Assert.assertTrue(timeout.body(), timeout.body().contains("SCRIPT_TIMEOUT_OVERRIDE_DENIED"));
+        Assert.assertTrue(timeout.body(), timeout.body().contains(requestId.toString()));
+
+        HttpResponse<String> session = postSerialized(http, uri, binary,
+                RequestMessage.build("eval").processor("session")
+                        .addArg("gremlin", "1+1").create());
+        Assert.assertEquals(session.body(), 400, session.statusCode());
+        Assert.assertTrue(session.body(), session.body().contains("SCRIPT_HTTP_SESSION_UNSUPPORTED"));
+
+        Bytecode bytecode = new Bytecode();
+        bytecode.addStep("V");
+        bytecode.addStep("count");
+        HttpResponse<String> nativeBytecode = postSerialized(http, uri, graphson,
+                RequestMessage.build("eval").addArg("gremlin", bytecode)
+                        .addArg("aliases", Map.of("g", "g")).create());
+        Assert.assertEquals(nativeBytecode.body(), 200, nativeBytecode.statusCode());
+        Assert.assertTrue(nativeBytecode.body(), nativeBytecode.body().contains("\"@value\":0"));
+    }
+
+    private static HttpResponse<String> postSerialized(HttpClient http, URI uri,
+                                                       MessageSerializer<?> serializer,
+                                                       RequestMessage request) throws Exception {
+        ByteBuf buffer = serializer.serializeRequestAsBinary(request,
+                UnpooledByteBufAllocator.DEFAULT);
+        byte[] payload;
+        try {
+            payload = new byte[buffer.readableBytes()];
+            buffer.readBytes(payload);
+        } finally {
+            buffer.release();
+        }
+        HttpRequest posted = HttpRequest.newBuilder(uri).timeout(Duration.ofSeconds(10))
+                .header("Content-Type", serializer.mimeTypesSupported()[0])
+                .header("Accept", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofByteArray(payload)).build();
+        return http.send(posted, HttpResponse.BodyHandlers.ofString());
     }
 }

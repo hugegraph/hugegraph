@@ -17,9 +17,12 @@
 
 package org.apache.hugegraph.unit.core;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -38,12 +41,37 @@ import org.apache.hugegraph.security.script.PolicyScriptEngine;
 import org.apache.hugegraph.security.script.ScriptBindings;
 import org.apache.hugegraph.security.script.ScriptElementView;
 import org.apache.hugegraph.security.script.ScriptExecutionProfile;
+import org.apache.tinkerpop.gremlin.process.traversal.Bytecode;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.structure.util.empty.EmptyGraph;
+import org.apache.tinkerpop.gremlin.structure.util.CloseableIterator;
+import org.apache.tinkerpop.gremlin.util.function.Lambda;
 import org.junit.Assert;
 import org.junit.Test;
 
 public class PolicyScriptEngineTest {
+
+    @Test
+    public void testEngineRejectsAstTestBeforeSideEffect() throws Exception {
+        String key = "hugegraph.script.policy.engine-ast-test";
+        String old = System.getProperty(key);
+        try {
+            System.clearProperty(key);
+            try (PolicyScriptEngine engine = new PolicyScriptEngine(ScriptExecutionProfile.QUERY)) {
+                Assert.assertThrows(ScriptException.class, () -> engine.eval(
+                        "@groovy.transform.ASTTest(value={ System.setProperty('" + key +
+                        "', 'executed') }) def value = 1; value",
+                        new SimpleBindings()));
+            }
+            Assert.assertNull(System.getProperty(key));
+        } finally {
+            if (old == null) {
+                System.clearProperty(key);
+            } else {
+                System.setProperty(key, old);
+            }
+        }
+    }
 
     @Test
     public void testStaticCompilationAndParameterTypes() throws Exception {
@@ -70,6 +98,24 @@ public class PolicyScriptEngineTest {
                     "values.collect { it + 1 }.sum()", new SimpleBindings()));
             Assert.assertEquals(List.of(2, 3), engine.eval(
                     "[1, 2, 3].findAll { it > 1 }", new SimpleBindings()));
+            Assert.assertEquals(2, engine.eval(
+                    "[1, 2, 3].groupBy { it > 1 }.size()", new SimpleBindings()));
+        }
+    }
+
+    @Test
+    public void testStaticImportsUseTheSameMethodPolicy() throws Exception {
+        try (PolicyScriptEngine engine = new PolicyScriptEngine(ScriptExecutionProfile.QUERY)) {
+            Assert.assertEquals(2, engine.eval("import static java.lang.Math.abs; abs(-2)", new SimpleBindings()));
+            Assert.assertEquals(2, engine.eval("import static java.lang.Math.*; abs(-2)", new SimpleBindings()));
+            Assert.assertEquals(2, engine.eval("import static java.lang.Math.abs as magnitude; magnitude(-2)",
+                                              new SimpleBindings()));
+            Assert.assertThrows(ScriptException.class, () -> engine.eval(
+                    "import static java.lang.Math.random; random()", new SimpleBindings()));
+            Assert.assertThrows(ScriptException.class, () -> engine.eval(
+                    "import static java.lang.System.setProperty; setProperty('hg.policy.unexpected', 'yes')",
+                    new SimpleBindings()));
+            Assert.assertNull(System.getProperty("hg.policy.unexpected"));
         }
     }
 
@@ -89,7 +135,8 @@ public class PolicyScriptEngineTest {
                     "ProcessBuilder p = [['id']]; p", "Runnable r = { 1 }; r",
                     "def f = { File x -> x }; 1", "'a' =~ 'a'", "~'a'",
                     "int[] values = new int[1]; values", "Class<String> x = null; x",
-                    "def x = 'a'; \"${x}\"")) {
+                    "def x = 'a'; \"${x}\"", "[1, 2, 3].groupBy('class')",
+                    "package hidden; 1", "import static java.lang.System.exit; exit(0)")) {
                 Assert.assertThrows(source, ScriptException.class,
                                     () -> engine.eval(source, new SimpleBindings()));
             }
@@ -120,6 +167,11 @@ public class PolicyScriptEngineTest {
                     new ScriptElementView("v1", "person", Map.of("age", 20))));
             Assert.assertEquals(true, engine.eval("element.id().equals('v1')", bindings));
             Assert.assertEquals(true, engine.eval("(int) element.property('age') > 18", bindings));
+            Assert.assertEquals(true, engine.eval("element.property('missing') == null", bindings));
+            Assert.assertEquals(false, engine.eval("element.property('missing') != null", bindings));
+            Assert.assertEquals(true, engine.eval("!element.properties().containsKey('missing')", bindings));
+            Assert.assertThrows(ScriptException.class, () -> engine.eval(
+                    "element.property('missing')", bindings));
             for (String source : List.of("element", "element.properties().put('age', 1)",
                     "element.properties()['age'] = 1; true", "while (true) {}; true",
                     "def f = { true }; f()")) {
@@ -272,5 +324,112 @@ public class PolicyScriptEngineTest {
         Assert.assertEquals(2, engine.eval("1 + 1", new SimpleBindings()));
         engine.close();
         Assert.assertThrows(ScriptException.class, () -> engine.eval("1 + 1", new SimpleBindings()));
+    }
+
+    @Test
+    public void testForEachDeclaredTypeCannotCreateIoObjects() throws Exception {
+        Path marker = Files.createTempFile("hg-policy-foreach-", ".marker");
+        Files.deleteIfExists(marker);
+        try (PolicyScriptEngine engine = new PolicyScriptEngine(ScriptExecutionProfile.QUERY)) {
+            SimpleBindings bindings = new SimpleBindings(Map.of("path", marker.toString()));
+            Assert.assertThrows(ScriptException.class, () -> engine.eval(
+                    "List values = [[path]]; for (java.io.FileWriter out : values) { 1 }; 1",
+                    bindings));
+            Assert.assertFalse(Files.exists(marker));
+        } finally {
+            Files.deleteIfExists(marker);
+        }
+    }
+
+    @Test
+    public void testIterateAndPartialConsumptionReturnRemainingResults() throws Exception {
+        try (PolicyScriptEngine engine = new PolicyScriptEngine(ScriptExecutionProfile.QUERY)) {
+            SimpleBindings bindings = new SimpleBindings(
+                    Map.of("g", EmptyGraph.instance().traversal()));
+            Traversal<?, ?> iterated = (Traversal<?, ?>) engine.eval(
+                    "g.inject(1, 2, 3).iterate()", bindings);
+            Assert.assertFalse(iterated.hasNext());
+            iterated.close();
+
+            Traversal<?, ?> remaining = (Traversal<?, ?>) engine.eval(
+                    "def t = g.inject(1, 2, 3); t.next(); t", bindings);
+            Assert.assertEquals(2, remaining.next());
+            Assert.assertEquals(3, remaining.next());
+            Assert.assertFalse(remaining.hasNext());
+            remaining.close();
+            remaining.close();
+        }
+    }
+
+    @Test
+    public void testOrdinaryIteratorStreamsCheckedValuesAndCloses() throws Exception {
+        try (PolicyScriptEngine engine = new PolicyScriptEngine(ScriptExecutionProfile.QUERY)) {
+            Iterator<?> values = (Iterator<?>) engine.eval("[1, 2].iterator()", new SimpleBindings());
+            Assert.assertEquals(1, values.next());
+            Assert.assertEquals(2, values.next());
+            Assert.assertFalse(values.hasNext());
+            CloseableIterator.closeIterator(values);
+            Assert.assertThrows(ScriptException.class, () -> engine.eval(
+                    "[[1, 2].iterator()]", new SimpleBindings()));
+
+            Iterator<?> denied = (Iterator<?>) engine.eval("[g].iterator()", new SimpleBindings(
+                    Map.of("g", EmptyGraph.instance().traversal())));
+            Assert.assertThrows(IllegalArgumentException.class, denied::next);
+            Assert.assertFalse(denied.hasNext());
+        }
+        Class<?> results = Class.forName("org.apache.hugegraph.security.script.ScriptResults");
+        java.lang.reflect.Method prepare = results.getDeclaredMethod("prepare", Object.class);
+        prepare.setAccessible(true);
+        for (boolean invalid : new boolean[]{false, true}) {
+            int[] calls = new int[2];
+            CloseableIterator<Object> source = new CloseableIterator<>() {
+                @Override
+                public boolean hasNext() {
+                    return true;
+                }
+
+                @Override
+                public Object next() {
+                    calls[0]++;
+                    return invalid ? System.class : 1;
+                }
+
+                @Override
+                public void close() {
+                    calls[1]++;
+                }
+            };
+            Iterator<?> checked = (Iterator<?>) prepare.invoke(null, source);
+            Assert.assertEquals(0, calls[0]);
+            if (invalid) {
+                Assert.assertThrows(IllegalArgumentException.class, checked::next);
+            } else {
+                Assert.assertEquals(1, checked.next());
+            }
+            CloseableIterator.closeIterator(checked);
+            CloseableIterator.closeIterator(checked);
+            Assert.assertEquals(1, calls[0]);
+            Assert.assertEquals(1, calls[1]);
+        }
+    }
+
+    @Test
+    public void testBytecodeEvalUsesTranslatorAndRejectsLambda() throws Exception {
+        try (PolicyScriptEngine engine = new PolicyScriptEngine(ScriptExecutionProfile.QUERY)) {
+            SimpleBindings bindings = new SimpleBindings(
+                    Map.of("g", EmptyGraph.instance().traversal()));
+            Bytecode bytecode = new Bytecode();
+            bytecode.addStep("V");
+            bytecode.addStep("count");
+            Traversal.Admin<?, ?> traversal = engine.eval(bytecode, bindings, "g");
+            Assert.assertEquals(0L, traversal.next());
+            traversal.close();
+
+            Bytecode lambda = new Bytecode();
+            lambda.addStep("map", Lambda.function("it.get()"));
+            ScriptException error = Assert.assertThrows(ScriptException.class,
+                    () -> engine.eval(lambda, bindings, "g"));
+            Assert.assertEquals("SCRIPT_BYTECODE_LAMBDA_DENIED", error.getMessage());
+        }
     }
 }

@@ -13,7 +13,7 @@ export JAVA_TOOL_OPTIONS="${JAVA_TOOL_OPTIONS:-} -Dhugegraph.script.security.mod
 
 实验性的独立策略模式使用 `-Dhugegraph.script.security.mode=policy-only`。部署者需要重启对应进程，并检查启动日志中的模式、策略版本和 SecurityManager 实际状态。已有 JVM 参数中不要同时保留多个模式值。
 
-新模式接受标准 WsAndHttpChannelizer 和单一 gremlin-groovy 引擎。已有认证配置继续生效。Session、脚本 bytecode lambda 和 source options 会被拒绝，文本 Groovy 的选定闭包仍可使用。
+新模式接受标准 WsAndHttpChannelizer 和单一 gremlin-groovy 引擎。已有认证配置继续生效。WebSocket Session 使用每会话独立的受限引擎，保留允许的数据变量和原事务流程。脚本 bytecode lambda 和未批准的 source options 会被拒绝；Session 原生提交、回滚指令，以及会话脚本中的 `g.tx().commit()` / `rollback()` 调用保留；文本 Groovy 的选定闭包仍可使用。
 
 ## 2. 脚本示例
 
@@ -38,10 +38,11 @@ schema.propertyKey('name').asText().ifNotExist().create()
 schema.vertexLabel('person').properties('name').useCustomizeStringId().ifNotExist().create()
 ```
 
-Store 条件只读取当前元素，并返回 Boolean。
+Store 条件按标签名和属性名读取当前元素，并返回 Boolean。属性缺失时返回 null，可以先判断是否存在。
 
 ```groovy
-element.label().equals('person') && (int) element.property('age') > 18
+element.label().equals('person') && element.property('age') != null &&
+        (int) element.property('age') > 18
 ```
 
 以下脚本会被新策略拒绝。
@@ -72,7 +73,7 @@ Server 新增测试位于 UnitTestSuite，Store 新增测试位于 CoreSuiteTest
 
 ```bash
 mvn test -pl hugegraph-server/hugegraph-test -am -P unit-test \
-  -Dtest=ScriptPolicyCompilationTest,PolicyScriptEngineTest,ScriptRequestGuardTest,PolicyServerModeTest,PolicyGraphModeTest \
+  -Dtest=ScriptPolicyCompilationTest,PolicyScriptEngineTest,ScriptRequestGuardTest,PolicyServerModeTest,PolicyGraphModeTest,PolicySessionEngineTest,PolicySessionLifecycleTest \
   -Dsurefire.failIfNoSpecifiedTests=false
 
 mvn test -pl hugegraph-store/hg-store-test -am -P store-core-test \

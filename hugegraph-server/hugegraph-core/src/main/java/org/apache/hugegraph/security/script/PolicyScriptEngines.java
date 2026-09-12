@@ -20,6 +20,9 @@ package org.apache.hugegraph.security.script;
 import java.util.EnumMap;
 import java.util.Map;
 
+import javax.script.ScriptException;
+import javax.script.SimpleBindings;
+
 public final class PolicyScriptEngines {
 
     private static final Map<ScriptExecutionProfile, PolicyScriptEngine> ENGINES =
@@ -30,6 +33,30 @@ public final class PolicyScriptEngines {
 
     public static synchronized PolicyScriptEngine get(ScriptExecutionProfile profile) {
         return ENGINES.computeIfAbsent(profile, PolicyScriptEngine::new);
+    }
+
+    public static synchronized void initializeServer() {
+        if (!ScriptPolicyRuntime.enabled()) {
+            return;
+        }
+        // Load manifests and validation classes before restricted job workers run.
+        Map<ScriptExecutionProfile, PolicyScriptEngine> initialized =
+                new EnumMap<>(ScriptExecutionProfile.class);
+        try {
+            for (ScriptExecutionProfile profile : new ScriptExecutionProfile[]{
+                    ScriptExecutionProfile.QUERY, ScriptExecutionProfile.SCHEMA}) {
+                if (ENGINES.containsKey(profile)) {
+                    continue;
+                }
+                PolicyScriptEngine engine = new PolicyScriptEngine(profile);
+                initialized.put(profile, engine);
+                engine.eval("probe + 1", new SimpleBindings(Map.of("probe", 1)));
+            }
+            ENGINES.putAll(initialized);
+        } catch (ScriptException | RuntimeException | Error failure) {
+            initialized.values().forEach(PolicyScriptEngine::close);
+            throw new IllegalStateException("Script policy initialization failed", failure);
+        }
     }
 
     public static synchronized void close() {

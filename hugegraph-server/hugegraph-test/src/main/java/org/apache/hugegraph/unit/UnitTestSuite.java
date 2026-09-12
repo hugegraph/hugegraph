@@ -30,6 +30,7 @@ import org.apache.hugegraph.meta.MetaManagerSchemaCacheClearEventTest;
 import org.apache.hugegraph.meta.managers.AuthMetaManagerTest;
 import org.apache.hugegraph.tinkerpop.HugeGraphTestInfrastructureTest;
 import org.apache.hugegraph.traversal.optimize.TraversalUtilOptimizeTest;
+import org.apache.hugegraph.auth.PolicySessionLifecycleTest;
 import org.apache.hugegraph.unit.api.auth.LoginAPITest;
 import org.apache.hugegraph.unit.api.filter.AccessLogFilterTest;
 import org.apache.hugegraph.unit.api.filter.LoadDetectFilterTest;
@@ -64,6 +65,7 @@ import org.apache.hugegraph.unit.core.LocksTableTest;
 import org.apache.hugegraph.unit.core.PageStateTest;
 import org.apache.hugegraph.unit.core.PolicyGraphModeTest;
 import org.apache.hugegraph.unit.core.PolicyScriptEngineTest;
+import org.apache.hugegraph.unit.core.PolicySessionEngineTest;
 import org.apache.hugegraph.unit.core.PolicyServerModeTest;
 import org.apache.hugegraph.unit.core.QueryResultsTest;
 import org.apache.hugegraph.unit.core.QueryTest;
@@ -167,6 +169,8 @@ import org.junit.runners.Suite;
         GroovyScriptEngineCompatibilityTest.class,
         ScriptPolicyCompilationTest.class,
         PolicyScriptEngineTest.class,
+        PolicySessionEngineTest.class,
+        PolicySessionLifecycleTest.class,
         ScriptRequestGuardTest.class,
         PolicyServerModeTest.class,
         PolicyGraphModeTest.class,

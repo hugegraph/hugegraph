@@ -124,6 +124,9 @@ public class ScanResponseObserver<T> implements
         if (readCondition() && reading.compareAndSet(false, true)) {
             try {
                 readTask = executor.submit(rr);
+                if (terminated.get()) {
+                    readTask.cancel(true);
+                }
             } catch (RuntimeException error) {
                 reading.set(false);
                 fail(error);
@@ -136,6 +139,9 @@ public class ScanResponseObserver<T> implements
             sending.compareAndSet(false, true)) {
             try {
                 sendTask = executor.submit(sr);
+                if (terminated.get()) {
+                    sendTask.cancel(true);
+                }
             } catch (RuntimeException error) {
                 sending.set(false);
                 fail(error);
@@ -172,18 +178,7 @@ public class ScanResponseObserver<T> implements
                 close();
                 return;
             }
-            boolean available;
-            synchronized (iter) {
-                if (terminated.get()) {
-                    return;
-                }
-                available = iter.hasNext();
-            }
-            if (!available) {
-                complete();
-            } else {
-                startRead();
-            }
+            startRead();
         } else {
             cltSeqNo.getAndIncrement();
             startSend();

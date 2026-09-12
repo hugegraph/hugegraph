@@ -28,6 +28,7 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -78,6 +79,7 @@ public final class ScriptMethodPolicy {
             }
         }
         this.allow("java.util.Iterator", "hasNext", "next");
+        this.allow(ScriptExecutionBudget.class.getName(), "check", "deadline");
         this.allow("org.codehaus.groovy.runtime.DefaultGroovyMethods",
                    "getAt", "size", "contains", "isEmpty", "sum", "min", "max");
         this.allow("org.codehaus.groovy.runtime.StringGroovyMethods",
@@ -88,6 +90,8 @@ public final class ScriptMethodPolicy {
             this.verifyManifest(profile);
             return;
         }
+        this.allowExact("org.codehaus.groovy.runtime.DefaultGroovyMethods", "next", Number.class);
+        this.allowExact("org.codehaus.groovy.runtime.DefaultGroovyMethods", "previous", Number.class);
         this.allow("groovy.lang.Closure", "call");
         this.allow("org.codehaus.groovy.runtime.DefaultGroovyMethods",
                    "collect", "findAll", "find", "any", "every", "each", "eachWithIndex",
@@ -143,8 +147,28 @@ public final class ScriptMethodPolicy {
         this.verifyManifest(profile);
     }
 
+    public ScriptMethodPolicy(ScriptExecutionProfile profile, boolean session) {
+        this(profile);
+        if (session) {
+            if (profile != ScriptExecutionProfile.QUERY) {
+                throw new IllegalArgumentException("Session methods require the query profile");
+            }
+            Set<String> baseline = new HashSet<>(this.signatures);
+            this.allowExact("org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversalSource", "tx");
+            this.allowExact("org.apache.tinkerpop.gremlin.structure.Graph", "tx");
+            this.allowExact("org.apache.tinkerpop.gremlin.structure.Transaction", "commit");
+            this.allowExact("org.apache.tinkerpop.gremlin.structure.Transaction", "rollback");
+            Set<String> overlay = new HashSet<>(this.signatures);
+            overlay.removeAll(baseline);
+            this.verifyManifest("session-methods.txt", overlay);
+        }
+    }
+
     private void verifyManifest(ScriptExecutionProfile profile) {
-        String resource = profile.name().toLowerCase(Locale.ROOT) + "-methods.txt";
+        this.verifyManifest(profile.name().toLowerCase(Locale.ROOT) + "-methods.txt", this.signatures);
+    }
+
+    private void verifyManifest(String resource, Set<String> actual) {
         Set<String> approved = new HashSet<>();
         try (InputStream stream = ScriptMethodPolicy.class.getResourceAsStream(resource)) {
             if (stream == null) {
@@ -158,8 +182,8 @@ public final class ScriptMethodPolicy {
         } catch (IOException error) {
             throw new IllegalStateException("Cannot load script policy manifest", error);
         }
-        if (!this.signatures.equals(approved)) {
-            throw new IllegalStateException("Script policy dependency signatures changed for " + profile);
+        if (!actual.equals(approved)) {
+            throw new IllegalStateException("Script policy dependency signatures changed for " + resource);
         }
     }
 
@@ -185,6 +209,18 @@ public final class ScriptMethodPolicy {
         return Collections.unmodifiableSet(this.signatures);
     }
 
+    private void allowExact(String className, String name, Class<?>... parameterTypes) {
+        try {
+            Class<?> type = Class.forName(className, false, ScriptMethodPolicy.class.getClassLoader());
+            Method method = type.getMethod(name, parameterTypes);
+            String parameters = Arrays.stream(method.getParameterTypes())
+                                      .map(Class::getTypeName).collect(Collectors.joining(","));
+            this.signatures.add(method.getDeclaringClass().getName() + "#" + name + "(" + parameters + ")");
+        } catch (ReflectiveOperationException error) {
+            throw new IllegalStateException("Missing exact script policy method " + className + "#" + name, error);
+        }
+    }
+
     private void allow(String className, String... names) {
         Set<String> allowedNames = new HashSet<>(Arrays.asList(names));
         try {
@@ -194,13 +230,17 @@ public final class ScriptMethodPolicy {
                     !allowedNames.contains(method.getName())) {
                     continue;
                 }
-                if (className.equals("org.codehaus.groovy.runtime.DefaultGroovyMethods") &&
-                    (method.getParameterTypes()[0] == Object.class ||
-                     (method.getName().equals("getAt") &&
-                      method.getParameterTypes()[0] == Collection.class &&
-                      method.getParameterTypes()[1] == String.class))) {
-                    // Generic extension helpers can resolve arbitrary bean properties or iterators.
-                    continue;
+                if (className.equals("org.codehaus.groovy.runtime.DefaultGroovyMethods")) {
+                    Class<?>[] parameters = method.getParameterTypes();
+                    if (parameters.length > 0 && parameters[0] == Object.class ||
+                        (method.getName().equals("getAt") && parameters.length == 2 &&
+                         parameters[0] == Collection.class &&
+                         parameters[1] == String.class) ||
+                        (method.getName().equals("groupBy") && parameters.length >= 2 &&
+                         (parameters[1] == Object[].class || parameters[1] == List.class))) {
+                        // Generic helpers can read arbitrary bean properties.
+                        continue;
+                    }
                 }
                 String parameters = Arrays.stream(method.getParameterTypes())
                                           .map(Class::getTypeName).collect(Collectors.joining(","));
