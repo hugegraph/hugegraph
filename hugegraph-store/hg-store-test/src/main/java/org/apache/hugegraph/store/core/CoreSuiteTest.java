@@ -24,7 +24,6 @@ import org.junit.runners.Suite;
 @RunWith(Suite.class)
 @Suite.SuiteClasses({
         BatchGraphIsolationTest.class,
-        ScanPolicyFailureTest.class,
         StorePolicyModeTest.class,
         GraphIDManagerTest.class
 })

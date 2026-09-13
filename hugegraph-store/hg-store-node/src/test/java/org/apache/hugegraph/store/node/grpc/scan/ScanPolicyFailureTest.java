@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-package org.apache.hugegraph.store.core;
+package org.apache.hugegraph.store.node.grpc.scan;
 
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -32,10 +32,9 @@ import org.apache.hugegraph.store.business.GraphStoreIterator;
 import org.apache.hugegraph.store.grpc.Graphpb;
 import org.apache.hugegraph.store.grpc.Graphpb.ScanPartitionRequest;
 import org.apache.hugegraph.store.grpc.Graphpb.ScanResponse;
-import org.apache.hugegraph.store.node.grpc.scan.ScanResponseObserver;
 import org.apache.hugegraph.testutil.Whitebox;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import io.grpc.Status;
@@ -55,9 +54,9 @@ public class ScanPolicyFailureTest {
             observer.onNext(request);
             observer.onNext(request);
             observer.onCompleted();
-            Assert.assertEquals(1, sender.errors.get());
-            Assert.assertEquals(0, sender.completed.get());
-            Assert.assertEquals(Status.Code.INVALID_ARGUMENT, Status.fromThrowable(sender.error).getCode());
+            Assertions.assertEquals(1, sender.errors.get());
+            Assertions.assertEquals(0, sender.completed.get());
+            Assertions.assertEquals(Status.Code.INVALID_ARGUMENT, Status.fromThrowable(sender.error).getCode());
             Mockito.verify(handler, Mockito.times(1)).scan(request);
         } finally {
             executor.shutdownNow();
@@ -76,12 +75,12 @@ public class ScanPolicyFailureTest {
         try {
             ScanResponseObserver<?> observer = new ScanResponseObserver<>(sender, handler, executor);
             observer.onNext(request);
-            Assert.assertTrue(sender.terminal.await(5, TimeUnit.SECONDS));
+            Assertions.assertTrue(sender.terminal.await(5, TimeUnit.SECONDS));
             observer.onCompleted();
-            Assert.assertEquals(1, sender.errors.get());
-            Assert.assertEquals(0, sender.completed.get());
-            Assert.assertEquals(0, sender.rows.get());
-            Assert.assertEquals(Status.Code.INTERNAL, Status.fromThrowable(sender.error).getCode());
+            Assertions.assertEquals(1, sender.errors.get());
+            Assertions.assertEquals(0, sender.completed.get());
+            Assertions.assertEquals(0, sender.rows.get());
+            Assertions.assertEquals(Status.Code.INTERNAL, Status.fromThrowable(sender.error).getCode());
             Mockito.verify(iterator, Mockito.times(1)).close();
         } finally {
             executor.shutdownNow();
@@ -99,10 +98,10 @@ public class ScanPolicyFailureTest {
         try {
             ScanResponseObserver<?> observer = new ScanResponseObserver<>(sender, handler, executor);
             observer.onNext(request);
-            Assert.assertTrue(sender.terminal.await(5, TimeUnit.SECONDS));
+            Assertions.assertTrue(sender.terminal.await(5, TimeUnit.SECONDS));
             observer.onCompleted();
-            Assert.assertEquals(0, sender.errors.get());
-            Assert.assertEquals(1, sender.completed.get());
+            Assertions.assertEquals(0, sender.errors.get());
+            Assertions.assertEquals(1, sender.completed.get());
             Mockito.verify(iterator, Mockito.times(1)).close();
         } finally {
             executor.shutdownNow();
@@ -124,11 +123,11 @@ public class ScanPolicyFailureTest {
         try {
             ScanResponseObserver<?> observer = new ScanResponseObserver<>(sender, handler, executor);
             observer.onNext(request);
-            Assert.assertTrue(sender.terminal.await(5, TimeUnit.SECONDS));
+            Assertions.assertTrue(sender.terminal.await(5, TimeUnit.SECONDS));
             observer.onCompleted();
-            Assert.assertEquals(0, sender.errors.get());
-            Assert.assertEquals(1, sender.completed.get());
-            Assert.assertEquals(1, sender.rows.get());
+            Assertions.assertEquals(0, sender.errors.get());
+            Assertions.assertEquals(1, sender.completed.get());
+            Assertions.assertEquals(1, sender.rows.get());
             Mockito.verify(iterator, Mockito.times(1)).next();
             Mockito.verify(iterator, Mockito.times(1)).close();
         } finally {
@@ -148,7 +147,7 @@ public class ScanPolicyFailureTest {
         });
         Mockito.when(iterator.hasNext()).thenAnswer(call -> {
             if (read.get() >= 100000) {
-                Assert.assertTrue("first batch must be delivered", sender.firstBatch.await(10, TimeUnit.SECONDS));
+                Assertions.assertTrue(sender.firstBatch.await(10, TimeUnit.SECONDS), "first batch must be delivered");
                 throw new IllegalStateException("later filter failed");
             }
             return true;
@@ -159,11 +158,11 @@ public class ScanPolicyFailureTest {
         try {
             ScanResponseObserver<?> observer = new ScanResponseObserver<>(sender, handler, executor);
             observer.onNext(request);
-            Assert.assertTrue(sender.terminal.await(20, TimeUnit.SECONDS));
+            Assertions.assertTrue(sender.terminal.await(20, TimeUnit.SECONDS));
             observer.onCompleted();
-            Assert.assertEquals(1, sender.rows.get());
-            Assert.assertEquals(1, sender.errors.get());
-            Assert.assertEquals(0, sender.completed.get());
+            Assertions.assertEquals(1, sender.rows.get());
+            Assertions.assertEquals(1, sender.errors.get());
+            Assertions.assertEquals(0, sender.completed.get());
             Mockito.verify(iterator, Mockito.times(1)).close();
         } finally {
             executor.shutdownNow();
@@ -182,9 +181,9 @@ public class ScanPolicyFailureTest {
         executor.shutdown();
         ScanResponseObserver<?> observer = new ScanResponseObserver<>(sender, handler, executor);
         observer.onNext(request);
-        Assert.assertTrue(sender.terminal.await(5, TimeUnit.SECONDS));
-        Assert.assertEquals(1, sender.errors.get());
-        Assert.assertEquals(0, sender.completed.get());
+        Assertions.assertTrue(sender.terminal.await(5, TimeUnit.SECONDS));
+        Assertions.assertEquals(1, sender.errors.get());
+        Assertions.assertEquals(0, sender.completed.get());
         Mockito.verify(iterator, Mockito.times(1)).close();
     }
 
@@ -197,7 +196,7 @@ public class ScanPolicyFailureTest {
         ScanPartitionRequest request = request();
         Mockito.when(handler.scan(request)).thenAnswer(call -> {
             opening.countDown();
-            Assert.assertTrue(release.await(5, TimeUnit.SECONDS));
+            Assertions.assertTrue(release.await(5, TimeUnit.SECONDS));
             return iterator;
         });
         RecordingSender sender = new RecordingSender();
@@ -205,12 +204,12 @@ public class ScanPolicyFailureTest {
         try {
             ScanResponseObserver<?> observer = new ScanResponseObserver<>(sender, handler, executor);
             Future<?> initial = executor.submit(() -> observer.onNext(request));
-            Assert.assertTrue(opening.await(5, TimeUnit.SECONDS));
+            Assertions.assertTrue(opening.await(5, TimeUnit.SECONDS));
             observer.onCompleted();
             release.countDown();
             initial.get(5, TimeUnit.SECONDS);
-            Assert.assertEquals(0, sender.errors.get());
-            Assert.assertEquals(0, sender.completed.get());
+            Assertions.assertEquals(0, sender.errors.get());
+            Assertions.assertEquals(0, sender.completed.get());
             Mockito.verify(iterator, Mockito.times(1)).close();
             Mockito.verify(iterator, Mockito.never()).hasNext();
         } finally {
@@ -243,11 +242,11 @@ public class ScanPolicyFailureTest {
         try {
             ScanResponseObserver<?> observer = new ScanResponseObserver<>(sender, handler, executor);
             observer.onNext(request);
-            Assert.assertTrue(entered.await(5, TimeUnit.SECONDS));
+            Assertions.assertTrue(entered.await(5, TimeUnit.SECONDS));
             observer.onCompleted();
             Mockito.verify(iterator, Mockito.timeout(5000).times(1)).close();
-            Assert.assertTrue("ongoing filter must observe interruption", interrupted.get());
-            Assert.assertEquals(0, sender.rows.get());
+            Assertions.assertTrue(interrupted.get(), "ongoing filter must observe interruption");
+            Assertions.assertEquals(0, sender.rows.get());
         } finally {
             executor.shutdownNow();
         }
@@ -274,7 +273,7 @@ public class ScanPolicyFailureTest {
         Runnable block = () -> {
             entered.countDown();
             try {
-                Assert.assertTrue("test must release the blocked successor", release.await(30, TimeUnit.SECONDS));
+                Assertions.assertTrue(release.await(30, TimeUnit.SECONDS), "test must release the blocked successor");
             } catch (InterruptedException error) {
                 interrupted.countDown();
                 Thread.currentThread().interrupt();
@@ -331,34 +330,34 @@ public class ScanPolicyFailureTest {
                     Whitebox.invoke(ScanResponseObserver.class, start, observer);
                 }
             });
-            Assert.assertTrue("first task must finish before its submission returns",
-                              executor.firstFinished.await(5, TimeUnit.SECONDS));
+            Assertions.assertTrue(executor.firstFinished.await(5, TimeUnit.SECONDS),
+                                  "first task must finish before its submission returns");
             packages.clear();
             if (!reader) {
                 packages.add(ScanResponse.getDefaultInstance());
             }
             Whitebox.invoke(ScanResponseObserver.class, start, observer);
-            Assert.assertTrue("successor must be executing", entered.await(5, TimeUnit.SECONDS));
+            Assertions.assertTrue(entered.await(5, TimeUnit.SECONDS), "successor must be executing");
             executor.releaseFirst.countDown();
             first.get(5, TimeUnit.SECONDS);
             // Old code overwrites the successor's Future at this point, losing its cancellation handle.
             Future<?> cancel = caller.submit(observer::onCompleted);
-            Assert.assertTrue("cancel must interrupt the current successor",
-                              interrupted.await(5, TimeUnit.SECONDS));
+            Assertions.assertTrue(interrupted.await(5, TimeUnit.SECONDS),
+                                  "cancel must interrupt the current successor");
             cancel.get(5, TimeUnit.SECONDS);
             if (reader) {
                 Mockito.verify(iterator, Mockito.times(1)).close();
             }
-            Assert.assertEquals(0, sender.rows.get());
-            Assert.assertEquals(0, sender.errors.get());
-            Assert.assertEquals(0, sender.completed.get());
+            Assertions.assertEquals(0, sender.rows.get());
+            Assertions.assertEquals(0, sender.errors.get());
+            Assertions.assertEquals(0, sender.completed.get());
         } finally {
             release.countDown();
             executor.releaseFirst.countDown();
             caller.shutdownNow();
             executor.shutdownNow();
-            Assert.assertTrue(caller.awaitTermination(5, TimeUnit.SECONDS));
-            Assert.assertTrue(executor.awaitTermination(5, TimeUnit.SECONDS));
+            Assertions.assertTrue(caller.awaitTermination(5, TimeUnit.SECONDS));
+            Assertions.assertTrue(executor.awaitTermination(5, TimeUnit.SECONDS));
         }
     }
 
@@ -384,8 +383,8 @@ public class ScanPolicyFailureTest {
             try {
                 ((Future<?>) command).get(5, TimeUnit.SECONDS);
                 this.firstFinished.countDown();
-                Assert.assertTrue("test must release the first submission",
-                                  this.releaseFirst.await(30, TimeUnit.SECONDS));
+                Assertions.assertTrue(this.releaseFirst.await(30, TimeUnit.SECONDS),
+                                      "test must release the first submission");
             } catch (Exception error) {
                 throw new AssertionError("controlled executor failed", error);
             }
