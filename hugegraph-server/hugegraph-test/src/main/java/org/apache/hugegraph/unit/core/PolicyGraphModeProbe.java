@@ -20,6 +20,7 @@ package org.apache.hugegraph.unit.core;
 import java.net.ServerSocket;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.Callable;
@@ -117,6 +118,14 @@ public final class PolicyGraphModeProbe {
                     "int x = 0; 1 / x");
             Assert.assertThrows(Exception.class, job::execute);
             Assert.assertFalse(graph.vertices("rollback").hasNext());
+            TestJob iteratorJob = new TestJob(graph,
+                    "g.addV('person').property(T.id, 'iterator-rollback').property('name', 'bob').iterate(); " +
+                    "[g].iterator()");
+            Exception deniedResult = Assert.assertThrows(Exception.class, iteratorJob::execute);
+            Assert.assertTrue(deniedResult.toString(), deniedResult.toString().contains("SCRIPT_RESULT_DENIED"));
+            Assert.assertFalse(graph.vertices("iterator-rollback").hasNext());
+            Assert.assertEquals(List.of(1, 2, 3),
+                                new TestJob(graph, "[1, 2, 3].iterator()").execute());
             new TestJob(graph,
                     "g.addV('person').property(T.id, 'committed').property('name', 'bob').iterate(); " +
                     "gremlinJob.progress()").execute();

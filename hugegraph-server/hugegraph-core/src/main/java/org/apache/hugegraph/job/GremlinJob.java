@@ -19,6 +19,7 @@ package org.apache.hugegraph.job;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
@@ -30,6 +31,7 @@ import org.apache.hugegraph.security.script.ScriptPolicyRuntime;
 import org.apache.hugegraph.traversal.optimize.HugeScriptTraversal;
 import org.apache.hugegraph.util.E;
 import org.apache.hugegraph.util.JsonUtil;
+import org.apache.tinkerpop.gremlin.structure.util.CloseableIterator;
 
 public class GremlinJob extends UserJob<Object> {
 
@@ -83,15 +85,30 @@ public class GremlinJob extends UserJob<Object> {
         List<Object> results = new ArrayList<>();
         long capacity = Query.defaultCapacity(Query.NO_CAPACITY);
         boolean succeeded = false;
+        Object result = null;
         try {
             while (traversal.hasNext()) {
-                Object result = traversal.next();
-                results.add(result);
+                results.add(traversal.next());
                 checkResultsSize(results);
                 Thread.yield();
             }
-            if (ScriptPolicyRuntime.enabled() && traversal.result() != null) {
-                checkResultsSize(traversal.result());
+            result = traversal.result();
+            if (ScriptPolicyRuntime.enabled() && result instanceof Iterator) {
+                // Validate lazy results before committing, including the job's result limit.
+                Iterator<?> iterator = (Iterator<?>) result;
+                try {
+                    while (iterator.hasNext()) {
+                        results.add(iterator.next());
+                        checkResultsSize(results);
+                        Thread.yield();
+                    }
+                    result = results;
+                } finally {
+                    CloseableIterator.closeIterator(iterator);
+                }
+            }
+            if (ScriptPolicyRuntime.enabled() && result != null) {
+                checkResultsSize(result);
             }
             succeeded = true;
         } finally {
@@ -115,7 +132,6 @@ public class GremlinJob extends UserJob<Object> {
             }
         }
 
-        Object result = traversal.result();
         if (result != null) {
             checkResultsSize(result);
             return result;
