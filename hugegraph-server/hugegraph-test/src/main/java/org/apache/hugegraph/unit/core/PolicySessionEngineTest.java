@@ -25,17 +25,29 @@ import java.lang.management.ManagementFactory;
 
 import javax.management.ObjectName;
 import java.util.Map;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import javax.script.ScriptException;
 import javax.script.SimpleBindings;
 
 import org.apache.hugegraph.auth.PolicyGremlinScriptEngineManager;
+import org.apache.hugegraph.backend.store.BackendEntryIterator;
+import org.apache.hugegraph.testutil.Whitebox;
+import org.apache.tinkerpop.gremlin.groovy.engine.GremlinExecutor;
 import org.apache.hugegraph.security.script.PolicyScriptEngine;
 import org.apache.hugegraph.security.script.ScriptExecutionProfile;
 import org.apache.hugegraph.security.script.ScriptMethodPolicy;
 import org.apache.tinkerpop.gremlin.structure.util.empty.EmptyGraph;
 import org.junit.Assert;
 import org.junit.Test;
+import org.mockito.Mockito;
+import org.apache.tinkerpop.gremlin.structure.Graph;
+import org.apache.tinkerpop.gremlin.structure.Vertex;
+import org.apache.tinkerpop.gremlin.structure.util.CloseableIterator;
+import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversalSource;
 
 public class PolicySessionEngineTest {
 
@@ -65,6 +77,135 @@ public class PolicySessionEngineTest {
             Assert.assertEquals(40, second.eval("x = 40", b));
             Assert.assertEquals(2, first.eval("x", a));
             Assert.assertEquals(40, second.eval("x", b));
+        }
+    }
+
+    @Test
+    public void testRejectedSessionStateClosesOpenedTraversal() throws Exception {
+        assertOpenedTraversalsClosed("def t=g.V(); t.hasNext(); saved={1}; t", true, 1);
+    }
+
+    @Test
+    public void testRejectedNestedResultsCloseEveryOpenedTraversal() throws Exception {
+        for (boolean session : List.of(false, true)) {
+            for (String result : List.of("[t,u,t]", "[bad:{1}, cursors:[t,u,t]]", "[first:t,second:u]")) {
+                assertOpenedTraversalsClosed("def t=g.V(); t.hasNext(); def u=g.V(); u.hasNext(); " + result,
+                                             session, 2);
+            }
+        }
+    }
+
+    @Test
+    public void testDiscardedSessionBindingsCloseOpenedTraversals() throws Exception {
+        for (String result : List.of("1", "saved", "[saved]", "int zero=0; 1/zero")) {
+            assertOpenedTraversalsClosed("saved=g.V(); saved.hasNext(); " + result, true, 1);
+        }
+    }
+
+    private static void assertOpenedTraversalsClosed(String script, boolean session, int expected) throws Exception {
+        Graph graph = Mockito.mock(Graph.class);
+        Vertex vertex = Mockito.mock(Vertex.class);
+        int[] calls = new int[2];
+        Mockito.when(graph.vertices(Mockito.any(Object[].class))).thenAnswer(invocation -> {
+            calls[0]++;
+            return new CloseableIterator<Vertex>() {
+                @Override
+                public boolean hasNext() {
+                    return true;
+                }
+
+                @Override
+                public Vertex next() {
+                    return vertex;
+                }
+
+                @Override
+                public void close() {
+                    calls[1]++;
+                }
+            };
+        });
+        try (GraphTraversalSource source = new GraphTraversalSource(graph);
+             PolicyScriptEngine engine = new PolicyScriptEngine(ScriptExecutionProfile.QUERY, session)) {
+            SimpleBindings state = new SimpleBindings(Map.of("g", source));
+            Assert.assertThrows(ScriptException.class, () -> engine.eval(script, state));
+            Assert.assertEquals(script, expected, calls[0]);
+            Assert.assertEquals(script, expected, calls[1]);
+            Assert.assertFalse(state.containsKey("saved"));
+        }
+    }
+
+    @Test
+    public void testBackendInterruptUsesTimeoutLifecycle() throws Exception {
+        for (boolean policy : List.of(false, true)) {
+            Graph graph = Mockito.mock(Graph.class);
+            AtomicInteger checks = new AtomicInteger();
+            AtomicInteger timeouts = new AtomicInteger();
+            AtomicInteger failures = new AtomicInteger();
+            Mockito.when(graph.vertices(Mockito.any(Object[].class))).thenAnswer(invocation -> {
+                checks.incrementAndGet();
+                Thread.currentThread().interrupt();
+                BackendEntryIterator.checkInterrupted();
+                throw new AssertionError("Backend interruption must throw");
+            });
+            try (GraphTraversalSource source = new GraphTraversalSource(graph);
+                 PolicyGremlinScriptEngineManager manager = policy ?
+                         new PolicyGremlinScriptEngineManager(new SimpleBindings(), new SimpleBindings()) : null;
+                 GremlinExecutor executor = GremlinExecutor.build().evaluationTimeout(0L)
+                         .afterTimeout((bindings, error) -> timeouts.incrementAndGet())
+                         .afterFailure((bindings, error) -> failures.incrementAndGet()).create()) {
+                if (policy) {
+                    Whitebox.setInternalState(executor, "gremlinScriptEngineManager", manager);
+                }
+                ExecutionException error = Assert.assertThrows(ExecutionException.class, () -> executor.eval(
+                        "g.V().toList()", new SimpleBindings(Map.of("g", source))).get(10, TimeUnit.SECONDS));
+                Assert.assertTrue(error.toString(), error.getCause() instanceof TimeoutException);
+                Assert.assertEquals(1, checks.get());
+                Assert.assertEquals(1, timeouts.get());
+                Assert.assertEquals(0, failures.get());
+            }
+        }
+    }
+
+    @Test
+    public void testExplicitViewSnapshotsCanBeRetained() throws Exception {
+        try (PolicyScriptEngine engine = new PolicyScriptEngine(ScriptExecutionProfile.QUERY, true)) {
+            SimpleBindings state = new SimpleBindings();
+            engine.eval("keys=[a:1].keySet().toSet(); values=[a:1].values().toList(); " +
+                        "part=[1,2].subList(0,1).toList(); 1", state);
+            Assert.assertEquals(Set.of("a"), state.get("keys"));
+            Assert.assertEquals(List.of(1), state.get("values"));
+            Assert.assertEquals(List.of(1), state.get("part"));
+            Assert.assertEquals(List.of(1, 2), engine.eval("part.add(2); part", state));
+        }
+    }
+
+    @Test
+    public void testFailureRetainsMutationsButNotReassignments() throws Exception {
+        try (PolicyScriptEngine engine = new PolicyScriptEngine(ScriptExecutionProfile.QUERY, true)) {
+            SimpleBindings state = new SimpleBindings();
+            engine.eval("counter = 6; values = [1,2,3]; 1", state);
+            Assert.assertThrows(ScriptException.class, () -> engine.eval(
+                    "counter = 7; values.add(9); values = []; fresh = 1; int zero = 0; 1 / zero", state));
+            Assert.assertEquals(6, state.get("counter"));
+            Assert.assertEquals(List.of(1, 2, 3, 9), state.get("values"));
+            Assert.assertFalse(state.containsKey("fresh"));
+            Assert.assertThrows(ScriptException.class, () -> engine.eval(
+                    "values.add({ 1 }); int zero = 0; 1 / zero", state));
+            Assert.assertEquals(List.of(1, 2, 3, 9), state.get("values"));
+        }
+    }
+
+    @Test
+    public void testSharedContainerReferencesSurviveRequests() throws Exception {
+        try (PolicyScriptEngine engine = new PolicyScriptEngine(ScriptExecutionProfile.QUERY, true)) {
+            SimpleBindings state = new SimpleBindings();
+            engine.eval("xs = []; ys = xs; 1", state);
+            Assert.assertSame(state.get("xs"), state.get("ys"));
+            Assert.assertEquals(List.of(1), engine.eval("xs.add(1); ys", state));
+            Assert.assertThrows(ScriptException.class, () -> engine.eval(
+                    "ys.add(2); int zero = 0; 1 / zero", state));
+            Assert.assertEquals(List.of(1, 2), engine.eval("xs", state));
         }
     }
 
@@ -131,6 +272,53 @@ public class PolicySessionEngineTest {
             Assert.assertThrows(IllegalArgumentException.class, invalid::hasNext);
             engine.abortSession();
             Assert.assertEquals(List.of(1, 2), state.get("values"));
+        }
+    }
+
+    @Test
+    public void testSessionBindingReassignmentPreservesNumericTypes() throws Exception {
+        SimpleBindings state = new SimpleBindings(new HashMap<>(Map.of("value", 1)));
+        try (PolicyScriptEngine engine = new PolicyScriptEngine(ScriptExecutionProfile.QUERY, true)) {
+            Assert.assertEquals(2147483648L, engine.eval("value=2147483648L; value", state));
+            Assert.assertEquals(Long.class, state.get("value").getClass());
+            Assert.assertEquals(new java.math.BigDecimal("2147483648.5"),
+                    engine.eval("value+=0.5; value", state));
+            Assert.assertEquals(java.math.BigDecimal.class, state.get("value").getClass());
+            Assert.assertEquals("changed", engine.eval("value='changed'; value", state));
+        }
+    }
+
+    @Test
+    public void testSessionPreservesOrdinaryInterpolationButRejectsClosures() throws Exception {
+        SimpleBindings state = new SimpleBindings(new HashMap<>());
+        try (PolicyScriptEngine engine = new PolicyScriptEngine(ScriptExecutionProfile.QUERY, true)) {
+            engine.eval("who='Ada'; greeting=\"Hello ${who}\"; 1", state);
+            Assert.assertEquals("Hello Ada", engine.eval("greeting.toString()", state));
+            Assert.assertTrue(state.get("greeting") instanceof groovy.lang.GString);
+            Assert.assertThrows(ScriptException.class, () -> engine.eval(
+                    "greeting=\"${ -> 42 }\"; 1", state));
+            Assert.assertEquals("Hello Ada", engine.eval("greeting.toString()", state));
+        }
+    }
+
+    @Test
+    public void testFailurePublishesToPersistentSessionBeyondRequestCopy() throws Exception {
+        SimpleBindings persistent = new SimpleBindings(new HashMap<>(Map.of(
+                "g", EmptyGraph.instance().traversal(), "counter", 0, "values", List.of(1))));
+        try (PolicyScriptEngine engine = new PolicyScriptEngine(ScriptExecutionProfile.QUERY, true)) {
+            engine.deferSessionPublication(persistent);
+            SimpleBindings request = new SimpleBindings(new HashMap<>(persistent));
+            Assert.assertThrows(ScriptException.class, () -> engine.eval(
+                    "values.add(2); counter=7; int zero=0; 1/zero", request));
+            Assert.assertEquals(List.of(1, 2), persistent.get("values"));
+            Assert.assertEquals(0, persistent.get("counter"));
+            SimpleBindings next = new SimpleBindings(new HashMap<>(persistent));
+            Iterator<?> result = (Iterator<?>) engine.eval(
+                    "g.inject(1).map { values.add(3); counter=9; int zero=0; 1/zero }", next);
+            Assert.assertThrows(RuntimeException.class, result::hasNext);
+            engine.abortSession();
+            Assert.assertEquals(List.of(1, 2, 3), persistent.get("values"));
+            Assert.assertEquals(0, persistent.get("counter"));
         }
     }
 

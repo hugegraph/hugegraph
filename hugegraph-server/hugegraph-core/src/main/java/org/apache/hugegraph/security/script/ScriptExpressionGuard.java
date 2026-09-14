@@ -38,15 +38,12 @@ import org.codehaus.groovy.ast.expr.ClassExpression;
 import org.codehaus.groovy.ast.expr.ClosureExpression;
 import org.codehaus.groovy.ast.expr.ConstructorCallExpression;
 import org.codehaus.groovy.ast.expr.DeclarationExpression;
-import org.codehaus.groovy.ast.expr.GStringExpression;
 import org.codehaus.groovy.ast.expr.MethodCallExpression;
 import org.codehaus.groovy.ast.expr.MethodPointerExpression;
 import org.codehaus.groovy.ast.expr.PropertyExpression;
 import org.codehaus.groovy.ast.expr.StaticMethodCallExpression;
 import org.codehaus.groovy.ast.expr.VariableExpression;
-import org.codehaus.groovy.ast.stmt.DoWhileStatement;
 import org.codehaus.groovy.ast.stmt.ForStatement;
-import org.codehaus.groovy.ast.stmt.WhileStatement;
 import org.codehaus.groovy.classgen.GeneratorContext;
 import org.codehaus.groovy.control.CompilePhase;
 import org.codehaus.groovy.control.SourceUnit;
@@ -59,6 +56,8 @@ public final class ScriptExpressionGuard extends CompilationCustomizer {
             "java.lang.Math", "java.lang.String", "java.lang.Integer", "java.lang.Long",
             "java.lang.Double", "java.lang.Float", "java.lang.Boolean", "java.lang.Short",
             "java.lang.Byte", "java.lang.Character", "java.util.UUID",
+            "java.math.BigDecimal", "java.math.BigInteger", "groovy.json.JsonOutput",
+            "org.apache.hugegraph.util.Blob",
             "org.apache.tinkerpop.gremlin.process.traversal.P",
             "org.apache.tinkerpop.gremlin.process.traversal.TextP",
             "org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__");
@@ -71,12 +70,13 @@ public final class ScriptExpressionGuard extends CompilationCustomizer {
             "org.apache.tinkerpop.gremlin.process.traversal.Pop",
             "org.apache.tinkerpop.gremlin.structure.Column",
             "org.apache.tinkerpop.gremlin.process.traversal.Pick",
-            "org.apache.hugegraph.type.define.Directions");
+            "org.apache.hugegraph.type.define.Directions", "java.math.RoundingMode");
     private static final Set<String> LOCAL_TYPES = Set.of(
             "java.lang.Object", "java.lang.String", "java.lang.Number", "java.lang.Integer",
             "java.lang.Long", "java.lang.Double", "java.lang.Float", "java.lang.Boolean",
             "java.lang.Short", "java.lang.Byte", "java.lang.Character", "java.math.BigDecimal",
             "java.math.BigInteger", "java.util.UUID", "java.util.List", "java.util.Map",
+            "org.apache.hugegraph.util.Blob",
             "java.util.Set", "java.util.Collection", "java.util.Iterator", "java.util.Optional",
             "java.util.Map$Entry", "groovy.lang.Closure", "int", "long", "double", "float",
             "boolean", "short", "byte", "char",
@@ -92,6 +92,19 @@ public final class ScriptExpressionGuard extends CompilationCustomizer {
             "org.apache.tinkerpop.gremlin.process.traversal.TextP",
             "org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal",
             "org.apache.hugegraph.schema.SchemaManager");
+    static final Set<String> CONSTRUCTIBLE_TYPES = Set.of(
+            "java.util.ArrayList", "java.util.LinkedList", "java.util.HashMap", "java.util.LinkedHashMap",
+            "java.util.HashSet", "java.util.LinkedHashSet", "java.util.Date", "java.math.BigDecimal",
+            "java.math.BigInteger", "groovy.json.JsonSlurper", "groovy.lang.IntRange");
+    private static boolean dataArray(ClassNode type) {
+        return type.isArray() && (ClassHelper.isPrimitiveType(type.getComponentType()) ||
+                Set.of("java.lang.Object", "java.lang.String", "java.lang.Boolean", "java.lang.Byte",
+                       "java.lang.Short", "java.lang.Integer", "java.lang.Long", "java.lang.Float",
+                       "java.lang.Double", "java.lang.Character", "java.math.BigDecimal",
+                       "java.math.BigInteger", "java.util.UUID", "java.util.Date")
+                   .contains(type.getComponentType().getName()));
+    }
+
     private final int preludeLines;
     private final ScriptExecutionProfile profile;
 
@@ -122,7 +135,9 @@ public final class ScriptExpressionGuard extends CompilationCustomizer {
 
             private void checkLocalType(ClassNode type) {
                 if (!ClassHelper.isDynamicTyped(type) && !LOCAL_TYPES.contains(type.redirect().getName()) &&
-                    !ENUM_TYPES.contains(type.redirect().getName())) {
+                    !ENUM_TYPES.contains(type.redirect().getName()) &&
+                    !CONSTRUCTIBLE_TYPES.contains(type.redirect().getName()) &&
+                    !dataArray(type)) {
                     throw denied("declared type");
                 }
                 if (type.getGenericsTypes() != null) {
@@ -148,7 +163,7 @@ public final class ScriptExpressionGuard extends CompilationCustomizer {
             @Override
             public void visitArrayExpression(ArrayExpression expression) {
                 if (this.user(expression)) {
-                    throw denied("array allocation; use list literals");
+                    this.checkLocalType(expression.getElementType());
                 }
                 super.visitArrayExpression(expression);
             }
@@ -157,9 +172,6 @@ public final class ScriptExpressionGuard extends CompilationCustomizer {
             public void visitBinaryExpression(BinaryExpression expression) {
                 if (this.user(expression)) {
                     String operator = expression.getOperation().getText();
-                    if (Set.of("=~", "==~").contains(operator)) {
-                        throw denied("regular expression");
-                    }
                     if ("[".equals(operator)) {
                         ClassNode receiver = expression.getLeftExpression()
                                                        .getNodeMetaData(StaticTypesMarker.INFERRED_TYPE);
@@ -173,7 +185,7 @@ public final class ScriptExpressionGuard extends CompilationCustomizer {
                         }
                         boolean map = receiver.getName().equals("java.util.Map") ||
                                       receiver.implementsInterface(ClassHelper.make(Map.class));
-                        boolean sequence = receiver.getName().equals("java.util.List") ||
+                        boolean sequence = receiver.isArray() || receiver.getName().equals("java.util.List") ||
                                            receiver.implementsInterface(ClassHelper.make(List.class)) ||
                                            receiver.getName().equals("java.lang.String");
                         if (!map && (!sequence || index.getName().equals("java.lang.String") ||
@@ -181,12 +193,7 @@ public final class ScriptExpressionGuard extends CompilationCustomizer {
                             throw denied("only data containers support indexing");
                         }
                     }
-                    if (profile == ScriptExecutionProfile.STORE_FILTER &&
-                        operator.endsWith("=") && !Set.of("==", "!=", ">=", "<=", "===", "!==")
-                                                     .contains(operator) &&
-                        !(expression instanceof DeclarationExpression)) {
-                        throw denied("assignment in Store condition");
-                    }
+
                 }
                 super.visitBinaryExpression(expression);
             }
@@ -206,6 +213,9 @@ public final class ScriptExpressionGuard extends CompilationCustomizer {
                     if (!"check".equals(call.getMethod())) {
                         throw denied("static method call");
                     }
+                } else if (type.equals(ScriptDataOperations.class.getName()) &&
+                           Boolean.TRUE.equals(call.getNodeMetaData(ScriptTypeCheckingExtension.DATA_CALL))) {
+                    // Compiler-created data bridge; arguments keep their original source positions.
                 } else if (!STATIC_TYPES.contains(type)) {
                     throw denied("static method call");
                 }
@@ -215,13 +225,15 @@ public final class ScriptExpressionGuard extends CompilationCustomizer {
             @Override
             public void visitMethodCallExpression(MethodCallExpression call) {
                 if (this.user(call)) {
-                    if (call.getMethodAsString() == null || call.isSpreadSafe()) {
+                    if (call.getMethodAsString() == null) {
                         throw denied("dynamic method call");
                     }
                     if (call.getObjectExpression() instanceof ClassExpression) {
                         ClassExpression receiver = (ClassExpression) call.getObjectExpression();
-                        if (!STATIC_TYPES.contains(receiver.getType().getName())) {
-                            throw denied("static receiver");
+                        if (!STATIC_TYPES.contains(receiver.getType().getName()) &&
+                            !(receiver.getType().getName().equals(ScriptDataOperations.class.getName()) &&
+                              Boolean.TRUE.equals(call.getNodeMetaData(ScriptTypeCheckingExtension.DATA_CALL)))) {
+                            throw denied("static receiver " + receiver.getType().getName());
                         }
                         this.receivers.add(receiver);
                     }
@@ -233,15 +245,21 @@ public final class ScriptExpressionGuard extends CompilationCustomizer {
             public void visitPropertyExpression(PropertyExpression property) {
                 if (this.user(property)) {
                     String name = property.getPropertyAsString();
-                    if (name == null || Set.of("class", "metaClass", "binding", "owner",
-                                               "delegate", "thisObject").contains(name)) {
+                    if (name == null || Set.of("metaClass", "binding", "owner", "delegate", "thisObject")
+                                          .contains(name)) {
                         throw denied("property access");
                     }
                     if (property.getObjectExpression() instanceof ClassExpression) {
                         ClassExpression receiver = (ClassExpression) property.getObjectExpression();
-                        if (!ENUM_TYPES.contains(receiver.getType().getName()) ||
-                            receiver.getType().getField(name) == null ||
-                            !receiver.getType().getField(name).isEnum()) {
+                        boolean enumConstant = ENUM_TYPES.contains(receiver.getType().getName()) &&
+                                               receiver.getType().getField(name) != null &&
+                                               receiver.getType().getField(name).isEnum();
+                        boolean dataConstant = (receiver.getType().getName().equals("java.lang.Math") &&
+                                                Set.of("PI", "E").contains(name)) ||
+                                               (Set.of("java.math.BigDecimal", "java.math.BigInteger")
+                                                   .contains(receiver.getType().getName()) &&
+                                                Set.of("ZERO", "ONE", "TEN", "TWO").contains(name));
+                        if (!enumConstant && !dataConstant) {
                             throw denied("static property");
                         }
                         this.receivers.add(receiver);
@@ -286,14 +304,6 @@ public final class ScriptExpressionGuard extends CompilationCustomizer {
             }
 
             @Override
-            public void visitGStringExpression(GStringExpression expression) {
-                if (this.user(expression)) {
-                    throw denied("GString interpolation");
-                }
-                super.visitGStringExpression(expression);
-            }
-
-            @Override
             public void visitMethodPointerExpression(MethodPointerExpression expression) {
                 if (this.user(expression)) {
                     throw denied("method pointer");
@@ -303,24 +313,23 @@ public final class ScriptExpressionGuard extends CompilationCustomizer {
 
             @Override
             public void visitConstructorCallExpression(ConstructorCallExpression expression) {
-                if (this.user(expression)) {
-                    throw denied("constructor call; use literals");
+                if (this.user(expression) && !CONSTRUCTIBLE_TYPES.contains(expression.getType().getName())) {
+                    throw denied("constructor type");
                 }
                 super.visitConstructorCallExpression(expression);
             }
 
             @Override
             public void visitCastExpression(CastExpression expression) {
-                if (this.user(expression) && expression.isCoerce()) {
-                    throw denied("user coercion");
-                }
                 if (this.user(expression) && !Set.of("java.lang.String", "java.lang.Integer",
                         "java.lang.Long", "java.lang.Double", "java.lang.Float", "java.lang.Boolean",
                         "int", "long", "double", "float", "boolean", "java.util.List", "java.util.Map",
+                        "java.util.Set", "java.util.Collection", "java.util.Date", "org.apache.hugegraph.util.Blob",
+                        "java.math.BigDecimal", "java.math.BigInteger",
                         "org.apache.tinkerpop.gremlin.structure.Vertex",
                         "org.apache.tinkerpop.gremlin.structure.Edge",
                         "org.apache.tinkerpop.gremlin.process.traversal.Traverser")
-                        .contains(expression.getType().getName())) {
+                        .contains(expression.getType().getName()) && !dataArray(expression.getType())) {
                     throw denied("cast type");
                 }
                 super.visitCastExpression(expression);
@@ -328,9 +337,6 @@ public final class ScriptExpressionGuard extends CompilationCustomizer {
 
             @Override
             public void visitClosureExpression(ClosureExpression expression) {
-                if (profile == ScriptExecutionProfile.STORE_FILTER && this.user(expression)) {
-                    throw denied("closure in Store condition");
-                }
                 if (this.user(expression) && expression.getParameters() != null) {
                     for (Parameter parameter : expression.getParameters()) {
                         this.checkLocalType(parameter.getOriginType());
@@ -341,7 +347,6 @@ public final class ScriptExpressionGuard extends CompilationCustomizer {
 
             @Override
             public void visitForLoop(ForStatement statement) {
-                this.checkLoop();
                 if (this.user(statement) &&
                     statement.getVariable() != ForStatement.FOR_LOOP_DUMMY) {
                     this.checkLocalType(statement.getVariable().getOriginType());
@@ -349,23 +354,6 @@ public final class ScriptExpressionGuard extends CompilationCustomizer {
                 super.visitForLoop(statement);
             }
 
-            @Override
-            public void visitWhileLoop(WhileStatement statement) {
-                this.checkLoop();
-                super.visitWhileLoop(statement);
-            }
-
-            @Override
-            public void visitDoWhileLoop(DoWhileStatement statement) {
-                this.checkLoop();
-                super.visitDoWhileLoop(statement);
-            }
-
-            private void checkLoop() {
-                if (profile == ScriptExecutionProfile.STORE_FILTER) {
-                    throw denied("loop in Store condition");
-                }
-            }
         }.visitClass(node);
     }
 

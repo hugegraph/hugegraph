@@ -26,9 +26,16 @@ public final class ScriptElementView {
     private final String id;
     private final String label;
     private final Map<String, Object> properties;
+    private final Map<Long, String> propertyNames;
 
     @SuppressWarnings("unchecked")
     public ScriptElementView(String id, String label, Map<String, Object> properties) {
+        this(id, label, properties, Collections.emptyMap());
+    }
+
+    @SuppressWarnings("unchecked")
+    public ScriptElementView(String id, String label, Map<String, Object> properties, Map<Long, String> propertyNames) {
+        this.propertyNames = Map.copyOf(propertyNames);
         this.id = id;
         this.label = label;
         this.properties = Collections.unmodifiableMap((Map<String, Object>) ScriptBindings.data(properties));
@@ -44,6 +51,43 @@ public final class ScriptElementView {
 
     public Object property(String key) {
         return this.properties.get(key);
+    }
+
+    public Object getPropertyValue(String key) {
+        return this.property(key);
+    }
+
+    public Object getPropertyValue(long key) {
+        return this.properties.get(this.propertyNames.get(key));
+    }
+
+    public PropertyValue getProperty(String key) {
+        return this.properties.containsKey(key) ? new PropertyValue(this.properties.get(key)) : null;
+    }
+
+    public PropertyValue getProperty(long key) {
+        return this.getProperty(this.propertyNames.get(key));
+    }
+
+    public boolean hasProperty(String key) {
+        return this.properties.containsKey(key);
+    }
+
+    public boolean hasProperty(long key) {
+        return this.properties.containsKey(this.propertyNames.get(key));
+    }
+
+    public static final class PropertyValue {
+
+        private final Object value;
+
+        private PropertyValue(Object value) {
+            this.value = value;
+        }
+
+        public Object value() {
+            return this.value;
+        }
     }
 
     public Map<String, Object> properties() {

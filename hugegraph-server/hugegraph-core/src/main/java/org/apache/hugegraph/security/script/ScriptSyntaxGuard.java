@@ -45,8 +45,10 @@ public final class ScriptSyntaxGuard extends CompilationCustomizer {
             throw rejected("class declaration");
         }
         for (MethodNode method : node.getMethods()) {
-            if (method.getLineNumber() > 0) {
-                throw rejected("method declaration");
+            if (method.getLineNumber() > 0 && java.util.Set.of("run", "main", "getBinding", "setBinding",
+                    "getProperty", "setProperty", "invokeMethod", "getMetaClass", "setMetaClass")
+                    .contains(method.getName())) {
+                throw rejected("script lifecycle method");
             }
         }
         source.getAST().getImports().forEach(ScriptSyntaxGuard::checkAnnotations);

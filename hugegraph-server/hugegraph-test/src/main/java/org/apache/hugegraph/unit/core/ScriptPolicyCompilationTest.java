@@ -75,7 +75,7 @@ public class ScriptPolicyCompilationTest {
     @Test
     public void testRejectsDeclarationsAndAnnotations() throws Exception {
         assertRejected("class Hidden { static { throw new Error() } }; 1");
-        assertRejected("def helper() { 1 }; helper()");
+        assertRejected("def getBinding() { null }; 1");
         assertRejected("@groovy.transform.Field int value = 1; value");
         assertRejected("@groovy.transform.CompileStatic class Hidden {}; 1");
         assertRejected("package hidden; 1");

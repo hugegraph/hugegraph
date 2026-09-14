@@ -47,8 +47,28 @@ public final class ScriptBytecodePolicy {
         }
         if (value instanceof Bytecode) {
             Bytecode code = (Bytecode) value;
-            if (!code.getSourceInstructions().isEmpty()) {
-                throw new IllegalArgumentException("SCRIPT_BYTECODE_SOURCE_OPTION_DENIED");
+            for (Bytecode.Instruction instruction : code.getSourceInstructions()) {
+                if (++count[0] > 4096) {
+                    throw new IllegalArgumentException("SCRIPT_BYTECODE_LIMIT");
+                }
+                Object[] arguments = instruction.getArguments();
+                String operator = instruction.getOperator();
+                boolean allowed = ("withBulk".equals(operator) && arguments.length == 1 &&
+                                   arguments[0] instanceof Boolean) ||
+                                  ("withPath".equals(operator) && arguments.length == 0) ||
+                                  ("withSack".equals(operator) && arguments.length == 1) ||
+                                  ("withSideEffect".equals(operator) && arguments.length == 2 &&
+                                   arguments[0] instanceof String);
+                if (!allowed) {
+                    throw new IllegalArgumentException("SCRIPT_BYTECODE_SOURCE_OPTION_DENIED");
+                }
+                for (Object argument : arguments) {
+                    // Source state accepts ordinary values, never suppliers, reducers or strategies.
+                    Map<String, Object> single = new HashMap<>();
+                    single.put("value", argument);
+                    ScriptBindings.client(single);
+                    check(argument, depth + 1, count);
+                }
             }
             for (Bytecode.Instruction instruction : code.getStepInstructions()) {
                 if (++count[0] > 4096) {

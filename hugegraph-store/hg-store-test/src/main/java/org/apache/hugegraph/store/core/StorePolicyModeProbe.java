@@ -68,7 +68,7 @@ public final class StorePolicyModeProbe {
                 }
                 Assert.assertTrue(input.closed);
             }
-            for (String condition : new String[]{"1", "(int) element.property('missing') > 0"}) {
+            for (String condition : new String[]{"1", "assert false; true", "(int) element.property('missing') > 0"}) {
                 FakeRows input = new FakeRows();
                 GraphStoreIterator<?> iterator = iterator(input, condition);
                 Assert.assertThrows(IllegalStateException.class, iterator::hasNext);
@@ -119,10 +119,10 @@ public final class StorePolicyModeProbe {
                 Assert.assertTrue(decoded.contains(first));
                 Assert.assertTrue(decoded.contains(second));
 
-                String member = dataType == DataType.DATE ? "1000L" :
-                                "[Byte.valueOf('1'), Byte.valueOf('2')]";
-                String valueCondition = "((List) element.property('values')).size() == " + count +
-                                        " && ((List) element.property('values')).contains(" + member + ")";
+                String member = dataType == DataType.DATE ? "new Date(1000L)" :
+                                "org.apache.hugegraph.util.Blob.wrap(new byte[] {1,2})";
+                String valueCondition = "((Collection) element.property('values')).size() == " + count +
+                                        " && ((Collection) element.property('values')).contains(" + member + ")";
                 if (cardinality == Cardinality.LIST) {
                     valueCondition += " && ((List) element.property('values')).indexOf(" + member + ") == 0" +
                                       " && ((List) element.property('values')).lastIndexOf(" + member + ") == 1";

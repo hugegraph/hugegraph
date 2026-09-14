@@ -293,9 +293,11 @@ public class PolicySessionLifecycleTest {
     public void testRetainedAliasesResolveCurrentGraphAndOwnerIsPinned() throws Exception {
         Settings settings = new Settings();
         DefaultGraphManager graphs = new DefaultGraphManager(settings);
-        Graph initial = Mockito.mock(Graph.class);
-        Graph replacement = Mockito.mock(Graph.class);
-        graphs.putGraph("test", initial);
+        org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversalSource initial =
+                EmptyGraph.instance().traversal();
+        org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversalSource replacement =
+                EmptyGraph.instance().traversal();
+        graphs.putTraversalSource("test", initial);
         ScheduledExecutorService timer = Executors.newSingleThreadScheduledExecutor();
         EmbeddedChannel channel = new EmbeddedChannel(new ChannelInboundHandlerAdapter());
         EmbeddedChannel other = new EmbeddedChannel(new ChannelInboundHandlerAdapter());
@@ -322,12 +324,12 @@ public class PolicySessionLifecycleTest {
             Context following = new Context(RequestMessage.build(Tokens.OPS_EVAL)
                     .addArg(Tokens.ARGS_SESSION, id).addArg(Tokens.ARGS_GREMLIN, "1").create(),
                     channel.pipeline().firstContext(), settings, graphs, null, timer);
-            graphs.removeGraph("test");
+            graphs.removeTraversalSource("test");
             ExecutionException unavailable = Assert.assertThrows(ExecutionException.class,
                     () -> active.getExecutor().submit(() -> processor.getBindingMaker(active)
                             .apply(following).get()).get(10, TimeUnit.SECONDS));
             Assert.assertTrue(unavailable.getCause().getMessage().contains("SCRIPT_SESSION_ALIAS_UNAVAILABLE"));
-            graphs.putGraph("test", replacement);
+            graphs.putTraversalSource("test", replacement);
             Assert.assertSame(replacement, active.getExecutor().submit(() -> processor.getBindingMaker(active)
                     .apply(following).get().get("chosen")).get(10, TimeUnit.SECONDS));
         } finally {
@@ -337,6 +339,8 @@ public class PolicySessionLifecycleTest {
             channel.finishAndReleaseAll();
             other.finishAndReleaseAll();
             timer.shutdownNow();
+            initial.close();
+            replacement.close();
         }
     }
 

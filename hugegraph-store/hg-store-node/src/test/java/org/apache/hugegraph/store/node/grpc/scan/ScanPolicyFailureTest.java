@@ -65,9 +65,18 @@ public class ScanPolicyFailureTest {
 
     @Test
     public void testEvaluationFailureClosesIteratorAndDoesNotComplete() throws Exception {
+        assertEvaluationFailure(new IllegalStateException("filter failed"));
+    }
+
+    @Test
+    public void testAssertionFailureClosesIteratorAndDoesNotComplete() throws Exception {
+        assertEvaluationFailure(new AssertionError("filter assertion failed"));
+    }
+
+    private static void assertEvaluationFailure(Throwable failure) throws Exception {
         BusinessHandler handler = Mockito.mock(BusinessHandler.class);
         GraphStoreIterator<Object> iterator = Mockito.mock(GraphStoreIterator.class);
-        Mockito.when(iterator.hasNext()).thenReturn(true).thenThrow(new IllegalStateException("filter failed"));
+        Mockito.when(iterator.hasNext()).thenReturn(true).thenThrow(failure);
         ScanPartitionRequest request = request();
         Mockito.when(handler.scan(request)).thenReturn(iterator);
         RecordingSender sender = new RecordingSender();

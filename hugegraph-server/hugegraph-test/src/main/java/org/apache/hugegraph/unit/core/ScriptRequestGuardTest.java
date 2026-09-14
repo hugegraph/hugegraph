@@ -132,6 +132,36 @@ public class ScriptRequestGuardTest {
     }
 
     @Test
+    public void testDataOnlyBytecodeSourceOptions() {
+        Bytecode safe = new Bytecode();
+        safe.addSource("withBulk", false);
+        safe.addSource("withPath");
+        safe.addSource("withSideEffect", "names", java.util.List.of("a", "b"));
+        safe.addSource("withSack", 1);
+        safe.addStep("inject", 2);
+        ScriptBytecodePolicy.validate(safe);
+        try (org.apache.tinkerpop.gremlin.tinkergraph.structure.TinkerGraph graph =
+                     org.apache.tinkerpop.gremlin.tinkergraph.structure.TinkerGraph.open()) {
+            org.apache.tinkerpop.gremlin.process.traversal.Traversal.Admin<?, ?> traversal =
+                    org.apache.tinkerpop.gremlin.jsr223.JavaTranslator.of(graph.traversal()).translate(safe);
+            Assert.assertEquals(2, traversal.next());
+            traversal.close();
+        } catch (Exception error) {
+            throw new AssertionError(error);
+        }
+        Bytecode strategy = new Bytecode();
+        strategy.addSource("withStrategies",
+                org.apache.tinkerpop.gremlin.process.traversal.strategy.verification.ReadOnlyStrategy.instance());
+        Assert.assertThrows(IllegalArgumentException.class, () -> ScriptBytecodePolicy.validate(strategy));
+        Bytecode callback = new Bytecode();
+        callback.addSource("withSack", Lambda.supplier("1"));
+        Assert.assertThrows(IllegalArgumentException.class, () -> ScriptBytecodePolicy.validate(callback));
+        Bytecode wrongType = new Bytecode();
+        wrongType.addSource("withBulk", "false");
+        Assert.assertThrows(IllegalArgumentException.class, () -> ScriptBytecodePolicy.validate(wrongType));
+    }
+
+    @Test
     public void testNativeBytecodeCannotUseIoOrLambda() {
         Bytecode safe = new Bytecode();
         safe.addStep("V");

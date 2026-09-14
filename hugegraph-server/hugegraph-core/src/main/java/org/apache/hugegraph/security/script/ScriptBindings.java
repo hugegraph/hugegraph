@@ -22,6 +22,8 @@ import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Date;
+import java.util.LinkedHashSet;
 import java.util.Collections;
 import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
@@ -36,6 +38,7 @@ import javax.script.Bindings;
 import javax.script.SimpleBindings;
 
 import org.apache.hugegraph.HugeGraph;
+import org.apache.hugegraph.util.Blob;
 import org.apache.hugegraph.schema.SchemaManager;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversalSource;
 
@@ -147,6 +150,8 @@ public final class ScriptBindings {
                 type = List.class;
             } else if (value instanceof Map) {
                 type = Map.class;
+            } else if (value instanceof Set) {
+                type = Set.class;
             } else {
                 type = value.getClass();
             }
@@ -163,15 +168,45 @@ public final class ScriptBindings {
         }
     }
 
+    static boolean isJsonMap(Object value) {
+        return value.getClass().getName().equals("org.apache.groovy.json.internal.LazyMap") &&
+               value.getClass().getClassLoader() == groovy.json.JsonSlurper.class.getClassLoader();
+    }
+
     private static IllegalArgumentException denied(String reason) {
         return new IllegalArgumentException("SCRIPT_BINDING_DENIED: " + reason);
     }
 
+    // Script-produced views may be materialized for JSON. Session data must use explicit copies,
+    // since silently materializing a view there would break its connection to the original container.
+    static Object snapshot(Object value) {
+        return new Budget(true).copy(value, 0);
+    }
+
     private static final class Budget {
+
+        private final boolean views;
+
+        Budget() {
+            this(false);
+        }
+
+        Budget(boolean views) {
+            this.views = views;
+        }
+
+        private boolean allowsView(Object value) {
+            return this.views && value.getClass().getClassLoader() == null &&
+                   Set.of("java.util.ArrayList$SubList", "java.util.LinkedHashMap$LinkedKeySet",
+                          "java.util.LinkedHashMap$LinkedValues", "java.util.HashMap$KeySet",
+                          "java.util.HashMap$Values").contains(value.getClass().getName());
+        }
+
 
         private int nodes;
         private long size;
         private final IdentityHashMap<Object, Boolean> active = new IdentityHashMap<>();
+        private final IdentityHashMap<Object, Object> copies = new IdentityHashMap<>();
 
         Object copy(Object value, int depth) {
             if (++this.nodes > 4096 || depth > 16) {
@@ -179,6 +214,21 @@ public final class ScriptBindings {
             }
             if (value == null) {
                 return null;
+            }
+            if (value.getClass() == Blob.class) {
+                if (this.copies.containsKey(value)) {
+                    return this.copies.get(value);
+                }
+                Blob copied = Blob.wrap((byte[]) this.copy(((Blob) value).bytes(), depth + 1));
+                this.copies.put(value, copied);
+                return copied;
+            }
+            if (value.getClass() == Date.class) {
+                this.size += Long.BYTES;
+                if (this.size > MAX_SOURCE_BYTES) {
+                    throw denied("binding size limit");
+                }
+                return this.copies.computeIfAbsent(value, date -> new Date(((Date) date).getTime()));
             }
             if (SCALARS.contains(value.getClass())) {
                 this.size += value.toString().length() * 2L;
@@ -191,17 +241,32 @@ public final class ScriptBindings {
                 throw denied("cyclic binding");
             }
             try {
+                if (this.copies.containsKey(value)) {
+                    return this.copies.get(value);
+                }
+                if (value.getClass() == org.codehaus.groovy.runtime.GStringImpl.class) {
+                    groovy.lang.GString string = (groovy.lang.GString) value;
+                    Object[] values = (Object[]) this.copy(string.getValues(), depth + 1);
+                    String[] strings = (String[]) this.copy(string.getStrings(), depth + 1);
+                    Object copied = new org.codehaus.groovy.runtime.GStringImpl(values, strings);
+                    this.copies.put(value, copied);
+                    return copied;
+                }
                 if (value instanceof Map) {
                     if (!Set.of("java.util.HashMap", "java.util.LinkedHashMap", "java.util.TreeMap",
                             "java.util.ImmutableCollections$Map1", "java.util.ImmutableCollections$MapN",
                             "java.util.Collections$EmptyMap", "java.util.Collections$SingletonMap")
                             .contains(value.getClass().getName()) || value.getClass().getClassLoader() != null) {
-                        throw denied("custom map implementation");
+                        if (!isJsonMap(value)) {
+                            throw denied("custom map implementation");
+                        }
                     }
                     Map<Object, Object> map = new LinkedHashMap<>();
+                    this.copies.put(value, map);
                     for (Map.Entry<?, ?> item : ((Map<?, ?>) value).entrySet()) {
                         Object key = item.getKey();
-                        if (key == null || !SCALARS.contains(key.getClass())) {
+                        if (key == null || (!SCALARS.contains(key.getClass()) &&
+                                            key.getClass() != org.codehaus.groovy.runtime.GStringImpl.class)) {
                             throw denied("non-scalar map key");
                         }
                         map.put(this.copy(key, depth + 1), this.copy(item.getValue(), depth + 1));
@@ -209,8 +274,9 @@ public final class ScriptBindings {
                     return map;
                 }
                 if (value instanceof Collection || value.getClass().isArray()) {
-                    List<Object> list = new ArrayList<>();
+                    Collection<Object> list = value instanceof Set ? new LinkedHashSet<>() : new ArrayList<>();
                     if (value instanceof Collection) {
+                        this.copies.put(value, list);
                         if (!Set.of("java.util.ArrayList", "java.util.LinkedList", "java.util.Arrays$ArrayList",
                                 "java.util.HashSet", "java.util.LinkedHashSet", "java.util.TreeSet",
                                 "java.util.ImmutableCollections$List12", "java.util.ImmutableCollections$ListN",
@@ -218,15 +284,29 @@ public final class ScriptBindings {
                                 "java.util.Collections$EmptyList", "java.util.Collections$SingletonList",
                                 "java.util.Collections$EmptySet", "java.util.Collections$SingletonSet")
                                 .contains(value.getClass().getName()) || value.getClass().getClassLoader() != null) {
-                            throw denied("custom collection implementation");
+                            if (!this.allowsView(value)) {
+                                throw denied("custom collection implementation");
+                            }
                         }
                         for (Object item : (Collection<?>) value) {
                             list.add(this.copy(item, depth + 1));
                         }
                     } else {
-                        for (int i = 0; i < Array.getLength(value); i++) {
-                            list.add(this.copy(Array.get(value, i), depth + 1));
+                        int length = Array.getLength(value);
+                        Class<?> component = value.getClass().getComponentType();
+                        if (!component.isPrimitive() && component != Object.class &&
+                            !SCALARS.contains(component) && component != Date.class) {
+                            throw denied("unsupported array component");
                         }
+                        if (length > 4096 - this.nodes) {
+                            throw denied("binding structure limit");
+                        }
+                        Object array = Array.newInstance(component, length);
+                        this.copies.put(value, array);
+                        for (int i = 0; i < length; i++) {
+                            Array.set(array, i, this.copy(Array.get(value, i), depth + 1));
+                        }
+                        return array;
                     }
                     return list;
                 }

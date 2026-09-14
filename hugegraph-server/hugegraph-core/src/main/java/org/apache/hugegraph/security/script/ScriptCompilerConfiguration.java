@@ -62,7 +62,7 @@ public final class ScriptCompilerConfiguration {
         }
         CompilerConfiguration configuration = new CompilerConfiguration();
         configuration.setDisabledGlobalASTTransformations(disabled);
-        configuration.addCompilationCustomizers(new ScriptSyntaxGuard());
+        configuration.addCompilationCustomizers(new ScriptSyntaxGuard(), new ScriptLocalMethodsCustomizer());
         return configuration;
     }
 }

@@ -64,6 +64,8 @@ public final class PolicySessionProtocolChecks {
         Client session = cluster.connect(id);
         try {
             Assert.assertEquals(List.of(1), values(session, "counter = 0; values = []; 1"));
+            Assert.assertEquals(List.of(1), values(session, "who='Ada'; greeting=\"Hello ${who}\"; 1"));
+            Assert.assertEquals(List.of("Hello Ada"), values(session, "greeting.toString()"));
             Assert.assertEquals(List.of(1, 2), values(session, "[1, 2].iterator()"));
             Assert.assertEquals(List.of(1, 2, 3), values(session,
                     "g.inject(1, 2, 3).map { counter += 1; values.add(it.get()); it.get() }"));
@@ -78,11 +80,12 @@ public final class PolicySessionProtocolChecks {
                     () -> session.submit("System.getProperty('java.version')", Map.of("counter", 99)).all()
                             .get(10, TimeUnit.SECONDS));
             Assert.assertTrue(compilation.getCause() instanceof ResponseException);
-            Assert.assertEquals(List.of(6), values(session, "counter"));
+            Assert.assertEquals(List.of(99), values(session, "counter"));
             Assert.assertThrows(ExecutionException.class,
                     () -> session.submit("int zero = 0; 1 / zero", Map.of("counter", 88)).all()
                             .get(10, TimeUnit.SECONDS));
-            Assert.assertEquals(List.of(6), values(session, "counter"));
+            Assert.assertEquals(List.of(88), values(session, "counter"));
+            values(session, "counter = 6; values = [1,2,3]; 1");
             RequestOptions originalAlias = RequestOptions.build().addAlias("chosen", "g").create();
             Assert.assertEquals(1, session.submit("chosen.inject(1).cap('marker').next()", originalAlias)
                     .all().get(10, TimeUnit.SECONDS).get(0).getInt());
@@ -90,18 +93,32 @@ public final class PolicySessionProtocolChecks {
             Assert.assertThrows(ExecutionException.class,
                     () -> session.submit("System.getProperty('java.version')", failedAlias).all()
                             .get(10, TimeUnit.SECONDS));
-            Assert.assertEquals(List.of(1), values(session, "chosen.inject(1).cap('marker').next()"));
+            Assert.assertEquals(List.of(2), values(session, "chosen.inject(1).cap('marker').next()"));
             Assert.assertThrows(ExecutionException.class,
                     () -> session.submit("int zero = 0; 1 / zero", failedAlias).all().get(10, TimeUnit.SECONDS));
-            Assert.assertEquals(List.of(1), values(session, "chosen.inject(1).cap('marker').next()"));
+            Assert.assertEquals(List.of(2), values(session, "chosen.inject(1).cap('marker').next()"));
+
+            RequestOptions shadowAlias = RequestOptions.build().addAlias("chosen", "g")
+                    .addParameter("chosen", 7).create();
+            Assert.assertEquals(8, session.submit("chosen + 1", shadowAlias).all()
+                    .get(10, TimeUnit.SECONDS).get(0).getInt());
+            Assert.assertEquals(List.of(7), values(session, "chosen"));
+            session.submit("chosen = 9; 1", originalAlias).all().get(10, TimeUnit.SECONDS);
+            Assert.assertEquals(List.of(9), values(session, "chosen"));
+            Assert.assertEquals(8, session.submit("gOther + 1", Map.of("gOther", 7)).all()
+                    .get(10, TimeUnit.SECONDS).get(0).getInt());
+            Assert.assertEquals(List.of(7), values(session, "gOther"));
+            session.submit("gOther = null; 1").all().get(10, TimeUnit.SECONDS);
+            Assert.assertEquals(List.of(true), values(session, "gOther == null"));
 
             ExecutionException serialization = Assert.assertThrows(ExecutionException.class,
                     () -> values(session, "counter += 10; values.add(99); '" + SERIALIZATION_FAILURE + "'"));
             Assert.assertTrue(serialization.getCause() instanceof ResponseException);
             Assert.assertEquals(ResponseStatusCode.SERVER_ERROR_SERIALIZATION,
                     ((ResponseException) serialization.getCause()).getResponseStatusCode());
-            Assert.assertEquals(List.of(6), values(session, "counter"));
-            Assert.assertEquals(List.of(1, 2, 3), values(session, "values"));
+            Assert.assertEquals(List.of(16), values(session, "counter"));
+            Assert.assertEquals(List.of(1, 2, 3, 99), values(session, "values"));
+            values(session, "counter = 6; values = [1,2,3]; 1");
 
             ExecutionException invalid = Assert.assertThrows(ExecutionException.class,
                     () -> values(session, "g.inject(1).map { values.add(g); it.get() }"));
@@ -111,7 +128,7 @@ public final class PolicySessionProtocolChecks {
                     () -> values(session, "g.inject(1).map { counter += 1; values.add(9); int zero = 0; 1 / zero }"));
             Assert.assertTrue(failed.getCause() instanceof ResponseException);
             Assert.assertEquals(List.of(6), values(session, "counter"));
-            Assert.assertEquals(List.of(1, 2, 3), values(session, "values"));
+            Assert.assertEquals(List.of(1, 2, 3, 9), values(session, "values"));
 
             ExecutionException timedOut = Assert.assertThrows(ExecutionException.class,
                     () -> session.submit("g.inject(1).map { while (true) { counter++ }; 1 }",
@@ -121,16 +138,26 @@ public final class PolicySessionProtocolChecks {
             Assert.assertTrue(timedOut.getCause() instanceof ResponseException);
             Assert.assertEquals(ResponseStatusCode.SERVER_ERROR_TIMEOUT,
                     ((ResponseException) timedOut.getCause()).getResponseStatusCode());
-            Assert.assertEquals(List.of(6), values(session, "counter"));
-            Assert.assertEquals(List.of(1), values(session, "chosen.inject(1).cap('marker').next()"));
-            Assert.assertThrows(ExecutionException.class, () -> values(session, "transientValue"));
+            Assert.assertEquals(List.of(99), values(session, "counter"));
+            Assert.assertEquals(List.of(2), values(session, "chosen.inject(1).cap('marker').next()"));
+            Assert.assertEquals(List.of(7), values(session, "transientValue"));
+            String eagerTraversal = "runLoop ? g.inject(1).repeat(__.constant(1)).toList() : 1";
+            session.submit(eagerTraversal, Map.of("runLoop", false)).all().get(10, TimeUnit.SECONDS);
+            ExecutionException eagerTimeout = Assert.assertThrows(ExecutionException.class,
+                    () -> session.submit(eagerTraversal,
+                            RequestOptions.build().timeout(200).addParameter("runLoop", true).create())
+                            .all().get(10, TimeUnit.SECONDS));
+            Assert.assertTrue(eagerTimeout.getCause() instanceof ResponseException);
+            Assert.assertEquals(ResponseStatusCode.SERVER_ERROR_TIMEOUT,
+                    ((ResponseException) eagerTimeout.getCause()).getResponseStatusCode());
+
             Client differentChannel = cluster.connect(id);
             try {
                 Assert.assertThrows(ExecutionException.class, () -> values(differentChannel, "counter"));
             } finally {
                 differentChannel.close();
             }
-            Assert.assertEquals(List.of(6), values(session, "counter"));
+            Assert.assertEquals(List.of(99), values(session, "counter"));
         } finally {
             session.close();
         }
