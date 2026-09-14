@@ -21,6 +21,7 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.nio.charset.StandardCharsets;
@@ -50,7 +51,8 @@ public final class ScriptMethodPolicy {
             "path", "select", "project", "as", "where", "match", "optional", "coalesce",
             "choose", "branch", "option", "union", "local", "repeat", "until", "emit",
             "times", "loops", "group", "groupCount", "aggregate", "store", "cap", "sack",
-            "barrier", "identity", "inject", "property", "drop", "from", "to", "sideEffect");
+            "barrier", "identity", "inject", "property", "drop", "from", "to", "sideEffect",
+            "math", "timeLimit", "profile");
 
     private final Set<String> signatures = new HashSet<>();
 
@@ -59,7 +61,8 @@ public final class ScriptMethodPolicy {
         this.allow("java.lang.String", "length", "isEmpty", "equals", "equalsIgnoreCase",
                    "compareTo", "contains", "startsWith", "endsWith", "substring", "trim",
                    "toLowerCase", "toUpperCase", "charAt", "indexOf", "lastIndexOf", "concat",
-                   "toString", "valueOf");
+                   "toString", "valueOf", "format", "replace", "toCharArray",
+                   "strip", "stripLeading", "stripTrailing", "repeat", "isBlank");
         for (String name : new String[]{"Integer", "Long", "Double", "Float", "Short", "Byte",
                                         "Number", "Boolean", "Character"}) {
             this.allow("java.lang." + name, "intValue", "longValue", "doubleValue", "floatValue",
@@ -67,36 +70,70 @@ public final class ScriptMethodPolicy {
                        "equals", "toString", "valueOf", "parseInt", "parseLong", "parseDouble");
         }
         this.allow("java.lang.Math", "abs", "min", "max", "floor", "ceil", "round", "sqrt");
-        this.allow("java.util.UUID", "toString", "equals", "fromString");
+        this.allow("java.util.UUID", "toString", "equals", "fromString", "randomUUID");
+        for (String type : new String[]{"java.math.BigDecimal", "java.math.BigInteger"}) {
+            this.allow(type, "add", "subtract", "multiply", "divide", "remainder", "pow",
+                       "abs", "negate", "compareTo", "equals", "intValue", "longValue",
+                       "doubleValue", "floatValue", "toString", "valueOf", "setScale",
+                       "scale", "precision", "stripTrailingZeros", "toPlainString",
+                       "intValueExact", "longValueExact", "toBigInteger");
+        }
+        this.allow("org.apache.hugegraph.util.Blob", "wrap", "bytes", "equals", "toString", "compareTo");
+        this.allow("java.util.Date", "getTime", "setTime", "before", "after", "compareTo", "equals", "toString");
+        this.allow("groovy.json.JsonSlurper", "parseText");
+        this.allow("groovy.json.JsonOutput", "prettyPrint");
+        this.allow("groovy.lang.GString", "toString", "length", "charAt", "subSequence", "plus");
+        this.allow("org.codehaus.groovy.runtime.GStringImpl", "toString", "length", "charAt", "subSequence", "plus");
+        this.allow("groovy.lang.IntRange", "get", "size", "isEmpty", "contains", "iterator");
+        for (String type : ScriptExpressionGuard.CONSTRUCTIBLE_TYPES) {
+            try {
+                for (Constructor<?> constructor : Class.forName(type).getConstructors()) {
+                    String parameters = Arrays.stream(constructor.getParameterTypes())
+                                              .map(Class::getTypeName).collect(Collectors.joining(","));
+                    this.signatures.add(type + "#<init>(" + parameters + ")");
+                }
+            } catch (ClassNotFoundException error) {
+                throw new IllegalStateException("Missing data constructor type", error);
+            }
+        }
         for (String type : new String[]{"java.util.List", "java.util.Collection", "java.util.Map",
                                        "java.util.ArrayList", "java.util.LinkedHashMap",
                                        "java.util.Set", "java.util.Map$Entry"}) {
             this.allow(type, "get", "getOrDefault", "contains", "containsKey", "containsValue",
                        "size", "isEmpty", "indexOf", "lastIndexOf", "keySet", "values",
                        "entrySet", "getKey", "getValue", "iterator", "subList");
-            if (profile != ScriptExecutionProfile.STORE_FILTER) {
-                this.allow(type, "add", "addAll", "put", "putAll", "remove", "set", "clear");
-            }
+            this.allow(type, "add", "addAll", "put", "putAll", "remove", "set", "clear");
         }
         this.allow("java.util.Iterator", "hasNext", "next");
+        this.allow(ScriptDataOperations.class.getName(), "plus", "minus", "multiply", "div", "mod",
+                   "power", "compareTo", "equal", "propertyMap", "collect", "getAt", "getAtSafe", "project",
+                   "elementProperties",
+                   "regexMatches", "regexFind", "regexReplaceAll", "regexReplaceFirst", "regexSplit",
+                   "regexText", "regexTexts", "toJson", "discard", "checkedData", "checkedMap");
+        this.allowExact(ScriptDataOperations.class.getName(), "toString", Object.class, boolean.class);
+        this.allow(ScriptDataOperations.RegexText.class.getName(), "matches", "replaceAll", "replaceFirst", "split");
         this.allow(ScriptExecutionBudget.class.getName(), "check", "deadline");
         this.allow("org.codehaus.groovy.runtime.DefaultGroovyMethods",
                    "getAt", "size", "contains", "isEmpty", "sum", "min", "max");
         this.allow("org.codehaus.groovy.runtime.StringGroovyMethods",
                    "getAt", "size", "contains", "isInteger", "isLong", "isNumber",
-                   "toInteger", "toLong", "toDouble", "take", "drop", "plus", "minus");
-        if (profile == ScriptExecutionProfile.STORE_FILTER) {
-            this.allow(ScriptElementView.class.getName(), "id", "label", "property", "properties");
-            this.verifyManifest(profile);
-            return;
-        }
+                   "toInteger", "toLong", "toDouble", "take", "drop", "plus", "minus",
+                   "tokenize", "capitalize", "uncapitalize", "padLeft", "padRight", "center", "reverse");
         this.allowExact("org.codehaus.groovy.runtime.DefaultGroovyMethods", "next", Number.class);
         this.allowExact("org.codehaus.groovy.runtime.DefaultGroovyMethods", "previous", Number.class);
         this.allow("groovy.lang.Closure", "call");
         this.allow("org.codehaus.groovy.runtime.DefaultGroovyMethods",
                    "collect", "findAll", "find", "any", "every", "each", "eachWithIndex",
                    "inject", "groupBy", "sort", "unique", "reverse", "flatten", "plus", "minus",
-                   "putAt", "leftShift", "toList", "toSet", "take", "drop");
+                   "putAt", "leftShift", "toList", "toSet", "take", "drop", "collectEntries",
+                   "collectMany", "findResults", "count", "collate", "join", "times", "upto", "downto", "step");
+        if (profile == ScriptExecutionProfile.STORE_FILTER) {
+            this.allow(ScriptElementView.class.getName(), "id", "label", "property", "properties",
+                       "getPropertyValue", "getProperty", "hasProperty");
+            this.allow(ScriptElementView.PropertyValue.class.getName(), "value");
+            this.verifyManifest(profile);
+            return;
+        }
         Set<String> methods = new HashSet<>(TRAVERSAL_STEPS);
         methods.addAll(Set.of("next", "hasNext", "tryNext", "toList", "toSet", "toBulkSet", "iterate"));
         this.allow("org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal",
@@ -106,7 +143,7 @@ public final class ScriptMethodPolicy {
         this.allow("org.apache.tinkerpop.gremlin.process.traversal.Traversal",
                    "next", "hasNext", "tryNext", "toList", "toSet", "toBulkSet", "iterate");
         this.allow("org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversalSource",
-                   "V", "E", "addV", "addE", "inject");
+                   "V", "E", "addV", "addE", "inject", "withBulk", "withPath", "withSideEffect", "withSack");
         this.allow("org.apache.tinkerpop.gremlin.process.traversal.Traverser", "get", "path",
                    "loops", "sack", "bulk");
         this.allow("org.apache.tinkerpop.gremlin.process.traversal.Path", "get", "objects", "labels",
@@ -129,7 +166,7 @@ public final class ScriptMethodPolicy {
         this.allow("java.util.Optional", "isPresent", "isEmpty", "get", "orElse");
         this.allow(ScriptJobContext.class.getName(),
                    "setMinSaveInterval", "updateProgress", "progress");
-        if (profile == ScriptExecutionProfile.SCHEMA) {
+        if (profile != ScriptExecutionProfile.STORE_FILTER) {
             this.allow("org.apache.hugegraph.HugeGraph", "schema");
             this.allow("org.apache.hugegraph.schema.SchemaManager", "propertyKey", "vertexLabel",
                        "edgeLabel", "indexLabel");
@@ -141,7 +178,8 @@ public final class ScriptMethodPolicy {
                            "useAutomaticId", "useCustomizeStringId", "useCustomizeNumberId",
                            "usePrimaryKeyId", "enableLabelIndex", "sourceLabel", "targetLabel",
                            "link", "singleTime", "multiTimes", "sortKeys", "onV", "onE", "by",
-                           "secondary", "range", "search", "shard", "unique", "ifNotExist", "create");
+                           "secondary", "range", "search", "shard", "unique", "ifNotExist", "create",
+                           "append", "eliminate", "remove", "userdata", "ttl", "ttlStartTime");
             }
         }
         this.verifyManifest(profile);

@@ -18,7 +18,6 @@
 package org.apache.hugegraph.auth;
 
 import java.util.LinkedHashMap;
-import java.util.Iterator;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.Function;
@@ -57,18 +56,6 @@ public final class PolicySessionOpProcessor extends SessionOpProcessor {
         synchronized (session) {
             ensureRegistered(session, context);
             super.evalOp(new PolicySessionRequestContext(context));
-        }
-    }
-
-    @Override
-    @SuppressWarnings("rawtypes")
-    protected void handleIterator(Context context, Iterator iterator) throws InterruptedException {
-        super.handleIterator(context, iterator);
-        if (!(context instanceof PolicySessionRequestContext) ||
-            !((PolicySessionRequestContext) context).succeeded()) {
-            // TP handles serialization errors internally and otherwise returns normally. Re-enter its
-            // ordinary failure/iterator-cleanup path instead of publishing a failed request's bindings.
-            throw new IllegalStateException("SCRIPT_SESSION_RESPONSE_FAILED");
         }
     }
 
@@ -137,10 +124,13 @@ public final class PolicySessionOpProcessor extends SessionOpProcessor {
         return context -> () -> {
             PolicySession policy = (PolicySession) session;
             Bindings bindings = new SimpleBindings(new LinkedHashMap<>(session.getBindings()));
+            Map<String, String> aliases = new LinkedHashMap<>(policy.aliases());
+            // A successful script can replace an ordinary alias with data, including null.
+            aliases.keySet().removeIf(name -> bindings.containsKey(name) &&
+                    !(bindings.get(name) instanceof Graph) && !(bindings.get(name) instanceof TraversalSource));
             // Persist data and alias names; resolve graph objects again after graph create/drop.
             bindings.entrySet().removeIf(entry -> entry.getValue() instanceof Graph ||
                                                  entry.getValue() instanceof TraversalSource);
-            Map<String, String> aliases = new LinkedHashMap<>(policy.aliases());
             Object requestedAliases = context.getRequestMessage().getArgs().get(Tokens.ARGS_ALIASES);
             if (requestedAliases instanceof Map) {
                 for (Map.Entry<?, ?> entry : ((Map<?, ?>) requestedAliases).entrySet()) {
@@ -161,16 +151,27 @@ public final class PolicySessionOpProcessor extends SessionOpProcessor {
                 }
                 resolved.put(entry.getKey(), graph);
             }
+            context.getGraphManager().getAsBindings().forEach((name, value) -> {
+                if (!bindings.containsKey(name)) {
+                    bindings.put(name, value);
+                }
+            });
+            bindings.putAll(resolved);
             Object input = context.getRequestMessage().getArgs().get(Tokens.ARGS_BINDINGS);
             if (input instanceof Map) {
                 @SuppressWarnings("unchecked")
                 Map<String, Object> parameters = (Map<String, Object>) input;
                 bindings.putAll(ScriptBindings.client(parameters));
+                aliases.keySet().removeAll(parameters.keySet());
             }
-            bindings.putAll(context.getGraphManager().getAsBindings());
-            bindings.putAll(resolved);
+            // TP retains valid request parameters and aliases even if subsequent compilation/evaluation fails.
+            Bindings retained = ScriptBindings.execution(bindings,
+                    org.apache.hugegraph.security.script.ScriptExecutionProfile.QUERY);
+            session.getBindings().clear();
+            session.getBindings().putAll(retained);
             policy.stageAliases(aliases);
-            return bindings;
+            policy.publishAliases();
+            return session.getBindings();
         };
     }
 

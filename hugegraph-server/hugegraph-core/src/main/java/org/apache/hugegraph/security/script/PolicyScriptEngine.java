@@ -18,11 +18,13 @@
 package org.apache.hugegraph.security.script;
 
 import java.io.IOException;
+import java.io.InterruptedIOException;
 import java.io.Reader;
 import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Iterator;
+import java.util.IdentityHashMap;
 import java.util.Map;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.CompletableFuture;
@@ -85,6 +87,7 @@ public final class PolicyScriptEngine extends AbstractScriptEngine
     private final Cache<CompilationKey, CompletableFuture<CompiledUnit>> cache;
     private volatile boolean closed;
     private boolean deferredSession;
+    private Bindings persistentSession;
     private final ThreadLocal<PendingSession> pendingSession = new ThreadLocal<>();
 
     public PolicyScriptEngine(ScriptExecutionProfile profile) {
@@ -117,6 +120,8 @@ public final class PolicyScriptEngine extends AbstractScriptEngine
     private Object evaluate(String source, ScriptContext context, CompiledUnit compiled,
                             Map<String, Class<?>> types) throws ScriptException {
         this.metrics.evaluated();
+        PendingSession pending = null;
+        boolean returned = false;
         try {
             Bindings bindings = new SimpleBindings();
             Bindings globals = context.getBindings(ScriptContext.GLOBAL_SCOPE);
@@ -135,24 +140,41 @@ public final class PolicyScriptEngine extends AbstractScriptEngine
             Script script = (Script) unit.type.getDeclaredConstructor().newInstance();
             script.setBinding(new Binding(isolated));
             ScriptExecutionBudget.check(ScriptExecutionBudget.deadline());
+            if (this.session) {
+                pending = new PendingSession(bindings, isolated, context.getBindings(ScriptContext.ENGINE_SCOPE));
+            }
             Object result = script.run();
+            if (pending != null) {
+                pending.result = result;
+            }
             if (this.profile == ScriptExecutionProfile.STORE_FILTER && !(result instanceof Boolean)) {
                 throw new IllegalArgumentException("SCRIPT_RESULT_DENIED: condition must return Boolean");
             }
             Object prepared = ScriptResults.prepare(result);
             if (this.session) {
-                PendingSession pending = new PendingSession(bindings, isolated,
-                        context.getBindings(ScriptContext.ENGINE_SCOPE));
-                pending.validate();
+                try {
+                    pending.validate();
+                } catch (RuntimeException | Error failure) {
+                    if (prepared instanceof Iterator) {
+                        try {
+                            CloseableIterator.closeIterator((Iterator<?>) prepared);
+                        } catch (RuntimeException | Error closeFailure) {
+                            failure.addSuppressed(closeFailure);
+                        }
+                    }
+                    throw failure;
+                }
                 if (this.deferredSession) {
                     this.pendingSession.set(pending);
                     if (prepared instanceof Iterator) {
+                        returned = true;
                         return new SessionResultIterator((Iterator<?>) prepared, pending);
                     }
                 } else {
                     pending.publish();
                 }
             }
+            returned = true;
             return prepared;
         } catch (ScriptException e) {
             this.metrics.rejected();
@@ -167,12 +189,39 @@ public final class PolicyScriptEngine extends AbstractScriptEngine
                 throw new ScriptException(new InterruptedException("SCRIPT_EXECUTION_TIMEOUT"));
             }
             throw new ScriptException("SCRIPT_EXECUTION_TIMEOUT");
+        } catch (TraversalInterruptedException e) {
+            this.metrics.rejected();
+            this.metrics.executionTimeout();
+            throw new ScriptException(e);
         } catch (Exception e) {
             this.metrics.rejected();
+            if (interruptedCause(e)) {
+                // Backend checks can clear the interrupt flag before wrapping InterruptedException.
+                // Preserve TP's timeout lifecycle without exposing backend exception details.
+                this.metrics.executionTimeout();
+                throw new ScriptException(new InterruptedException("SCRIPT_EXECUTION_TIMEOUT"));
+            }
             throw new ScriptException("SCRIPT_EXECUTION_FAILED: " + e.getClass().getSimpleName());
+        } catch (AssertionError error) {
+            this.metrics.rejected();
+            throw new ScriptException("SCRIPT_EXECUTION_FAILED: " + error.getClass().getSimpleName());
         } catch (StackOverflowError error) {
             throw new ScriptException("SCRIPT_EXECUTION_LIMIT");
+        } finally {
+            if (!returned && pending != null) {
+                pending.publishFailure();
+            }
         }
+    }
+
+    private static boolean interruptedCause(Throwable error) {
+        IdentityHashMap<Throwable, Boolean> seen = new IdentityHashMap<>();
+        Throwable root = error;
+        while (root.getCause() != null && seen.put(root, Boolean.TRUE) == null) {
+            root = root.getCause();
+        }
+        return root instanceof InterruptedException || root instanceof TraversalInterruptedException ||
+               root instanceof InterruptedIOException;
     }
 
     /** Enabled only by the session adapter that owns the GremlinExecutor lifecycle. */
@@ -184,6 +233,12 @@ public final class PolicyScriptEngine extends AbstractScriptEngine
         new SessionResultIterator(Collections.emptyIterator(),
                 new PendingSession(new SimpleBindings(), new SimpleBindings(), new SimpleBindings()));
         this.deferredSession = true;
+    }
+
+    /** The protocol adapter supplies the real session map, distinct from GremlinExecutor's request copy. */
+    public void deferSessionPublication(Bindings persistentSession) {
+        this.deferSessionPublication();
+        this.persistentSession = java.util.Objects.requireNonNull(persistentSession);
     }
 
     /** Called after TP consumes and serializes results; validation happened before each result was delivered. */
@@ -200,7 +255,11 @@ public final class PolicyScriptEngine extends AbstractScriptEngine
 
     /** Always called on the session worker, including failure, cancellation, and timeout. */
     public void abortSession() {
+        PendingSession pending = this.pendingSession.get();
         this.pendingSession.remove();
+        if (pending != null) {
+            pending.publishFailure();
+        }
     }
 
     private final class SessionResultIterator implements Iterator<Object>, AutoCloseable {
@@ -247,12 +306,33 @@ public final class PolicyScriptEngine extends AbstractScriptEngine
         private final Bindings original;
         private final Bindings candidate;
         private final Bindings target;
+        private final Bindings roots;
         private Bindings validated;
+        private Object result;
 
         PendingSession(Bindings original, Bindings candidate, Bindings target) {
             this.original = original;
             this.candidate = candidate;
             this.target = target;
+            // Retain the initial objects, so an exception preserves in-place mutations but not reassignments.
+            this.roots = new SimpleBindings(new LinkedHashMap<>(candidate));
+        }
+
+        void publishFailure() {
+            try {
+                Bindings retained = ScriptBindings.execution(this.roots, profile);
+                this.target.clear();
+                this.target.putAll(retained);
+                if (persistentSession != null && persistentSession != this.target) {
+                    persistentSession.clear();
+                    persistentSession.putAll(retained);
+                }
+            } catch (RuntimeException rejected) {
+                // A failing script may have inserted a capability object into a container.
+                // Preserve the last validated state and the original request failure.
+            } finally {
+                ScriptResults.closeDiscarded(this.candidate, this.result);
+            }
         }
 
         void validate() {
@@ -330,24 +410,47 @@ public final class PolicyScriptEngine extends AbstractScriptEngine
             throw new ScriptException("SCRIPT_COMPILE_INTERRUPTED");
         } catch (ExecutionException e) {
             this.cache.invalidate(key);
-            throw new ScriptException("SCRIPT_COMPILE_DENIED");
+            throw new ScriptException(compilationFailure(e.getCause()));
         }
+    }
+
+    private static String compilationFailure(Throwable failure) {
+        String detail = "";
+        if (failure instanceof org.codehaus.groovy.control.MultipleCompilationErrorsException) {
+            for (Object error : ((org.codehaus.groovy.control.MultipleCompilationErrorsException) failure)
+                    .getErrorCollector().getErrors()) {
+                if (error instanceof org.codehaus.groovy.control.messages.SyntaxErrorMessage) {
+                    detail = ((org.codehaus.groovy.control.messages.SyntaxErrorMessage) error)
+                             .getCause().getOriginalMessage();
+                    break;
+                }
+                if (error instanceof org.codehaus.groovy.control.messages.ExceptionMessage) {
+                    Exception cause = ((org.codehaus.groovy.control.messages.ExceptionMessage) error).getCause();
+                    if (cause instanceof SecurityException && cause.getMessage() != null &&
+                        cause.getMessage().startsWith("SCRIPT_")) {
+                        detail = cause.getMessage();
+                        break;
+                    }
+                }
+            }
+        }
+        detail = detail.replaceAll("[\\p{Cntrl}]", " ");
+        return detail.isEmpty() ? "SCRIPT_COMPILE_DENIED" :
+               "SCRIPT_COMPILE_DENIED: " + detail.substring(0, Math.min(detail.length(), 512));
     }
 
     private CompiledUnit compileUnit(CompilationKey key) throws Exception {
         StringBuilder prelude = new StringBuilder();
         prelude.append("final long __hgDeadline = ")
                .append(ScriptExecutionBudget.class.getName()).append(".deadline();\n");
-        key.types.forEach((name, type) -> prelude.append(this.session ? "" : "final ")
-                .append(type.getCanonicalName()).append(' ').append(name).append(" = (")
+        key.types.forEach((name, type) -> prelude.append("def ")
+                .append(name).append(" = (")
                 .append(type.getCanonicalName()).append(") getBinding().getVariable('")
                 .append(name).append("');\n"));
         int lines = key.types.size() + 1;
         ClassLoader parent = PolicyScriptEngine.class.getClassLoader();
         CompilerConfiguration configuration = ScriptCompilerConfiguration.create(parent);
-        if (this.session) {
-            configuration.addCompilationCustomizers(new ScriptSessionCustomizer(lines, key.types.keySet()));
-        }
+        configuration.addCompilationCustomizers(new ScriptSessionCustomizer(lines, key.types.keySet()));
         ImportCustomizer imports = new ImportCustomizer();
         imports.addImports("org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__",
                            "org.apache.tinkerpop.gremlin.process.traversal.P",
@@ -368,7 +471,7 @@ public final class PolicyScriptEngine extends AbstractScriptEngine
                                "org.apache.tinkerpop.gremlin.process.traversal.Order",
                                "org.apache.tinkerpop.gremlin.process.traversal.Scope",
                                "org.apache.tinkerpop.gremlin.structure.T");
-        configuration.addCompilationCustomizers(imports, new ScriptLoopCustomizer(),
+        configuration.addCompilationCustomizers(imports, new ScriptLoopCustomizer(), new ScriptDataSyntaxCustomizer(),
                 new ASTTransformationCustomizer(Map.of("extensions",
                         ScriptTypeCheckingExtension.class.getName()), CompileStatic.class),
                 new ScriptExpressionGuard(lines, this.profile));

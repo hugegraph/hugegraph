@@ -65,6 +65,7 @@ import org.apache.hugegraph.unit.core.LocksTableTest;
 import org.apache.hugegraph.unit.core.PageStateTest;
 import org.apache.hugegraph.unit.core.PolicyGraphModeTest;
 import org.apache.hugegraph.unit.core.PolicyScriptEngineTest;
+import org.apache.hugegraph.unit.core.PolicyCompatibilityTest;
 import org.apache.hugegraph.unit.core.PolicySessionEngineTest;
 import org.apache.hugegraph.unit.core.PolicyServerModeTest;
 import org.apache.hugegraph.unit.core.QueryResultsTest;
@@ -169,6 +170,7 @@ import org.junit.runners.Suite;
         GroovyScriptEngineCompatibilityTest.class,
         ScriptPolicyCompilationTest.class,
         PolicyScriptEngineTest.class,
+        PolicyCompatibilityTest.class,
         PolicySessionEngineTest.class,
         PolicySessionLifecycleTest.class,
         ScriptRequestGuardTest.class,

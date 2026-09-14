@@ -18,12 +18,10 @@
 package org.apache.hugegraph.store.business;
 
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.Date;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -202,6 +200,11 @@ public class GraphStoreIterator<T> extends AbstractSelectIterator
                     }
                     log.error("get next with error which cause to stop:", se);
                     return false;
+                } catch (AssertionError error) {
+                    IllegalStateException failure = new IllegalStateException("Store filter evaluation failed", error);
+                    this.stopCause = failure;
+                    this.iter.close();
+                    throw failure;
                 } catch (Exception e) {
                     if (this.policyEngine != null) {
                         this.stopCause = e;
@@ -219,33 +222,16 @@ public class GraphStoreIterator<T> extends AbstractSelectIterator
 
     private static ScriptElementView policyView(BaseElement element) {
         Map<String, Object> values = new LinkedHashMap<>();
+        Map<Long, String> names = new LinkedHashMap<>();
         Iterator<BaseProperty<?>> properties = element.properties().iterator();
         while (properties.hasNext()) {
             BaseProperty<?> property = properties.next();
-            values.put(property.propertyKey().name(), policyValue(property.value()));
+            values.put(property.propertyKey().name(), property.value());
+            names.put(property.propertyKey().id().asLong(), property.propertyKey().name());
         }
         return new ScriptElementView(
                 element.id().asString(), element.schemaLabel().name(),
-                values);
-    }
-
-    private static Object policyValue(Object value) {
-        if (value instanceof Date) {
-            return ((Date) value).getTime();
-        }
-        if (value instanceof Blob) {
-            return ((Blob) value).bytes();
-        }
-        if (value instanceof Collection) {
-            Collection<?> values = (Collection<?>) value;
-            Collection<Object> copy = value instanceof Set ?
-                                      new LinkedHashSet<>() : new ArrayList<>(values.size());
-            for (Object item : values) {
-                copy.add(policyValue(item));
-            }
-            return copy;
-        }
-        return value;
+                values, names);
     }
 
     @Override

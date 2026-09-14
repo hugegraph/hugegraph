@@ -289,7 +289,7 @@ public class ScanResponseObserver<T> implements
                         return;
                     }
                 }
-            } catch (Exception e) {
+            } catch (Exception | AssertionError e) {
                 log.warn("read data with error: ", e);
                 fail(e);
             } finally {

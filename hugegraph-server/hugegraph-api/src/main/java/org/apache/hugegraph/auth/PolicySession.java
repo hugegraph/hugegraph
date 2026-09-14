@@ -63,7 +63,7 @@ final class PolicySession extends Session {
             // The binding supplier resolves current graphs on the session worker on every request.
             this.manager = new PolicyGremlinScriptEngineManager(new SimpleBindings(), this.getBindings());
             this.engine = (PolicyScriptEngine) this.manager.getEngineByName("gremlin-groovy");
-            this.engine.deferSessionPublication();
+            this.engine.deferSessionPublication(this.getBindings());
             Consumer<Bindings> afterSuccess = Whitebox.getInternalState(executor, "afterSuccess");
             Consumer<Bindings> publish = bindings -> {
                 this.engine.publishSession(bindings);

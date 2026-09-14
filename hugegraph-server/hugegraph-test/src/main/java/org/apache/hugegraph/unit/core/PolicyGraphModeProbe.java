@@ -110,8 +110,28 @@ public final class PolicyGraphModeProbe {
             try (PolicyScriptEngine engine = new PolicyScriptEngine(ScriptExecutionProfile.QUERY)) {
                 Assert.assertEquals(1L, engine.eval("g.V().count().next()",
                         new SimpleBindings(Map.of("g", graph.traversal()))));
+                Assert.assertEquals(true, engine.eval(
+                        "graph.schema().propertyKey('policy_extra').asText().ifNotExist().create(); true",
+                        new SimpleBindings(Map.of("graph", graph))));
                 Assert.assertThrows(ScriptException.class, () -> engine.eval("graph.schema()",
                         new SimpleBindings(Map.of("graph", graph))));
+                SimpleBindings schemaBindings = new SimpleBindings(Map.of("graph", graph));
+                for (String source : List.of("graph.schema().vertexLabel('boundary')",
+                        "[builder: graph.schema().vertexLabel('boundary')]",
+                        "graph.schema().vertexLabel('boundary').userdata('payload', graph); 1",
+                        "graph.schema().vertexLabel('boundary').userdata([payload: graph]); 1",
+                        "graph.schema().vertexLabel('boundary').userdata('payload', { 1 }); 1",
+                        "graph.schema().vertexLabel('boundary').userdata('payload', \"${ -> 1}\"); 1")) {
+                    Assert.assertThrows(source, ScriptException.class, () -> engine.eval(source, schemaBindings));
+                }
+                Assert.assertEquals(true, engine.eval(
+                        "Map<String, Object> data = [value: 1]; " +
+                        "def builder = graph.schema().vertexLabel('data_boundary').userdata('payload', data); " +
+                        "data.put('unsafe', { 1 }); builder.create(); true", schemaBindings));
+                Assert.assertEquals(Map.of("value", 1),
+                        graph.schema().getVertexLabel("data_boundary").userdata().get("payload"));
+                Assert.assertNotNull(engine.eval("graph.schema().vertexLabel('data_result').userdata(" +
+                        "[payload: [value: 2]]).create()", schemaBindings));
             }
             TestJob job = new TestJob(graph,
                     "g.addV('person').property(T.id, 'rollback').property('name', 'bob').iterate(); " +
