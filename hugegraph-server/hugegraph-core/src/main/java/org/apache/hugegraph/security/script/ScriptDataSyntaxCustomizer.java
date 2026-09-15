@@ -158,7 +158,9 @@ final class ScriptDataSyntaxCustomizer extends CompilationCustomizer {
                         return assigned;
                     }
                     if (Types.isAssignment(binary.getOperation().getType())) {
-                        // Keep lvalues intact; their receiver and RHS still receive ordinary policy checks.
+                        // Keep the assignment target as an lvalue, but still rewrite
+                        // expressions nested inside index keys and property receivers.
+                        binary.setLeftExpression(this.transformLValue(binary.getLeftExpression()));
                         binary.setRightExpression(this.transform(binary.getRightExpression()));
                         return binary;
                     }
@@ -177,6 +179,23 @@ final class ScriptDataSyntaxCustomizer extends CompilationCustomizer {
                     }
                 }
                 return super.transform(expression);
+            }
+
+            private Expression transformLValue(Expression expression) {
+                if (expression instanceof BinaryExpression) {
+                    BinaryExpression index = (BinaryExpression) expression;
+                    if (index.getOperation().getType() == Types.LEFT_SQUARE_BRACKET) {
+                        index.setLeftExpression(this.transformLValue(index.getLeftExpression()));
+                        index.setRightExpression(this.transform(index.getRightExpression()));
+                        return index;
+                    }
+                }
+                if (expression instanceof PropertyExpression) {
+                    PropertyExpression property = (PropertyExpression) expression;
+                    property.setObjectExpression(this.transformLValue(property.getObjectExpression()));
+                    return property;
+                }
+                return expression;
             }
         }.visitClass(node);
     }

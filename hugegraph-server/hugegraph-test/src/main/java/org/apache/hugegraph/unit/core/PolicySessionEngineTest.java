@@ -47,7 +47,9 @@ import org.mockito.Mockito;
 import org.apache.tinkerpop.gremlin.structure.Graph;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.apache.tinkerpop.gremlin.structure.util.CloseableIterator;
+import org.apache.tinkerpop.gremlin.process.traversal.Traverser;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversalSource;
+import org.apache.tinkerpop.gremlin.process.traversal.util.DefaultTraversalSideEffects;
 
 public class PolicySessionEngineTest {
 
@@ -96,6 +98,58 @@ public class PolicySessionEngineTest {
     }
 
     @Test
+    public void testRejectedTraverserClosesWrappedTraversal() throws Exception {
+        assertOpenedTraversalsClosed(
+                "def t=g.V(); t.hasNext(); g.inject(1).map { t }.map { it }.next()", false, 1);
+    }
+
+    @Test
+    public void testRejectedTraverserClosesSideEffectTraversal() throws Exception {
+        Graph graph = Mockito.mock(Graph.class);
+        Vertex vertex = Mockito.mock(Vertex.class);
+        int[] calls = new int[2];
+        Mockito.when(graph.vertices(Mockito.any(Object[].class))).thenAnswer(invocation -> {
+            calls[0]++;
+            return new CloseableIterator<Vertex>() {
+                @Override
+                public boolean hasNext() {
+                    return true;
+                }
+
+                @Override
+                public Vertex next() {
+                    return vertex;
+                }
+
+                @Override
+                public void close() {
+                    calls[1]++;
+                }
+            };
+        });
+        try (GraphTraversalSource source = new GraphTraversalSource(graph)) {
+            Object traversal = source.V();
+            Assert.assertTrue(((Iterator<?>) traversal).hasNext());
+            Assert.assertEquals(1, calls[0]);
+            DefaultTraversalSideEffects effects = new DefaultTraversalSideEffects();
+            effects.register("cursor", () -> null, (left, right) -> right);
+            effects.set("cursor", traversal);
+            @SuppressWarnings("unchecked")
+            Traverser.Admin<Object> traverser = Mockito.mock(Traverser.Admin.class);
+            Mockito.when(traverser.get()).thenReturn(1);
+            Mockito.when(traverser.path()).thenReturn(
+                    org.apache.tinkerpop.gremlin.process.traversal.step.util.EmptyPath.instance());
+            Mockito.when(traverser.getSideEffects()).thenReturn(effects);
+            Class<?> results = Class.forName("org.apache.hugegraph.security.script.ScriptResults");
+            IllegalArgumentException error = Assert.assertThrows(IllegalArgumentException.class,
+                    () -> Whitebox.invoke(results, new Class<?>[]{Object.class},
+                                          "prepare", null, traverser));
+            Assert.assertTrue(error.getMessage(), error.getMessage().contains("SCRIPT_RESULT_DENIED"));
+            Assert.assertEquals(1, calls[1]);
+        }
+    }
+
+    @Test
     public void testDiscardedSessionBindingsCloseOpenedTraversals() throws Exception {
         for (String result : List.of("1", "saved", "[saved]", "int zero=0; 1/zero")) {
             assertOpenedTraversalsClosed("saved=g.V(); saved.hasNext(); " + result, true, 1);
@@ -128,9 +182,10 @@ public class PolicySessionEngineTest {
         try (GraphTraversalSource source = new GraphTraversalSource(graph);
              PolicyScriptEngine engine = new PolicyScriptEngine(ScriptExecutionProfile.QUERY, session)) {
             SimpleBindings state = new SimpleBindings(Map.of("g", source));
-            Assert.assertThrows(ScriptException.class, () -> engine.eval(script, state));
-            Assert.assertEquals(script, expected, calls[0]);
-            Assert.assertEquals(script, expected, calls[1]);
+            ScriptException error = Assert.assertThrows(ScriptException.class,
+                    () -> engine.eval(script, state));
+            Assert.assertEquals(script + " " + error, expected, calls[0]);
+            Assert.assertEquals(script + " " + error, expected, calls[1]);
             Assert.assertFalse(state.containsKey("saved"));
         }
     }
@@ -206,6 +261,23 @@ public class PolicySessionEngineTest {
             Assert.assertThrows(ScriptException.class, () -> engine.eval(
                     "ys.add(2); int zero = 0; 1 / zero", state));
             Assert.assertEquals(List.of(1, 2), engine.eval("xs", state));
+        }
+    }
+
+    @Test
+    public void testTraversalSetRetainsTypeAndIdentityAcrossRequests() throws Exception {
+        try (GraphTraversalSource source = EmptyGraph.instance().traversal();
+             PolicyScriptEngine engine = new PolicyScriptEngine(ScriptExecutionProfile.QUERY, true)) {
+            SimpleBindings state = new SimpleBindings();
+            state.put("g", source);
+            Assert.assertEquals(2, engine.eval("values=g.inject(1,2).toSet(); alias=values; values.size()", state));
+            Assert.assertTrue(state.get("values") instanceof Set);
+            Assert.assertSame(state.get("values"), state.get("alias"));
+            Assert.assertEquals(false, engine.eval("values.add(2)", state));
+            Assert.assertEquals(2, engine.eval("alias.size()", state));
+            Assert.assertEquals(true, engine.eval("alias.add(3)", state));
+            Assert.assertEquals(Set.of(1, 2, 3), engine.eval("values", state));
+            Assert.assertSame(state.get("values"), state.get("alias"));
         }
     }
 

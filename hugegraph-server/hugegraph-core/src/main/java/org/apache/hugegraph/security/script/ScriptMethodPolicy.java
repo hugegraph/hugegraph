@@ -144,6 +144,8 @@ public final class ScriptMethodPolicy {
                    "next", "hasNext", "tryNext", "toList", "toSet", "toBulkSet", "iterate");
         this.allow("org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversalSource",
                    "V", "E", "addV", "addE", "inject", "withBulk", "withPath", "withSideEffect", "withSack");
+        this.allow("org.apache.tinkerpop.gremlin.process.traversal.TraversalSource",
+                   "withSideEffect");
         this.allow("org.apache.tinkerpop.gremlin.process.traversal.Traverser", "get", "path",
                    "loops", "sack", "bulk");
         this.allow("org.apache.tinkerpop.gremlin.process.traversal.Path", "get", "objects", "labels",
@@ -229,18 +231,47 @@ public final class ScriptMethodPolicy {
         if (target instanceof ExtensionMethodNode) {
             target = ((ExtensionMethodNode) target).getExtensionMethodNode();
         }
-        String parameters = Arrays.stream(target.getParameters())
-                                  .map(p -> typeName(p.getType()))
-                                  .collect(Collectors.joining(","));
-        return this.signatures.contains(target.getDeclaringClass().getName() + "#" +
-                                        target.getName() + "(" + parameters + ")");
+        String[] actual = Arrays.stream(target.getParameters())
+                                .map(p -> typeName(p.getType()))
+                                .toArray(String[]::new);
+        String prefix = target.getDeclaringClass().getName() + "#" + target.getName() + "(";
+        if (this.signatures.contains(prefix + String.join(",", actual) + ")")) {
+            return true;
+        }
+        // CompileStatic may specialize generic parameters such as <A> withSideEffect(String, A).
+        // The allow-list stores Java erasure, where A becomes Object.
+        for (String signature : this.signatures) {
+            if (!signature.startsWith(prefix) || !signature.endsWith(")")) {
+                continue;
+            }
+            String inside = signature.substring(prefix.length(), signature.length() - 1);
+            String[] allowed = inside.isEmpty() ? new String[0] : inside.split(",", -1);
+            if (allowed.length != actual.length) {
+                continue;
+            }
+            boolean compatible = true;
+            for (int i = 0; i < allowed.length; i++) {
+                if (!allowed[i].equals(actual[i]) && !allowed[i].equals("java.lang.Object")) {
+                    compatible = false;
+                    break;
+                }
+            }
+            if (compatible) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static String typeName(ClassNode type) {
         if (type.isArray()) {
             return typeName(type.getComponentType()) + "[]";
         }
-        return type.redirect().getName();
+        ClassNode redirected = type.redirect();
+        if (redirected.isGenericsPlaceHolder()) {
+            return "java.lang.Object";
+        }
+        return redirected.getName();
     }
 
     public Set<String> signatures() {

@@ -201,10 +201,10 @@ public final class PolicyScriptEngine extends AbstractScriptEngine
                 this.metrics.executionTimeout();
                 throw new ScriptException(new InterruptedException("SCRIPT_EXECUTION_TIMEOUT"));
             }
-            throw new ScriptException("SCRIPT_EXECUTION_FAILED: " + e.getClass().getSimpleName());
+            throw executionFailed(e);
         } catch (AssertionError error) {
             this.metrics.rejected();
-            throw new ScriptException("SCRIPT_EXECUTION_FAILED: " + error.getClass().getSimpleName());
+            throw executionFailed(error);
         } catch (StackOverflowError error) {
             throw new ScriptException("SCRIPT_EXECUTION_LIMIT");
         } finally {
@@ -412,6 +412,13 @@ public final class PolicyScriptEngine extends AbstractScriptEngine
             this.cache.invalidate(key);
             throw new ScriptException(compilationFailure(e.getCause()));
         }
+    }
+
+    private static ScriptException executionFailed(Throwable failure) {
+        ScriptException wrapped = new ScriptException(
+                "SCRIPT_EXECUTION_FAILED: " + failure.getClass().getSimpleName());
+        wrapped.initCause(failure);
+        return wrapped;
     }
 
     private static String compilationFailure(Throwable failure) {
