@@ -27,6 +27,7 @@ import java.util.Set;
 
 import org.apache.commons.lang3.tuple.Pair;
 import org.apache.hugegraph.auth.AuthManager;
+import org.apache.hugegraph.backup.GraphBackupService;
 import org.apache.hugegraph.backend.id.Id;
 import org.apache.hugegraph.backend.query.Query;
 import org.apache.hugegraph.backend.store.BackendFeatures;
@@ -82,6 +83,13 @@ public interface HugeGraph extends Graph {
     SchemaManager schema();
 
     BackendStoreProvider storeProvider();
+
+    HugeConfig configuration();
+
+    default GraphBackupService backupService() {
+        return this.storeProvider().backupService(this.configuration(),
+                                                  this.spaceGraphName());
+    }
 
     Id getNextId(HugeType type);
 

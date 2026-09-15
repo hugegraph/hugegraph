@@ -19,6 +19,7 @@ package org.apache.hugegraph.backup;
 
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
@@ -31,6 +32,7 @@ public final class GraphWriteFence {
             new ConcurrentHashMap<>();
 
     private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
+    private final ReentrantLock operationLock = new ReentrantLock(true);
 
     private GraphWriteFence() {
     }
@@ -56,5 +58,13 @@ public final class GraphWriteFence {
 
     public void leaveCapture() {
         this.lock.writeLock().unlock();
+    }
+
+    public void enterOperation() {
+        this.operationLock.lock();
+    }
+
+    public void leaveOperation() {
+        this.operationLock.unlock();
     }
 }

@@ -21,8 +21,10 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Base64;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
@@ -37,6 +39,7 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.UUID;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -57,6 +60,7 @@ import org.apache.hugegraph.backend.store.BackendMutation;
 import org.apache.hugegraph.backend.store.BackendSessionPool;
 import org.apache.hugegraph.backend.store.BackendStoreProvider;
 import org.apache.hugegraph.backend.store.BackendTable;
+import org.apache.hugegraph.backend.store.rocksdb.backup.RocksDbBackupExecutor;
 import org.apache.hugegraph.config.CoreOptions;
 import org.apache.hugegraph.config.HugeConfig;
 import org.apache.hugegraph.exception.ConnectionException;
@@ -66,6 +70,7 @@ import org.apache.hugegraph.util.E;
 import org.apache.hugegraph.util.ExecutorUtil;
 import org.apache.hugegraph.util.InsertionOrderUtil;
 import org.apache.hugegraph.util.Log;
+import org.rocksdb.RocksDB;
 import org.rocksdb.RocksDBException;
 import org.slf4j.Logger;
 
@@ -117,6 +122,151 @@ public abstract class RocksDBStore extends AbstractBackendStore<RocksDBSessions.
         this.storeLock = new ReentrantReadWriteLock();
 
         this.registerMetaHandlers();
+    }
+
+    /**
+     * Create one independent Checkpoint for every opened RocksDB database.
+     * The identity derives from the normalized data path, never from a
+     * snapshot path, so it remains stable across physical backup versions.
+     */
+    public final Map<String, Path> createBackupCheckpoints(Path root) {
+        Lock readLock = this.storeLock.readLock();
+        readLock.lock();
+        try {
+            this.checkDbOpened();
+            Map<String, Path> checkpoints = new HashMap<>();
+            for (Map.Entry<String, RocksDBSessions> entry : this.dbs.entrySet()) {
+                String identity = databaseIdentity(entry.getKey());
+                Path target = root.resolve(identity);
+                try {
+                    Files.createDirectories(target.getParent());
+                    FileUtils.deleteDirectory(target.toFile());
+                    entry.getValue().createSnapshot(target.toString());
+                } catch (IOException e) {
+                    throw new BackendException("Failed to create checkpoint '%s'",
+                                               e, target);
+                }
+                checkpoints.put(identity, target);
+            }
+            return checkpoints;
+        } finally {
+            readLock.unlock();
+        }
+    }
+
+    static String databaseIdentity(String dataPath) {
+        String normalized = Paths.get(dataPath).toAbsolutePath().normalize().toString();
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(
+                       normalized.getBytes(StandardCharsets.UTF_8));
+    }
+
+    public final Map<String, Path> backupDatabasePaths() {
+        Lock readLock = this.storeLock.readLock();
+        readLock.lock();
+        try {
+            this.checkDbOpened();
+            Map<String, Path> paths = new HashMap<>();
+            for (String path : this.dbs.keySet()) {
+                paths.put(databaseIdentity(path), Paths.get(path));
+            }
+            return paths;
+        } finally {
+            readLock.unlock();
+        }
+    }
+
+    public final Map<String, Long> createNativeBackups(Path repository) {
+        Lock readLock = this.storeLock.readLock();
+        readLock.lock();
+        try {
+            this.checkDbOpened();
+            Map<String, Long> backups = new HashMap<>();
+            for (Map.Entry<String, RocksDBSessions> entry : this.dbs.entrySet()) {
+                E.checkState(entry.getValue() instanceof RocksDBStdSessions,
+                             "Unsupported RocksDB session: %s",
+                             entry.getValue().getClass());
+                String identity = databaseIdentity(entry.getKey());
+                RocksDB database = ((RocksDBStdSessions) entry.getValue()).database();
+                backups.put(identity, new RocksDbBackupExecutor(identity)
+                        .capture(database, repository));
+            }
+            return backups;
+        } finally {
+            readLock.unlock();
+        }
+    }
+
+    public final void restoreNativeBackups(Path repository,
+                                           Map<String, Long> backups,
+                                           Path stageRoot) {
+        for (Map.Entry<String, Path> entry : this.backupDatabasePaths().entrySet()) {
+            Long backupId = backups.get(entry.getKey());
+            E.checkArgument(backupId != null,
+                            "Backup manifest misses database '%s'", entry.getKey());
+            new RocksDbBackupExecutor(entry.getKey()).restore(
+                    repository, backupId, stageRoot.resolve(entry.getKey()));
+        }
+    }
+
+    public final Map<Path, Path> switchNativeBackups(
+            Path stageRoot, Map<String, Path> originalPaths) {
+        Map<Path, Path> switched = new HashMap<>();
+        for (Map.Entry<String, Path> entry : originalPaths.entrySet()) {
+            Path target = entry.getValue();
+            Path staged = stageRoot.resolve(entry.getKey());
+            E.checkState(Files.isDirectory(staged),
+                         "Restore stage '%s' does not exist", staged);
+            Path old = null;
+            try {
+                if (Files.exists(target)) {
+                    old = target.resolveSibling(target.getFileName() +
+                                                ".backup-old-" +
+                                                UUID.randomUUID());
+                    FileUtils.moveDirectory(target.toFile(), old.toFile());
+                }
+                FileUtils.moveDirectory(staged.toFile(), target.toFile());
+                if (old != null) {
+                    switched.put(target, old);
+                }
+            } catch (IOException e) {
+                if (old != null && !Files.exists(target) && Files.exists(old)) {
+                    try {
+                        FileUtils.moveDirectory(old.toFile(), target.toFile());
+                    } catch (IOException rollbackError) {
+                        e.addSuppressed(rollbackError);
+                    }
+                }
+                try {
+                    this.rollbackNativeBackups(switched);
+                } catch (RuntimeException rollbackError) {
+                    e.addSuppressed(rollbackError);
+                }
+                throw new BackendException("Failed to switch restored database '%s'",
+                                           e, target);
+            }
+        }
+        return switched;
+    }
+
+    public final void rollbackNativeBackups(Map<Path, Path> switched) {
+        List<Map.Entry<Path, Path>> entries = new ArrayList<>(
+                switched.entrySet());
+        Collections.reverse(entries);
+        for (Map.Entry<Path, Path> entry : entries) {
+            Path target = entry.getKey();
+            Path old = entry.getValue();
+            try {
+                if (Files.exists(target)) {
+                    FileUtils.deleteDirectory(target.toFile());
+                }
+                if (Files.exists(old)) {
+                    FileUtils.moveDirectory(old.toFile(), target.toFile());
+                }
+            } catch (IOException e) {
+                throw new BackendException("Failed to roll back restored database '%s'",
+                                           e, target);
+            }
+        }
     }
 
     private void registerMetaHandlers() {
