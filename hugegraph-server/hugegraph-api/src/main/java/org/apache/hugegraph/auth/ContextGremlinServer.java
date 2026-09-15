@@ -17,6 +17,7 @@
 
 package org.apache.hugegraph.auth;
 
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ThreadFactory;
@@ -27,6 +28,9 @@ import org.apache.hugegraph.auth.HugeGraphAuthProxy.Context;
 import org.apache.hugegraph.auth.HugeGraphAuthProxy.ContextThreadPoolExecutor;
 import org.apache.hugegraph.config.CoreOptions;
 import org.apache.hugegraph.event.EventHub;
+import org.apache.hugegraph.security.script.PolicyScriptEngines;
+import org.apache.hugegraph.security.script.ScriptPolicyMonitor;
+import org.apache.hugegraph.security.script.ScriptPolicyRuntime;
 import org.apache.hugegraph.testutil.Whitebox;
 import org.apache.hugegraph.util.Events;
 import org.apache.hugegraph.util.Log;
@@ -49,6 +53,8 @@ public class ContextGremlinServer extends GremlinServer {
     private static final String G_PREFIX = "__g_";
 
     private final EventHub eventHub;
+    private PolicyGremlinScriptEngineManager policyManager;
+    private boolean authGraphs;
 
     static {
         HugeGraphAuthProxy.setContext(Context.admin());
@@ -58,7 +64,23 @@ public class ContextGremlinServer extends GremlinServer {
         /*
          * pass custom Executor https://github.com/apache/tinkerpop/pull/813
          */
-        super(settings, newGremlinExecutorService(settings));
+        super(policySettings(settings), newGremlinExecutorService(settings));
+        if (ScriptPolicyRuntime.enabled()) {
+            GremlinExecutor executor = this.getServerGremlinExecutor().getGremlinExecutor();
+            try {
+                this.policyManager = new PolicyGremlinScriptEngineManager(
+                        executor.getScriptEngineManager().getBindings());
+                Whitebox.setInternalState(executor, "gremlinScriptEngineManager", this.policyManager);
+            } catch (Exception e) {
+                super.stop().join();
+                throw new HugeException("Failed to initialize script policy", e);
+            }
+            LOG.info("Script security mode={}, policy={}, securityManager={}",
+                     ScriptPolicyRuntime.mode().configValue(),
+                     ScriptPolicyMonitor.VERSION,
+                     System.getSecurityManager() == null ? "none" :
+                     System.getSecurityManager().getClass().getName());
+        }
         this.eventHub = eventHub;
         this.listenChanges();
     }
@@ -91,19 +113,29 @@ public class ContextGremlinServer extends GremlinServer {
     @Override
     public synchronized CompletableFuture<Void> stop() {
         try {
-            return super.stop();
+            return super.stop().whenComplete((value, error) -> {
+                if (this.policyManager != null) {
+                    this.policyManager.close();
+                }
+                PolicyScriptEngines.close();
+            });
         } finally {
             this.unlistenChanges();
         }
     }
 
     public void injectAuthGraph() {
+        this.authGraphs = true;
         GraphManager manager = this.getServerGremlinExecutor()
                                    .getGraphManager();
         for (String name : manager.getGraphNames()) {
             Graph graph = manager.getGraph(name);
             graph = new HugeGraphAuthProxy((HugeGraph) graph);
             manager.putGraph(name, graph);
+            if (this.policyManager != null) {
+                this.policyManager.put(name, graph);
+                manager.putTraversalSource(G_PREFIX + name, graph.traversal());
+            }
         }
     }
 
@@ -130,6 +162,9 @@ public class ContextGremlinServer extends GremlinServer {
         GremlinExecutor executor = this.getServerGremlinExecutor()
                                        .getGremlinExecutor();
 
+        if (this.policyManager != null && this.authGraphs && !(graph instanceof HugeGraphAuthProxy)) {
+            graph = new HugeGraphAuthProxy(graph);
+        }
         manager.putGraph(name, graph);
 
         GraphTraversalSource g = manager.getGraph(name).traversal();
@@ -147,7 +182,8 @@ public class ContextGremlinServer extends GremlinServer {
         GremlinExecutor executor = this.getServerGremlinExecutor()
                                        .getGremlinExecutor();
         try {
-            if (manager.getGraph(name) != graph) {
+            Graph registered = manager.getGraph(name);
+            if (registered != graph && !sameOriginGraph(registered, graph)) {
                 return;
             }
             if (manager.getTraversalSource(G_PREFIX + name) != null) {
@@ -163,6 +199,30 @@ public class ContextGremlinServer extends GremlinServer {
             throw new HugeException("Failed to remove graph '%s' from " +
                                     "gremlin server context", e, name);
         }
+    }
+
+    private static boolean sameOriginGraph(Graph registered, HugeGraph graph) {
+        return registered instanceof HugeGraphAuthProxy &&
+               ((HugeGraphAuthProxy) registered).originGraph() == graph;
+    }
+
+    private static Settings policySettings(Settings settings) {
+        if (!ScriptPolicyRuntime.enabled()) {
+            return settings;
+        }
+        ScriptPolicyRuntime.validateSecurityManager();
+        if (!"org.apache.tinkerpop.gremlin.server.channel.WsAndHttpChannelizer".equals(settings.channelizer)) {
+            throw new IllegalArgumentException("Script policy requires WsAndHttpChannelizer");
+        }
+        if (!settings.scriptEngines.keySet().equals(Set.of("gremlin-groovy"))) {
+            throw new IllegalArgumentException("Script policy requires only gremlin-groovy");
+        }
+        PolicyScriptEngines.initializeServer();
+        settings.channelizer = PolicyWsAndHttpChannelizer.class.getName();
+        if (settings.evaluationTimeout <= 0 || settings.evaluationTimeout > 30000L) {
+            settings.evaluationTimeout = 30000L;
+        }
+        return settings;
     }
 
     static ExecutorService newGremlinExecutorService(Settings settings) {
