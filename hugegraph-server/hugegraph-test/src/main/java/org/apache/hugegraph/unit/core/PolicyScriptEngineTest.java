@@ -248,6 +248,10 @@ public class PolicyScriptEngineTest {
                                          "'x'.getAt('class')", "g['graph'] = null; 1")) {
                 Assert.assertThrows(source, ScriptException.class, () -> engine.eval(source, bindings));
             }
+            Assert.assertEquals(1, engine.eval(
+                    "Map<String, Object> out=[:]; out['ok']=1; out['ok']", bindings));
+            Assert.assertEquals(2, engine.eval(
+                    "Map<String, Object> inner=[:]; inner['b']=2; inner['b']", bindings));
             Assert.assertEquals("value", engine.eval("['class': 'value']['class']", new SimpleBindings()));
             Assert.assertEquals(2, engine.eval("[1, 2, 3][1]", new SimpleBindings()));
         }
@@ -301,6 +305,47 @@ public class PolicyScriptEngineTest {
             Assert.assertThrows(IllegalArgumentException.class, traversal::next);
             traversal.close();
         }
+    }
+
+    @Test
+    public void testTraversersCannotEscapeAsResults() throws Exception {
+        try (PolicyScriptEngine engine = new PolicyScriptEngine(ScriptExecutionProfile.QUERY)) {
+            SimpleBindings bindings = new SimpleBindings(Map.of("g", EmptyGraph.instance().traversal()));
+            for (String payload : List.of("g", "({ -> 1 })", "1")) {
+                String traversal = "g.inject(1).map { x -> " + payload + " }.map { it }";
+                for (String source : List.of(traversal + ".next()", "[" + traversal + ".next()]",
+                                             "[wrapped: " + traversal + ".next()]", traversal + ".tryNext()")) {
+                    // Compilation must succeed so a compilation rejection cannot mask this regression.
+                    CompiledScript compiled = engine.compile(source, bindings);
+                    ScriptException error = Assert.assertThrows(source, ScriptException.class,
+                                                                 () -> compiled.eval(bindings));
+                    assertResultDenied(error);
+                }
+                for (String source : List.of(traversal, "[" + traversal + ".next()].iterator()",
+                                             "def t = " + traversal + "; t.hasNext(); t")) {
+                    CompiledScript compiled = engine.compile(source, bindings);
+                    Iterator<?> result = (Iterator<?>) compiled.eval(bindings);
+                    try {
+                        RuntimeException error = Assert.assertThrows(source, RuntimeException.class, result::next);
+                        assertResultDenied(error);
+                    } finally {
+                        CloseableIterator.closeIterator(result);
+                    }
+                }
+            }
+            Assert.assertEquals(List.of(2, 3), engine.eval(
+                    "g.inject(1,2).map { it.get()+1 }.toList()", bindings));
+            Assert.assertEquals(List.of(2, 3), engine.eval(
+                    "g.inject(1,2).map { it }.map { it.get().get()+1 }.toList()", bindings));
+        }
+    }
+
+    private static void assertResultDenied(Throwable error) {
+        Throwable cause = error;
+        while (cause.getCause() != null) {
+            cause = cause.getCause();
+        }
+        Assert.assertTrue(error.toString(), cause.getMessage().contains("SCRIPT_RESULT_DENIED"));
     }
 
     @Test(timeout = 10000L)

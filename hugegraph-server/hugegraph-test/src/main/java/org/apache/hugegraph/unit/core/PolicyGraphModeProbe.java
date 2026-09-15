@@ -121,7 +121,8 @@ public final class PolicyGraphModeProbe {
                         "graph.schema().vertexLabel('boundary').userdata('payload', graph); 1",
                         "graph.schema().vertexLabel('boundary').userdata([payload: graph]); 1",
                         "graph.schema().vertexLabel('boundary').userdata('payload', { 1 }); 1",
-                        "graph.schema().vertexLabel('boundary').userdata('payload', \"${ -> 1}\"); 1")) {
+                        "graph.schema().vertexLabel('boundary').userdata('payload', \"${ -> 1}\"); 1",
+                        "def out=[:]; out[graph.schema().vertexLabel('boundary').userdata('payload', graph)] = 1; 1")) {
                     Assert.assertThrows(source, ScriptException.class, () -> engine.eval(source, schemaBindings));
                 }
                 Assert.assertEquals(true, engine.eval(
@@ -144,6 +145,23 @@ public final class PolicyGraphModeProbe {
             Exception deniedResult = Assert.assertThrows(Exception.class, iteratorJob::execute);
             Assert.assertTrue(deniedResult.toString(), deniedResult.toString().contains("SCRIPT_RESULT_DENIED"));
             Assert.assertFalse(graph.vertices("iterator-rollback").hasNext());
+            int resultIndex = 0;
+            for (String result : List.of(
+                    "g.inject(1).map { g }.map { it }.next()",
+                    "[g.inject(1).map { g }.map { it }.next()]",
+                    "g.inject(1).map { g }.map { it }",
+                    "[g.inject(1).map { g }.map { it }.next()].iterator()")) {
+                String id = "traverser-rollback-" + resultIndex++;
+                TestJob traverserJob = new TestJob(graph,
+                        "g.addV('person').property(T.id, '" + id + "').property('name', 'bob').iterate(); " + result);
+                Exception error = Assert.assertThrows(Exception.class, traverserJob::execute);
+                Throwable cause = error;
+                while (cause.getCause() != null) {
+                    cause = cause.getCause();
+                }
+                Assert.assertTrue(error.toString(), cause.getMessage().contains("SCRIPT_RESULT_DENIED"));
+                assertVertexVisible(graph, id, false);
+            }
             Assert.assertEquals(List.of(1, 2, 3),
                                 new TestJob(graph, "[1, 2, 3].iterator()").execute());
             new TestJob(graph,

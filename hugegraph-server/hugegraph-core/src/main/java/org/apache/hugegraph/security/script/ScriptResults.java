@@ -28,14 +28,17 @@ import org.apache.hugegraph.HugeGraph;
 import org.apache.hugegraph.schema.SchemaManager;
 import org.apache.hugegraph.schema.SchemaElement;
 import org.apache.hugegraph.schema.builder.SchemaBuilder;
+import org.apache.hugegraph.testutil.Whitebox;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.Path;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
+import org.apache.tinkerpop.gremlin.process.traversal.TraversalSideEffects;
 import org.apache.tinkerpop.gremlin.process.traversal.TraversalSource;
 import org.apache.tinkerpop.gremlin.process.traversal.Traverser;
 import org.apache.tinkerpop.gremlin.process.traversal.step.sideEffect.LambdaSideEffectStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.util.AbstractStep;
 import org.apache.tinkerpop.gremlin.process.traversal.util.DefaultTraversal;
+import org.apache.tinkerpop.gremlin.process.traversal.util.DefaultTraversalSideEffects;
 import org.apache.tinkerpop.gremlin.process.traversal.util.FastNoSuchElementException;
 import org.apache.tinkerpop.gremlin.structure.Graph;
 import org.apache.tinkerpop.gremlin.structure.Property;
@@ -196,6 +199,25 @@ final class ScriptResults {
                 if (failure != null) {
                     CloseableIterator.closeIterator((Iterator<?>) value);
                 }
+                if (value instanceof Traversal.Admin) {
+                    closeRejected(((Traversal.Admin<?, ?>) value).getSideEffects(),
+                                  seen, depth + 1, count, failure);
+                }
+            } else if (value instanceof Traverser) {
+                Traverser<?> traverser = (Traverser<?>) value;
+                closeRejected(traverser.get(), seen, depth + 1, count, failure);
+                closeRejected(traverser.path(), seen, depth + 1, count, failure);
+                try {
+                    closeRejected(traverser.sack(), seen, depth + 1, count, failure);
+                } catch (UnsupportedOperationException ignored) {
+                    // Traversers without a sack still have to release get()/path()/sideEffects.
+                }
+                if (traverser instanceof Traverser.Admin) {
+                    closeRejected(((Traverser.Admin<?>) traverser).getSideEffects(),
+                                  seen, depth + 1, count, failure);
+                }
+            } else if (value instanceof TraversalSideEffects) {
+                closeStoredSideEffects((TraversalSideEffects) value, seen, depth, count, failure);
             } else if (value instanceof SchemaElement) {
                 closeRejected(((SchemaElement) value).userdata(), seen, depth + 1, count, failure);
             } else if (value instanceof GString) {
@@ -239,6 +261,34 @@ final class ScriptResults {
         }
     }
 
+    private static void closeStoredSideEffects(TraversalSideEffects effects,
+                                               IdentityHashMap<Object, Boolean> seen, int depth,
+                                               int[] count, Throwable failure) {
+        Map<?, ?> stored = storedSideEffectObjects(effects);
+        if (stored == null) {
+            return;
+        }
+        for (Object item : stored.values()) {
+            closeRejected(item, seen, depth + 1, count, failure);
+            if (count[0] >= 100000) {
+                return;
+            }
+        }
+    }
+
+    private static Map<?, ?> storedSideEffectObjects(TraversalSideEffects effects) {
+        if (!(effects instanceof DefaultTraversalSideEffects)) {
+            return null;
+        }
+        try {
+            Object stored = Whitebox.getInternalState(effects, "objectMap");
+            return stored instanceof Map ? (Map<?, ?>) stored : null;
+        } catch (RuntimeException ignored) {
+            // Unknown side-effect layouts must not force Supplier evaluation through get(key).
+            return null;
+        }
+    }
+
     private static void validate(Object value, IdentityHashMap<Object, Boolean> seen, int depth,
                                  int[] count, long deadline) {
         ScriptExecutionBudget.check(deadline);
@@ -253,7 +303,9 @@ final class ScriptResults {
             value instanceof Thread ||
             value instanceof HugeGraph || value instanceof TraversalSource || value instanceof Transaction ||
             value instanceof SchemaManager || value instanceof SchemaBuilder || value instanceof ScriptJobContext ||
-            value instanceof Iterator) {
+            // Internal traversers remain in the pipeline; only their values reach this boundary.
+            // A traverser returned as a value can retain executable objects and traversal state.
+            value instanceof Iterator || value instanceof Traverser) {
             throw new IllegalArgumentException("SCRIPT_RESULT_DENIED");
         }
         if (seen.put(value, Boolean.TRUE) != null) {

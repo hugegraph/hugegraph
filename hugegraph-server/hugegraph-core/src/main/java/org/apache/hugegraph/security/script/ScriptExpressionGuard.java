@@ -183,10 +183,8 @@ public final class ScriptExpressionGuard extends CompilationCustomizer {
                         if (index == null) {
                             index = expression.getRightExpression().getType();
                         }
-                        boolean map = receiver.getName().equals("java.util.Map") ||
-                                      receiver.implementsInterface(ClassHelper.make(Map.class));
-                        boolean sequence = receiver.isArray() || receiver.getName().equals("java.util.List") ||
-                                           receiver.implementsInterface(ClassHelper.make(List.class)) ||
+                        boolean map = isMapType(receiver);
+                        boolean sequence = receiver.isArray() || isListType(receiver) ||
                                            receiver.getName().equals("java.lang.String");
                         if (!map && (!sequence || index.getName().equals("java.lang.String") ||
                                      index.getName().equals("java.lang.Object"))) {
@@ -355,6 +353,23 @@ public final class ScriptExpressionGuard extends CompilationCustomizer {
             }
 
         }.visitClass(node);
+    }
+
+    private static boolean isMapType(ClassNode type) {
+        String name = type.getName();
+        return "java.util.Map".equals(name) ||
+               "java.util.LinkedHashMap".equals(name) ||
+               "java.util.HashMap".equals(name) ||
+               "java.util.TreeMap".equals(name) ||
+               type.implementsInterface(ClassHelper.MAP_TYPE);
+    }
+
+    private static boolean isListType(ClassNode type) {
+        String name = type.getName();
+        return "java.util.List".equals(name) ||
+               "java.util.ArrayList".equals(name) ||
+               "java.util.LinkedList".equals(name) ||
+               type.implementsInterface(ClassHelper.LIST_TYPE);
     }
 
     private static SecurityException denied(String reason) {
