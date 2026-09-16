@@ -24,13 +24,17 @@ import java.io.InputStreamReader;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
+import java.lang.reflect.Type;
+import java.lang.reflect.TypeVariable;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -55,6 +59,7 @@ public final class ScriptMethodPolicy {
             "math", "timeLimit", "profile");
 
     private final Set<String> signatures = new HashSet<>();
+    private final Map<String, boolean[]> genericParameters = new HashMap<>();
 
     public ScriptMethodPolicy(ScriptExecutionProfile profile) {
 
@@ -238,8 +243,9 @@ public final class ScriptMethodPolicy {
         if (this.signatures.contains(prefix + String.join(",", actual) + ")")) {
             return true;
         }
-        // CompileStatic may specialize generic parameters such as <A> withSideEffect(String, A).
-        // The allow-list stores Java erasure, where A becomes Object.
+        // CompileStatic may specialize a type variable such as <A> withSideEffect(String, A).
+        // The allow-list stores Java erasure, where an unbounded A becomes Object.
+        // Object is not a wildcard for concrete overloads of the same arity.
         for (String signature : this.signatures) {
             if (!signature.startsWith(prefix) || !signature.endsWith(")")) {
                 continue;
@@ -249,12 +255,18 @@ public final class ScriptMethodPolicy {
             if (allowed.length != actual.length) {
                 continue;
             }
+            boolean[] generic = this.genericParameters.get(signature);
             boolean compatible = true;
             for (int i = 0; i < allowed.length; i++) {
-                if (!allowed[i].equals(actual[i]) && !allowed[i].equals("java.lang.Object")) {
-                    compatible = false;
-                    break;
+                if (allowed[i].equals(actual[i])) {
+                    continue;
                 }
+                if (generic != null && i < generic.length && generic[i] &&
+                    allowed[i].equals("java.lang.Object")) {
+                    continue;
+                }
+                compatible = false;
+                break;
             }
             if (compatible) {
                 return true;
@@ -278,13 +290,32 @@ public final class ScriptMethodPolicy {
         return Collections.unmodifiableSet(this.signatures);
     }
 
+    private void addSignature(Method method) {
+        String parameters = Arrays.stream(method.getParameterTypes())
+                                  .map(Class::getTypeName).collect(Collectors.joining(","));
+        String signature = method.getDeclaringClass().getName() + "#" +
+                           method.getName() + "(" + parameters + ")";
+        this.signatures.add(signature);
+        Type[] generic = method.getGenericParameterTypes();
+        boolean[] slots = new boolean[generic.length];
+        for (int i = 0; i < generic.length; i++) {
+            slots[i] = generic[i] instanceof TypeVariable;
+        }
+        // Covariant bridges share the erased signature with the generic method.
+        // Keep a slot generic if any recorded overload has a type variable there.
+        boolean[] existing = this.genericParameters.get(signature);
+        if (existing != null && existing.length == slots.length) {
+            for (int i = 0; i < slots.length; i++) {
+                slots[i] |= existing[i];
+            }
+        }
+        this.genericParameters.put(signature, slots);
+    }
+
     private void allowExact(String className, String name, Class<?>... parameterTypes) {
         try {
             Class<?> type = Class.forName(className, false, ScriptMethodPolicy.class.getClassLoader());
-            Method method = type.getMethod(name, parameterTypes);
-            String parameters = Arrays.stream(method.getParameterTypes())
-                                      .map(Class::getTypeName).collect(Collectors.joining(","));
-            this.signatures.add(method.getDeclaringClass().getName() + "#" + name + "(" + parameters + ")");
+            this.addSignature(type.getMethod(name, parameterTypes));
         } catch (ReflectiveOperationException error) {
             throw new IllegalStateException("Missing exact script policy method " + className + "#" + name, error);
         }
@@ -311,10 +342,7 @@ public final class ScriptMethodPolicy {
                         continue;
                     }
                 }
-                String parameters = Arrays.stream(method.getParameterTypes())
-                                          .map(Class::getTypeName).collect(Collectors.joining(","));
-                this.signatures.add(method.getDeclaringClass().getName() + "#" +
-                                    method.getName() + "(" + parameters + ")");
+                this.addSignature(method);
             }
         } catch (ClassNotFoundException e) {
             throw new IllegalStateException("Missing script policy type: " + className, e);

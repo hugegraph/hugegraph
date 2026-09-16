@@ -250,6 +250,8 @@ public class PolicyScriptEngineTest {
             }
             Assert.assertEquals(1, engine.eval(
                     "Map<String, Object> out=[:]; out['ok']=1; out['ok']", bindings));
+            Assert.assertEquals(1, engine.eval(
+                    "Integer v = 1; g.withSideEffect('k', v).inject(2).cap('k').next()", bindings));
             Assert.assertEquals(2, engine.eval(
                     "Map<String, Object> inner=[:]; inner['b']=2; inner['b']", bindings));
             Assert.assertEquals("value", engine.eval("['class': 'value']['class']", new SimpleBindings()));

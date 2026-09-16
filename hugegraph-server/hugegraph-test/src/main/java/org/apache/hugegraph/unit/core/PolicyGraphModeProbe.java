@@ -122,7 +122,9 @@ public final class PolicyGraphModeProbe {
                         "graph.schema().vertexLabel('boundary').userdata([payload: graph]); 1",
                         "graph.schema().vertexLabel('boundary').userdata('payload', { 1 }); 1",
                         "graph.schema().vertexLabel('boundary').userdata('payload', \"${ -> 1}\"); 1",
-                        "def out=[:]; out[graph.schema().vertexLabel('boundary').userdata('payload', graph)] = 1; 1")) {
+                        "def out=[:]; out[graph.schema().vertexLabel('boundary').userdata('payload', graph)] = 1; 1",
+                        "[graph.schema().vertexLabel('boundary').userdata('payload', graph)][0] = 1; 1",
+                        "graph.schema().vertexLabel('boundary').userdata('payload', graph).ttl = 1L; 1")) {
                     Assert.assertThrows(source, ScriptException.class, () -> engine.eval(source, schemaBindings));
                 }
                 Assert.assertEquals(true, engine.eval(
