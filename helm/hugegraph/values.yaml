@@ -135,6 +135,12 @@ pd:
   # raft.ip-whitelist.enabled); k8s network policy/auth owns that layer.
   # Set true to restore the image default.
   raftIpWhitelistEnabled: false
+  # Raft RPC timeout in milliseconds, rendered as -Draft.rpc-timeout. A
+  # vanished (not crashed) leader is waited on for this long per attempt, so
+  # the image default of 10000 leaves the cluster leaderless for about a
+  # minute where 3000 elects a new leader in seconds. Empty preserves the
+  # image default.
+  raftRpcTimeoutMs: 3000
   # Explicit rollout strategy instead of the implicit StatefulSet default.
   updateStrategy:
     type: RollingUpdate

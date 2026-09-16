@@ -25,7 +25,7 @@ tests:
           path: spec.template.spec.containers[0].env
           content:
             name: JAVA_OPTS
-            value: "-Dpartition.default-shard-count=3 -Draft.ip-whitelist.enabled=false"
+            value: "-Dpartition.default-shard-count=3 -Draft.ip-whitelist.enabled=false -Draft.rpc-timeout=3000"
 
   - it: re-enables the whitelist when the operator opts in
     set:
@@ -49,4 +49,18 @@ tests:
     asserts:
       - matchRegex:
           path: spec.template.spec.containers[0].env[?(@.name=="JAVA_OPTS")].value
-          pattern: "-Draft\\.ip-whitelist\\.enabled=false -Xmx2g$"
+          pattern: "-Draft\\.rpc-timeout=3000 -Xmx2g$"
+  - it: renders a custom raft RPC timeout
+    set:
+      pd.raftRpcTimeoutMs: 5000
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].env[?(@.name=="JAVA_OPTS")].value
+          pattern: "-Draft\\.rpc-timeout=5000"
+  - it: omits the raft RPC timeout when set empty, preserving the image default
+    set:
+      pd.raftRpcTimeoutMs: ""
+    asserts:
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].env[?(@.name=="JAVA_OPTS")].value
+          pattern: "rpc-timeout"

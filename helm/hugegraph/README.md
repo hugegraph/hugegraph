@@ -312,6 +312,7 @@ default values.
 | `pd.image.pullPolicy` | PD image pull policy | `Always` |
 | `pd.javaOpts` | Extra JVM flags, rendered after the chart-derived `-D` properties below so an explicit duplicate here wins. The image's automatic heap sizing is preserved unless heap flags are set | `""` |
 | `pd.raftIpWhitelistEnabled` | Enable PD's raft peer IP whitelist. Off in-cluster because PD resolves peers once at boot; requires a PD image carrying the upstream switch | `false` |
+| `pd.raftRpcTimeoutMs` | Raft RPC timeout (`-Draft.rpc-timeout`). Bounds the wait on a vanished leader, so it bounds leader elections: the image default of 10000 was measured leaderless for about a minute, 3000 elects in seconds. Empty preserves the image default | `3000` |
 | `pd.partition.defaultShardCount` | Shard replicas per partition, seeded into PD's persisted config at first bootstrap only; inert on an initialized cluster (see Partition Sharding). Empty derives 3 when `store.replicas` is at least 3, else 1. An explicit value must be odd and must not exceed `store.replicas` | `""` |
 | `pd.partition.storeMaxShardCount` | Maximum shards per Store, seeded at first bootstrap only. Also fixes the initial partition count, `store.replicas x storeMaxShardCount / shardCount` (see Partition Sharding). Empty preserves the image default of `12` | `""` |
 | `pd.ports.grpc` | PD gRPC port | `8686` |

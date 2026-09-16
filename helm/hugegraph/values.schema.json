@@ -308,6 +308,9 @@
         "raftIpWhitelistEnabled": {
           "type": "boolean"
         },
+        "raftRpcTimeoutMs": {
+          "$ref": "#/definitions/optionalPositiveInteger"
+        },
         "updateStrategy": {
           "$ref": "#/definitions/updateStrategy"
         },

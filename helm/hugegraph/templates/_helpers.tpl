@@ -436,6 +436,11 @@ pod IPs were unpublished at that moment or change later, so the switch is
 off in-cluster per the upstream design and k8s auth owns that layer. Images
 without the property ignore the flag. Set pd.raftIpWhitelistEnabled=true to
 restore the image default.
+
+raft.rpc-timeout is a plain runtime property, applied on every start rather
+than seeded at bootstrap. It bounds how long the surviving PDs wait on a
+peer that stopped answering without closing its sockets, which is what a
+leader election waits on; empty preserves the image default.
 */}}
 {{- define "hugegraph.pd.effectiveJavaOpts" -}}
 {{- $pd := .Values.pd -}}
@@ -452,6 +457,10 @@ restore the image default.
 {{- end -}}
 {{- $ipWhitelist := ternary "true" "false" (eq (get $pd "raftIpWhitelistEnabled" | toString) "true") -}}
 {{- $flags = append $flags (printf "-Draft.ip-whitelist.enabled=%s" $ipWhitelist) -}}
+{{- $rpcTimeout := include "hugegraph.optionalScalar" (get $pd "raftRpcTimeoutMs") -}}
+{{- if ne $rpcTimeout "" -}}
+{{- $flags = append $flags (printf "-Draft.rpc-timeout=%s" $rpcTimeout) -}}
+{{- end -}}
 {{- $userOpts := trim (get $pd "javaOpts" | default "") -}}
 {{- if ne $userOpts "" -}}
 {{- $flags = append $flags $userOpts -}}
