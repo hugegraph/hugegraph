@@ -26,6 +26,7 @@ under Upgrading, requires Helm 3.14 or later.
 | PD | StatefulSet + PVC | Placement driver; Raft group tracking Stores and partitions |
 | Store | StatefulSet + PVC | Graph data storage (HStore) |
 | Server | Deployment | Gremlin and REST query layer |
+| Hubble | Deployment + optional PVC | Web UI, off by default; enable with `hubble.enabled` |
 
 A distributed HugeGraph cluster has a startup contract that this chart encodes
 so operators do not have to:
@@ -84,8 +85,20 @@ so operators do not have to:
 
 ## Installing the Chart
 
+Before installing, confirm `kubectl` points at the intended cluster and that
+it can provision volumes. The default topology needs 3 PD and 3 Store PVCs,
+and PVCs stuck `Pending` for want of a StorageClass are the most common
+first-run failure:
+
 ```bash
-helm install hugegraph ./helm/hugegraph --namespace hugegraph --create-namespace
+kubectl config current-context
+kubectl get nodes
+kubectl get storageclass
+```
+
+```bash
+helm install hugegraph ./helm/hugegraph --namespace hugegraph \
+  --create-namespace --wait --timeout 15m
 ```
 
 This deploys 3 PD + 3 Store + 3 Server, preserves the image's automatic JVM
@@ -95,6 +108,9 @@ production use.
 The command examples in this document assume the release is named
 `hugegraph`. With a different release name, substitute the release-prefixed
 resource names (`kubectl get svc,secret -n <namespace>` lists them).
+Workloads and Services are named `<release>-hugegraph-*`, while the kept
+Secrets are `<release>-admin`, `<release>-auth-token`, and
+`<release>-pd-auth`.
 
 **Authentication is enabled by default.** The chart creates a kept Secret
 named `<release>-admin` (for example `hugegraph-admin`) with a random
@@ -166,6 +182,37 @@ helm test hugegraph --namespace hugegraph
 `values-cluster.yaml` is a production starting point, not a capacity
 guarantee. Recalculate capacity for the graph size, traffic, failure budget,
 node topology, and storage class before production use.
+
+### Local Kubernetes (Kind / minikube)
+
+Only needed when there is no cluster yet, or to test locally built images.
+Build the three images, load them into the cluster, and override their tags
+and pull policies. The override is required, not optional: this chart
+defaults `pullPolicy: Always`, so without `Never` the kubelet tries to pull
+your local tag from Docker Hub and fails even though the image is loaded.
+
+```bash
+kind create cluster --name hg
+
+docker build -f hugegraph-pd/Dockerfile -t hugegraph/pd:local .
+docker build -f hugegraph-store/Dockerfile -t hugegraph/store:local .
+docker build -f hugegraph-server/Dockerfile-hstore -t hugegraph/server:local .
+
+kind load docker-image hugegraph/pd:local hugegraph/store:local \
+  hugegraph/server:local --name hg
+# minikube: minikube image load <the same three images>
+
+helm upgrade --install hugegraph ./helm/hugegraph \
+  --namespace hugegraph --create-namespace \
+  -f helm/hugegraph/values-single.yaml \
+  --set pd.image.tag=local --set pd.image.pullPolicy=Never \
+  --set store.image.tag=local --set store.image.pullPolicy=Never \
+  --set server.image.tag=local --set server.image.pullPolicy=Never
+```
+
+Server uses `Dockerfile-hstore` so the image's default backend is HStore.
+Skipping the load step fails the Pods with `ErrImageNeverPull`; do not retag
+Docker Hub images as `local`.
 
 ## Upgrading the Chart
 
@@ -359,7 +406,7 @@ default values.
 | `server.resources` | Server resources. `requests.cpu` is required when HPA is enabled | `{}` |
 | `server.podSecurityContext` | Pod-level securityContext, rendered only when set | `{}` |
 | `server.securityContext` | Container-level securityContext. Hardened by default; `runAsNonRoot` is not set because the published images run as root | `allowPrivilegeEscalation: false`, `capabilities.drop: [ALL]`, `seccompProfile: RuntimeDefault` |
-| `server.pdb.enabled` | Create a PodDisruptionBudget for Server. Off by default: Server holds no quorum | `false` |
+| `server.pdb.enabled` | Create a PodDisruptionBudget for Server. Off by default: Server holds no quorum. `values-cluster.yaml` enables it so a node drain cannot evict every Server at once | `false` |
 | `server.pdb.minAvailable` | Must be less than `server.hpa.minReplicas` when HPA is enabled, otherwise less than `server.replicas` | `2` |
 | `server.antiAffinity` | One of `required`, `preferred`, `disabled`. Defaults to `preferred` rather than `required` because HPA may scale Server past the node count; set `required` when replicas always stay below it | `preferred` |
 | `server.nodeSelector` | Node selector for server Pods | `{}` |
@@ -664,6 +711,11 @@ curl --user "admin:${PASSWORD}" http://127.0.0.1:8080/graphs
 All ports are configurable through `values.yaml`. Changing `server.port` updates
 the listener, container port, and Service together.
 
+A stalled component (process alive but frozen) is ended by its liveness
+probe, so the default 20 s period and 3-failure threshold bound the blast
+radius of a stalled Store at roughly one minute; raft moves its partition
+leaders within seconds of the restart.
+
 ---
 
 ### Scheduling
@@ -782,6 +834,12 @@ Both are capped at 99 replicas.
 Server scales through `server.replicas`, or by enabling `server.hpa`. With HPA
 enabled the Deployment omits `spec.replicas`, so a Helm upgrade does not
 overwrite the autoscaler's live replica count.
+
+`values.schema.json` requires at least one replica per component, so a
+staged rollout (PD and Server first, Stores later) cannot be written in a
+values file. Install the full topology and stage it with
+`kubectl scale statefulset <release>-hugegraph-store --replicas=0`, scaling
+back up when ready; the Servers wait, not-ready, until Stores register.
 
 ## Troubleshooting
 
