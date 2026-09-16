@@ -17,6 +17,8 @@
 
 package org.apache.hugegraph.unit.core;
 
+import java.io.File;
+import java.lang.reflect.Modifier;
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.nio.charset.StandardCharsets;
@@ -25,9 +27,15 @@ import java.nio.file.Path;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.apache.hugegraph.security.script.ScriptCompilerConfiguration;
+import org.apache.hugegraph.security.script.ScriptExecutionProfile;
+import org.apache.hugegraph.security.script.ScriptMethodPolicy;
 import org.apache.hugegraph.security.script.ScriptSecurityMode;
 import org.apache.hugegraph.security.script.ScriptSyntaxGuard;
 import org.codehaus.groovy.ast.ASTNode;
+import org.codehaus.groovy.ast.ClassHelper;
+import org.codehaus.groovy.ast.ClassNode;
+import org.codehaus.groovy.ast.MethodNode;
+import org.codehaus.groovy.ast.Parameter;
 import org.codehaus.groovy.control.CompilePhase;
 import org.codehaus.groovy.control.CompilerConfiguration;
 import org.codehaus.groovy.control.SourceUnit;
@@ -80,6 +88,27 @@ public class ScriptPolicyCompilationTest {
         assertRejected("@groovy.transform.CompileStatic class Hidden {}; 1");
         assertRejected("package hidden; 1");
         assertRejected("import static java.lang.System.exit; 1");
+    }
+
+    @Test
+    public void testObjectErasureMatchingOnlyAppliesToGenericParameters() {
+        ScriptMethodPolicy policy = new ScriptMethodPolicy(ScriptExecutionProfile.QUERY);
+        ClassNode source = ClassHelper.make(
+                "org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversalSource");
+        MethodNode specialized = new MethodNode("withSideEffect", Modifier.PUBLIC, source,
+                new Parameter[]{
+                        new Parameter(ClassHelper.STRING_TYPE, "key"),
+                        new Parameter(ClassHelper.make(Integer.class), "value")
+                }, ClassNode.EMPTY_ARRAY, null);
+        specialized.setDeclaringClass(source);
+        Assert.assertTrue(policy.allows(specialized));
+
+        ClassNode string = ClassHelper.make(String.class);
+        MethodNode concrete = new MethodNode("valueOf", Modifier.PUBLIC | Modifier.STATIC, string,
+                new Parameter[]{new Parameter(ClassHelper.make(File.class), "file")},
+                ClassNode.EMPTY_ARRAY, null);
+        concrete.setDeclaringClass(string);
+        Assert.assertFalse(policy.allows(concrete));
     }
 
     @Test

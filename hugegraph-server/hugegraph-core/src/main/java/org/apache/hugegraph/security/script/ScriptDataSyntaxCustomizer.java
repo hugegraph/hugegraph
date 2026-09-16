@@ -158,8 +158,8 @@ final class ScriptDataSyntaxCustomizer extends CompilationCustomizer {
                         return assigned;
                     }
                     if (Types.isAssignment(binary.getOperation().getType())) {
-                        // Keep the assignment target as an lvalue, but still rewrite
-                        // expressions nested inside index keys and property receivers.
+                        // Keep [ ] / property assignment targets as lvalues. Nested rvalues
+                        // in keys or receivers still go through transform().
                         binary.setLeftExpression(this.transformLValue(binary.getLeftExpression()));
                         binary.setRightExpression(this.transform(binary.getRightExpression()));
                         return binary;
@@ -195,7 +195,9 @@ final class ScriptDataSyntaxCustomizer extends CompilationCustomizer {
                     property.setObjectExpression(this.transformLValue(property.getObjectExpression()));
                     return property;
                 }
-                return expression;
+                // Nested rvalues (method calls, lists, maps) are not themselves assignable
+                // targets; rewrite them so userdata/data checks still apply.
+                return this.transform(expression);
             }
         }.visitClass(node);
     }

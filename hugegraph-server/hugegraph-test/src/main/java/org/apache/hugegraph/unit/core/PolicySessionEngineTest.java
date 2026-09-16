@@ -50,6 +50,7 @@ import org.apache.tinkerpop.gremlin.structure.util.CloseableIterator;
 import org.apache.tinkerpop.gremlin.process.traversal.Traverser;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversalSource;
 import org.apache.tinkerpop.gremlin.process.traversal.util.DefaultTraversalSideEffects;
+import org.apache.tinkerpop.gremlin.util.function.ConstantSupplier;
 
 public class PolicySessionEngineTest {
 
@@ -146,6 +147,101 @@ public class PolicySessionEngineTest {
                                           "prepare", null, traverser));
             Assert.assertTrue(error.getMessage(), error.getMessage().contains("SCRIPT_RESULT_DENIED"));
             Assert.assertEquals(1, calls[1]);
+        }
+    }
+
+    @Test
+    public void testRejectedTraverserClosesConstantSupplierSideEffect() throws Exception {
+        Graph graph = Mockito.mock(Graph.class);
+        Vertex vertex = Mockito.mock(Vertex.class);
+        int[] calls = new int[2];
+        Mockito.when(graph.vertices(Mockito.any(Object[].class))).thenAnswer(invocation -> {
+            calls[0]++;
+            return new CloseableIterator<Vertex>() {
+                @Override
+                public boolean hasNext() {
+                    return true;
+                }
+
+                @Override
+                public Vertex next() {
+                    return vertex;
+                }
+
+                @Override
+                public void close() {
+                    calls[1]++;
+                }
+            };
+        });
+        try (GraphTraversalSource source = new GraphTraversalSource(graph)) {
+            Object traversal = source.V();
+            Assert.assertTrue(((Iterator<?>) traversal).hasNext());
+            Assert.assertEquals(1, calls[0]);
+            DefaultTraversalSideEffects effects = new DefaultTraversalSideEffects();
+            effects.register("cursor", new ConstantSupplier<>(traversal), (left, right) -> right);
+            @SuppressWarnings("unchecked")
+            Traverser.Admin<Object> traverser = Mockito.mock(Traverser.Admin.class);
+            Mockito.when(traverser.get()).thenReturn(1);
+            Mockito.when(traverser.path()).thenReturn(
+                    org.apache.tinkerpop.gremlin.process.traversal.step.util.EmptyPath.instance());
+            Mockito.when(traverser.getSideEffects()).thenReturn(effects);
+            Class<?> results = Class.forName("org.apache.hugegraph.security.script.ScriptResults");
+            IllegalArgumentException error = Assert.assertThrows(IllegalArgumentException.class,
+                    () -> Whitebox.invoke(results, new Class<?>[]{Object.class},
+                                          "prepare", null, traverser));
+            Assert.assertTrue(error.getMessage(), error.getMessage().contains("SCRIPT_RESULT_DENIED"));
+            Assert.assertEquals(1, calls[1]);
+        }
+    }
+
+    @Test
+    public void testRejectedTraverserDoesNotEvaluateLazySideEffectSupplier() throws Exception {
+        Graph graph = Mockito.mock(Graph.class);
+        Vertex vertex = Mockito.mock(Vertex.class);
+        int[] calls = new int[2];
+        AtomicInteger evaluated = new AtomicInteger();
+        Mockito.when(graph.vertices(Mockito.any(Object[].class))).thenAnswer(invocation -> {
+            calls[0]++;
+            return new CloseableIterator<Vertex>() {
+                @Override
+                public boolean hasNext() {
+                    return true;
+                }
+
+                @Override
+                public Vertex next() {
+                    return vertex;
+                }
+
+                @Override
+                public void close() {
+                    calls[1]++;
+                }
+            };
+        });
+        try (GraphTraversalSource source = new GraphTraversalSource(graph)) {
+            Object traversal = source.V();
+            Assert.assertTrue(((Iterator<?>) traversal).hasNext());
+            Assert.assertEquals(1, calls[0]);
+            DefaultTraversalSideEffects effects = new DefaultTraversalSideEffects();
+            effects.register("cursor", () -> {
+                evaluated.incrementAndGet();
+                return traversal;
+            }, (left, right) -> right);
+            @SuppressWarnings("unchecked")
+            Traverser.Admin<Object> traverser = Mockito.mock(Traverser.Admin.class);
+            Mockito.when(traverser.get()).thenReturn(1);
+            Mockito.when(traverser.path()).thenReturn(
+                    org.apache.tinkerpop.gremlin.process.traversal.step.util.EmptyPath.instance());
+            Mockito.when(traverser.getSideEffects()).thenReturn(effects);
+            Class<?> results = Class.forName("org.apache.hugegraph.security.script.ScriptResults");
+            IllegalArgumentException error = Assert.assertThrows(IllegalArgumentException.class,
+                    () -> Whitebox.invoke(results, new Class<?>[]{Object.class},
+                                          "prepare", null, traverser));
+            Assert.assertTrue(error.getMessage(), error.getMessage().contains("SCRIPT_RESULT_DENIED"));
+            Assert.assertEquals(0, evaluated.get());
+            Assert.assertEquals(0, calls[1]);
         }
     }
 

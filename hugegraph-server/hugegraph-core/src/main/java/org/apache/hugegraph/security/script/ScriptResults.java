@@ -44,6 +44,7 @@ import org.apache.tinkerpop.gremlin.structure.Graph;
 import org.apache.tinkerpop.gremlin.structure.Property;
 import org.apache.tinkerpop.gremlin.structure.Transaction;
 import org.apache.tinkerpop.gremlin.structure.util.CloseableIterator;
+import org.apache.tinkerpop.gremlin.util.function.ConstantSupplier;
 
 import groovy.lang.Closure;
 import groovy.lang.GString;
@@ -264,24 +265,38 @@ final class ScriptResults {
     private static void closeStoredSideEffects(TraversalSideEffects effects,
                                                IdentityHashMap<Object, Boolean> seen, int depth,
                                                int[] count, Throwable failure) {
-        Map<?, ?> stored = storedSideEffectObjects(effects);
-        if (stored == null) {
+        Map<?, ?> stored = storedSideEffectMap(effects, "objectMap");
+        if (stored != null) {
+            for (Object item : stored.values()) {
+                closeRejected(item, seen, depth + 1, count, failure);
+                if (count[0] >= 100000) {
+                    return;
+                }
+            }
+        }
+        Map<?, ?> suppliers = storedSideEffectMap(effects, "supplierMap");
+        if (suppliers == null) {
             return;
         }
-        for (Object item : stored.values()) {
-            closeRejected(item, seen, depth + 1, count, failure);
-            if (count[0] >= 100000) {
-                return;
+        for (Object supplier : suppliers.values()) {
+            // withSideEffect(String, A) stores A in a ConstantSupplier. Read that boxed
+            // value without calling TraversalSideEffects.get(key), which would run unused
+            // suppliers. Other Supplier implementations stay unevaluated.
+            if (supplier instanceof ConstantSupplier) {
+                closeRejected(((ConstantSupplier<?>) supplier).get(), seen, depth + 1, count, failure);
+                if (count[0] >= 100000) {
+                    return;
+                }
             }
         }
     }
 
-    private static Map<?, ?> storedSideEffectObjects(TraversalSideEffects effects) {
+    private static Map<?, ?> storedSideEffectMap(TraversalSideEffects effects, String field) {
         if (!(effects instanceof DefaultTraversalSideEffects)) {
             return null;
         }
         try {
-            Object stored = Whitebox.getInternalState(effects, "objectMap");
+            Object stored = Whitebox.getInternalState(effects, field);
             return stored instanceof Map ? (Map<?, ?>) stored : null;
         } catch (RuntimeException ignored) {
             // Unknown side-effect layouts must not force Supplier evaluation through get(key).
