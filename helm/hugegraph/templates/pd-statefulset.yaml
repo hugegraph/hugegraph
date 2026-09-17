@@ -56,8 +56,8 @@ spec:
       {{- end }}
       automountServiceAccountToken: {{ get (get .Values.pd "serviceAccount" | default dict) "automountServiceAccountToken" | default false }}
       serviceAccountName: {{ include "hugegraph.serviceAccountName" (dict "component" .Values.pd "name" (include "hugegraph.pd.name" .) ) }}
-      {{- with .Values.pd.terminationGracePeriodSeconds }}
-      terminationGracePeriodSeconds: {{ . }}
+      {{- if hasKey .Values.pd "terminationGracePeriodSeconds" }}
+      terminationGracePeriodSeconds: {{ .Values.pd.terminationGracePeriodSeconds }}
       {{- end }}
       {{- with .Values.pd.priorityClassName }}
       priorityClassName: {{ . | quote }}
