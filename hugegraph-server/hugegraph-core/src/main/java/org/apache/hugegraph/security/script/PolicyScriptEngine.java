@@ -139,7 +139,8 @@ public final class PolicyScriptEngine extends AbstractScriptEngine
             CompiledUnit unit = compiled == null ? this.prepare(source, isolated) : compiled;
             Script script = (Script) unit.type.getDeclaredConstructor().newInstance();
             script.setBinding(new Binding(isolated));
-            ScriptExecutionBudget.check(ScriptExecutionBudget.deadline());
+            long deadline = ScriptExecutionBudget.deadline();
+            ScriptExecutionBudget.check(deadline);
             if (this.session) {
                 pending = new PendingSession(bindings, isolated, context.getBindings(ScriptContext.ENGINE_SCOPE));
             }
@@ -150,7 +151,7 @@ public final class PolicyScriptEngine extends AbstractScriptEngine
             if (this.profile == ScriptExecutionProfile.STORE_FILTER && !(result instanceof Boolean)) {
                 throw new IllegalArgumentException("SCRIPT_RESULT_DENIED: condition must return Boolean");
             }
-            Object prepared = ScriptResults.prepare(result);
+            Object prepared = ScriptResults.prepare(result, deadline);
             if (this.session) {
                 try {
                     pending.validate();
@@ -556,7 +557,8 @@ public final class PolicyScriptEngine extends AbstractScriptEngine
             }
             Traversal.Admin<?, ?> traversal = JavaTranslator.of((GraphTraversalSource) source)
                     .translate(bytecode);
-            return (Traversal.Admin<?, ?>) ScriptResults.prepare(traversal);
+            return (Traversal.Admin<?, ?>) ScriptResults.prepare(
+                    traversal, ScriptExecutionBudget.deadline());
         } catch (IllegalArgumentException error) {
             throw new ScriptException(error.getMessage() == null ?
                                       "SCRIPT_BYTECODE_DENIED" : error.getMessage());
