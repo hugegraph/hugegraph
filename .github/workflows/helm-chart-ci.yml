@@ -108,6 +108,14 @@ jobs:
               exit 1
             fi
           }
+          # Kubernetes permits successThreshold > 1 only for readiness.
+          for component in pd store server hubble; do
+            for probe in startup liveness; do
+              must_fail --set "${component}.probes.${probe}.successThreshold=2"
+            done
+            helm template ci helm/hugegraph \
+              --set "${component}.probes.readiness.successThreshold=2" > /dev/null
+          done
           must_fail --set pd.replicas=100
           must_fail --set pd.pdb.minAvailable=3
           must_fail --set server.hpa.enabled=true

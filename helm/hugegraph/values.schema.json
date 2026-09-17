@@ -243,13 +243,19 @@
       ],
       "properties": {
         "startup": {
-          "$ref": "#/definitions/probe"
+          "allOf": [
+            { "$ref": "#/definitions/probe" },
+            { "properties": { "successThreshold": { "maximum": 1 } } }
+          ]
         },
         "readiness": {
           "$ref": "#/definitions/probe"
         },
         "liveness": {
-          "$ref": "#/definitions/probe"
+          "allOf": [
+            { "$ref": "#/definitions/probe" },
+            { "properties": { "successThreshold": { "maximum": 1 } } }
+          ]
         }
       }
     },
