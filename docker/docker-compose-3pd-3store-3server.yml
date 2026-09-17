@@ -72,6 +72,7 @@ x-server-environment: &server-environment
   # silently, which the entrypoint rejects on purpose.
   HG_SERVER_STARTUP_TIMEOUT_S: ${HG_SERVER_STARTUP_TIMEOUT_S-120}
   HG_SERVER_AUTH_TOKEN_SECRET: ${HUGEGRAPH_AUTH_TOKEN_SECRET:-}
+  PD_AUTH_PASSWORD: ${HUGEGRAPH_AUTH_TOKEN_SECRET:-}
   PASSWORD: ${HUGEGRAPH_ADMIN_PASSWORD:-}
 
 x-server-common: &server-common
@@ -110,6 +111,7 @@ services:
       HG_PD_INITIAL_STORE_LIST: store0:8500,store1:8500,store2:8500
       HG_PD_DATA_PATH: /hugegraph-pd/pd_data
       HG_PD_INITIAL_STORE_COUNT: 3
+      HG_PD_AUTH_SECRET_KEY: ${HUGEGRAPH_AUTH_TOKEN_SECRET:-}
     ports: ["8620:8620", "8686:8686"]
     volumes:
       - hg-pd0-data:/hugegraph-pd/pd_data
@@ -128,6 +130,7 @@ services:
       HG_PD_INITIAL_STORE_LIST: store0:8500,store1:8500,store2:8500
       HG_PD_DATA_PATH: /hugegraph-pd/pd_data
       HG_PD_INITIAL_STORE_COUNT: 3
+      HG_PD_AUTH_SECRET_KEY: ${HUGEGRAPH_AUTH_TOKEN_SECRET:-}
     ports: ["8621:8620", "8687:8686"]
     volumes:
       - hg-pd1-data:/hugegraph-pd/pd_data
@@ -146,6 +149,7 @@ services:
       HG_PD_INITIAL_STORE_LIST: store0:8500,store1:8500,store2:8500
       HG_PD_DATA_PATH: /hugegraph-pd/pd_data
       HG_PD_INITIAL_STORE_COUNT: 3
+      HG_PD_AUTH_SECRET_KEY: ${HUGEGRAPH_AUTH_TOKEN_SECRET:-}
     ports: ["8622:8620", "8688:8686"]
     volumes:
       - hg-pd2-data:/hugegraph-pd/pd_data

@@ -171,7 +171,7 @@ assert_hstore() {
                   '["hubble","pd","server","store"]' \
                   '["hubble-data","pd-data","store-data"]'
     assert_hubble "${rendered}" "hstore.properties" server
-    jq -e '
+    jq -e --arg secret "${SECRET}" '
         .services.pd.image == "hugegraph/pd:ci-version" and
         .services.store.image == "hugegraph/store:ci-version" and
         .services.server.image == "hugegraph/server:ci-version" and
@@ -181,6 +181,8 @@ assert_hstore() {
         .services.server.environment.HG_SERVER_PD_PEERS == "pd:8686" and
         .services.server.environment.HG_SERVER_CLUSTER == "hg" and
         .services.server.environment.HG_SERVER_USE_PD == "true" and
+        .services.pd.environment.HG_PD_AUTH_SECRET_KEY == $secret and
+        .services.server.environment.PD_AUTH_PASSWORD == $secret and
         .services.server.environment.HG_SERVER_REST_URL ==
             "http://server:8080" and
         .services.server.healthcheck.test[1] ==
@@ -205,7 +207,7 @@ assert_ha() {
         '["hg-pd0-data","hg-pd1-data","hg-pd2-data","hg-store0-data","hg-store1-data","hg-store2-data","hubble-data"]'
     assert_hubble "${rendered}" "hstore-ha.properties" \
                   server0 server1 server2
-    jq -e '
+    jq -e --arg secret "${SECRET}" '
         all([.services.pd0, .services.pd1, .services.pd2][];
             .image == "hugegraph/pd:ci-version" and
             .pull_policy == "missing") and
@@ -222,7 +224,10 @@ assert_ha() {
             .environment.HG_SERVER_CLUSTER == "hg" and
             .environment.HG_SERVER_USE_PD == "true" and
             .environment.HG_SERVER_INIT_STORE_ENABLED == "false" and
-            .environment.HG_SERVER_REQUIRE_AUTH_TOKEN_SECRET == "true") and
+            .environment.HG_SERVER_REQUIRE_AUTH_TOKEN_SECRET == "true" and
+            .environment.PD_AUTH_PASSWORD == $secret) and
+        all([.services.pd0, .services.pd1, .services.pd2][];
+            .environment.HG_PD_AUTH_SECRET_KEY == $secret) and
         [.services.server0.environment.HG_SERVER_REST_URL,
          .services.server1.environment.HG_SERVER_REST_URL,
          .services.server2.environment.HG_SERVER_REST_URL] ==
