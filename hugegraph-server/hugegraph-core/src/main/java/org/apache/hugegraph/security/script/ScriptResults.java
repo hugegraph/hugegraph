@@ -23,6 +23,7 @@ import java.util.IdentityHashMap;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.Optional;
+import java.util.regex.Matcher;
 
 import org.apache.hugegraph.HugeGraph;
 import org.apache.hugegraph.schema.SchemaManager;
@@ -318,6 +319,7 @@ final class ScriptResults {
             value instanceof Thread ||
             value instanceof HugeGraph || value instanceof TraversalSource || value instanceof Transaction ||
             value instanceof SchemaManager || value instanceof SchemaBuilder || value instanceof ScriptJobContext ||
+            value instanceof Matcher ||
             // Internal traversers remain in the pipeline; only their values reach this boundary.
             // A traverser returned as a value can retain executable objects and traversal state.
             value instanceof Iterator || value instanceof Traverser) {

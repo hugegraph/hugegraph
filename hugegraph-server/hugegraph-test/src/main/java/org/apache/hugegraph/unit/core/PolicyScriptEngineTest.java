@@ -310,6 +310,19 @@ public class PolicyScriptEngineTest {
     }
 
     @Test
+    public void testRegexFindMatcherCannotEscapeAsResult() throws Exception {
+        try (PolicyScriptEngine engine = new PolicyScriptEngine(ScriptExecutionProfile.QUERY)) {
+            Assert.assertEquals(1, engine.eval("if ('abc' =~ 'a.*') { 1 } else { 0 }"));
+            for (String source : List.of("'abc' =~ 'a'", "['abc' =~ 'a']", "[m: ('abc' =~ 'a')]")) {
+                CompiledScript compiled = engine.compile(source, new SimpleBindings());
+                ScriptException error = Assert.assertThrows(source, ScriptException.class,
+                                                            () -> compiled.eval(new SimpleBindings()));
+                assertResultDenied(error);
+            }
+        }
+    }
+
+    @Test
     public void testTraversersCannotEscapeAsResults() throws Exception {
         try (PolicyScriptEngine engine = new PolicyScriptEngine(ScriptExecutionProfile.QUERY)) {
             SimpleBindings bindings = new SimpleBindings(Map.of("g", EmptyGraph.instance().traversal()));
