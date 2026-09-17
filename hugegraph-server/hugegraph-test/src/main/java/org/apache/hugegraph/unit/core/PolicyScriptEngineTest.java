@@ -39,6 +39,7 @@ import javax.script.SimpleBindings;
 
 import org.apache.hugegraph.security.script.PolicyScriptEngine;
 import org.apache.hugegraph.security.script.ScriptBindings;
+import org.apache.hugegraph.testutil.Whitebox;
 import org.apache.hugegraph.security.script.ScriptElementView;
 import org.apache.hugegraph.security.script.ScriptExecutionProfile;
 import org.apache.tinkerpop.gremlin.process.traversal.Bytecode;
@@ -306,6 +307,41 @@ public class PolicyScriptEngineTest {
                             engine.eval("g.inject(g)", bindings);
             Assert.assertThrows(IllegalArgumentException.class, traversal::next);
             traversal.close();
+        }
+    }
+
+    @Test
+    public void testLazyIteratorHonorsCapturedDeadline() throws Exception {
+        try (PolicyScriptEngine engine = new PolicyScriptEngine(ScriptExecutionProfile.QUERY)) {
+            Iterator<?> live = (Iterator<?>) engine.eval("[1, 2].iterator()");
+            try {
+                Assert.assertEquals(1, live.next());
+                Assert.assertEquals(2, live.next());
+            } finally {
+                CloseableIterator.closeIterator(live);
+            }
+        }
+        Class<?> results = Class.forName("org.apache.hugegraph.security.script.ScriptResults");
+        RuntimeException expired = Assert.assertThrows(RuntimeException.class,
+                () -> Whitebox.invoke(results, new Class<?>[]{Object.class, long.class},
+                                      "prepare", null, List.of(1, 2).iterator(),
+                                      System.nanoTime() - 1L));
+        Assert.assertTrue(expired.toString(),
+                          expired.getMessage() != null &&
+                          expired.getMessage().contains("SCRIPT_EXECUTION_TIMEOUT"));
+        long soon = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(50);
+        @SuppressWarnings("unchecked")
+        Iterator<Object> wrapped = (Iterator<Object>) Whitebox.invoke(
+                results, new Class<?>[]{Object.class, long.class},
+                "prepare", null, List.of(1, 2).iterator(), soon);
+        try {
+            Thread.sleep(80L);
+            RuntimeException error = Assert.assertThrows(RuntimeException.class, wrapped::next);
+            Assert.assertTrue(error.toString(),
+                              error.getMessage() != null &&
+                              error.getMessage().contains("SCRIPT_EXECUTION_TIMEOUT"));
+        } finally {
+            CloseableIterator.closeIterator(wrapped);
         }
     }
 

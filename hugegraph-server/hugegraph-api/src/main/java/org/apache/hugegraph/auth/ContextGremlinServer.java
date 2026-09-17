@@ -161,6 +161,7 @@ public class ContextGremlinServer extends GremlinServer {
             }
             // Add a traversal source for all graphs with customed rule.
             manager.putTraversalSource(gName, g);
+            this.bindPolicyGraph(graph, manager.getGraph(graph), g);
         }
     }
 

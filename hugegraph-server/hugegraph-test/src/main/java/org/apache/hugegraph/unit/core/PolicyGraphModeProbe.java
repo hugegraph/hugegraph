@@ -257,11 +257,14 @@ public final class PolicyGraphModeProbe {
         try {
             String name = graph.spaceGraphName();
             server.getServerGremlinExecutor().getGraphManager().putGraph(name, graph);
+            server.injectTraversalSource();
+            PolicyGremlinScriptEngineManager policies =
+                    Whitebox.getInternalState(server, "policyManager");
+            Assert.assertSame(graph, policies.get(name));
+            Assert.assertNotNull(policies.get("__g_" + name));
             server.injectAuthGraph();
             Graph registered = server.getServerGremlinExecutor().getGraphManager().getGraph(name);
             Assert.assertTrue(registered instanceof HugeGraphAuthProxy);
-            PolicyGremlinScriptEngineManager policies =
-                    Whitebox.getInternalState(server, "policyManager");
             Assert.assertSame(registered, policies.get(name));
             Path extraDir = Files.createTempDirectory("hg-policy-graph-extra-");
             HugeGraph extra = null;

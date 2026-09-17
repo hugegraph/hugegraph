@@ -58,6 +58,11 @@ final class ScriptResults {
     }
 
     static Object prepare(Object value) {
+        return prepare(value, ScriptExecutionBudget.deadline());
+    }
+
+    static Object prepare(Object value, long deadline) {
+        ScriptExecutionBudget.check(deadline);
         if (value instanceof Traversal.Admin) {
             Traversal.Admin<?, ?> traversal =
                     (Traversal.Admin<?, ?>) value;
@@ -65,15 +70,15 @@ final class ScriptResults {
                 DefaultTraversal<Object, Object> checked = new DefaultTraversal<>();
                 traversal.getGraph().ifPresent(checked::setGraph);
                 checked.setSideEffects(traversal.getSideEffects());
-                checked.addStep(new RemainingResultsStep(checked, traversal));
+                checked.addStep(new RemainingResultsStep(checked, traversal, deadline));
                 return checked;
             }
             traversal.addStep(new LambdaSideEffectStep<>(
-                    traversal, traverser -> validate(traverser.get())));
+                    traversal, traverser -> validate(traverser.get(), deadline)));
         } else if (value instanceof Iterator) {
-            return new CheckedIterator((Iterator<?>) value);
+            return new CheckedIterator((Iterator<?>) value, deadline);
         } else {
-            validate(value);
+            validate(value, deadline);
         }
         return value;
     }
@@ -81,10 +86,12 @@ final class ScriptResults {
     private static final class CheckedIterator implements CloseableIterator<Object> {
 
         private final Iterator<?> original;
+        private final long deadline;
         private boolean closed;
 
-        CheckedIterator(Iterator<?> original) {
+        CheckedIterator(Iterator<?> original, long deadline) {
             this.original = original;
+            this.deadline = deadline;
         }
 
         @Override
@@ -93,7 +100,7 @@ final class ScriptResults {
                 return false;
             }
             try {
-                ScriptExecutionBudget.check(ScriptExecutionBudget.deadline());
+                ScriptExecutionBudget.check(this.deadline);
                 if (!this.original.hasNext()) {
                     this.close();
                     return false;
@@ -111,9 +118,9 @@ final class ScriptResults {
                 throw FastNoSuchElementException.instance();
             }
             try {
-                ScriptExecutionBudget.check(ScriptExecutionBudget.deadline());
+                ScriptExecutionBudget.check(this.deadline);
                 Object next = this.original.next();
-                validate(next);
+                validate(next, this.deadline);
                 return next;
             } catch (RuntimeException | Error failure) {
                 this.closeAfterFailure(failure);
@@ -142,22 +149,25 @@ final class ScriptResults {
             implements AutoCloseable {
 
         private final Traversal.Admin<?, ?> original;
+        private final long deadline;
         private boolean closed;
 
-        RemainingResultsStep(Traversal.Admin<?, ?> traversal, Traversal.Admin<?, ?> original) {
+        RemainingResultsStep(Traversal.Admin<?, ?> traversal, Traversal.Admin<?, ?> original,
+                             long deadline) {
             super(traversal);
             this.original = original;
+            this.deadline = deadline;
         }
 
         @Override
         @SuppressWarnings("unchecked")
         protected Traverser.Admin<Object> processNextStart() {
-            ScriptExecutionBudget.check(ScriptExecutionBudget.deadline());
+            ScriptExecutionBudget.check(this.deadline);
             if (!this.original.hasNext()) {
                 throw FastNoSuchElementException.instance();
             }
             Traverser.Admin<Object> next = (Traverser.Admin<Object>) this.original.nextTraverser();
-            validate(next.get());
+            validate(next.get(), this.deadline);
             return next;
         }
 
@@ -171,8 +181,12 @@ final class ScriptResults {
     }
 
     static void validate(Object value) {
+        validate(value, ScriptExecutionBudget.deadline());
+    }
+
+    static void validate(Object value, long deadline) {
         try {
-            validate(value, new IdentityHashMap<>(), 0, new int[]{0}, ScriptExecutionBudget.deadline());
+            validate(value, new IdentityHashMap<>(), 0, new int[]{0}, deadline);
         } catch (RuntimeException | Error failure) {
             // Rejected values never reach the response owner. Close nested cursors as well,
             // including those after the first invalid item, without consuming their results.
