@@ -38,6 +38,7 @@ import org.apache.hugegraph.HugeGraph;
 import org.apache.hugegraph.auth.ContextGremlinServer;
 import org.apache.hugegraph.auth.HugeAuthenticator;
 import org.apache.hugegraph.auth.HugeGraphAuthProxy;
+import org.apache.hugegraph.auth.PolicyGremlinScriptEngineManager;
 import org.apache.hugegraph.auth.RolePermission;
 import org.apache.hugegraph.backend.id.IdGenerator;
 import org.apache.hugegraph.config.HugeConfig;
@@ -54,6 +55,7 @@ import org.apache.hugegraph.security.script.ScriptPolicyRuntime;
 import org.apache.hugegraph.security.script.ScriptSecurityMode;
 import org.apache.hugegraph.task.HugeTask;
 import org.apache.hugegraph.task.TaskManager;
+import org.apache.hugegraph.testutil.Whitebox;
 import org.apache.hugegraph.traversal.optimize.HugeScriptTraversal;
 import org.apache.hugegraph.util.Events;
 import org.apache.hugegraph.util.JsonUtil;
@@ -258,6 +260,37 @@ public final class PolicyGraphModeProbe {
             server.injectAuthGraph();
             Graph registered = server.getServerGremlinExecutor().getGraphManager().getGraph(name);
             Assert.assertTrue(registered instanceof HugeGraphAuthProxy);
+            PolicyGremlinScriptEngineManager policies =
+                    Whitebox.getInternalState(server, "policyManager");
+            Assert.assertSame(registered, policies.get(name));
+            Path extraDir = Files.createTempDirectory("hg-policy-graph-extra-");
+            HugeGraph extra = null;
+            try {
+                BaseConfiguration extraConfig = new BaseConfiguration();
+                extraConfig.setProperty("backend", "memory");
+                extraConfig.setProperty("serializer", "text");
+                extraConfig.setProperty("store", "policy_graph_dynamic");
+                extra = HugeFactory.open(new HugeConfig(extraConfig));
+                extra.initBackend();
+                extra.serverStarted(null);
+                String extraName = extra.spaceGraphName();
+                hub.notify(Events.GRAPH_CREATE, extra).get(10, TimeUnit.SECONDS);
+                Object bound = policies.get(extraName);
+                Assert.assertTrue(bound instanceof HugeGraphAuthProxy);
+                Assert.assertSame(bound, server.getServerGremlinExecutor().getGraphManager()
+                        .getGraph(extraName));
+                Assert.assertNotNull(policies.get("__g_" + extraName));
+                hub.notify(Events.GRAPH_DROP, extra).get(10, TimeUnit.SECONDS);
+                Assert.assertNull(policies.get(extraName));
+                Assert.assertNull(policies.get("__g_" + extraName));
+                Assert.assertFalse(server.getServerGremlinExecutor().getGraphManager()
+                        .getGraphNames().contains(extraName));
+            } finally {
+                if (extra != null) {
+                    extra.close();
+                }
+                FileUtils.deleteDirectory(extraDir.toFile());
+            }
             // AllowAll skips validateUser(), which normally prepares this user's audit limiter.
             // Verify the fixture's existing data under its owner before dispatching session work.
             assertVertexVisible(graph, "v1", true);

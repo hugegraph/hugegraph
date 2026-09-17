@@ -133,8 +133,8 @@ public class ContextGremlinServer extends GremlinServer {
             graph = new HugeGraphAuthProxy((HugeGraph) graph);
             manager.putGraph(name, graph);
             if (this.policyManager != null) {
-                this.policyManager.put(name, graph);
                 manager.putTraversalSource(G_PREFIX + name, graph.traversal());
+                this.bindPolicyGraph(name, graph, graph.traversal());
             }
         }
     }
@@ -173,6 +173,7 @@ public class ContextGremlinServer extends GremlinServer {
         Whitebox.invoke(executor, "globalBindings",
                         new Class<?>[]{String.class, Object.class},
                         "put", name, graph);
+        this.bindPolicyGraph(name, graph, g);
     }
 
     private synchronized void removeGraph(HugeGraph graph) {
@@ -192,6 +193,7 @@ public class ContextGremlinServer extends GremlinServer {
             Whitebox.invoke(executor, "globalBindings",
                             new Class<?>[]{Object.class},
                             "remove", name);
+            this.unbindPolicyGraph(name);
             if (manager.getGraph(name) != null) {
                 manager.removeGraph(name);
             }
@@ -199,6 +201,22 @@ public class ContextGremlinServer extends GremlinServer {
             throw new HugeException("Failed to remove graph '%s' from " +
                                     "gremlin server context", e, name);
         }
+    }
+
+    private void bindPolicyGraph(String name, Graph graph, GraphTraversalSource g) {
+        if (this.policyManager == null) {
+            return;
+        }
+        this.policyManager.put(name, graph);
+        this.policyManager.put(G_PREFIX + name, g);
+    }
+
+    private void unbindPolicyGraph(String name) {
+        if (this.policyManager == null) {
+            return;
+        }
+        this.policyManager.getBindings().remove(name);
+        this.policyManager.getBindings().remove(G_PREFIX + name);
     }
 
     private static boolean sameOriginGraph(Graph registered, HugeGraph graph) {
