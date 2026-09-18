@@ -940,6 +940,11 @@
             }
           }
         },
+        "readinessPath": {
+          "type": "string",
+          "pattern": "^/",
+          "description": "HTTP path for the Server readinessProbe; /readiness (apache/hugegraph#3212) on Server images that serve it, /versions (default) on older ones"
+        },
         "probes": {
           "$ref": "#/definitions/probes"
         },

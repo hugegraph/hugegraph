@@ -317,7 +317,7 @@ spec:
             {{- with include "hugegraph.probeTuning" .Values.server.probes.startup }}{{ . | trim | nindent 12 }}{{- end }}
           readinessProbe:
             httpGet:
-              path: /versions
+              path: {{ .Values.server.readinessPath | default "/versions" }}
               port: http
             periodSeconds: {{ .Values.server.probes.readiness.periodSeconds }}
             failureThreshold: {{ .Values.server.probes.readiness.failureThreshold }}

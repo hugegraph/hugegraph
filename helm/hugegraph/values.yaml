@@ -280,6 +280,13 @@ server:
   # Empty preserves the image entrypoint's automatic JVM sizing.
   javaOpts: ""
   port: 8080
+  # HTTP path the Server readinessProbe hits. /readiness (apache/hugegraph#3212)
+  # answers 503 while the Server cannot reach PD or any active Store, so such a
+  # Server drops out of the Service instead of answering 500 to every graph
+  # request; keep /versions on Server images that do not serve it. Startup and
+  # liveness stay on /versions so a Server that merely lost its storage is not
+  # restarted.
+  readinessPath: /versions
   backend: hstore
   resources: {}
   # Server is stateless and may scale past the node count via HPA, so the
