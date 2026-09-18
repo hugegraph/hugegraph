@@ -365,7 +365,7 @@ default values.
 | `pd.pdb.minAvailable` | Must be strictly less than `pd.replicas`. No PDB is rendered when `pd.replicas` is 1 | `2` |
 | `pd.readinessPath` | Path the PD readinessProbe hits. `/v1/ready` is quorum-aware and returns 503 without a raft leader | `/v1/ready` |
 | `pd.auth.value` | Plaintext PD REST secret (`auth.secret-key`). Prefer `existingSecret` in shared clusters. Printable ASCII, no leading whitespace, no backslashes | `""` |
-| `pd.auth.existingSecret` | Pre-created Secret holding the PD REST secret under `pd.auth.key`. Wins over `value` and `autoGenerate`; the chart does not manage it | `""` |
+| `pd.auth.existingSecret` | Pre-created Secret holding the PD REST secret under `pd.auth.key`. Wins over `value` and `autoGenerate`; the chart does not manage it. Its value must meet the same constraint as `pd.auth.value`: printable ASCII, no leading whitespace, no backslashes | `""` |
 | `pd.auth.key` | Key inside the PD REST Secret | `secret-key` |
 | `pd.auth.autoGenerate` | Create and keep a random release-pd-auth Secret when `value` and `existingSecret` are empty | `true` |
 | `pd.probes.*.periodSeconds` | Probe interval | see `values.yaml` |
@@ -860,6 +860,10 @@ curl -u "hg:${PD_SECRET}" http://127.0.0.1:8620/v1/task/patrolPartitions
 curl -u "hg:${PD_SECRET}" http://127.0.0.1:8620/v1/task/balanceLeaders
 curl -u "hg:${PD_SECRET}" http://127.0.0.1:8620/v1/task/balancePartitions
 ```
+
+Read `/v1/members` again after the tasks: if leadership moved mid-sequence,
+the later tasks ran on a follower and did nothing, so rerun them on the new
+leader.
 
 The credential is required; PD answers 401 without it. The Secret name
 follows the release (`<release>-pd-auth`) unless `pd.auth.existingSecret`
