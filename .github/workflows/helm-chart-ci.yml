@@ -39,7 +39,9 @@ jobs:
       # fails the workflow at startup; install the pinned release directly.
       - name: install helm
         run: |
-          curl -fsSL https://get.helm.sh/helm-v3.16.2-linux-amd64.tar.gz | tar -xz -C /tmp
+          curl -fsSLo /tmp/helm.tgz https://get.helm.sh/helm-v3.16.2-linux-amd64.tar.gz
+          echo "9318379b847e333460d33d291d4c088156299a26cd93d570a7f5d0c36e50b5bb  /tmp/helm.tgz" | sha256sum -c -
+          tar -xzf /tmp/helm.tgz -C /tmp
           sudo install -m 0755 /tmp/linux-amd64/helm /usr/local/bin/helm
           helm version
 
@@ -48,6 +50,11 @@ jobs:
           helm lint helm/hugegraph
           helm lint helm/hugegraph -f helm/hugegraph/values-single.yaml
           helm lint helm/hugegraph -f helm/hugegraph/values-cluster.yaml
+
+      - name: helm unittest
+        run: |
+          helm plugin install https://github.com/helm-unittest/helm-unittest.git --version v1.1.2
+          helm unittest helm/hugegraph
 
       - name: helm template
         run: |
@@ -172,6 +179,7 @@ jobs:
         run: |
           set -o pipefail
           curl -sSLo /tmp/kc.tar.gz https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz
+          echo "95f14e87aa28c09d5941f11bd024c1d02fdc0303ccaa23f61cef67bc92619d73  /tmp/kc.tar.gz" | sha256sum -c -
           tar -xzf /tmp/kc.tar.gz -C /tmp
           for preset in "" "-f helm/hugegraph/values-single.yaml" "-f helm/hugegraph/values-cluster.yaml"; do
             # shellcheck disable=SC2086 # $preset intentionally splits into flags
