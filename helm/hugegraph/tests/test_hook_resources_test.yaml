@@ -43,3 +43,13 @@ tests:
       - equal:
           path: spec.containers[0].resources.limits.cpu
           value: 500m
+
+  - it: passes imagePullSecrets to the test hook Pod
+    set:
+      imagePullSecrets:
+        - name: registry-creds
+    asserts:
+      - contains:
+          path: spec.imagePullSecrets
+          content:
+            name: registry-creds

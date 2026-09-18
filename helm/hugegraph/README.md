@@ -230,6 +230,14 @@ now needs `pd.service.allowInsecureExposure=true`, and a TLS-less Server
 Ingress needs `server.ingress.allowPlainHttp=true`. The render error names
 the value to set.
 
+PD and Store storage sizes live in the StatefulSet `volumeClaimTemplates`,
+which Kubernetes forbids changing, so an upgrade with a new size is
+rejected in full. To grow storage on a StorageClass that supports volume
+expansion: patch each PVC's `spec.resources.requests.storage`, wait for
+the resize to finish, recreate the StatefulSet object without touching
+Pods (`kubectl delete statefulset <name> --cascade=orphan`), then upgrade
+with the matching value.
+
 Two cases are worth knowing about in advance:
 
 - **PD** restarts one pod at a time whenever its Pod template changes, which
@@ -334,7 +342,7 @@ default values.
 | `pd.ports.rest` | PD REST port, also used by probes | `8620` |
 | `pd.ports.raft` | PD Raft port | `8610` |
 | `pd.dataPath` | PD data directory inside the container | `/hugegraph-pd/pd_data` |
-| `pd.storage.size` | PD PersistentVolumeClaim size | `10Gi` |
+| `pd.storage.size` | PD PersistentVolumeClaim size. Applies at install; see Upgrading for the resize procedure | `10Gi` |
 | `pd.storage.storageClassName` | Empty uses the cluster default StorageClass | `""` |
 | `pd.resources` | PD container resources. Set these for production | `{}` |
 | `pd.podSecurityContext` | Pod-level securityContext, rendered only when set | `{}` |
@@ -380,7 +388,7 @@ default values.
 | `store.ports.raft` | Store Raft port | `8510` |
 | `store.ports.rest` | Store REST port | `8520` |
 | `store.dataPath` | Store data directory | `/hugegraph-store/storage` |
-| `store.storage.size` | Store PersistentVolumeClaim size | `50Gi` |
+| `store.storage.size` | Store PersistentVolumeClaim size. Applies at install; see Upgrading for the resize procedure | `50Gi` |
 | `store.storage.storageClassName` | Empty uses the cluster default StorageClass | `""` |
 | `store.resources` | Store container resources. Set these for production | `{}` |
 | `store.podSecurityContext` | Pod-level securityContext, rendered only when set | `{}` |
