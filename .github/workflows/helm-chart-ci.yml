@@ -54,8 +54,10 @@ jobs:
       - name: helm unittest
         run: |
           # v1.0.0 is the newest helm-unittest whose plugin.yaml Helm 3.16.2 can
-          # parse; v1.1.x adds a platformHooks field that 3.16.2 rejects.
-          helm plugin install https://github.com/helm-unittest/helm-unittest.git --version v1.0.0
+          # parse (v1.1.x adds a platformHooks field that 3.16.2 rejects).
+          # Pinned by the tag's commit so a moved tag cannot change what runs.
+          helm plugin install https://github.com/helm-unittest/helm-unittest.git \
+            --version ddd5feaa9465e7a3591792524ce7f441d4c5157e
           helm unittest helm/hugegraph
 
       - name: helm template

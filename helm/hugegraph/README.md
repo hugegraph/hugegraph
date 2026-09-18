@@ -834,15 +834,23 @@ an empty success and does no recovery work. Port-forwarding the client
 Service selects an arbitrary PD, so identify the leader first and
 port-forward that Pod:
 
+`kubectl port-forward` runs in the foreground, so use a second terminal
+(or background the forward) for the curls, and stop the Service forward
+before starting the leader one:
+
 ```bash
 kubectl port-forward -n hugegraph svc/hugegraph-pd-client 8620:8620
 PD_SECRET="$(kubectl -n hugegraph get secret hugegraph-pd-auth \
   -o jsonpath='{.data.secret-key}' | base64 --decode)"
-curl -su "hg:${PD_SECRET}" http://127.0.0.1:8620/v1/members   # read .data.pdLeader.raftUrl; its host names the leader Pod
-kubectl port-forward -n hugegraph pod/<leader-pod> 8620:8620  # replace the Service forward with the leader
-curl -u "hg:${PD_SECRET}" http://127.0.0.1:8620/v1/task/patrolPartitions   # reconcile shard groups, process tombstoned Stores
-curl -u "hg:${PD_SECRET}" http://127.0.0.1:8620/v1/task/balanceLeaders     # spread Raft leaders
-curl -u "hg:${PD_SECRET}" http://127.0.0.1:8620/v1/task/balancePartitions  # spread partition data
+# Read .data.pdLeader.raftUrl; its host names the leader Pod.
+curl -su "hg:${PD_SECRET}" http://127.0.0.1:8620/v1/members
+# Stop the Service forward, then forward the leader Pod instead.
+kubectl port-forward -n hugegraph pod/<leader-pod> 8620:8620
+# Reconcile shard groups and process tombstoned Stores.
+curl -u "hg:${PD_SECRET}" http://127.0.0.1:8620/v1/task/patrolPartitions
+# Spread Raft leaders, then partition data.
+curl -u "hg:${PD_SECRET}" http://127.0.0.1:8620/v1/task/balanceLeaders
+curl -u "hg:${PD_SECRET}" http://127.0.0.1:8620/v1/task/balancePartitions
 ```
 
 The credential is required; PD answers 401 without it. The Secret name

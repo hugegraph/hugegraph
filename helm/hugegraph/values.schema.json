@@ -748,7 +748,7 @@
               "properties": {
                 "password": {
                   "type": "string",
-                  "pattern": "^([^ \\t\\r\\n\\\\][^\\r\\n\\\\]*)?$",
+                  "pattern": "^([^ \\t\\f\\r\\n\\\\][^\\r\\n\\\\]*)?$",
                   "description": "Inline admin password. Empty defers to existingSecret or autoGenerate. The Server wrapper rejects newlines, carriage returns, backslashes and leading whitespace, so the schema rejects them before install."
                 },
                 "existingSecret": {
