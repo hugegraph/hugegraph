@@ -20,9 +20,11 @@ package org.apache.hugegraph.security;
 import java.io.FileDescriptor;
 import java.net.InetAddress;
 import java.security.Permission;
+import java.util.Arrays;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArraySet;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.apache.hugegraph.util.Log;
 import org.slf4j.Logger;
@@ -109,6 +111,9 @@ public class HugeSecurityManager extends SecurityManager {
     );
 
     private static final Set<String> IGNORE_CHECKED_CLASSES = new CopyOnWriteArraySet<>();
+    private static final AtomicInteger STACK_CAPTURES = new AtomicInteger();
+    private static final ThreadLocal<Integer> STACK_DEPTH = new ThreadLocal<>();
+    private static final ThreadLocal<StackTraceElement[][]> STACK_FRAMES = new ThreadLocal<>();
 
     public static void ignoreCheckedClass(String clazz) {
         if (callFromGremlin()) {
@@ -119,11 +124,16 @@ public class HugeSecurityManager extends SecurityManager {
 
     @Override
     public void checkPermission(Permission perm) {
-        if (DENIED_PERMISSIONS.contains(perm.getName()) && callFromGremlin()) {
-            // TODO: consider ban the Reflection/Runtime/SerializablePermission after
-            //       identifying the "callFromGremlin()" clearly
-            throw newSecurityException("Not allowed to access denied permission via Gremlin: %s",
-                                       perm);
+        enterStackScope();
+        try {
+            if (DENIED_PERMISSIONS.contains(perm.getName()) && callFromGremlin()) {
+                // TODO: consider ban the Reflection/Runtime/SerializablePermission after
+                //       identifying the "callFromGremlin()" clearly
+                throw newSecurityException("Not allowed to access denied permission via Gremlin: %s",
+                                           perm);
+            }
+        } finally {
+            exitStackScope();
         }
     }
 
@@ -136,198 +146,313 @@ public class HugeSecurityManager extends SecurityManager {
 
     @Override
     public void checkCreateClassLoader() {
-        if (!callFromAcceptClassLoaders() && callFromGremlin()) {
-            throw newSecurityException("Not allowed to create class loader via Gremlin");
+        enterStackScope();
+        try {
+            if (!callFromAcceptClassLoaders() && callFromGremlin()) {
+                throw newSecurityException("Not allowed to create class loader via Gremlin");
+            }
+            super.checkCreateClassLoader();
+        } finally {
+            exitStackScope();
         }
-        super.checkCreateClassLoader();
     }
 
     @Override
     public void checkLink(String lib) {
-        if (callFromGremlin()) {
-            throw newSecurityException("Not allowed to link library via Gremlin");
+        enterStackScope();
+        try {
+            if (callFromGremlin()) {
+                throw newSecurityException("Not allowed to link library via Gremlin");
+            }
+            super.checkLink(lib);
+        } finally {
+            exitStackScope();
         }
-        super.checkLink(lib);
     }
 
     @Override
     public void checkAccess(Thread thread) {
-        if (callFromGremlin() && !callFromCaffeine() &&
-            !callFromAsyncTasks() && !callFromEventHubNotify() &&
-            !callFromBackendHbase() &&
-            !callFromRaft() && !callFromSofaRpc() && !callFromIgnoreCheckedClass()) {
-            throw newSecurityException("Not allowed to access thread via Gremlin");
+        enterStackScope();
+        try {
+            if (callFromGremlin() && !callFromCaffeine() &&
+                !callFromAsyncTasks() && !callFromEventHubNotify() &&
+                !callFromBackendHbase() &&
+                !callFromRaft() && !callFromSofaRpc() && !callFromIgnoreCheckedClass()) {
+                throw newSecurityException("Not allowed to access thread via Gremlin");
+            }
+            super.checkAccess(thread);
+        } finally {
+            exitStackScope();
         }
-        super.checkAccess(thread);
     }
 
     @Override
     public void checkAccess(ThreadGroup threadGroup) {
-        if (callFromGremlin() && !callFromCaffeine() &&
-            !callFromAsyncTasks() && !callFromEventHubNotify() &&
-            !callFromBackendHbase() &&
-            !callFromRaft() && !callFromSofaRpc() &&
-            !callFromIgnoreCheckedClass()) {
-            throw newSecurityException("Not allowed to access thread group via Gremlin");
+        enterStackScope();
+        try {
+            if (callFromGremlin() && !callFromCaffeine() &&
+                !callFromAsyncTasks() && !callFromEventHubNotify() &&
+                !callFromBackendHbase() &&
+                !callFromRaft() && !callFromSofaRpc() &&
+                !callFromIgnoreCheckedClass()) {
+                throw newSecurityException("Not allowed to access thread group via Gremlin");
+            }
+            super.checkAccess(threadGroup);
+        } finally {
+            exitStackScope();
         }
-        super.checkAccess(threadGroup);
     }
 
     @Override
     public void checkExit(int status) {
-        if (callFromGremlin()) {
-            throw newSecurityException("Not allowed to call System.exit() via Gremlin");
+        enterStackScope();
+        try {
+            if (callFromGremlin()) {
+                throw newSecurityException("Not allowed to call System.exit() via Gremlin");
+            }
+            super.checkExit(status);
+        } finally {
+            exitStackScope();
         }
-        super.checkExit(status);
     }
 
     @Override
     public void checkExec(String cmd) {
-        if (callFromGremlin()) {
-            throw newSecurityException("Not allowed to execute command via Gremlin");
+        enterStackScope();
+        try {
+            if (callFromGremlin()) {
+                throw newSecurityException("Not allowed to execute command via Gremlin");
+            }
+            super.checkExec(cmd);
+        } finally {
+            exitStackScope();
         }
-        super.checkExec(cmd);
     }
 
     @Override
     public void checkRead(FileDescriptor fd) {
-        if (callFromGremlin() && !callFromRaft() && !callFromSofaRpc()) {
-            throw newSecurityException("Not allowed to read fd via Gremlin");
+        enterStackScope();
+        try {
+            if (callFromGremlin() && !callFromRaft() && !callFromSofaRpc()) {
+                throw newSecurityException("Not allowed to read fd via Gremlin");
+            }
+            super.checkRead(fd);
+        } finally {
+            exitStackScope();
         }
-        super.checkRead(fd);
     }
 
     @Override
     public void checkRead(String file) {
-        if (callFromGremlin() && !callFromCaffeine() &&
-            !readGroovyInCurrentDir(file) && !callFromBackendHbase() &&
-            !callFromSnapshot() && !callFromRaft() && !callFromSofaRpc()) {
-            throw newSecurityException("Not allowed to read file via Gremlin: %s", file);
+        enterStackScope();
+        try {
+            if (callFromGremlin() && !callFromCaffeine() &&
+                !readGroovyInCurrentDir(file) && !callFromBackendHbase() &&
+                !callFromSnapshot() && !callFromRaft() && !callFromSofaRpc()) {
+                throw newSecurityException("Not allowed to read file via Gremlin: %s", file);
+            }
+            super.checkRead(file);
+        } finally {
+            exitStackScope();
         }
-        super.checkRead(file);
     }
 
     @Override
     public void checkRead(String file, Object context) {
-        if (callFromGremlin() && !callFromRaft() && !callFromSofaRpc()) {
-            throw newSecurityException("Not allowed to read file via Gremlin: %s", file);
+        enterStackScope();
+        try {
+            if (callFromGremlin() && !callFromRaft() && !callFromSofaRpc()) {
+                throw newSecurityException("Not allowed to read file via Gremlin: %s", file);
+            }
+            super.checkRead(file, context);
+        } finally {
+            exitStackScope();
         }
-        super.checkRead(file, context);
     }
 
     @Override
     public void checkWrite(FileDescriptor fd) {
-        if (callFromGremlin() && !callFromRaft() && !callFromSofaRpc()) {
-            throw newSecurityException("Not allowed to write fd via Gremlin");
+        enterStackScope();
+        try {
+            if (callFromGremlin() && !callFromRaft() && !callFromSofaRpc()) {
+                throw newSecurityException("Not allowed to write fd via Gremlin");
+            }
+            super.checkWrite(fd);
+        } finally {
+            exitStackScope();
         }
-        super.checkWrite(fd);
     }
 
     @Override
     public void checkWrite(String file) {
-        if (callFromGremlin() && !callFromSnapshot() && !callFromRaft() && !callFromSofaRpc()) {
-            throw newSecurityException("Not allowed to write file via Gremlin");
+        enterStackScope();
+        try {
+            if (callFromGremlin() && !callFromSnapshot() && !callFromRaft() && !callFromSofaRpc()) {
+                throw newSecurityException("Not allowed to write file via Gremlin");
+            }
+            super.checkWrite(file);
+        } finally {
+            exitStackScope();
         }
-        super.checkWrite(file);
     }
 
     @Override
     public void checkDelete(String file) {
-        if (callFromGremlin() && !callFromSnapshot()) {
-            throw newSecurityException("Not allowed to delete file via Gremlin");
+        enterStackScope();
+        try {
+            if (callFromGremlin() && !callFromSnapshot()) {
+                throw newSecurityException("Not allowed to delete file via Gremlin");
+            }
+            super.checkDelete(file);
+        } finally {
+            exitStackScope();
         }
-        super.checkDelete(file);
     }
 
     @Override
     public void checkListen(int port) {
-        if (callFromGremlin()) {
-            throw newSecurityException("Not allowed to listen socket via Gremlin");
+        enterStackScope();
+        try {
+            if (callFromGremlin()) {
+                throw newSecurityException("Not allowed to listen socket via Gremlin");
+            }
+            super.checkListen(port);
+        } finally {
+            exitStackScope();
         }
-        super.checkListen(port);
     }
 
     @Override
     public void checkAccept(String host, int port) {
-        if (callFromGremlin()) {
-            throw newSecurityException("Not allowed to accept socket via Gremlin");
+        enterStackScope();
+        try {
+            if (callFromGremlin()) {
+                throw newSecurityException("Not allowed to accept socket via Gremlin");
+            }
+            super.checkAccept(host, port);
+        } finally {
+            exitStackScope();
         }
-        super.checkAccept(host, port);
     }
 
     @Override
     public void checkConnect(String host, int port) {
-        if (callFromGremlin() && !callFromBackendHbase() &&
-            !callFromRaft() && !callFromSofaRpc()) {
-            throw newSecurityException("Not allowed to connect socket via Gremlin");
+        enterStackScope();
+        try {
+            if (callFromGremlin() && !callFromBackendHbase() &&
+                !callFromRaft() && !callFromSofaRpc()) {
+                throw newSecurityException("Not allowed to connect socket via Gremlin");
+            }
+            super.checkConnect(host, port);
+        } finally {
+            exitStackScope();
         }
-        super.checkConnect(host, port);
     }
 
     @Override
     public void checkConnect(String host, int port, Object context) {
-        if (callFromGremlin()) {
-            throw newSecurityException("Not allowed to connect socket via Gremlin");
+        enterStackScope();
+        try {
+            if (callFromGremlin()) {
+                throw newSecurityException("Not allowed to connect socket via Gremlin");
+            }
+            super.checkConnect(host, port, context);
+        } finally {
+            exitStackScope();
         }
-        super.checkConnect(host, port, context);
     }
 
     @Override
     public void checkMulticast(InetAddress addrs) {
-        if (callFromGremlin()) {
-            throw newSecurityException("Not allowed to multicast via Gremlin");
+        enterStackScope();
+        try {
+            if (callFromGremlin()) {
+                throw newSecurityException("Not allowed to multicast via Gremlin");
+            }
+            super.checkMulticast(addrs);
+        } finally {
+            exitStackScope();
         }
-        super.checkMulticast(addrs);
     }
 
     public void checkMemberAccess(Class<?> clazz, int which) {
-        if (callFromGremlin()) {
-            throw newSecurityException("Not allowed to access member via Gremlin");
+        enterStackScope();
+        try {
+            if (callFromGremlin()) {
+                throw newSecurityException("Not allowed to access member via Gremlin");
+            }
+        } finally {
+            exitStackScope();
         }
     }
 
     @Override
     @SuppressWarnings("deprecation")
     public void checkMulticast(InetAddress addrs, byte ttl) {
-        if (callFromGremlin()) {
-            throw newSecurityException("Not allowed to multicast via Gremlin");
+        enterStackScope();
+        try {
+            if (callFromGremlin()) {
+                throw newSecurityException("Not allowed to multicast via Gremlin");
+            }
+            super.checkMulticast(addrs, ttl);
+        } finally {
+            exitStackScope();
         }
-        super.checkMulticast(addrs, ttl);
     }
 
     @Override
     public void checkSetFactory() {
-        if (callFromGremlin()) {
-            throw newSecurityException("Not allowed to set socket factory via Gremlin");
+        enterStackScope();
+        try {
+            if (callFromGremlin()) {
+                throw newSecurityException("Not allowed to set socket factory via Gremlin");
+            }
+            super.checkSetFactory();
+        } finally {
+            exitStackScope();
         }
-        super.checkSetFactory();
     }
 
     @Override
     public void checkPropertiesAccess() {
-        if (callFromGremlin() && !callFromSofaRpc() && !callFromNewSecurityException()) {
-            throw newSecurityException("Not allowed to access system properties via Gremlin");
+        enterStackScope();
+        try {
+            if (callFromGremlin() && !callFromSofaRpc() && !callFromNewSecurityException()) {
+                throw newSecurityException("Not allowed to access system properties via Gremlin");
+            }
+            super.checkPropertiesAccess();
+        } finally {
+            exitStackScope();
         }
-        super.checkPropertiesAccess();
     }
 
     @Override
     public void checkPropertyAccess(String key) {
-        if (!callFromAcceptClassLoaders() && callFromGremlin() &&
-            !WHITE_SYSTEM_PROPERTIES.contains(key) && !callFromBackendHbase() &&
-            !callFromSnapshot() && !callFromRaft() && !callFromSofaRpc()) {
-            throw newSecurityException("Not allowed to access system property(%s) via Gremlin",
-                                       key);
+        enterStackScope();
+        try {
+            if (!callFromAcceptClassLoaders() && callFromGremlin() &&
+                !WHITE_SYSTEM_PROPERTIES.contains(key) && !callFromBackendHbase() &&
+                !callFromSnapshot() && !callFromRaft() && !callFromSofaRpc()) {
+                throw newSecurityException("Not allowed to access system property(%s) via Gremlin",
+                                           key);
+            }
+            super.checkPropertyAccess(key);
+        } finally {
+            exitStackScope();
         }
-        super.checkPropertyAccess(key);
     }
 
     @Override
     public void checkPrintJobAccess() {
-        if (callFromGremlin()) {
-            throw newSecurityException("Not allowed to print job via Gremlin");
+        enterStackScope();
+        try {
+            if (callFromGremlin()) {
+                throw newSecurityException("Not allowed to print job via Gremlin");
+            }
+            super.checkPrintJobAccess();
+        } finally {
+            exitStackScope();
         }
-        super.checkPrintJobAccess();
     }
 
     @Override
@@ -420,7 +545,7 @@ public class HugeSecurityManager extends SecurityManager {
         Thread curThread = Thread.currentThread();
         if (curThread.getName().startsWith(GREMLIN_SERVER_WORKER) ||
             curThread.getName().startsWith(TASK_WORKER)) {
-            StackTraceElement[] elements = curThread.getStackTrace();
+            StackTraceElement[] elements = currentStack();
             for (StackTraceElement element : elements) {
                 String className = element.getClassName();
                 if (classes.contains(className) ||
@@ -437,8 +562,7 @@ public class HugeSecurityManager extends SecurityManager {
     }
 
     private static boolean callFromMethods(Map<String, Set<String>> methods) {
-        Thread curThread = Thread.currentThread();
-        StackTraceElement[] elements = curThread.getStackTrace();
+        StackTraceElement[] elements = currentStack();
         for (StackTraceElement element : elements) {
             Set<String> clazzMethods = methods.get(element.getClassName());
             if (clazzMethods != null &&
@@ -450,8 +574,7 @@ public class HugeSecurityManager extends SecurityManager {
     }
 
     private static boolean callFromMethod(String clazz, String method) {
-        Thread curThread = Thread.currentThread();
-        StackTraceElement[] elements = curThread.getStackTrace();
+        StackTraceElement[] elements = currentStack();
         for (StackTraceElement element : elements) {
             if (clazz.equals(element.getClassName()) &&
                 method.equals(element.getMethodName())) {
@@ -459,6 +582,74 @@ public class HugeSecurityManager extends SecurityManager {
             }
         }
         return false;
+    }
+
+    static void resetStackCapturesForTest() {
+        STACK_CAPTURES.set(0);
+    }
+
+    static int stackCapturesForTest() {
+        return STACK_CAPTURES.get();
+    }
+
+    static int captureCountRunningAllHelpers() {
+        resetStackCapturesForTest();
+        enterStackScope();
+        try {
+            callFromGremlin();
+            callFromCaffeine();
+            callFromAsyncTasks();
+            callFromEventHubNotify();
+            callFromBackendHbase();
+            callFromRaft();
+            callFromSofaRpc();
+            callFromIgnoreCheckedClass();
+            callFromSnapshot();
+            return stackCapturesForTest();
+        } finally {
+            exitStackScope();
+        }
+    }
+
+    private static void enterStackScope() {
+        Integer depth = STACK_DEPTH.get();
+        int next = depth == null ? 0 : depth;
+        StackTraceElement[][] frames = STACK_FRAMES.get();
+        if (frames == null) {
+            frames = new StackTraceElement[4][];
+            STACK_FRAMES.set(frames);
+        }
+        if (next == frames.length) {
+            frames = Arrays.copyOf(frames, frames.length * 2);
+            STACK_FRAMES.set(frames);
+        }
+        frames[next] = null;
+        STACK_DEPTH.set(next + 1);
+    }
+
+    private static void exitStackScope() {
+        int depth = STACK_DEPTH.get() - 1;
+        STACK_FRAMES.get()[depth] = null;
+        if (depth == 0) {
+            STACK_DEPTH.remove();
+            STACK_FRAMES.remove();
+        } else {
+            STACK_DEPTH.set(depth);
+        }
+    }
+
+    private static StackTraceElement[] currentStack() {
+        Integer depth = STACK_DEPTH.get();
+        if (depth == null || depth == 0) {
+            return Thread.currentThread().getStackTrace();
+        }
+        StackTraceElement[][] frames = STACK_FRAMES.get();
+        int index = depth - 1;
+        if (frames[index] == null) {
+            frames[index] = Thread.currentThread().getStackTrace();
+            STACK_CAPTURES.incrementAndGet();
+        }
+        return frames[index];
     }
 
     private static void filterBasicSensitiveClasses() {

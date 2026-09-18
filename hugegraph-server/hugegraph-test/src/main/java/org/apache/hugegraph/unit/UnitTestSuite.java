@@ -77,6 +77,7 @@ import org.apache.hugegraph.unit.core.SchemaElementTest;
 import org.apache.hugegraph.unit.core.ScriptPolicyCompilationTest;
 import org.apache.hugegraph.unit.core.ScriptRequestGuardTest;
 import org.apache.hugegraph.unit.core.SecurityManagerTest;
+import org.apache.hugegraph.unit.core.StackSnapshotReuseTest;
 import org.apache.hugegraph.unit.core.SerialEnumTest;
 import org.apache.hugegraph.unit.core.ServerInfoManagerTest;
 import org.apache.hugegraph.unit.core.StandardHugeGraphClearBackendTest;
@@ -185,6 +186,7 @@ import org.junit.runners.Suite;
         QueryResultsTest.class,
         RangeTest.class,
         SecurityManagerTest.class,
+        StackSnapshotReuseTest.class,
         RolePermissionTest.class,
         ExceptionTest.class,
         GraphManagerAdminInitTest.class,
