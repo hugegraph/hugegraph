@@ -159,6 +159,7 @@ import org.apache.hugegraph.unit.core.PolicySessionEngineTest;
 import org.apache.hugegraph.unit.core.PolicyServerModeTest;
 import org.apache.hugegraph.unit.core.ScriptPolicyCompilationTest;
 import org.apache.hugegraph.unit.core.ScriptRequestGuardTest;
+import org.apache.hugegraph.unit.core.StackSnapshotReuseTest;
 import org.junit.runner.RunWith;
 import org.junit.runners.Suite;
 
@@ -243,6 +244,7 @@ import org.junit.runners.Suite;
         ScriptRequestGuardTest.class,
         PolicyServerModeTest.class,
         PolicyGraphModeTest.class,
+        StackSnapshotReuseTest.class,
         HugeFeaturesTest.class,
         StandardHugeGraphClearBackendTest.class,
         ConditionQueryFlattenTest.class,
