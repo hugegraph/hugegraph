@@ -220,6 +220,9 @@ so template-only renders emit a constant.
 */}}
 {{- define "hugegraph.pd.authChecksum" -}}
 {{- $parts := list (include "hugegraph.pd.authSecretName" .) (include "hugegraph.pd.authSecretKey" .) -}}
+{{- $pdAuthCfg := get .Values.pd "auth" | default dict -}}
+{{- $inline := get $pdAuthCfg "value" | default "" -}}
+{{- if and $inline (not (get $pdAuthCfg "existingSecret" | default "")) -}}{{- $parts = append $parts (sha256sum $inline) -}}{{- end -}}
 {{- $secret := lookup "v1" "Secret" .Release.Namespace (include "hugegraph.pd.authSecretName" .) -}}
 {{- if $secret -}}{{- $parts = append $parts (dig "metadata" "resourceVersion" "" $secret) -}}{{- end -}}
 {{- join "|" $parts | sha256sum -}}
@@ -283,6 +286,13 @@ existingSecret applies on the next `helm upgrade`.
 */}}
 {{- define "hugegraph.server.authChecksum" -}}
 {{- $parts := list (include "hugegraph.server.authSecretName" .) (include "hugegraph.server.authSecretKey" .) (include "hugegraph.server.authTokenSecretName" .) (include "hugegraph.server.authTokenSecretKey" .) -}}
+{{- $srvAuth := get .Values.server "auth" | default dict -}}
+{{- $adminCfg := get $srvAuth "admin" | default dict -}}
+{{- $inlineAdmin := get $adminCfg "password" | default "" -}}
+{{- if and $inlineAdmin (not (get $adminCfg "existingSecret" | default "")) -}}{{- $parts = append $parts (sha256sum $inlineAdmin) -}}{{- end -}}
+{{- $tokenCfg := get $srvAuth "token" | default dict -}}
+{{- $inlineToken := get $tokenCfg "value" | default "" -}}
+{{- if and $inlineToken (not (get $tokenCfg "existingSecret" | default "")) -}}{{- $parts = append $parts (sha256sum $inlineToken) -}}{{- end -}}
 {{- $admin := lookup "v1" "Secret" .Release.Namespace (include "hugegraph.server.authSecretName" .) -}}
 {{- if $admin -}}{{- $parts = append $parts (dig "metadata" "resourceVersion" "" $admin) -}}{{- end -}}
 {{- $token := lookup "v1" "Secret" .Release.Namespace (include "hugegraph.server.authTokenSecretName" .) -}}

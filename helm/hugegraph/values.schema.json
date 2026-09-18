@@ -355,8 +355,8 @@
           "properties": {
             "value": {
               "type": "string",
-              "pattern": "^[^\\r\\n\\\\]*$",
-              "description": "Plaintext secret. Empty defers to existingSecret or autoGenerate. No newlines, carriage returns, or backslashes: the value lands in Hubble's Java properties file."
+              "pattern": "^([\\x21-\\x5b\\x5d-\\x7e][\\x20-\\x5b\\x5d-\\x7e]*)?$",
+              "description": "Plaintext secret. Empty defers to existingSecret or autoGenerate. Printable ASCII with no leading whitespace and no backslashes: the value lands in Hubble's Java properties file, which strips leading whitespace and reads the file as ISO-8859-1."
             },
             "existingSecret": {
               "type": "string"
@@ -743,7 +743,9 @@
               ],
               "properties": {
                 "password": {
-                  "type": "string"
+                  "type": "string",
+                  "pattern": "^([^ \\t\\r\\n\\\\][^\\r\\n\\\\]*)?$",
+                  "description": "Inline admin password. Empty defers to existingSecret or autoGenerate. The Server wrapper rejects newlines, carriage returns, backslashes and leading whitespace, so the schema rejects them before install."
                 },
                 "existingSecret": {
                   "type": "string"

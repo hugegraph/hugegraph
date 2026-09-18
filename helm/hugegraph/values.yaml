@@ -71,9 +71,10 @@ pd:
   # (HG_PD_AUTH_SECRET_KEY). The chart hands the same value to the Server
   # storage wait (PD_AUTH_PASSWORD, user store) and to Hubble
   # (operations.pd.password, user hubble). The Secret is kept on uninstall
-  # like the Server auth Secrets. The value must not contain newlines,
-  # carriage returns, or backslashes: it is written into Hubble's Java
-  # properties file. Priority: existingSecret > value > autoGenerate.
+  # like the Server auth Secrets. The value must be printable ASCII with
+  # no leading whitespace: it is written into Hubble's Java properties
+  # file, which strips leading whitespace and reads the file as
+  # ISO-8859-1. Priority: existingSecret > value > autoGenerate.
   auth:
     # Optional plaintext secret (prefer existingSecret in shared clusters).
     value: ""
