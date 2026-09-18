@@ -331,7 +331,7 @@ default values.
 | `pd.topologySpreadConstraints` | Topology spread constraints for pd Pods | `[]` |
 | `pd.priorityClassName` | PriorityClass for pd Pods | `""` |
 | `pd.podAnnotations` | Extra annotations on pd Pods | `{}` |
-| `pd.podLabels` | Extra labels on pd Pods | `{}` |
+| `pd.podLabels` | Extra labels on pd Pods. The `app.kubernetes.io/name`, `instance` and `component` keys are chart-managed and rejected | `{}` |
 | `pd.extraEnv` | Extra environment variables for the PD container | `[]` |
 | `pd.terminationGracePeriodSeconds` | Shutdown grace period | `300` |
 | `pd.serviceAccount.create` | Create a ServiceAccount for pd | `true` |
@@ -387,7 +387,7 @@ default values.
 | `store.serviceAccount.annotations` | Annotations on the created ServiceAccount | `{}` |
 | `store.serviceAccount.automountServiceAccountToken` | Mount an API token. The chart makes no API calls | `false` |
 | `store.pdb.enabled` | Create a PodDisruptionBudget for Store | `true` |
-| `store.pdb.minAvailable` | Must be strictly less than `store.replicas`. No PDB is rendered when `store.replicas` is 1 | `2` |
+| `store.pdb.minAvailable` | Must be strictly less than `store.replicas` and at least `store.replicas - 1`, so voluntary evictions cannot remove two copies of one shard at once. No PDB is rendered when `store.replicas` is 1 | `2` |
 | `store.waitImage` | Image for the PD wait init container | `curlimages/curl:8.5.0` |
 | `store.waitResources` | Resources for the init container | `{}` |
 | `store.probes.*` | Same probe keys as PD | see `values.yaml` |

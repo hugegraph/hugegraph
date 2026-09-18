@@ -544,6 +544,14 @@ The minimum Server replica count that a PDB must remain valid against.
 Cross-field validation that JSON Schema draft-07 cannot express.
 */}}
 {{- define "hugegraph.validateValues" -}}
+{{- range $comp := list "pd" "store" "server" "hubble" -}}
+{{- $compLabels := get (get $.Values $comp | default dict) "podLabels" | default dict -}}
+{{- range $reserved := list "app.kubernetes.io/name" "app.kubernetes.io/instance" "app.kubernetes.io/component" -}}
+{{- if hasKey $compLabels $reserved -}}
+{{- fail (printf "%s.podLabels must not set %s: the chart manages it and the workload selectors, Services and PDBs match on it" $comp $reserved) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
 {{- $networkPolicy := get .Values "networkPolicy" | default dict -}}
 {{- if (get $networkPolicy "enabled" | default false) -}}
 {{- fail "networkPolicy.enabled=true is unsupported because this chart does not implement NetworkPolicy resources" -}}
@@ -575,6 +583,9 @@ and must not be failed for a value that has no effect.
 {{- end -}}
 {{- if and .Values.store.pdb.enabled (gt (int .Values.store.replicas) 1) (ge (int .Values.store.pdb.minAvailable) (int .Values.store.replicas)) -}}
 {{- fail "store.pdb.minAvailable must be less than store.replicas, otherwise the PDB permanently blocks voluntary disruptions such as node drains" -}}
+{{- end -}}
+{{- if and .Values.store.pdb.enabled (gt (int .Values.store.replicas) 1) (lt (int .Values.store.pdb.minAvailable) (sub (int .Values.store.replicas) 1)) -}}
+{{- fail "store.pdb.minAvailable must be at least store.replicas - 1: each shard keeps its copies on a subset of the Stores, so permitting more than one concurrent voluntary eviction can remove a shard majority regardless of the Store count" -}}
 {{- end -}}
 {{/*
 PD -D system properties must be empty or a positive integer. The schema
@@ -658,8 +669,8 @@ start-hugegraph-pd.sh, start-hugegraph-store.sh, and hugegraph-server.sh).
 {{- fail "hubble.service.nodePort requires hubble.service.type to be NodePort or LoadBalancer" -}}
 {{- end -}}
 {{- $hubbleImage := get $hubble "image" | default dict -}}
-{{- if eq (trim (get $hubbleImage "tag" | default "")) "" -}}
-{{- fail "hubble.image.tag must not be empty: the chart appVersion tracks the Server release, not Hubble, so there is no meaningful fallback" -}}
+{{- if and (eq (trim (get $hubbleImage "tag" | default "")) "") (eq (trim (get $hubbleImage "digest" | default "")) "") -}}
+{{- fail "hubble.image needs a tag or a digest: the chart appVersion tracks the Server release, not Hubble, so there is no meaningful fallback" -}}
 {{- end -}}
 {{- $hubbleIngress := get $hubble "ingress" | default dict -}}
 {{- if and (get $hubbleIngress "enabled" | default false) (empty (get $hubbleIngress "tls")) (not (get $hubbleIngress "allowPlainHttp" | default false)) -}}

@@ -85,4 +85,19 @@ tests:
       hubble.enabled: true
     asserts:
       - failedTemplate:
-          errorPattern: "hubble.image.tag must not be empty"
+          errorPattern: "hubble.image needs a tag or a digest"
+
+  - it: rejects a Store PDB that permits two concurrent evictions
+    set:
+      store.replicas: 4
+    asserts:
+      - failedTemplate:
+          errorPattern: "store.pdb.minAvailable must be at least store.replicas - 1"
+
+  - it: rejects podLabels that overwrite a selector label
+    set:
+      store.podLabels:
+        app.kubernetes.io/component: hacked
+    asserts:
+      - failedTemplate:
+          errorPattern: "store.podLabels must not set app.kubernetes.io/component"
