@@ -98,7 +98,7 @@ kubectl get storageclass
 
 ```bash
 helm install hugegraph ./helm/hugegraph --namespace hugegraph \
-  --create-namespace --wait --timeout 15m
+    --create-namespace --wait --timeout 15m
 ```
 
 This deploys 3 PD + 3 Store + 3 Server, preserves the image's automatic JVM
@@ -141,11 +141,13 @@ curl --user "admin:${PASSWORD}" http://127.0.0.1:8080/versions
 **Hubble is not installed by default.** Enable the optional UI after install:
 
 ```bash
-helm upgrade --install hugegraph ./helm/hugegraph --namespace hugegraph \
-  --set hubble.enabled=true
+helm upgrade hugegraph ./helm/hugegraph --namespace hugegraph \
+    --reuse-values --set hubble.enabled=true
 ```
 
-Auth is already on, so that single flag is enough. Login uses the same admin
+`--reuse-values` keeps the release's existing overrides (presets, images,
+resources, Secrets); without it the upgrade rebuilds the release from chart
+defaults. Auth is already on, so that single flag is enough. Login uses the same admin
 credential from the chart-managed (or BYO) Secret.
 
 The default anti-affinity for `pd`, `store`, and `server` is `preferred`
@@ -199,15 +201,15 @@ docker build -f hugegraph-store/Dockerfile -t hugegraph/store:local .
 docker build -f hugegraph-server/Dockerfile-hstore -t hugegraph/server:local .
 
 kind load docker-image hugegraph/pd:local hugegraph/store:local \
-  hugegraph/server:local --name hg
+    hugegraph/server:local --name hg
 # minikube: minikube image load <the same three images>
 
 helm upgrade --install hugegraph ./helm/hugegraph \
-  --namespace hugegraph --create-namespace \
-  -f helm/hugegraph/values-single.yaml \
-  --set pd.image.tag=local --set pd.image.pullPolicy=Never \
-  --set store.image.tag=local --set store.image.pullPolicy=Never \
-  --set server.image.tag=local --set server.image.pullPolicy=Never
+    --namespace hugegraph --create-namespace \
+    -f helm/hugegraph/values-single.yaml \
+    --set pd.image.tag=local --set pd.image.pullPolicy=Never \
+    --set store.image.tag=local --set store.image.pullPolicy=Never \
+    --set server.image.tag=local --set server.image.pullPolicy=Never
 ```
 
 Server uses `Dockerfile-hstore` so the image's default backend is HStore.
@@ -873,8 +875,8 @@ The Store init container waits for a majority of PD peers to answer
 `store.waitPath`. Check PD first:
 
 ```bash
-kubectl get pods -l app.kubernetes.io/component=pd
-kubectl logs <store-pod> -c wait-for-pd
+kubectl -n <namespace> get pods -l app.kubernetes.io/component=pd
+kubectl -n <namespace> logs <store-pod> -c wait-for-pd
 ```
 
 The wait is bounded by `store.waitTimeoutSeconds` (default 900). On timeout the
@@ -887,7 +889,7 @@ No default StorageClass, or the provisioner is unhealthy:
 
 ```bash
 kubectl get sc
-kubectl get pvc -l app.kubernetes.io/instance=<release>
+kubectl -n <namespace> get pvc -l app.kubernetes.io/instance=<release>
 kubectl -n <provisioner-namespace> get pods
 ```
 
@@ -935,7 +937,7 @@ use; see `values-cluster.yaml`.
 
 ```bash
 kubectl get pods -o wide
-kubectl describe pod <pod> | grep -A5 "Last State"
+kubectl -n <namespace> describe pod <pod> | grep -A5 "Last State"
 ```
 
 ### Release Name Too Long

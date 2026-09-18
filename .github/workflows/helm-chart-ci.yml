@@ -103,6 +103,10 @@ jobs:
           grep -qE '^kind: Secret$' <<<"$DEFAULT"
           grep -qF 'name: ci-admin' <<<"$DEFAULT"
           grep -qF 'name: ci-auth-token' <<<"$DEFAULT"
+          # A YAML-coercible Secret key must render quoted, or the API
+          # server stores the key as a boolean and the pods cannot find it.
+          helm template ci helm/hugegraph --set-string server.auth.admin.key=on \
+            | grep -qF '"on":' 
 
       - name: reject invalid values
         run: |
