@@ -101,3 +101,25 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "store.podLabels must not set app.kubernetes.io/component"
+
+  - it: rejects a TLS-less Server Ingress without the plain-HTTP opt-in
+    set:
+      server.ingress.enabled: true
+    asserts:
+      - failedTemplate:
+          errorPattern: "server.ingress.enabled without tls"
+
+  - it: rejects a non-ClusterIP PD Service without the exposure acknowledgement
+    set:
+      pd.service.type: NodePort
+    asserts:
+      - failedTemplate:
+          errorPattern: "pd.service.type NodePort or LoadBalancer exposes"
+
+  - it: rejects a read-only root filesystem on Hubble
+    set:
+      hubble.enabled: true
+      hubble.securityContext.readOnlyRootFilesystem: true
+    asserts:
+      - failedTemplate:
+          errorPattern: "readOnlyRootFilesystem=true breaks Hubble"

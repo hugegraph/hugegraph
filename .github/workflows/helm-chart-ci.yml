@@ -149,8 +149,11 @@ jobs:
           must_fail "${A[@]}" --set hubble.mode=bogus
           must_fail "${A[@]}" --set hubble.image.tag=""
           must_fail "${A[@]}" --set hubble.ingress.enabled=true
-          must_fail --set server.ingress.enabled=true \
-            --set server.ingress.allowPlainHttp=true
+          # A TLS-less Server Ingress needs the explicit plain-HTTP opt-in
+          must_fail --set server.ingress.enabled=true
+          helm template ci helm/hugegraph \
+            --set server.ingress.enabled=true \
+            --set server.ingress.allowPlainHttp=true > /dev/null
           # PD PDB must keep the Raft majority: floor(replicas/2)+1
           must_fail --set pd.replicas=5 --set pd.pdb.minAvailable=2
           must_fail --set pd.replicas=4 --set pd.pdb.minAvailable=2

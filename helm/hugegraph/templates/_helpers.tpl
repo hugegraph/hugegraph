@@ -495,15 +495,16 @@ Seconds the chart gives the Server image to finish starting, passed as
 HG_SERVER_STARTUP_TIMEOUT_S. The image defaults that to 120 seconds, which is
 shorter than the storage wait alone, so a Server still coming up kills itself
 before Kubernetes has given up on it. The value therefore tracks the startup
-probe: the effective failureThreshold above, already floored at 450 seconds,
-times periodSeconds. Raising the probe budget raises this with it. The
-entrypoint rejects anything over 86400, so the product is capped there rather
-than rendered into a Pod that refuses to start.
+probe: the effective budget above (floored at 450 seconds) minus the
+300-second storage wait the entrypoint runs first, so the start command and
+kubelet give up together instead of the image outliving the probe. Floored
+at the image's own 120-second default, and capped at the entrypoint's 86400
+maximum rather than rendered into a Pod that refuses to start.
 */}}
 {{- define "hugegraph.server.startupTimeoutSeconds" -}}
 {{- $period := int .Values.server.probes.startup.periodSeconds -}}
 {{- $threshold := include "hugegraph.server.startupFailureThreshold" . | int -}}
-{{- min 86400 (mul $threshold $period) -}}
+{{- min 86400 (max 120 (sub (mul $threshold $period) 300)) -}}
 {{- end }}
 
 {{/*
@@ -658,14 +659,17 @@ keys for releases stored before the values existed.
 {{- if and (or (get $pdSvc "restNodePort") (get $pdSvc "grpcNodePort")) (not (has $pdSvcType (list "NodePort" "LoadBalancer"))) -}}
 {{- fail "pd.service.restNodePort and pd.service.grpcNodePort require pd.service.type to be NodePort or LoadBalancer" -}}
 {{- end -}}
+{{- if and (ne $pdSvcType "ClusterIP") (not (get $pdSvc "allowInsecureExposure" | default false)) -}}
+{{- fail "pd.service.type NodePort or LoadBalancer exposes PD's unauthenticated gRPC port outside the cluster, raft membership RPCs included; keep ClusterIP, or set pd.service.allowInsecureExposure=true once reachability is restricted by other means (NetworkPolicy, load balancer allowlist, firewall)" -}}
+{{- end -}}
 {{- $serverPdb := get .Values.server "pdb" | default dict -}}
 {{- $serverReplicaFloor := include "hugegraph.server.replicaFloor" . | int -}}
 {{- if and (get $serverPdb "enabled" | default false) (gt $serverReplicaFloor 1) (ge (int (get $serverPdb "minAvailable" | default 1)) $serverReplicaFloor) -}}
 {{- fail "server.pdb.minAvailable must be less than the active Server replica floor (server.hpa.minReplicas when HPA is enabled, otherwise server.replicas), otherwise the PDB permanently blocks voluntary disruptions such as node drains" -}}
 {{- end -}}
 {{- $serverIngress := get .Values.server "ingress" | default dict -}}
-{{- if hasKey $serverIngress "allowPlainHttp" -}}
-{{- fail "server.ingress.allowPlainHttp has no effect; the plain-HTTP opt-in applies to hubble.ingress only" -}}
+{{- if and (get $serverIngress "enabled" | default false) (empty (get $serverIngress "tls")) (not (get $serverIngress "allowPlainHttp" | default false)) -}}
+{{- fail "server.ingress.enabled without tls publishes Basic-auth credentials and JWTs over plain HTTP; configure server.ingress.tls, or set server.ingress.allowPlainHttp=true to accept that on a trusted network" -}}
 {{- end -}}
 {{/*
 extraEnv entries render after the chart-owned variables and Kubernetes lets
@@ -702,6 +706,9 @@ start-hugegraph-pd.sh, start-hugegraph-store.sh, and hugegraph-server.sh).
 {{- $hubbleImage := get $hubble "image" | default dict -}}
 {{- if and (eq (trim (get $hubbleImage "tag" | default "")) "") (eq (trim (get $hubbleImage "digest" | default "")) "") -}}
 {{- fail "hubble.image needs a tag or a digest: the chart appVersion tracks the Server release, not Hubble, so there is no meaningful fallback" -}}
+{{- end -}}
+{{- if get (get $hubble "securityContext" | default dict) "readOnlyRootFilesystem" | default false -}}
+{{- fail "hubble.securityContext.readOnlyRootFilesystem=true breaks Hubble: its wrapper writes conf/hugegraph-hubble.properties inside the image at startup and the chart mounts no writable volume there" -}}
 {{- end -}}
 {{- $hubbleIngress := get $hubble "ingress" | default dict -}}
 {{- if and (get $hubbleIngress "enabled" | default false) (empty (get $hubbleIngress "tls")) (not (get $hubbleIngress "allowPlainHttp" | default false)) -}}

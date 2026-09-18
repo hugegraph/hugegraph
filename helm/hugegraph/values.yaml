@@ -72,9 +72,10 @@ pd:
   # storage wait (PD_AUTH_PASSWORD, user store) and to Hubble
   # (operations.pd.password, user hubble). The Secret is kept on uninstall
   # like the Server auth Secrets. The value must be printable ASCII with
-  # no leading whitespace: it is written into Hubble's Java properties
-  # file, which strips leading whitespace and reads the file as
-  # ISO-8859-1. Priority: existingSecret > value > autoGenerate.
+  # no leading whitespace and no backslashes: it is written into Hubble's
+  # Java properties file, which strips leading whitespace, unescapes
+  # backslashes, and reads the file as ISO-8859-1. Priority:
+  # existingSecret > value > autoGenerate.
   auth:
     # Optional plaintext secret (prefer existingSecret in shared clusters).
     value: ""
@@ -124,6 +125,11 @@ pd:
   service:
     type: ClusterIP
     annotations: {}
+    # A non-ClusterIP type exposes PD's gRPC port, which has no
+    # authentication (raft membership RPCs included). The render refuses it
+    # unless this acknowledgement is set and reachability is restricted by
+    # other means (NetworkPolicy, load balancer allowlist, firewall).
+    allowInsecureExposure: false
     # Optional fixed NodePorts; require service.type NodePort or LoadBalancer.
     restNodePort:
     grpcNodePort:

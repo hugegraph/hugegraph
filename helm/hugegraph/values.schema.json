@@ -485,6 +485,10 @@
             "annotations": {
               "type": "object"
             },
+            "allowInsecureExposure": {
+              "type": "boolean",
+              "description": "Required acknowledgement for a non-ClusterIP PD Service: the exposed gRPC port has no authentication."
+            },
             "restNodePort": {
               "type": [
                 "integer",
@@ -1174,6 +1178,10 @@
         },
         "annotations": {
           "type": "object"
+        },
+        "allowPlainHttp": {
+          "type": "boolean",
+          "description": "Explicit opt-in to a TLS-less Server Ingress; without it the render fails when tls is empty."
         }
       }
     },

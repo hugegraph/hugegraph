@@ -142,6 +142,12 @@ spec:
               FOUND_PD_PEERS=false
               FOUND_URLS_TO_PD=false
               FOUND_DEPLOY_IN_K8S=false
+              # An IPv6 POD_IP must be bracketed inside the announcement URL.
+              # Only the chart's own default is rewritten; an explicit
+              # server.advertiseUrl is the operator's to format.
+              if [[ "${POD_IP:-}" == *:* && "${HG_SERVER_URLS_TO_PD:-}" == "http://${POD_IP}:"* ]]; then
+                HG_SERVER_URLS_TO_PD="http://[${POD_IP}]:${HG_SERVER_URLS_TO_PD##*:}"
+              fi
               {{- end }}
               {{- if .Values.server.auth.enabled }}
               FOUND_AUTH_ADMIN_PA=false

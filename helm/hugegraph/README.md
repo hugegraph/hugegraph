@@ -222,8 +222,15 @@ Docker Hub images as `local`.
 helm upgrade hugegraph ./helm/hugegraph --namespace hugegraph --reuse-values
 ```
 
-Any upgrade that changes a Pod template rolls that workload once. Two cases
-are worth knowing about in advance:
+Any upgrade that changes a Pod template rolls that workload once.
+
+A release created before the exposure gates existed can hit them on its
+next upgrade, `--reuse-values` included: a non-ClusterIP `pd.service.type`
+now needs `pd.service.allowInsecureExposure=true`, and a TLS-less Server
+Ingress needs `server.ingress.allowPlainHttp=true`. The render error names
+the value to set.
+
+Two cases are worth knowing about in advance:
 
 - **PD** restarts one pod at a time whenever its Pod template changes, which
   includes adopting the `-Draft.ip-whitelist.enabled=false` setting described
@@ -349,7 +356,7 @@ default values.
 | `pd.pdb.enabled` | Create a PodDisruptionBudget for PD | `true` |
 | `pd.pdb.minAvailable` | Must be strictly less than `pd.replicas`. No PDB is rendered when `pd.replicas` is 1 | `2` |
 | `pd.readinessPath` | Path the PD readinessProbe hits. `/v1/ready` is quorum-aware and returns 503 without a raft leader | `/v1/ready` |
-| `pd.auth.value` | Plaintext PD REST secret (`auth.secret-key`). Prefer `existingSecret` in shared clusters. Printable ASCII with no leading whitespace | `""` |
+| `pd.auth.value` | Plaintext PD REST secret (`auth.secret-key`). Prefer `existingSecret` in shared clusters. Printable ASCII, no leading whitespace, no backslashes | `""` |
 | `pd.auth.existingSecret` | Pre-created Secret holding the PD REST secret under `pd.auth.key`. Wins over `value` and `autoGenerate`; the chart does not manage it | `""` |
 | `pd.auth.key` | Key inside the PD REST Secret | `secret-key` |
 | `pd.auth.autoGenerate` | Create and keep a random release-pd-auth Secret when `value` and `existingSecret` are empty | `true` |
@@ -452,7 +459,8 @@ default values.
 | `server.service.type` | Server Service type | `ClusterIP` |
 | `server.service.annotations` | Server Service annotations | `{}` |
 | `server.ingress.hosts` | Ingress hosts and paths | see `values.yaml` |
-| `server.ingress.tls` | Ingress TLS configuration | `[]` |
+| `server.ingress.tls` | Ingress TLS configuration. Empty is refused unless `allowPlainHttp` opts in: the Server carries Basic-auth credentials and JWTs | `[]` |
+| `server.ingress.allowPlainHttp` | Explicit opt-in to a TLS-less Server Ingress on a trusted network | unset |
 | `server.hpa.enabled` | Create a HorizontalPodAutoscaler | `false` |
 | `server.hpa.minReplicas` | HPA minimum replicas | `3` |
 | `server.hpa.maxReplicas` | HPA maximum replicas | `10` |
@@ -502,11 +510,14 @@ need graph / schema / data / Gremlin (not PD discovery).
    `server.direct_url` set to that reachable Server URL (match Server auth).
 4. Open the standalone Hubble port in a browser (or SSH tunnel to it).
 
+Use HTTPS (or a trusted channel such as a local port-forward) for
+`server.direct_url`: login sends the Server credentials over that URL.
+
 Example property fragment for the standalone process:
 
 ```properties
 pd.enabled=false
-server.direct_url=http://<reachable-server-host>:<port>
+server.direct_url=https://<reachable-server-host>:<port>
 ```
 
 Mount the file at `/hubble/conf/hugegraph-hubble.properties` inside the
@@ -528,7 +539,9 @@ is honored whenever it is set.
 2. Expose Server and set `server.advertiseUrl` to the absolute `http(s)://`
    URL outside Hubble will use after discovery. The chart registers it via
    `server.urls_to_pd` instead of the in-cluster Service URL.
-3. Expose PD (`pd.service.type` NodePort/LoadBalancer) so Hubble can dial PD
+3. Expose PD (`pd.service.type` NodePort/LoadBalancer, which needs
+   `pd.service.allowInsecureExposure=true`; PD gRPC has no authentication,
+   so restrict who can reach it first) so Hubble can dial PD
    REST and gRPC.
 4. Run standalone Hubble with `pd.enabled=true` and `pd.peers` / `pd.server`
    pointed at those external PD addresses. Mount config at
@@ -553,7 +566,8 @@ Local quick test (cluster and Hubble on the same machine): port-forward Server
 | Parameter | Description | Default |
 |---|---|---|
 | `server.advertiseUrl` | Absolute Server URL registered with PD for discovery clients. Empty registers each Server Pod IP for in-cluster discovery | `""` |
-| `pd.service.type` | PD client Service type (`ClusterIP`, `NodePort`, `LoadBalancer`) | `ClusterIP` |
+| `pd.service.type` | PD client Service type (`ClusterIP`, `NodePort`, `LoadBalancer`). A non-ClusterIP type requires `pd.service.allowInsecureExposure` | `ClusterIP` |
+| `pd.service.allowInsecureExposure` | Acknowledgement that a non-ClusterIP PD Service exposes the unauthenticated gRPC port; restrict reachability by other means first | `false` |
 | `pd.service.annotations` | Annotations on the PD client Service | `{}` |
 | `pd.service.restNodePort` | Optional fixed NodePort for PD REST; requires NodePort/LoadBalancer | unset |
 | `pd.service.grpcNodePort` | Optional fixed NodePort for PD gRPC; requires NodePort/LoadBalancer | unset |
@@ -631,7 +645,7 @@ trusted network.
 | `hubble.service.type` | Hubble Service type | `ClusterIP` |
 | `hubble.service.annotations` | Hubble Service annotations | `{}` |
 | `hubble.service.nodePort` | Requires a `NodePort` or `LoadBalancer` Service type | unset |
-| `hubble.ingress.*` | Same Ingress keys as `server.ingress.*`, plus `allowPlainHttp`, which applies to the Hubble Ingress only | `enabled: false` |
+| `hubble.ingress.*` | Same Ingress keys as `server.ingress.*`, including `allowPlainHttp` | `enabled: false` |
 | `hubble.serviceAccount.*` | Same ServiceAccount keys as the other components | `create: true` |
 | `hubble.nodeSelector` / `tolerations` / `affinity` / `topologySpreadConstraints` | Scheduling controls | unset |
 | `hubble.priorityClassName` | PriorityClass for the hubble Pod | `""` |
@@ -685,13 +699,22 @@ before anything reaches the cluster:
 - `hubble.port` must be a valid port, `hubble.persistence.size` must be
   non-empty, and `hubble.service.nodePort` requires a `NodePort` or
   `LoadBalancer` Service type.
-- `hubble.image.tag` must be non-empty (the chart `appVersion` tracks the
-  Server release, not Hubble), and a Hubble Ingress without `tls` is rejected
-  unless `hubble.ingress.allowPlainHttp=true`.
+- `hubble.image` needs a tag or a digest (the chart `appVersion` tracks the
+  Server release, not Hubble), and an Ingress without `tls` is rejected for
+  Server and Hubble alike unless the matching `ingress.allowPlainHttp=true`
+  opts in.
 - `hubble.enabled` without `server.auth.enabled` is rejected unless
-  `hubble.allowWithoutServerAuth=true`, and setting
-  `server.ingress.allowPlainHttp` is rejected because the plain-HTTP opt-in
-  applies to the Hubble Ingress only.
+  `hubble.allowWithoutServerAuth=true`, and
+  `hubble.securityContext.readOnlyRootFilesystem=true` is rejected because
+  the Hubble wrapper writes its properties file inside the image at startup.
+- `store.pdb.minAvailable` must be at least `store.replicas - 1`, so
+  voluntary evictions cannot remove two copies of one shard at once.
+- `podLabels` may not override the chart-managed `app.kubernetes.io/name`,
+  `instance` or `component` keys on any workload.
+- A non-ClusterIP `pd.service.type` requires
+  `pd.service.allowInsecureExposure=true`.
+- An upgrade may not shrink `pd.replicas` or `store.replicas` below the
+  live StatefulSet; see Scaling for the manual procedure.
 
 ## Deep Dive
 
