@@ -581,6 +581,27 @@ Cross-field validation that JSON Schema draft-07 cannot express.
 {{- end -}}
 {{- end -}}
 {{/*
+Raft and shard membership are persisted; deleting Pods does not reconfigure
+them, so an in-place replica shrink permanently loses PD quorum or Store
+shard majorities. The guard reads the live StatefulSet, so it fires only on
+a real upgrade against a cluster; template-only renders have no live object
+and skip it. An operator who has completed the documented manual scale-down
+procedure has already scaled the live StatefulSet, so desired equals live
+and the upgrade passes.
+*/}}
+{{- range $comp := list "pd" "store" -}}
+{{- $stsName := "" -}}
+{{- if eq $comp "pd" -}}{{- $stsName = include "hugegraph.pd.name" $ -}}{{- else -}}{{- $stsName = include "hugegraph.store.name" $ -}}{{- end -}}
+{{- $live := lookup "apps/v1" "StatefulSet" $.Release.Namespace $stsName -}}
+{{- if $live -}}
+{{- $liveReplicas := int (dig "spec" "replicas" 0 $live) -}}
+{{- $desired := int (get (get $.Values $comp) "replicas") -}}
+{{- if and (gt $liveReplicas 0) (lt $desired $liveReplicas) -}}
+{{- fail (printf "%s.replicas cannot shrink from %d to %d through a helm upgrade: raft and shard membership are persisted, and removing Pods does not reconfigure them. Follow the manual scale-down procedure in the README (Scaling), which ends by scaling the live StatefulSet; the upgrade passes once the live replicas match the value" $comp $liveReplicas $desired) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{/*
 Only validate minAvailable where a PDB is actually rendered. The pd/store PDB
 templates require replicas > 1, so a single-replica release never creates one
 and must not be failed for a value that has no effect.

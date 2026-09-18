@@ -227,6 +227,12 @@ are worth knowing about in advance:
   includes adopting the `-Draft.ip-whitelist.enabled=false` setting described
   under Limitations. For a maintenance-window upgrade, set
   `pd.updateStrategy.type=OnDelete` and restart the pods yourself.
+- **Store** rolling updates advance on `/v1/health`, which reports the
+  listener, not shard recovery: the controller can replace the next Store
+  while the previous one is still rejoining its shard groups. For a
+  production image roll, set `store.updateStrategy.type=OnDelete` and delete
+  Store Pods one at a time, waiting for the replaced Store to show `Up` in
+  PD (see Cluster Health) before the next.
 - **Server** rolls once on the first `helm upgrade` after a fresh install,
   when the `checksum/auth` annotation first observes the install-created
   Secrets. Template-only pipelines (`helm template`, GitOps renderers) never
@@ -841,6 +847,23 @@ staged rollout (PD and Server first, Stores later) cannot be written in a
 values file. Install the full topology and stage it with
 `kubectl scale statefulset <release>-hugegraph-store --replicas=0`, scaling
 back up when ready; the Servers wait, not-ready, until Stores register.
+`kubectl scale` changes only the live StatefulSet: the next `helm upgrade`
+renders `store.replicas` from values again and restores the full topology.
+
+Scaling **down** PD or Store is not a values change. Raft and shard
+membership are persisted, and deleting Pods does not reconfigure them: a
+3-to-1 PD shrink permanently loses quorum, and removing a Store strands the
+shard copies it holds. The chart therefore rejects an upgrade whose replica
+count is below the live StatefulSet. The manual procedure: for Store, drain
+the leaving Stores first (trigger `patrolPartitions` and
+`balancePartitions`, then verify in Cluster Health that no shard lists
+them); for PD, the persisted raft membership must be reduced through PD
+itself before Pods are removed. Then scale the live StatefulSet with
+`kubectl -n <namespace> scale statefulset <name> --replicas=<n>` and run
+`helm upgrade` with the matching value. The same applies after a manual
+scale up: upgrade with the matching value, because the guard reads any
+value below the live StatefulSet as a shrink. The guard needs the live
+object, so a client-side `--dry-run` does not show it.
 
 ## Troubleshooting
 
