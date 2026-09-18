@@ -828,13 +828,18 @@ explicitly. PD's configuration binds `pd.patrol-interval` and
 `store.max-down-time` keys, but no code path on current builds reads
 either, which is why this chart does not expose them.
 
-Recovery and rebalancing are operator-triggered. PD exposes REST triggers,
-reachable through the PD client Service:
+Recovery and rebalancing are operator-triggered, and the task endpoints
+execute **locally on the PD that receives them**: a follower answers with
+an empty success and does no recovery work. Port-forwarding the client
+Service selects an arbitrary PD, so identify the leader first and
+port-forward that Pod:
 
 ```bash
 kubectl port-forward -n hugegraph svc/hugegraph-pd-client 8620:8620
 PD_SECRET="$(kubectl -n hugegraph get secret hugegraph-pd-auth \
   -o jsonpath='{.data.secret-key}' | base64 --decode)"
+curl -su "hg:${PD_SECRET}" http://127.0.0.1:8620/v1/members   # read .data.pdLeader.raftUrl; its host names the leader Pod
+kubectl port-forward -n hugegraph pod/<leader-pod> 8620:8620  # replace the Service forward with the leader
 curl -u "hg:${PD_SECRET}" http://127.0.0.1:8620/v1/task/patrolPartitions   # reconcile shard groups, process tombstoned Stores
 curl -u "hg:${PD_SECRET}" http://127.0.0.1:8620/v1/task/balanceLeaders     # spread Raft leaders
 curl -u "hg:${PD_SECRET}" http://127.0.0.1:8620/v1/task/balancePartitions  # spread partition data
@@ -847,6 +852,20 @@ is set.
 Run `patrolPartitions` after replacing a Store that is not coming back,
 `balancePartitions` once the cluster is stable again, and `balanceLeaders`
 after restarts that skewed leader placement.
+
+A Store replaced with an empty PVC registers under a **new Store ID**, even
+though its Pod name and DNS address are unchanged, and the old ID stays
+`Offline` in PD with its shard memberships intact; the patrol repairs only
+`Tombstone` members, so it never touches the `Offline` entry. After such a
+replacement, retire the old ID explicitly on the leader: find the
+`Offline` entry in `/v1/stores` whose address matches the replaced Pod,
+mark it `Tombstone` with `curl -u "hg:${PD_SECRET}" -X POST -H
+'Content-Type: application/json' -d '{"storeState":"Tombstone"}'
+http://127.0.0.1:8620/v1/store/<storeId>` (this hands its shards to the
+patrol), then run `patrolPartitions` and verify every shard group lists
+only `Up` Stores. `DELETE /v1/store/<storeId>` only erases the record and
+strands the shard memberships; use it, if at all, as cleanup after the
+patrol has finished.
 
 Periodic balancing and shard-sync progress metrics do not exist upstream
 yet and are out of scope for this chart. Periodic leader balancing is
