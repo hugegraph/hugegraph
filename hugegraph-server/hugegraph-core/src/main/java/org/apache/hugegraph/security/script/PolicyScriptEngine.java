@@ -246,7 +246,7 @@ public final class PolicyScriptEngine extends AbstractScriptEngine
     public void publishSession(Bindings bindings) {
         PendingSession pending = this.pendingSession.get();
         if (pending != null) {
-            if (pending.target != bindings || pending.validated == null) {
+            if (pending.target != bindings || !pending.validated) {
                 throw new IllegalStateException("SCRIPT_SESSION_LIFECYCLE_MISMATCH");
             }
             pending.publish();
@@ -308,7 +308,7 @@ public final class PolicyScriptEngine extends AbstractScriptEngine
         private final Bindings candidate;
         private final Bindings target;
         private final Bindings roots;
-        private Bindings validated;
+        private boolean validated;
         private Object result;
 
         PendingSession(Bindings original, Bindings candidate, Bindings target) {
@@ -337,20 +337,23 @@ public final class PolicyScriptEngine extends AbstractScriptEngine
         }
 
         void validate() {
-            Bindings retained = ScriptBindings.execution(this.candidate, profile);
-            for (Map.Entry<String, Object> entry : retained.entrySet()) {
+            ScriptBindings.validateExecution(this.candidate, profile);
+            for (Map.Entry<String, Object> entry : this.candidate.entrySet()) {
                 if ((entry.getValue() instanceof GraphTraversalSource ||
                      entry.getValue() instanceof org.apache.hugegraph.HugeGraph) &&
                     this.original.get(entry.getKey()) != entry.getValue()) {
                     throw new IllegalArgumentException("SCRIPT_SESSION_OBJECT_DENIED");
                 }
             }
-            this.validated = retained;
+            this.validated = true;
         }
 
         void publish() {
+            // Copy only at publication. Iterator checkpoints still validate all
+            // mutable data, including changes made by lazy traversal closures.
+            Bindings snapshot = ScriptBindings.execution(this.candidate, profile);
             this.target.clear();
-            this.target.putAll(this.validated);
+            this.target.putAll(snapshot);
         }
     }
 
@@ -461,6 +464,10 @@ public final class PolicyScriptEngine extends AbstractScriptEngine
         configuration.addCompilationCustomizers(new ScriptSessionCustomizer(lines, key.types.keySet()));
         ImportCustomizer imports = new ImportCustomizer();
         imports.addImports("org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__",
+                           "org.apache.tinkerpop.gremlin.process.traversal.Merge",
+                           "org.apache.tinkerpop.gremlin.process.traversal.GType",
+                           "org.apache.tinkerpop.gremlin.process.traversal.DT",
+                           "org.apache.tinkerpop.gremlin.process.traversal.step.util.WithOptions",
                            "org.apache.tinkerpop.gremlin.process.traversal.P",
                            "org.apache.tinkerpop.gremlin.process.traversal.TextP",
                            "org.apache.tinkerpop.gremlin.process.traversal.Order",

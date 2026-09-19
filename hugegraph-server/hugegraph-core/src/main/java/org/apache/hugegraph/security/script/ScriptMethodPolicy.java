@@ -56,7 +56,11 @@ public final class ScriptMethodPolicy {
             "choose", "branch", "option", "union", "local", "repeat", "until", "emit",
             "times", "loops", "group", "groupCount", "aggregate", "store", "cap", "sack",
             "barrier", "identity", "inject", "property", "drop", "from", "to", "sideEffect",
-            "math", "timeLimit", "profile");
+            "math", "timeLimit", "profile", "discard", "mergeV", "mergeE", "element",
+            "concat", "asString", "asNumber", "asBool", "any", "all", "none", "asDate",
+            "dateAdd", "dateDiff", "length", "toLower", "toUpper", "trim", "lTrim", "rTrim",
+            "replace", "split", "substring", "format", "reverse", "combine", "merge",
+            "intersect", "difference", "disjunct", "product", "conjoin");
 
     private final Set<String> signatures = new HashSet<>();
     private final Map<String, boolean[]> genericParameters = new HashMap<>();
@@ -148,9 +152,13 @@ public final class ScriptMethodPolicy {
         this.allow("org.apache.tinkerpop.gremlin.process.traversal.Traversal",
                    "next", "hasNext", "tryNext", "toList", "toSet", "toBulkSet", "iterate");
         this.allow("org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversalSource",
-                   "V", "E", "addV", "addE", "inject", "withBulk", "withPath", "withSideEffect", "withSack");
+                   "V", "E", "addV", "addE", "mergeV", "mergeE", "union", "inject", "withBulk", "withPath", "withSideEffect", "withSack");
         this.allow("org.apache.tinkerpop.gremlin.process.traversal.TraversalSource",
                    "withSideEffect");
+        this.allowExact("org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal",
+                        "with", String.class);
+        this.allowExact("org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal",
+                        "with", String.class, Object.class);
         this.allow("org.apache.tinkerpop.gremlin.process.traversal.Traverser", "get", "path",
                    "loops", "sack", "bulk");
         this.allow("org.apache.tinkerpop.gremlin.process.traversal.Path", "get", "objects", "labels",
@@ -160,7 +168,7 @@ public final class ScriptMethodPolicy {
                    "within", "without", "and", "or", "not", "negate");
         this.allow("org.apache.tinkerpop.gremlin.process.traversal.TextP",
                    "startingWith", "notStartingWith", "endingWith", "notEndingWith",
-                   "containing", "notContaining");
+                   "containing", "notContaining", "regex", "notRegex");
         this.allow("org.apache.tinkerpop.gremlin.structure.Element", "id", "label", "value",
                    "property", "properties", "keys", "remove");
         this.allow("org.apache.tinkerpop.gremlin.structure.Vertex", "property", "properties",

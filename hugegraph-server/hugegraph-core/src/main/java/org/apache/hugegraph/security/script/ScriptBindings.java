@@ -32,6 +32,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.UUID;
+import java.util.regex.Pattern;
 
 import javax.lang.model.SourceVersion;
 import javax.script.Bindings;
@@ -45,6 +46,7 @@ import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversalSo
 public final class ScriptBindings {
 
     public static final int MAX_SOURCE_BYTES = 65536;
+    private static final Pattern BINDING_NAME = Pattern.compile("[A-Za-z_][A-Za-z0-9_]*");
     private static final Set<Class<?>> SCALARS = Set.of(
             String.class, Boolean.class, Byte.class, Short.class, Integer.class,
             Long.class, Float.class, Double.class, BigDecimal.class, BigInteger.class,
@@ -73,17 +75,30 @@ public final class ScriptBindings {
 
     private static Bindings copy(Map<String, Object> input, boolean trustedObjects,
                                  ScriptExecutionProfile profile) {
+        return process(input, trustedObjects, profile, true);
+    }
+
+    /** Apply the same checks as execution(), without allocating a data snapshot. */
+    static void validateExecution(Map<String, Object> input, ScriptExecutionProfile profile) {
+        process(input, true, profile, false);
+    }
+
+    private static Bindings process(Map<String, Object> input, boolean trustedObjects,
+                                    ScriptExecutionProfile profile, boolean materialize) {
         if (!trustedObjects && input.size() > 256) {
             throw denied("too many bindings");
         }
-        Budget budget = new Budget();
-        Bindings result = new SimpleBindings();
-        input.forEach((name, value) -> {
+        Budget budget = new Budget(false, materialize);
+        Bindings result = materialize ? new SimpleBindings() : null;
+        int count = 0;
+        for (Map.Entry<String, Object> entry : input.entrySet()) {
+            String name = entry.getKey();
+            Object value = entry.getValue();
             if (trustedObjects && (value instanceof HugeGraph || value instanceof GraphTraversalSource) &&
-                name != null && !name.matches("[A-Za-z_][A-Za-z0-9_]*")) {
-                return;
+                name != null && !BINDING_NAME.matcher(name).matches()) {
+                continue;
             }
-            if (result.size() >= 256) {
+            if (++count > 256) {
                 throw denied("too many bindings");
             }
             validateName(name);
@@ -110,26 +125,42 @@ public final class ScriptBindings {
                         value.getClass().getClassLoader() != HugeGraph.class.getClassLoader())) {
                     throw denied("custom graph binding");
                 }
-                result.put(name, value);
+                if (materialize) {
+                    result.put(name, value);
+                }
             } else if (trustedObjects && value instanceof ScriptJobContext &&
                        profile == ScriptExecutionProfile.QUERY) {
-                result.put(name, value);
+                if (materialize) {
+                    result.put(name, value);
+                }
             } else if (trustedObjects && value instanceof SchemaManager &&
                        profile == ScriptExecutionProfile.SCHEMA) {
-                result.put(name, value);
+                if (materialize) {
+                    result.put(name, value);
+                }
             } else if (trustedObjects && value instanceof ScriptElementView &&
                        profile == ScriptExecutionProfile.STORE_FILTER &&
                        "element".equals(name)) {
-                result.put(name, value);
+                if (materialize) {
+                    result.put(name, value);
+                }
             } else {
-                result.put(name, budget.copy(value, 0));
+                Object copied = budget.copy(value, 0);
+                if (materialize) {
+                    result.put(name, copied);
+                }
             }
-        });
+        }
         return result;
     }
 
     static Object data(Object value) {
         return new Budget().copy(value, 0);
+    }
+
+    // Persisted record sizes follow storage limits, not client request quotas.
+    static Object storedData(Object value) {
+        return new Budget(false, true, false).copy(value, 0);
     }
 
     public static Map<String, Class<?>> types(Bindings bindings) {
@@ -161,7 +192,7 @@ public final class ScriptBindings {
     }
 
     private static void validateName(String name) {
-        if (name == null || name.length() > 128 || !name.matches("[A-Za-z_][A-Za-z0-9_]*") ||
+        if (name == null || name.length() > 128 || !BINDING_NAME.matcher(name).matches() ||
             name.startsWith("__hg") || RESERVED.contains(name) ||
             SourceVersion.isKeyword(name)) {
             throw denied("invalid or reserved binding name");
@@ -183,16 +214,44 @@ public final class ScriptBindings {
         return new Budget(true).copy(value, 0);
     }
 
+    private static int scalarLength(Object value) {
+        if (value instanceof String) {
+            return ((String) value).length();
+        }
+        if (value instanceof Byte || value instanceof Short || value instanceof Integer || value instanceof Long) {
+            long number = ((Number) value).longValue();
+            int length = number < 0 ? 2 : 1;
+            // Negative division also handles Long.MIN_VALUE without overflow.
+            while ((number /= 10) != 0) {
+                length++;
+            }
+            return length;
+        }
+        return value.toString().length();
+    }
+
     private static final class Budget {
 
         private final boolean views;
+        private final boolean materialize;
+        private final boolean bounded;
 
         Budget() {
             this(false);
         }
 
         Budget(boolean views) {
+            this(views, true);
+        }
+
+        Budget(boolean views, boolean materialize) {
+            this(views, materialize, true);
+        }
+
+        Budget(boolean views, boolean materialize, boolean bounded) {
             this.views = views;
+            this.materialize = materialize;
+            this.bounded = bounded;
         }
 
         private boolean allowsView(Object value) {
@@ -209,7 +268,7 @@ public final class ScriptBindings {
         private final IdentityHashMap<Object, Object> copies = new IdentityHashMap<>();
 
         Object copy(Object value, int depth) {
-            if (++this.nodes > 4096 || depth > 16) {
+            if ((this.bounded && ++this.nodes > 4096) || depth > 16) {
                 throw denied("binding structure limit");
             }
             if (value == null) {
@@ -219,20 +278,21 @@ public final class ScriptBindings {
                 if (this.copies.containsKey(value)) {
                     return this.copies.get(value);
                 }
-                Blob copied = Blob.wrap((byte[]) this.copy(((Blob) value).bytes(), depth + 1));
+                byte[] bytes = (byte[]) this.copy(((Blob) value).bytes(), depth + 1);
+                Blob copied = this.materialize ? Blob.wrap(bytes) : (Blob) value;
                 this.copies.put(value, copied);
                 return copied;
             }
             if (value.getClass() == Date.class) {
                 this.size += Long.BYTES;
-                if (this.size > MAX_SOURCE_BYTES) {
+                if (this.bounded && this.size > MAX_SOURCE_BYTES) {
                     throw denied("binding size limit");
                 }
-                return this.copies.computeIfAbsent(value, date -> new Date(((Date) date).getTime()));
+                return this.copies.computeIfAbsent(value, date -> this.materialize ? new Date(((Date) date).getTime()) : date);
             }
             if (SCALARS.contains(value.getClass())) {
-                this.size += value.toString().length() * 2L;
-                if (this.size > MAX_SOURCE_BYTES) {
+                this.size += scalarLength(value) * 2L;
+                if (this.bounded && this.size > MAX_SOURCE_BYTES) {
                     throw denied("binding size limit");
                 }
                 return value;
@@ -248,7 +308,8 @@ public final class ScriptBindings {
                     groovy.lang.GString string = (groovy.lang.GString) value;
                     Object[] values = (Object[]) this.copy(string.getValues(), depth + 1);
                     String[] strings = (String[]) this.copy(string.getStrings(), depth + 1);
-                    Object copied = new org.codehaus.groovy.runtime.GStringImpl(values, strings);
+                    Object copied = this.materialize ?
+                                    new org.codehaus.groovy.runtime.GStringImpl(values, strings) : value;
                     this.copies.put(value, copied);
                     return copied;
                 }
@@ -261,22 +322,27 @@ public final class ScriptBindings {
                             throw denied("custom map implementation");
                         }
                     }
-                    Map<Object, Object> map = new LinkedHashMap<>();
-                    this.copies.put(value, map);
+                    Map<Object, Object> map = this.materialize ? new LinkedHashMap<>() : null;
+                    this.copies.put(value, this.materialize ? map : value);
                     for (Map.Entry<?, ?> item : ((Map<?, ?>) value).entrySet()) {
                         Object key = item.getKey();
                         if (key == null || (!SCALARS.contains(key.getClass()) &&
                                             key.getClass() != org.codehaus.groovy.runtime.GStringImpl.class)) {
                             throw denied("non-scalar map key");
                         }
-                        map.put(this.copy(key, depth + 1), this.copy(item.getValue(), depth + 1));
+                        Object copiedKey = this.copy(key, depth + 1);
+                        Object copiedValue = this.copy(item.getValue(), depth + 1);
+                        if (this.materialize) {
+                            map.put(copiedKey, copiedValue);
+                        }
                     }
-                    return map;
+                    return this.materialize ? map : value;
                 }
                 if (value instanceof Collection || value.getClass().isArray()) {
-                    Collection<Object> list = value instanceof Set ? new LinkedHashSet<>() : new ArrayList<>();
+                    Collection<Object> list = !this.materialize ? null :
+                                              value instanceof Set ? new LinkedHashSet<>() : new ArrayList<>();
                     if (value instanceof Collection) {
-                        this.copies.put(value, list);
+                        this.copies.put(value, this.materialize ? list : value);
                         if (!Set.of("java.util.ArrayList", "java.util.LinkedList", "java.util.Arrays$ArrayList",
                                 "java.util.HashSet", "java.util.LinkedHashSet", "java.util.TreeSet",
                                 "java.util.ImmutableCollections$List12", "java.util.ImmutableCollections$ListN",
@@ -289,7 +355,10 @@ public final class ScriptBindings {
                             }
                         }
                         for (Object item : (Collection<?>) value) {
-                            list.add(this.copy(item, depth + 1));
+                            Object copied = this.copy(item, depth + 1);
+                            if (this.materialize) {
+                                list.add(copied);
+                            }
                         }
                     } else {
                         int length = Array.getLength(value);
@@ -298,17 +367,26 @@ public final class ScriptBindings {
                             !SCALARS.contains(component) && component != Date.class) {
                             throw denied("unsupported array component");
                         }
-                        if (length > 4096 - this.nodes) {
+                        if (this.bounded && length > 4096 - this.nodes) {
                             throw denied("binding structure limit");
                         }
-                        Object array = Array.newInstance(component, length);
+                        Object array = this.materialize ? Array.newInstance(component, length) : value;
                         this.copies.put(value, array);
+                        if (!this.bounded && component.isPrimitive()) {
+                            if (this.materialize) {
+                                System.arraycopy(value, 0, array, 0, length);
+                            }
+                            return array;
+                        }
                         for (int i = 0; i < length; i++) {
-                            Array.set(array, i, this.copy(Array.get(value, i), depth + 1));
+                            Object copied = this.copy(Array.get(value, i), depth + 1);
+                            if (this.materialize) {
+                                Array.set(array, i, copied);
+                            }
                         }
                         return array;
                     }
-                    return list;
+                    return this.materialize ? list : value;
                 }
                 throw denied("unsupported binding type");
             } finally {

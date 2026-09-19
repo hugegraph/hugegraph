@@ -93,11 +93,11 @@ public final class ScriptDataOperations {
     }
 
     public static GString plus(GString left, GString right) {
-        return (GString) plus((Object) left, right);
+        return ((GString) ScriptBindings.data(left)).plus((GString) ScriptBindings.data(right));
     }
 
     public static GString plus(GString left, String right) {
-        return (GString) plus((Object) left, right);
+        return ((GString) ScriptBindings.data(left)).plus(right);
     }
 
     @SuppressWarnings("unchecked")
@@ -141,11 +141,16 @@ public final class ScriptDataOperations {
         }
         if (left instanceof GString) {
             GString value = (GString) ScriptBindings.data(left);
-            return right instanceof GString ? value.plus((GString) ScriptBindings.data(right)) :
-                   value.plus(text(right));
+            if (right instanceof GString) {
+                return value.plus((GString) ScriptBindings.data(right));
+            }
+            if (right instanceof String) {
+                return value.plus((String) right);
+            }
+            return value.toString() + concatenatedText(right);
         }
         if (left instanceof String) {
-            return left + text(right);
+            return left + concatenatedText(right);
         }
         if (right instanceof String) {
             return text(left) + right;
@@ -208,6 +213,14 @@ public final class ScriptDataOperations {
             }
         }
         return org.codehaus.groovy.runtime.ScriptBytecodeAdapter.compareTo(left, right);
+    }
+
+    private static String concatenatedText(Object value) {
+        if (value == null || value instanceof String || value instanceof Boolean ||
+            value instanceof Character || value instanceof GString || NUMBERS.contains(value.getClass())) {
+            return text(value);
+        }
+        return org.codehaus.groovy.runtime.InvokerHelper.toString(ScriptBindings.snapshot(value));
     }
 
     private static String text(Object value) {

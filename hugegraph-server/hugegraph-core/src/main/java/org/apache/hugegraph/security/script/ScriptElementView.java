@@ -38,7 +38,7 @@ public final class ScriptElementView {
         this.propertyNames = Map.copyOf(propertyNames);
         this.id = id;
         this.label = label;
-        this.properties = Collections.unmodifiableMap((Map<String, Object>) ScriptBindings.data(properties));
+        this.properties = Collections.unmodifiableMap((Map<String, Object>) ScriptBindings.storedData(properties));
     }
 
     public String id() {
