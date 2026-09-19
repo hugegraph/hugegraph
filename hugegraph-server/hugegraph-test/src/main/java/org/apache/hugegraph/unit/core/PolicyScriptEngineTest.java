@@ -17,6 +17,9 @@
 
 package org.apache.hugegraph.unit.core;
 
+import java.lang.reflect.Array;
+import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -26,13 +29,16 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
+import javax.script.Bindings;
 import javax.script.CompiledScript;
 import javax.script.ScriptException;
 import javax.script.SimpleBindings;
@@ -158,6 +164,34 @@ public class PolicyScriptEngineTest {
             cycle.put("self", cycle);
             Assert.assertThrows(IllegalArgumentException.class,
                                 () -> ScriptBindings.client(cycle));
+        }
+    }
+
+    @Test
+    public void testScalarBindingsPreserveTypesAcrossContainers() {
+        List<Object> values = List.of("value", true, (byte) 1, (short) 2, 3, 4L,
+                                     5.0F, 6.0D, new BigDecimal("7.5"),
+                                     new BigInteger("8"), 'x', new UUID(0L, 1L));
+        for (Object value : values) {
+            Object array = Array.newInstance(value.getClass(), 1);
+            Array.set(array, 0, value);
+            Bindings copied = ScriptBindings.client(Map.of("scalar", value,
+                    "items", List.of(value), "mapping", Map.of(value, value), "array", array));
+            Assert.assertSame(value, copied.get("scalar"));
+            Assert.assertSame(value, ((List<?>) copied.get("items")).get(0));
+            Map<?, ?> mapping = (Map<?, ?>) copied.get("mapping");
+            Assert.assertSame(value, mapping.keySet().iterator().next());
+            Assert.assertSame(value, mapping.get(value));
+            Assert.assertNotSame(array, copied.get("array"));
+            Assert.assertEquals(array.getClass(), copied.get("array").getClass());
+            Assert.assertSame(value, Array.get(copied.get("array"), 0));
+        }
+        AtomicInteger mutableNumber = new AtomicInteger(1);
+        for (Object denied : List.of(mutableNumber, List.of(mutableNumber),
+                                     Map.of(mutableNumber, 1), new AtomicInteger[]{mutableNumber},
+                                     new Number[]{1})) {
+            Assert.assertThrows(IllegalArgumentException.class,
+                                () -> ScriptBindings.client(Map.of("value", denied)));
         }
     }
 
