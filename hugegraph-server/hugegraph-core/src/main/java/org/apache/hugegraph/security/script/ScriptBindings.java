@@ -47,10 +47,6 @@ public final class ScriptBindings {
 
     public static final int MAX_SOURCE_BYTES = 65536;
     private static final Pattern BINDING_NAME = Pattern.compile("[A-Za-z_][A-Za-z0-9_]*");
-    private static final Set<Class<?>> SCALARS = Set.of(
-            String.class, Boolean.class, Byte.class, Short.class, Integer.class,
-            Long.class, Float.class, Double.class, BigDecimal.class, BigInteger.class,
-            Character.class, UUID.class);
     private static final Set<String> RESERVED = Set.of(
             "this", "super", "binding", "metaClass", "class", "def", "in", "as",
             "trait", "var", "yield", "record", "permits", "sealed");
@@ -214,6 +210,15 @@ public final class ScriptBindings {
         return new Budget(true).copy(value, 0);
     }
 
+    private static boolean isScalar(Class<?> type) {
+        // Session checkpoints call this for every scalar. Exact class
+        // comparisons avoid repeated hash-table probes without admitting subclasses.
+        return type == Integer.class || type == String.class || type == Long.class ||
+               type == Boolean.class || type == Byte.class || type == Short.class ||
+               type == Float.class || type == Double.class || type == BigDecimal.class ||
+               type == BigInteger.class || type == Character.class || type == UUID.class;
+    }
+
     private static int scalarLength(Object value) {
         if (value instanceof String) {
             return ((String) value).length();
@@ -290,7 +295,7 @@ public final class ScriptBindings {
                 }
                 return this.copies.computeIfAbsent(value, date -> this.materialize ? new Date(((Date) date).getTime()) : date);
             }
-            if (SCALARS.contains(value.getClass())) {
+            if (isScalar(value.getClass())) {
                 this.size += scalarLength(value) * 2L;
                 if (this.bounded && this.size > MAX_SOURCE_BYTES) {
                     throw denied("binding size limit");
@@ -326,7 +331,7 @@ public final class ScriptBindings {
                     this.copies.put(value, this.materialize ? map : value);
                     for (Map.Entry<?, ?> item : ((Map<?, ?>) value).entrySet()) {
                         Object key = item.getKey();
-                        if (key == null || (!SCALARS.contains(key.getClass()) &&
+                        if (key == null || (!isScalar(key.getClass()) &&
                                             key.getClass() != org.codehaus.groovy.runtime.GStringImpl.class)) {
                             throw denied("non-scalar map key");
                         }
@@ -364,7 +369,7 @@ public final class ScriptBindings {
                         int length = Array.getLength(value);
                         Class<?> component = value.getClass().getComponentType();
                         if (!component.isPrimitive() && component != Object.class &&
-                            !SCALARS.contains(component) && component != Date.class) {
+                            !isScalar(component) && component != Date.class) {
                             throw denied("unsupported array component");
                         }
                         if (this.bounded && length > 4096 - this.nodes) {
