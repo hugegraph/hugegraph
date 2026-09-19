@@ -427,5 +427,35 @@ public class PathFilterTest extends BaseUnitTest {
         Assert.assertFalse(PathFilter.isWhiteAPI("tasks"));
         Assert.assertFalse(PathFilter.isWhiteAPI("unknown"));
     }
+    @Test
+    public void testLegacyClientLoginLogoutAndVerifyRoutes() throws IOException {
+        for (String action : List.of("login", "logout", "verify", "groups")) {
+            Mockito.reset(this.requestContext);
+            Mockito.when(this.requestContext.getUriInfo()).thenReturn(this.uriInfo);
+            setupUriInfo("/", "/graphs/hugegraph/auth/" + action,
+                         List.of("graphs", "hugegraph", "auth", action), null);
+            this.pathFilter.filter(this.requestContext);
+            Mockito.verify(this.requestContext).setRequestUri(
+                    URI.create("http://localhost:8080/"),
+                    URI.create("http://localhost:8080/auth/" + action));
+        }
+    }
+
+    @Test
+    public void testLegacyClientAuthResourcesUseDefaultSpace() throws IOException {
+        for (String resource : List.of("users", "targets", "belongs",
+                                       "accesses", "projects")) {
+            Mockito.reset(this.requestContext);
+            Mockito.when(this.requestContext.getUriInfo()).thenReturn(this.uriInfo);
+            setupUriInfo("/", "/graphs/hugegraph/auth/" + resource + "/123",
+                         List.of("graphs", "hugegraph", "auth", resource, "123"), "limit=10");
+            this.pathFilter.filter(this.requestContext);
+            Mockito.verify(this.requestContext).setRequestUri(
+                    URI.create("http://localhost:8080/"),
+                    URI.create("http://localhost:8080/graphspaces/DEFAULT/auth/" +
+                               resource + "/123?limit=10"));
+        }
+    }
+
 }
 

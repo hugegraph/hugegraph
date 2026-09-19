@@ -50,7 +50,10 @@ multiple Server replicas, all replicas receive this same secret. The HA
 topology fails fast if authentication is enabled without this shared secret.
 
 A non-empty `HUGEGRAPH_ADMIN_PASSWORD` enables Server authentication, and
-Hubble detects that mode automatically. Omitting the variable or setting it to
+Hubble detects that mode automatically. HStore Compose files also pass
+`HUGEGRAPH_AUTH_TOKEN_SECRET` to PD as `HG_PD_AUTH_SECRET_KEY` and to Server
+as `PD_AUTH_PASSWORD`, because current `hugegraph/pd` images refuse to start
+without that secret. Omitting the variable or setting it to
 an empty value disables authentication. Auth-off is only suitable for a
 trusted local environment; never expose it to a public or untrusted network.
 Hubble listens on host loopback by default. Set `HUBBLE_PUBLISH_HOST` only
