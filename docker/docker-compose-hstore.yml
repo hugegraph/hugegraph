@@ -39,6 +39,7 @@ services:
       HG_PD_RAFT_PEERS_LIST: pd:8610
       HG_PD_INITIAL_STORE_LIST: store:8500
       HG_PD_DATA_PATH: /hugegraph-pd/pd_data
+      HG_PD_AUTH_SECRET_KEY: ${HUGEGRAPH_AUTH_TOKEN_SECRET:-}
     ports:
       - "8620:8620"
     volumes:
@@ -96,6 +97,7 @@ services:
       # silently, which the entrypoint rejects on purpose.
       HG_SERVER_STARTUP_TIMEOUT_S: ${HG_SERVER_STARTUP_TIMEOUT_S-120}
       HG_SERVER_AUTH_TOKEN_SECRET: ${HUGEGRAPH_AUTH_TOKEN_SECRET:-}
+      PD_AUTH_PASSWORD: ${HUGEGRAPH_AUTH_TOKEN_SECRET:-}
       PASSWORD: ${HUGEGRAPH_ADMIN_PASSWORD:-}
     ports:
       - "8080:8080"

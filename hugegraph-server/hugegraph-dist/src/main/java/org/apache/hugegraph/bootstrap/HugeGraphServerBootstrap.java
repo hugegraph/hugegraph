@@ -23,6 +23,8 @@ import java.security.Security;
 
 import org.apache.hugegraph.dist.HugeGraphServer;
 import org.apache.hugegraph.security.HugeSecurityManager;
+import org.apache.hugegraph.security.script.ScriptPolicyRuntime;
+import org.apache.hugegraph.security.script.ScriptSecurityMode;
 
 public final class HugeGraphServerBootstrap {
 
@@ -53,9 +55,14 @@ public final class HugeGraphServerBootstrap {
             }
 
             try {
-                System.setSecurityManager(new HugeSecurityManager());
-                if (!(System.getSecurityManager() instanceof
-                      HugeSecurityManager)) {
+                if (ScriptPolicyRuntime.mode() !=
+                    ScriptSecurityMode.POLICY_ONLY) {
+                    System.setSecurityManager(new HugeSecurityManager());
+                }
+                ScriptPolicyRuntime.validateSecurityManager();
+                if (ScriptPolicyRuntime.mode() !=
+                    ScriptSecurityMode.POLICY_ONLY &&
+                    !(System.getSecurityManager() instanceof HugeSecurityManager)) {
                     throw new IllegalStateException(
                             "Unexpected security manager");
                 }
@@ -74,6 +81,7 @@ public final class HugeGraphServerBootstrap {
             return;
         }
 
+        ScriptPolicyRuntime.validateSecurityManager();
         HugeGraphServer.main(new String[]{args[1], args[2]});
     }
 
