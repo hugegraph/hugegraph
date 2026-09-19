@@ -106,8 +106,22 @@ public class PathFilter implements ContainerRequestFilter {
                 this.configProvider.get().get(ServerOptions.PATH_GRAPH_SPACE);
         String path = uriInfo.getBaseUri().getPath() +
                       String.join(DELIMITER, GRAPH_SPACE, defaultPathSpace);
-        for (PathSegment segment : segments) {
-            path = String.join(DELIMITER, path, segment.getPath());
+        int start = 0;
+        // The 1.5 client scopes auth endpoints by graph. Most auth resources now
+        // belong to a graph space; login/logout/verify and legacy groups are global.
+        if (segments.size() >= 4 && "graphs".equals(rootPath) &&
+            "auth".equals(segments.get(2).getPath())) {
+            String resource = segments.get(3).getPath();
+            if (ImmutableSet.of("login", "logout", "verify", "groups").contains(resource)) {
+                path = uriInfo.getBaseUri().getPath() + "auth";
+                start = 3;
+            } else if (ImmutableSet.of("users", "targets", "belongs",
+                                       "accesses", "projects").contains(resource)) {
+                start = 2;
+            }
+        }
+        for (int i = start; i < segments.size(); i++) {
+            path = String.join(DELIMITER, path, segments.get(i).getPath());
         }
         LOG.debug("Redirect request uri from {} to {}",
                   uriInfo.getRequestUri().getPath(), path);
