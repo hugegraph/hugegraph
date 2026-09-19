@@ -210,8 +210,8 @@ public final class ScriptBindings {
         return new Budget(true).copy(value, 0);
     }
 
-    private static boolean isScalar(Class<?> type) {
-        // Session checkpoints call this for every scalar. Exact class
+    static boolean isScalar(Class<?> type) {
+        // Binding and result checks call this for every scalar. Exact class
         // comparisons avoid repeated hash-table probes without admitting subclasses.
         return type == Integer.class || type == String.class || type == Long.class ||
                type == Boolean.class || type == Byte.class || type == Short.class ||

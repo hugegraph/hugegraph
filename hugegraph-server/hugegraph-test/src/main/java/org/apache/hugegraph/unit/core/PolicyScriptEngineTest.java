@@ -24,6 +24,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -54,6 +55,7 @@ import org.apache.tinkerpop.gremlin.structure.util.empty.EmptyGraph;
 import org.apache.tinkerpop.gremlin.structure.util.CloseableIterator;
 import org.apache.tinkerpop.gremlin.util.function.Lambda;
 import org.junit.Assert;
+import org.mockito.Mockito;
 import org.junit.Test;
 
 public class PolicyScriptEngineTest {
@@ -342,6 +344,59 @@ public class PolicyScriptEngineTest {
             Assert.assertThrows(IllegalArgumentException.class, traversal::next);
             traversal.close();
         }
+    }
+
+    @Test
+    public void testScalarResultsHonorTimeoutAndInterruption() throws Exception {
+        Class<?> results = Class.forName("org.apache.hugegraph.security.script.ScriptResults");
+        for (Object value : Arrays.asList(null, 1, "value", true, BigDecimal.ONE)) {
+            RuntimeException error = Assert.assertThrows(RuntimeException.class,
+                    () -> Whitebox.invoke(results, new Class<?>[]{Object.class, long.class},
+                                          "validate", null, value, System.nanoTime() - 1L));
+            Assert.assertTrue(error.toString(), error.getMessage().contains("SCRIPT_EXECUTION_TIMEOUT"));
+        }
+        Thread.currentThread().interrupt();
+        try {
+            RuntimeException error = Assert.assertThrows(RuntimeException.class,
+                    () -> Whitebox.invoke(results, new Class<?>[]{Object.class, long.class},
+                                          "validate", null, 1,
+                                          System.nanoTime() + TimeUnit.SECONDS.toNanos(30)));
+            Assert.assertTrue(error.toString(), error.getMessage().contains("SCRIPT_EXECUTION_TIMEOUT"));
+            Assert.assertTrue(Thread.currentThread().isInterrupted());
+        } finally {
+            Thread.interrupted();
+        }
+    }
+
+    @Test
+    public void testScalarResultsStillConsumeNodeAndDepthBudgets() throws Exception {
+        Class<?> results = Class.forName("org.apache.hugegraph.security.script.ScriptResults");
+        Whitebox.invoke(results, new Class<?>[]{Object.class}, "validate", null,
+                        Collections.nCopies(99999, 1));
+        RuntimeException nodes = Assert.assertThrows(RuntimeException.class,
+                () -> Whitebox.invoke(results, new Class<?>[]{Object.class}, "validate", null,
+                                      Collections.nCopies(100000, 1)));
+        Assert.assertTrue(nodes.toString(), nodes.getMessage().contains("SCRIPT_RESULT_LIMIT"));
+        Object nested = 1;
+        for (int i = 0; i < 64; i++) {
+            nested = List.of(nested);
+        }
+        Whitebox.invoke(results, new Class<?>[]{Object.class}, "validate", null, nested);
+        Object tooDeep = List.of(nested);
+        RuntimeException depth = Assert.assertThrows(RuntimeException.class,
+                () -> Whitebox.invoke(results, new Class<?>[]{Object.class}, "validate", null, tooDeep));
+        assertResultDenied(depth);
+    }
+
+    @Test
+    public void testScalarSubclassCannotHideAnIterator() throws Exception {
+        Class<?> results = Class.forName("org.apache.hugegraph.security.script.ScriptResults");
+        BigDecimal executable = Mockito.mock(BigDecimal.class,
+                                            Mockito.withSettings().extraInterfaces(Iterator.class));
+        RuntimeException error = Assert.assertThrows(RuntimeException.class,
+                () -> Whitebox.invoke(results, new Class<?>[]{Object.class}, "validate", null, executable));
+        assertResultDenied(error);
+        Mockito.verifyNoInteractions(executable);
     }
 
     @Test
