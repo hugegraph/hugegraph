@@ -426,6 +426,7 @@ default values.
 | `server.image.pullPolicy` | Server image pull policy | `Always` |
 | `server.javaOpts` | Empty preserves the image's automatic JVM sizing | `""` |
 | `server.port` | Server REST port, container port, and Service port | `8080` |
+| `server.readinessPath` | Path the Server readinessProbe hits. Set `/readiness` once the Server image serves it (apache/hugegraph#3212); it answers 503 while the Server cannot serve graph traffic. Startup and liveness stay on `/versions` | `/versions` |
 | `server.backend` | Storage backend | `hstore` |
 | `server.resources` | Server resources. `requests.cpu` is required when HPA is enabled | `{}` |
 | `server.podSecurityContext` | Pod-level securityContext, rendered only when set | `{}` |
