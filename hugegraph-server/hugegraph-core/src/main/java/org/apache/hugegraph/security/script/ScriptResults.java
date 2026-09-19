@@ -185,6 +185,11 @@ final class ScriptResults {
     }
 
     static void validate(Object value, long deadline) {
+        // Scalar leaves cannot contain cycles or executable objects.
+        if (value == null || ScriptBindings.isScalar(value.getClass())) {
+            ScriptExecutionBudget.check(deadline);
+            return;
+        }
         try {
             validate(value, new IdentityHashMap<>(), 0, new int[]{0}, deadline);
         } catch (RuntimeException | Error failure) {
@@ -328,7 +333,13 @@ final class ScriptResults {
         if (value == null) {
             return;
         }
-        if (depth > 64 || value instanceof Class || value instanceof ClassLoader ||
+        if (depth > 64) {
+            throw new IllegalArgumentException("SCRIPT_RESULT_DENIED");
+        }
+        if (ScriptBindings.isScalar(value.getClass())) {
+            return;
+        }
+        if (value instanceof Class || value instanceof ClassLoader ||
             value instanceof Script || value instanceof Closure || value instanceof MetaClass ||
             value instanceof Thread ||
             value instanceof HugeGraph || value instanceof TraversalSource || value instanceof Transaction ||
