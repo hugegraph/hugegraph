@@ -25,6 +25,7 @@ import java.util.Set;
 import org.apache.tinkerpop.gremlin.process.traversal.Bytecode;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.TextP;
+import org.apache.tinkerpop.gremlin.process.traversal.Text;
 import org.apache.tinkerpop.gremlin.process.traversal.util.ConnectiveP;
 import org.apache.tinkerpop.gremlin.util.function.Lambda;
 
@@ -74,7 +75,8 @@ public final class ScriptBytecodePolicy {
                 if (++count[0] > 4096) {
                     throw new IllegalArgumentException("SCRIPT_BYTECODE_LIMIT");
                 }
-                if (!ScriptMethodPolicy.TRAVERSAL_STEPS.contains(instruction.getOperator())) {
+                if (!ScriptMethodPolicy.TRAVERSAL_STEPS.contains(instruction.getOperator()) &&
+                    !"with".equals(instruction.getOperator())) {
                     throw new IllegalArgumentException("SCRIPT_BYTECODE_STEP_DENIED");
                 }
                 for (Object argument : instruction.getArguments()) {
@@ -96,11 +98,12 @@ public final class ScriptBytecodePolicy {
                 }
             } else {
                 Object predicate = ((P<?>) value).getBiPredicate();
-                if (!(predicate instanceof Enum) || !Set.of(
+                boolean ordinaryPredicate = predicate instanceof Enum && Set.of(
                         "org.apache.tinkerpop.gremlin.process.traversal.Compare",
                         "org.apache.tinkerpop.gremlin.process.traversal.Contains",
                         "org.apache.tinkerpop.gremlin.process.traversal.Text")
-                        .contains(((Enum<?>) predicate).getDeclaringClass().getName())) {
+                        .contains(((Enum<?>) predicate).getDeclaringClass().getName());
+                if (!ordinaryPredicate && predicate.getClass() != Text.RegexPredicate.class) {
                     throw new IllegalArgumentException("SCRIPT_BYTECODE_PREDICATE_DENIED");
                 }
                 check(((P<?>) value).getValue(), depth + 1, count);
@@ -114,7 +117,10 @@ public final class ScriptBytecodePolicy {
                     "org.apache.tinkerpop.gremlin.process.traversal.Scope",
                     "org.apache.tinkerpop.gremlin.process.traversal.Pop",
                     "org.apache.tinkerpop.gremlin.structure.Column",
-                    "org.apache.tinkerpop.gremlin.process.traversal.Pick").contains(type)) {
+                    "org.apache.tinkerpop.gremlin.process.traversal.Pick",
+                    "org.apache.tinkerpop.gremlin.process.traversal.Merge",
+                    "org.apache.tinkerpop.gremlin.process.traversal.GType",
+                    "org.apache.tinkerpop.gremlin.process.traversal.DT").contains(type)) {
                 throw new IllegalArgumentException("SCRIPT_BYTECODE_ENUM_DENIED");
             }
         } else if (value instanceof Collection) {

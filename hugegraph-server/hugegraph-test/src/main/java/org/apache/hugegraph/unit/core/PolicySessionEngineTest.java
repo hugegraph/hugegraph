@@ -17,6 +17,7 @@
 
 package org.apache.hugegraph.unit.core;
 
+import java.util.Date;
 import java.util.List;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -440,6 +441,36 @@ public class PolicySessionEngineTest {
             Assert.assertThrows(IllegalArgumentException.class, invalid::hasNext);
             engine.abortSession();
             Assert.assertEquals(List.of(1, 2), state.get("values"));
+        }
+    }
+
+    @Test
+    public void testDeferredPublicationPreservesAliasedMutableData() throws Exception {
+        java.util.List<Object> shared = new java.util.ArrayList<>(List.of(1, 2));
+        Date date = new Date(0);
+        SimpleBindings state = new SimpleBindings(new HashMap<>(Map.of(
+                "g", EmptyGraph.instance().traversal(), "first", shared, "second", shared,
+                "date", date, "dates", new Date[]{date}, "array", new int[]{1, 2},
+                "limits", List.of(Long.MIN_VALUE, Long.MAX_VALUE, 0, -1))));
+        try (PolicyScriptEngine engine = new PolicyScriptEngine(ScriptExecutionProfile.QUERY, true)) {
+            engine.deferSessionPublication();
+            Iterator<?> result = (Iterator<?>) engine.eval(
+                    "g.inject(3,4).map { first.add(it.get()); date.setTime(7); array[0]=9; it.get() }", state);
+            Assert.assertTrue(result.hasNext());
+            Assert.assertTrue(result.hasNext());
+            Assert.assertEquals(3, result.next());
+            Assert.assertEquals(List.of(1, 2), state.get("first"));
+            Assert.assertEquals(4, result.next());
+            Assert.assertFalse(result.hasNext());
+            engine.publishSession(state);
+            Assert.assertEquals(List.of(1, 2, 3, 4), state.get("first"));
+            Assert.assertSame(state.get("first"), state.get("second"));
+            Assert.assertNotSame(shared, state.get("first"));
+            Assert.assertSame(state.get("date"), ((Date[]) state.get("dates"))[0]);
+            Assert.assertEquals(7L, ((Date) state.get("date")).getTime());
+            Assert.assertEquals(0L, date.getTime());
+            Assert.assertArrayEquals(new int[]{9, 2}, (int[]) state.get("array"));
+            Assert.assertEquals(List.of(Long.MIN_VALUE, Long.MAX_VALUE, 0, -1), state.get("limits"));
         }
     }
 

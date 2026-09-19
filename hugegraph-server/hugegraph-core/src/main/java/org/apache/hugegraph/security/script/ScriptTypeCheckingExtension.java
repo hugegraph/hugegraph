@@ -81,6 +81,14 @@ public final class ScriptTypeCheckingExtension extends TypeCheckingExtension {
                 method.setObjectExpression(new ClassExpression(ClassHelper.make(ScriptDataOperations.class)));
                 method.putNodeMetaData(DATA_CALL, Boolean.TRUE);
             }
+            // A chained receiver such as Traverser<String>.get() may not have
+            // its inferred type yet when Groovy invokes beforeMethodCall.
+            if (Set.of("matches", "replaceAll", "replaceFirst", "split").contains(name == null ? "" : name) &&
+                method.getObjectExpression() instanceof MethodCallExpression &&
+                this.getType(method.getObjectExpression()).equals(ClassHelper.OBJECT_TYPE)) {
+                this.typeCheckingVisitor.visitMethodCallExpression(
+                        (MethodCallExpression) method.getObjectExpression());
+            }
             if (Set.of("matches", "replaceAll", "replaceFirst", "split").contains(name == null ? "" : name) &&
                 (method.isSpreadSafe() || this.getType(method.getObjectExpression()).equals(ClassHelper.STRING_TYPE))) {
                 StaticMethodCallExpression receiver = new StaticMethodCallExpression(

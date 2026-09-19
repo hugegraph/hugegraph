@@ -70,6 +70,9 @@ public final class ScriptExpressionGuard extends CompilationCustomizer {
             "org.apache.tinkerpop.gremlin.process.traversal.Pop",
             "org.apache.tinkerpop.gremlin.structure.Column",
             "org.apache.tinkerpop.gremlin.process.traversal.Pick",
+            "org.apache.tinkerpop.gremlin.process.traversal.Merge",
+            "org.apache.tinkerpop.gremlin.process.traversal.GType",
+            "org.apache.tinkerpop.gremlin.process.traversal.DT",
             "org.apache.hugegraph.type.define.Directions", "java.math.RoundingMode");
     private static final Set<String> LOCAL_TYPES = Set.of(
             "java.lang.Object", "java.lang.String", "java.lang.Number", "java.lang.Integer",
@@ -109,7 +112,8 @@ public final class ScriptExpressionGuard extends CompilationCustomizer {
     private final ScriptExecutionProfile profile;
 
     static boolean allowsStaticImport(String type) {
-        return STATIC_TYPES.contains(type) || ENUM_TYPES.contains(type);
+        return STATIC_TYPES.contains(type) || ENUM_TYPES.contains(type) ||
+               type.equals("org.apache.tinkerpop.gremlin.process.traversal.step.util.WithOptions");
     }
 
     public ScriptExpressionGuard(int preludeLines, ScriptExecutionProfile profile) {
@@ -256,7 +260,12 @@ public final class ScriptExpressionGuard extends CompilationCustomizer {
                                                 Set.of("PI", "E").contains(name)) ||
                                                (Set.of("java.math.BigDecimal", "java.math.BigInteger")
                                                    .contains(receiver.getType().getName()) &&
-                                                Set.of("ZERO", "ONE", "TEN", "TWO").contains(name));
+                                                Set.of("ZERO", "ONE", "TEN", "TWO").contains(name)) ||
+                                               (receiver.getType().getName().equals(
+                                                       "org.apache.tinkerpop.gremlin.process.traversal.step.util." +
+                                                       "WithOptions") &&
+                                                Set.of("tokens", "none", "ids", "labels", "keys", "values", "all",
+                                                       "indexer", "list", "map").contains(name));
                         if (!enumConstant && !dataConstant) {
                             throw denied("static property");
                         }

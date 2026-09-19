@@ -40,6 +40,14 @@ import org.apache.hugegraph.security.script.ScriptExecutionProfile;
 import org.apache.tinkerpop.gremlin.groovy.jsr223.GremlinGroovyScriptEngine;
 import org.apache.tinkerpop.gremlin.process.traversal.util.TraversalMetrics;
 import org.apache.tinkerpop.gremlin.tinkergraph.structure.TinkerGraph;
+import org.apache.tinkerpop.gremlin.tinkergraph.structure.TinkerFactory;
+import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversalSource;
+import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal;
+import org.apache.tinkerpop.gremlin.process.traversal.Bytecode;
+import org.apache.tinkerpop.gremlin.process.traversal.TextP;
+import org.apache.tinkerpop.gremlin.process.traversal.GType;
+import org.apache.tinkerpop.gremlin.process.traversal.DT;
+import org.apache.tinkerpop.gremlin.process.traversal.step.util.WithOptions;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -78,6 +86,14 @@ public class PolicyCompatibilityTest {
                 "def a=\"${1}\"; a += \"${2}\"; a",
                 "def a=\"${1}\"; a += '2'; a",
                 "\"${1}\" + \"${2}\"",
+                "def a='a'; a += [1,2]; a",
+                "String a='a'; a += [x:1,y:2]; a",
+                "def a='a'; a += ([1,2] as int[]); a",
+                "def a='a'; a += null; a",
+                "def a=\"${1}\"; a += [2,3]; a",
+                "def a='a'; a += 'x'.repeat(33000); a.length()",
+                "'a' + [1,2]",
+                "'a' + [x:1,y:2]",
                 "def a='abc'; a -= 'b'; a",
                 "def a=[1,2]; a *= 2; a",
                 "def a=[1,2].toSet(); a += 3; a",
@@ -153,6 +169,66 @@ public class PolicyCompatibilityTest {
             }
             Assert.assertTrue(policy.eval("UUID.randomUUID()", bindings(graph)) instanceof UUID);
             Assert.assertTrue(policy.eval("g.V().profile().next()", bindings(graph)) instanceof TraversalMetrics);
+        }
+    }
+
+    @Test
+    public void testUpgradedTraversalMethodsAgainstOriginalEngine() throws Exception {
+        GremlinGroovyScriptEngine original = new GremlinGroovyScriptEngine();
+        try (PolicyScriptEngine policy = new PolicyScriptEngine(ScriptExecutionProfile.QUERY)) {
+            for (String script : List.of(
+                    "g.inject(1).discard().toList()",
+                    "g.inject('alice','bob').is(TextP.regex('^a')).toList()",
+                    "g.inject('alice','bob').is(TextP.notRegex('^a')).toList()",
+                    "g.mergeV([(T.label):'person',name:'new']).option(Merge.onCreate,[age:20]).valueMap().toList()",
+                    "g.mergeE([(T.label):'test',(Direction.OUT):1,(Direction.IN):2]).label().toList()",
+                    "g.V().properties('name').element().values('name').toList()",
+                    "g.union(__.inject(1),__.inject(2)).toList()",
+                    "g.inject('a').concat('b').toList()",
+                    "g.inject(1).asString().toList()",
+                    "g.inject('12').asNumber(GType.LONG).toList()",
+                    "g.inject('true').asBool().toList()",
+                    "g.inject([1,2]).any(P.gt(1)).toList()",
+                    "g.inject([1,2]).all(P.gt(0)).toList()",
+                    "g.inject([1,2]).none(P.gt(3)).toList()",
+                    "g.inject(new Date(0)).asDate().dateAdd(DT.day,1).asNumber().toList()",
+                    "g.V().valueMap().with(WithOptions.tokens).toList()",
+                    "g.inject('alice','bob').filter { it.get().matches('^a.*') }.toList()",
+                    "g.inject('a1').map { it.get().replaceAll('[0-9]','') }.toList()",
+                    "g.inject('a,b').map { it.get().split(',').toList() }.toList()",
+                    "g.inject(' Ab ').trim().toLower().length().toList()",
+                    "g.inject([1,2]).combine([3]).reverse().toList()")) {
+                try (TinkerGraph before = TinkerFactory.createModern();
+                     TinkerGraph after = TinkerFactory.createModern()) {
+                    Object expected = original.eval(script, new SimpleBindings(Map.of("g", before.traversal())));
+                    Object actual = policy.eval(script, new SimpleBindings(Map.of("g", after.traversal())));
+                    assertValue(script, expected, actual);
+                }
+            }
+        }
+    }
+
+    @Test
+    public void testUpgradedBytecodeMethods() throws Exception {
+        try (TinkerGraph graph = TinkerFactory.createModern();
+             PolicyScriptEngine policy = new PolicyScriptEngine(ScriptExecutionProfile.QUERY)) {
+            GraphTraversalSource g = graph.traversal();
+            SimpleBindings state = new SimpleBindings(Map.of("g", g));
+            List<GraphTraversal<?, ?>> queries =
+                    List.of(g.inject(1).discard(),
+                            g.inject("alice", "bob").is(TextP.regex("^a")),
+                            g.inject("alice", "bob").is(TextP.notRegex("^a")),
+                            g.inject("12").asNumber(GType.LONG),
+                            g.inject(new Date(0)).asDate().dateAdd(
+                                    DT.day, 1).asNumber(),
+                            g.V().valueMap().with(
+                                    WithOptions.tokens));
+            for (GraphTraversal<?, ?> query : queries) {
+                Bytecode code = query.asAdmin().getBytecode();
+                Object expected = query.toList();
+                Object actual = policy.eval(code, state, "g").toList();
+                assertValue(code.toString(), expected, actual);
+            }
         }
     }
 
@@ -255,6 +331,36 @@ public class PolicyCompatibilityTest {
             Assert.assertThrows(ScriptException.class, () -> engine.eval(
                     "element.properties().put('ages', []); true", bindings));
         }
+    }
+
+    @Test
+    public void testGStringConcatenationNullOverloads() {
+        groovy.lang.GString value = new org.codehaus.groovy.runtime.GStringImpl(
+                new Object[]{1}, new String[]{"", ""});
+        assertValue("GString + (String) null", value.plus((String) null),
+                    ScriptDataOperations.plus(value, (String) null));
+        Assert.assertThrows(NullPointerException.class, () -> value.plus((groovy.lang.GString) null));
+        Assert.assertThrows(NullPointerException.class,
+                            () -> ScriptDataOperations.plus(value, (groovy.lang.GString) null));
+    }
+
+    @Test
+    public void testStoreLargePersistedProperties() throws Exception {
+        byte[] bytes = new byte[8192];
+        bytes[0] = 7;
+        ScriptElementView element = new ScriptElementView("1", "person",
+                Map.of("text", "x".repeat(33000), "bytes", bytes,
+                       "blob", org.apache.hugegraph.util.Blob.wrap(bytes), "age", 20));
+        bytes[0] = 9;
+        Assert.assertEquals(7, ((byte[]) element.property("bytes"))[0]);
+        Assert.assertEquals(7, ((org.apache.hugegraph.util.Blob) element.property("blob")).bytes()[0]);
+        try (PolicyScriptEngine engine = new PolicyScriptEngine(ScriptExecutionProfile.STORE_FILTER)) {
+            SimpleBindings bindings = new SimpleBindings(Map.of("element", element));
+            Assert.assertEquals(true, engine.eval("true", bindings));
+            Assert.assertEquals(true, engine.eval("element.property('age') == 20", bindings));
+        }
+        Assert.assertThrows(IllegalArgumentException.class,
+                            () -> ScriptBindings.client(Map.of("text", "x".repeat(33000))));
     }
 
     @Test
