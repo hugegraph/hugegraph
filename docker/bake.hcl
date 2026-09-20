@@ -19,6 +19,14 @@ variable "MAVEN_ARGS" {
   default = ""
 }
 
+variable "MAVEN_PROJECTS" {
+  default = null
+}
+
+variable "RUNTIME_DEPS_EPOCH" {
+  default = null
+}
+
 variable "SOURCE_REVISION" {
   default = "local"
 }
@@ -50,9 +58,11 @@ variable "RUNTIME_VARIANT" {
 target "_common" {
   context = "."
   args = {
-    MAVEN_ARGS        = MAVEN_ARGS
+    MAVEN_ARGS         = MAVEN_ARGS
+    MAVEN_PROJECTS     = MAVEN_PROJECTS
+    RUNTIME_DEPS_EPOCH = RUNTIME_DEPS_EPOCH
+    SOURCE_REVISION    = SOURCE_REVISION
     SOURCE_REPOSITORY = SOURCE_URL
-    SOURCE_REVISION   = SOURCE_REVISION
   }
   platforms = RUNTIME_VARIANT == "topling" ? [
     "linux/amd64",

@@ -78,6 +78,7 @@ published images; the HStore Server itself remains standard:
 
 ```bash
 export HUGEGRAPH_ADMIN_PASSWORD='replace-with-a-strong-password'
+export HG_PD_AUTH_SECRET_KEY='replace-with-a-separate-strong-pd-secret'
 export HUGEGRAPH_PD_IMAGE='hugegraph/pd:topling'
 export HUGEGRAPH_PD_PULL_POLICY='always'
 export HUGEGRAPH_PD_VOLUME='pd-topling-data'
@@ -107,6 +108,8 @@ does not load a local Topling library.
 For a published 3+3+3 stack, select all three deployment images explicitly:
 
 ```bash
+export HUGEGRAPH_ADMIN_PASSWORD='replace-with-a-strong-password'
+export HG_PD_AUTH_SECRET_KEY='replace-with-a-separate-strong-pd-secret'
 export HUGEGRAPH_PD_IMAGE=hugegraph/pd:topling
 export HUGEGRAPH_PD_PULL_POLICY=always
 export HG_PD_ROCKSDB_PROVIDER=topling

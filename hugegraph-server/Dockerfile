@@ -25,21 +25,19 @@ WORKDIR /pkg
 COPY . .
 
 ARG MAVEN_ARGS
+ARG MAVEN_PROJECTS="hugegraph-server/hugegraph-dist,hugegraph-pd/hg-pd-dist,hugegraph-store/hg-store-dist"
 ARG SOURCE_REVISION=local
 
 RUN --mount=type=cache,id=hugegraph-maven-${SOURCE_REVISION},target=/root/.m2,sharing=locked \
-    mvn install $MAVEN_ARGS -e -B -ntp -Dmaven.test.skip=true -Dmaven.javadoc.skip=true \
-    && rm -f ./hugegraph-server/*.tar.gz ./hugegraph-pd/*.tar.gz ./hugegraph-store/*.tar.gz
+    mvn install -pl "$MAVEN_PROJECTS" \
+        -am $MAVEN_ARGS -e -B -ntp -Dmaven.test.skip=true -Dmaven.javadoc.skip=true \
+    && rm ./hugegraph-server/*.tar.gz ./hugegraph-pd/*.tar.gz ./hugegraph-store/*.tar.gz
 
 # Shared runtime environment
 # Note: ZGC (The Z Garbage Collector) is only supported on ARM-Mac with java > 13
 FROM eclipse-temurin:11-jre-noble AS runtime
 
-ARG SOURCE_REPOSITORY=https://github.com/apache/hugegraph
-ARG SOURCE_REVISION=local
-LABEL maintainer="HugeGraph Docker Maintainers <dev@hugegraph.apache.org>" \
-      org.opencontainers.image.source="${SOURCE_REPOSITORY}" \
-      org.opencontainers.image.revision="${SOURCE_REVISION}"
+LABEL maintainer="HugeGraph Docker Maintainers <dev@hugegraph.apache.org>"
 
 # TODO: use g1gc or zgc as default
 # Note: --add-exports is required for Java 11+ to access jdk.internal.reflect for auth proxy
@@ -49,11 +47,12 @@ ENV JAVA_OPTS="-XX:+UnlockExperimentalVMOptions -XX:+UseContainerSupport -XX:Max
 
 WORKDIR /hugegraph-server/
 
-# 1. Install runtime dependencies and configure server
+# 1. Install runtime dependencies
 # Note: iproute2 provides `ss`, which the bin/util.sh port preflight needs.  The
 # The base image ships neither ss nor netstat, so without it the preflight is
 # permanently inconclusive and a duplicate start is no longer caught.  It
 # replaces lsof, which no shipped script calls any more.
+ARG RUNTIME_DEPS_EPOCH=1
 RUN apt-get -q update \
     && apt-get -q install -y --no-install-recommends --no-install-suggests \
        dumb-init \
@@ -116,6 +115,11 @@ RUN apt-get -q update \
 # Build with: docker build --platform linux/amd64 --target topling ...
 FROM topling-runtime AS topling
 
+ARG SOURCE_REPOSITORY=https://github.com/apache/hugegraph
+ARG SOURCE_REVISION=local
+LABEL org.opencontainers.image.source="${SOURCE_REPOSITORY}" \
+      org.opencontainers.image.revision="${SOURCE_REVISION}"
+
 LABEL org.apache.hugegraph.rocksdb-runtime="topling"
 COPY --from=build-topling /pkg/hugegraph-server/apache-hugegraph-server-*-topling/ /hugegraph-server/
 RUN cp /opt/hugegraph-docker/*.groovy ./scripts/ \
@@ -128,6 +132,11 @@ VOLUME ["/hugegraph-server/rocksdb-data", "/hugegraph-server/topling-data"]
 
 # Keep the standard image as the final/default target for existing builds.
 FROM runtime AS standard
+
+ARG SOURCE_REPOSITORY=https://github.com/apache/hugegraph
+ARG SOURCE_REVISION=local
+LABEL org.opencontainers.image.source="${SOURCE_REPOSITORY}" \
+      org.opencontainers.image.revision="${SOURCE_REVISION}"
 
 LABEL org.apache.hugegraph.rocksdb-runtime="standard"
 COPY --from=build /pkg/hugegraph-server/apache-hugegraph-server-*/ /hugegraph-server/

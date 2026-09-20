@@ -2,6 +2,14 @@
 
 This guide covers monitoring, troubleshooting, backup & recovery, and operational procedures for HugeGraph Store in production.
 
+> **PD REST credential.** Calls to a PD REST endpoint on port 8620, other than `/v1/health`, `/v1/ready`, `/actuator/**` and `/v1/prom/targets/*`, need HTTP Basic auth: one of the internal service names (`hg`, `store`, `hubble`, `vermeer`) and PD's `auth.secret-key` value as the password. A call without it gets HTTP 401, which for a mutating step such as `balanceLeaders` means the step did nothing. Export the secret before following a procedure that uses `${PD_SECRET}`:
+>
+> ```bash
+> read -rs PD_SECRET && export PD_SECRET
+> ```
+>
+> Store endpoints on port 8520 are unaffected. Some PD examples in this guide still omit the credential; add `-u hg:"${PD_SECRET}"` when a call returns 401.
+
 ## Table of Contents
 
 - [Monitoring and Metrics](#monitoring-and-metrics)
@@ -604,19 +612,19 @@ curl http://192.168.1.10:8620/v1/partitionsAndStatus
 
 2. **Verify Registration**:
    ```bash
-   curl http://192.168.1.10:8620/v1/stores
+   curl -u hg:"${PD_SECRET}" http://192.168.1.10:8620/v1/stores
    # New Store should appear
    ```
 
 3. **Trigger Rebalancing** (optional):
    ```bash
-   curl -X POST http://192.168.1.10:8620/v1/balanceLeaders
+   curl -u hg:"${PD_SECRET}" -X POST http://192.168.1.10:8620/v1/balanceLeaders
    ```
 
 4. **Monitor Rebalancing**:
    ```bash
    # Watch partition distribution
-   watch -n 10 'curl http://192.168.1.10:8620/v1/partitionsAndStatus'
+   watch -n 10 'curl -u hg:"${PD_SECRET}" http://192.168.1.10:8620/v1/partitionsAndStatus'
    ```
 
 5. **Verify**: Wait for even distribution (may take hours)
@@ -705,6 +713,18 @@ bin/stop-hugegraph.sh
 
 bin/start-hugegraph.sh
 ```
+
+**Meta key prefix (`usePD=true`)**: the Server keeps its schema, graph spaces
+and users in PD under `HUGEGRAPH/<cluster>/...`, where `<cluster>` is the
+`cluster` option of `rest-server.properties` (default `hg-test`). Release 1.7.0
+bound that name; master builds between #3008 (2026-07-10) and #3220 bound the
+literal `hg` instead, because a graph was opened before the Server's own
+binding. Since #3220 the Server binds `cluster` again and logs
+`Meta cluster bound to '<cluster>' (keys under HUGEGRAPH/<cluster>/)` at
+startup. If a Server comes up with an empty schema after an upgrade, compare
+that line with the prefix your data lives under (1.7.0: `hg-test`; a master
+snapshot from that window: `hg`) and set `cluster` in `rest-server.properties`
+to the prefix that holds your data.
 
 ### Rollback Procedure
 

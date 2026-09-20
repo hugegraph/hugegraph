@@ -32,6 +32,7 @@ import org.apache.hugegraph.HugeFactory;
 import org.apache.hugegraph.HugeGraph;
 import org.apache.hugegraph.StandardHugeGraph;
 import org.apache.hugegraph.backend.cache.CacheManager;
+import org.apache.hugegraph.backend.cache.CachedGraphTransaction;
 import org.apache.hugegraph.backend.tx.AbstractTransaction;
 import org.apache.hugegraph.backend.tx.GraphTransaction;
 import org.apache.hugegraph.backend.tx.IndexableTransaction;
@@ -263,17 +264,29 @@ public final class HugeFactoryAuthProxy {
                                            "checkVertexExistIfCustomizedId",
                                            "checkAggregateProperty", "checkAggregateProperty",
                                            "checkNonnullProperty", "queryEdgesFromBackend",
+                                           "queryValidEdgesFromBackend",
                                            "commitPartOfEdgeDeletions", "optimizeQueries",
                                            "checkVertexLabel", "checkId",
-                                           "queryVerticesFromBackend", "joinTxVertices",
+                                           "queryVerticesFromBackend",
+                                           "queryValidVerticesFromBackend", "joinTxVertices",
                                            "joinTxEdges", "lockForUpdateProperty", "optimizeQuery",
                                            "verifyVerticesConditionQuery",
                                            "verifyEdgesConditionQuery", "indexQuery",
                                            "joinTxRecords", "propertyUpdated", "parseEntry",
                                            "traverseByLabel", "reset", "queryVerticesByIds",
-                                           "filterUnmatchedRecords", "skipOffsetOrStopLimit",
-                                           "filterExpiredResultFromFromBackend", "queryEdgesByIds",
-                                           "matchEdgeSortKeys", "rightResultFromIndexQuery");
+                                           "filterInvalidRecord", "filterUnmatchedRecord",
+                                           "invalidRecord", "warnLeftRecord",
+                                           "skipOffsetOrStopLimit",
+                                           "filterExpiredBatches", "queryEdgesByIds",
+                                           "matchEdgeSortKeys", "rightResultFromIndexQuery",
+                                           "queryVertexBatchesFromBackend", "backendBatches",
+                                           "fetchVertexBatch", "processBatches",
+                                           "queryEdgeBatchesFromBackend",
+                                           "queryEdgeBatchesFromBackendInternal",
+                                           "queryEdgesFromMemory", "fetchEdgeBatch");
+        Reflection.registerMethodsToFilter(CachedGraphTransaction.class,
+                                           "fetchVertexBatch", "fetchEdgeBatch",
+                                           "queryEdgesFromMemory", "cacheEdgeBatch");
         Reflection.registerFieldsToFilter(IndexableTransaction.class, "$assertionsDisabled");
         Reflection.registerMethodsToFilter(IndexableTransaction.class, "indexTransaction",
                                            "commit2Backend", "reset");

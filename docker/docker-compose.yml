@@ -38,6 +38,10 @@ services:
       HG_SERVER_ROCKSDB_PROVIDER: ${HG_SERVER_ROCKSDB_PROVIDER:-rocksdb}
       HG_SERVER_DATA_PATH: ${HG_SERVER_DATA_PATH:-/hugegraph-server/rocksdb-data}
       HG_SERVER_ENFORCE_PROVIDER_MARKER: ${HG_SERVER_ENFORCE_PROVIDER_MARKER:-false}
+      # Unset-only default: a host value overrides it, an absent one
+      # renders the entrypoint default. ":-" would turn an empty host
+      # value into 120 silently, which the entrypoint rejects on purpose.
+      HG_SERVER_STARTUP_TIMEOUT_S: ${HG_SERVER_STARTUP_TIMEOUT_S-120}
     ports:
       - "8080:8080"
     volumes:

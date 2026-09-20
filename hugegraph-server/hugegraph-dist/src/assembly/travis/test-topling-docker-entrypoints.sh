@@ -66,6 +66,7 @@ run_pd() {
     (
         cd "$TEST_ROOT/pd"
         ENTRYPOINT_CAPTURE="$capture" \
+        HG_PD_AUTH_SECRET_KEY=ci-topling-pd-secret \
         HG_PD_GRPC_HOST=pd \
         HG_PD_RAFT_ADDRESS=pd:8610 \
         HG_PD_RAFT_PEERS_LIST=pd:8610 \
@@ -124,6 +125,7 @@ expect_invalid_provider() {
     if [ "$component" = "pd" ]; then
         if output=$(
             cd "$TEST_ROOT/pd"
+            HG_PD_AUTH_SECRET_KEY=ci-topling-pd-secret \
             HG_PD_GRPC_HOST=pd \
             HG_PD_RAFT_ADDRESS=pd:8610 \
             HG_PD_RAFT_PEERS_LIST=pd:8610 \
@@ -172,6 +174,7 @@ mkdir -p "$SHARED_DATA"
 (
     cd "$TEST_ROOT/pd"
     ENTRYPOINT_CAPTURE="$TEST_ROOT/pd-shared-topling" \
+    HG_PD_AUTH_SECRET_KEY=ci-topling-pd-secret \
     HG_PD_GRPC_HOST=pd \
     HG_PD_RAFT_ADDRESS=pd:8610 \
     HG_PD_RAFT_PEERS_LIST=pd:8610 \
@@ -183,6 +186,7 @@ mkdir -p "$SHARED_DATA"
 if output=$(
     cd "$TEST_ROOT/pd"
     ENTRYPOINT_CAPTURE="$TEST_ROOT/pd-shared-rocksdb" \
+    HG_PD_AUTH_SECRET_KEY=ci-topling-pd-secret \
     HG_PD_GRPC_HOST=pd \
     HG_PD_RAFT_ADDRESS=pd:8610 \
     HG_PD_RAFT_PEERS_LIST=pd:8610 \

@@ -23,21 +23,26 @@ on:
       - master
       - 'release-*'
   pull_request:
+    # Keep source/resources and shared build inputs; skip named documentation files.
     paths:
-      - '.github/workflows/docker-build-ci.yml'
-      - 'docker/bake.hcl'
-      - '.dockerignore'
-      - '.mvn/**'
       - 'pom.xml'
+      - '.mvn/**'
+      - 'style/**'
+      - '.editorconfig'
+      - '.github/configs/**'
       - 'hugegraph-commons/**'
-      - 'hugegraph-cluster-test/**'
+      - 'hugegraph-struct/**'
       - 'hugegraph-pd/**'
       - 'hugegraph-store/**'
-      - 'hugegraph-struct/**'
       - 'hugegraph-server/**'
-      - 'docker/hbase/**'
-      - 'docker/docker-compose*.yml'
+      - 'hugegraph-cluster-test/**'
       - 'install-dist/**'
+      - 'docker/**'
+      - '.dockerignore'
+      - '.github/workflows/docker-build-ci.yml'
+      - '!**/README*'
+      - '!**/AGENTS.md'
+      - '!**/CLAUDE.md'
 
 jobs:
   docker-bake-check:
@@ -126,6 +131,7 @@ jobs:
       - name: Validate ToplingDB Compose parameters
         env:
           HUGEGRAPH_ADMIN_PASSWORD: ci-test-password
+          HG_PD_AUTH_SECRET_KEY: ci-test-pd-secret
           HUGEGRAPH_SERVER_PULL_POLICY: always
           HUGEGRAPH_PD_PULL_POLICY: always
           HUGEGRAPH_STORE_PULL_POLICY: always
