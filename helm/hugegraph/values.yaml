@@ -164,6 +164,13 @@ pd:
   # Startup and liveness stay on /v1/health so a PD that merely lost its
   # leader is not restarted.
   readinessPath: /v1/ready
+  # HTTP path the PD startup and liveness probes hit. Empty derives it from
+  # the replica count: /v1/health with more than one PD, so a normal election
+  # never restarts a follower, and /v1/ready with a single PD, which has no
+  # election to lose and would otherwise pass /v1/health forever after losing
+  # leadership for good (apache/hugegraph#3222). Startup follows liveness so
+  # the boot-to-ready window sits inside the startup budget.
+  livenessPath: ""
   probes:
     startup:
       failureThreshold: 30

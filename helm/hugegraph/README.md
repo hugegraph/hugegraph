@@ -404,6 +404,7 @@ default values.
 | `pd.pdb.enabled` | Create a PodDisruptionBudget for PD | `true` |
 | `pd.pdb.minAvailable` | Must be strictly less than `pd.replicas`. No PDB is rendered when `pd.replicas` is 1 | `2` |
 | `pd.readinessPath` | Path the PD readinessProbe hits. `/v1/ready` is quorum-aware and returns 503 without a raft leader | `/v1/ready` |
+| `pd.livenessPath` | Path the PD startup and liveness probes hit. Empty derives it from `pd.replicas`: `/v1/health` above one replica, `/v1/ready` at one | `""` |
 | `pd.auth.value` | Plaintext PD REST secret (`auth.secret-key`). Prefer `existingSecret` in shared clusters. Printable ASCII, no backslashes, no leading or trailing space (a properties read trims it) | `""` |
 | `pd.auth.existingSecret` | Pre-created Secret holding the PD REST secret under `pd.auth.key`. Wins over `value` and `autoGenerate`; the chart does not manage it. Its value must meet the same constraint as `pd.auth.value`: printable ASCII, no backslashes, no leading or trailing space | `""` |
 | `pd.auth.key` | Key inside the PD REST Secret | `secret-key` |
@@ -1122,10 +1123,18 @@ independently of the release name.
   its one-shot resolution semantics (bring-up races and pod-IP-change
   rejections included) at the operator's own risk.
 - PD's `/v1/health` answers 200 as soon as the REST listener is up and never
-  consults raft, so it cannot see a lost quorum. The chart therefore uses it
-  only for PD startup and liveness (a PD that merely lost its leader is not
-  restarted) and puts readiness and the Store wait on `/v1/ready`, which
-  answers 503 without a raft leader.
+  consults raft, so it cannot see a lost quorum. With more than one PD the
+  chart uses it for startup and liveness on purpose, so that a follower which
+  merely lost its leader is not restarted, and puts readiness and the Store
+  wait on `/v1/ready`, which answers 503 without a raft leader. A single PD
+  is the exception: it has no election to lose, and a PD that steps down for
+  good, as after a failed raft snapshot on a full disk
+  ([apache/hugegraph#3222](https://github.com/apache/hugegraph/issues/3222)),
+  answers `/v1/health` forever while serving no writes. At `pd.replicas: 1`
+  startup and liveness therefore derive to `/v1/ready`, so the kubelet
+  restarts such a PD; `pd.livenessPath` overrides the derivation. If a future
+  PD answers 503 from `/v1/health` in that state, the value becomes
+  unnecessary.
 - Server discovery is a lease. Each Server re-registers its Pod IP with PD
   every 15 seconds and PD drops an entry after three missed heartbeats, so a
   replaced or evicted Server can stay in PD's list for up to 45 seconds after

@@ -242,6 +242,40 @@ renders emit a constant.
 {{- end }}
 
 {{/*
+Path the PD startup and liveness probes hit.
+
+/v1/health answers 200 as soon as the REST listener is up and never consults
+raft, which is what a multi-PD deployment wants: losing leadership is normal
+during an election, and restarting a follower for it would turn one election
+into a rolling outage. Readiness carries the raft-aware signal instead.
+
+A single PD has no election to lose. There, a PD that steps down and cannot
+recover, as after a failed snapshot on a full disk
+(apache/hugegraph#3222), keeps answering /v1/health forever and liveness
+never restarts it, so the default moves to /v1/ready when pd.replicas is 1.
+
+The startup probe follows this path as well. Kubernetes suppresses liveness
+until the startup probe succeeds, so leaving startup on /v1/health would give
+a single PD only the liveness budget (60 s by default) to reach raft
+readiness after a restart, and a slow log replay would crash-loop instead of
+booting. Following the same path puts that window inside the startup budget
+(300 s by default) instead.
+
+Setting pd.livenessPath overrides the choice in both places. If PD starts
+answering 503 from /v1/health in this state, this value stops being needed.
+*/}}
+{{- define "hugegraph.pd.livenessPath" -}}
+{{- $explicit := get .Values.pd "livenessPath" | default "" -}}
+{{- if $explicit -}}
+{{- $explicit -}}
+{{- else if eq (int .Values.pd.replicas) 1 -}}
+/v1/ready
+{{- else -}}
+/v1/health
+{{- end -}}
+{{- end }}
+
+{{/*
 PD Raft peers list: pod-0.svc.ns.svc:8610,...
 Uses short headless DNS (cluster.local optional) resolvable inside the namespace.
 */}}

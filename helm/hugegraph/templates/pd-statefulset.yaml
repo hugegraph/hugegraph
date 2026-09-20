@@ -136,7 +136,7 @@ spec:
               mountPath: {{ .Values.pd.dataPath }}
           startupProbe:
             httpGet:
-              path: /v1/health
+              path: {{ include "hugegraph.pd.livenessPath" . }}
               port: rest
             failureThreshold: {{ .Values.pd.probes.startup.failureThreshold }}
             periodSeconds: {{ .Values.pd.probes.startup.periodSeconds }}
@@ -150,7 +150,7 @@ spec:
             {{- with include "hugegraph.probeTuning" .Values.pd.probes.readiness }}{{ . | trim | nindent 12 }}{{- end }}
           livenessProbe:
             httpGet:
-              path: /v1/health
+              path: {{ include "hugegraph.pd.livenessPath" . }}
               port: rest
             periodSeconds: {{ .Values.pd.probes.liveness.periodSeconds }}
             failureThreshold: {{ .Values.pd.probes.liveness.failureThreshold }}

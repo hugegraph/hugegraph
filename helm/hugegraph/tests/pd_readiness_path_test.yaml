@@ -75,3 +75,43 @@ tests:
       - equal:
           path: spec.template.spec.containers[0].readinessProbe.httpGet.path
           value: /v1/health
+
+  - it: keeps PD startup and liveness off the raft-aware path with several PDs
+    template: pd-statefulset.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].startupProbe.httpGet.path
+          value: /v1/health
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.httpGet.path
+          value: /v1/health
+
+  # A single PD has no election to lose, so a permanent step-down has to be
+  # restartable; /v1/health would pass forever. Startup follows liveness so the
+  # boot-to-ready window is charged to the startup budget, not the liveness one.
+  - it: moves PD startup and liveness to the raft-aware path at one replica
+    template: pd-statefulset.yaml
+    set:
+      pd.replicas: 1
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].startupProbe.httpGet.path
+          value: /v1/ready
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.httpGet.path
+          value: /v1/ready
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet.path
+          value: /v1/ready
+
+  - it: lets pd.livenessPath override the derived choice in both probes
+    template: pd-statefulset.yaml
+    set:
+      pd.livenessPath: /v1/ready
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].startupProbe.httpGet.path
+          value: /v1/ready
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.httpGet.path
+          value: /v1/ready

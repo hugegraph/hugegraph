@@ -507,6 +507,11 @@
             }
           }
         },
+        "livenessPath": {
+          "type": "string",
+          "pattern": "^(/.*)?$",
+          "description": "HTTP path for the PD startup and liveness probes. Empty derives it from pd.replicas: /v1/health above one replica, /v1/ready at one (apache/hugegraph#3222)"
+        },
         "readinessPath": {
           "type": "string",
           "pattern": "^/",
