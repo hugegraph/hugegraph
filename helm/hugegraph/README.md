@@ -248,8 +248,42 @@ Two cases are worth knowing about in advance:
   listener, not shard recovery: the controller can replace the next Store
   while the previous one is still rejoining its shard groups. For a
   production image roll, set `store.updateStrategy.type=OnDelete` and delete
-  Store Pods one at a time, waiting for the replaced Store to show `Up` in
-  PD (see Cluster Health) before the next.
+  Store Pods one at a time, checking shard membership between deletions.
+
+  `Up` in PD is not that check. PD sets `StoreState.Up` and persists it in
+  `StoreNodeService.register()`, and only then does the notification reach
+  the Store, whose `HgStoreEngine.stateChanged` starts
+  `restoreLocalPartitionEngine()`; a failure there is logged and leaves the
+  state `Up`. A Store is therefore `Up` before it has restored anything, and
+  stays `Up` if restoring fails.
+
+  The strongest check the current images support is shard membership and
+  leadership per group, read from the PD leader:
+
+  ```bash
+  # PD leader, then its shard groups (see Disaster Recovery for the port-forward)
+  curl -s -u "hg:${PD_SECRET}" http://127.0.0.1:8620/v1/shardGroups | jq '
+    .shardGroups[] | {id,
+                      shards: [.shards[] | {storeId, role}],
+                      leaders: [.shards[] | select(.role=="Leader")] | length}'
+  ```
+
+  Delete the next Store only when every group reports the full shard count
+  from `pd.partition.shardCount`, exactly one `Leader`, and the replaced
+  Store's id back in the groups it holds. `/v1/shardLeaders` gives the same
+  leadership view grouped by Store raft address.
+
+  Know what this does not prove. The shard list is PD's membership record,
+  not a statement that the Store finished loading those partitions locally
+  and caught up on the raft log. No endpoint in these images reports
+  restoration-complete, so a group can list a Store whose local engine is
+  still behind. Leave a margin after the membership check rather than
+  deleting the next Pod on the same second, keep `store.pdb.minAvailable` at
+  `replicas - 1` so an accidental second eviction is refused, and treat a
+  group that is short a shard or has no leader as a stop. Closing that gap
+  needs an image-side readiness signal for partition restoration, which is
+  the Store-side counterpart of the Server work in
+  [apache/hugegraph#3212](https://github.com/apache/hugegraph/issues/3212).
 - **Server** rolls once on the first `helm upgrade` after a fresh install,
   when the `checksum/auth` annotation first observes the install-created
   Secrets. Template-only pipelines (`helm template`, GitOps renderers) never
