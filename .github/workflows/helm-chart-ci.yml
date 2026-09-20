@@ -145,6 +145,17 @@ jobs:
           # unit framework at v1.0.0 cannot match schema aborts, so the case
           # lives here.
           must_fail --set pd.auth.autoGenerate=false
+          # Commons Configuration trims a properties value, so a credential
+          # with surrounding whitespace would be stored in the Secret and
+          # applied to the account without it. The schema rejects both ends;
+          # these are schema aborts, so they live here rather than in the
+          # unit suite. --set-string keeps the value a string.
+          must_fail --set-string "server.auth.admin.password=review-secret "
+          must_fail --set-string "$(printf 'server.auth.admin.password=review-secret\t')"
+          must_fail --set-string "pd.auth.value=review-secret "
+          # An inner space stays legal: only the trimmed ends are the problem.
+          helm template ci helm/hugegraph \
+            --set-string "server.auth.admin.password=review secret" >/dev/null
           # Auth defaults to on, so Hubble alone is valid; refuse Hubble only
           # when authentication is explicitly disabled.
           must_fail --set hubble.enabled=true --set server.auth.enabled=false

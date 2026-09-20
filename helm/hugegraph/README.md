@@ -126,7 +126,13 @@ kubectl -n hugegraph create secret generic my-hugegraph-admin \
 
 Then add `--set-string server.auth.admin.existingSecret=my-hugegraph-admin` to
 the install command. The Secret must contain a `password` key with no newlines,
-carriage returns, backslashes, or leading whitespace. The JWT signing key uses
+carriage returns, backslashes, or surrounding whitespace. The last one bites
+quietly: the Server wrapper writes the value into a properties file, and
+Commons Configuration trims it when the Server reads it back, so a padded
+Secret would create the account under the trimmed password and then fail to
+authenticate with the value the Secret holds. The schema rejects padding on
+inline values; for a bring-your-own Secret the chart cannot see the value, so
+check it yourself. The JWT signing key uses
 the same shape under `server.auth.token` (`value`, `existingSecret`,
 `autoGenerate`), and its value must be at least 32 bytes.
 Read the password and exercise the API:
@@ -398,8 +404,8 @@ default values.
 | `pd.pdb.enabled` | Create a PodDisruptionBudget for PD | `true` |
 | `pd.pdb.minAvailable` | Must be strictly less than `pd.replicas`. No PDB is rendered when `pd.replicas` is 1 | `2` |
 | `pd.readinessPath` | Path the PD readinessProbe hits. `/v1/ready` is quorum-aware and returns 503 without a raft leader | `/v1/ready` |
-| `pd.auth.value` | Plaintext PD REST secret (`auth.secret-key`). Prefer `existingSecret` in shared clusters. Printable ASCII, no leading whitespace, no backslashes | `""` |
-| `pd.auth.existingSecret` | Pre-created Secret holding the PD REST secret under `pd.auth.key`. Wins over `value` and `autoGenerate`; the chart does not manage it. Its value must meet the same constraint as `pd.auth.value`: printable ASCII, no leading whitespace, no backslashes | `""` |
+| `pd.auth.value` | Plaintext PD REST secret (`auth.secret-key`). Prefer `existingSecret` in shared clusters. Printable ASCII, no backslashes, no leading or trailing space (a properties read trims it) | `""` |
+| `pd.auth.existingSecret` | Pre-created Secret holding the PD REST secret under `pd.auth.key`. Wins over `value` and `autoGenerate`; the chart does not manage it. Its value must meet the same constraint as `pd.auth.value`: printable ASCII, no backslashes, no leading or trailing space | `""` |
 | `pd.auth.key` | Key inside the PD REST Secret | `secret-key` |
 | `pd.auth.autoGenerate` | Create and keep a random release-pd-auth Secret when `value` and `existingSecret` are empty | `true` |
 | `pd.probes.*.periodSeconds` | Probe interval | see `values.yaml` |
