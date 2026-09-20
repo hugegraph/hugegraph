@@ -214,17 +214,30 @@ every upgrade, on the same secret.
 
 {{/*
 Checksum for the PD, Server and Hubble pod templates so rotating the PD REST
-Secret rolls the Pods that read it. Same contract as hugegraph.server.authChecksum:
-names, key and metadata.resourceVersion only, never Secret data; lookup-based,
-so template-only renders emit a constant.
+Secret rolls the Pods that read it. Never hashes Secret data: it hashes the
+Secret name, its key, and one revision input chosen by where the credential
+comes from.
+
+The revision input is per credential source, because the two sources move at
+different times. An active inline value is known at render time, so its
+digest is the revision and it changes exactly once, on the upgrade that
+rotates it. Mixing the live resourceVersion into that case would roll the
+Pods a second time on the next no-change upgrade, once the rotated Secret had
+been applied and its resourceVersion moved. An external or chart-generated
+Secret has no render-time value to hash, so the live resourceVersion is the
+only signal that it changed; there the lookup is kept and template-only
+renders emit a constant.
 */}}
 {{- define "hugegraph.pd.authChecksum" -}}
 {{- $parts := list (include "hugegraph.pd.authSecretName" .) (include "hugegraph.pd.authSecretKey" .) -}}
 {{- $pdAuthCfg := get .Values.pd "auth" | default dict -}}
 {{- $inline := get $pdAuthCfg "value" | default "" -}}
-{{- if and $inline (not (get $pdAuthCfg "existingSecret" | default "")) -}}{{- $parts = append $parts (sha256sum $inline) -}}{{- end -}}
+{{- if and $inline (not (get $pdAuthCfg "existingSecret" | default "")) -}}
+{{- $parts = append $parts (sha256sum $inline) -}}
+{{- else -}}
 {{- $secret := lookup "v1" "Secret" .Release.Namespace (include "hugegraph.pd.authSecretName" .) -}}
 {{- if $secret -}}{{- $parts = append $parts (dig "metadata" "resourceVersion" "" $secret) -}}{{- end -}}
+{{- end -}}
 {{- join "|" $parts | sha256sum -}}
 {{- end }}
 
@@ -276,13 +289,20 @@ PD REST endpoints for Server storage-readiness checks.
 
 {{/*
 Checksum for the Server pod template so rotating the referenced auth Secrets
-rolls Server pods. Hashes Secret names, keys, and metadata.resourceVersion -
-never Secret data - so the annotation carries no credential-derived material.
-Lookup-based and therefore best-effort: plain `helm template` (and
-template-only GitOps renderers) see no live Secrets and emit a constant; the
-first upgrade after a fresh install rolls Server once as the checksum picks
-up the Secrets created by that install; out-of-band rotation of an
-existingSecret applies on the next `helm upgrade`.
+rolls Server pods. Hashes Secret names and keys, never Secret data, so the
+annotation carries no credential-derived material.
+
+The admin and token credentials pick their revision input independently, by
+source, for the reason given on hugegraph.pd.authChecksum: an active inline
+value contributes its digest and nothing else, so a rotation rolls Server
+once rather than again on the next no-change upgrade; an external or
+chart-generated Secret contributes its live metadata.resourceVersion.
+
+The lookup half is best-effort: plain `helm template` (and template-only
+GitOps renderers) see no live Secrets and emit a constant; the first upgrade
+after a fresh install rolls Server once as the checksum picks up the Secrets
+created by that install; out-of-band rotation of an existingSecret applies on
+the next `helm upgrade`.
 */}}
 {{- define "hugegraph.server.authChecksum" -}}
 {{- $parts := list (include "hugegraph.server.authSecretName" .) (include "hugegraph.server.authSecretKey" .) (include "hugegraph.server.authTokenSecretName" .) (include "hugegraph.server.authTokenSecretKey" .) -}}
@@ -293,10 +313,14 @@ existingSecret applies on the next `helm upgrade`.
 {{- $tokenCfg := get $srvAuth "token" | default dict -}}
 {{- $inlineToken := get $tokenCfg "value" | default "" -}}
 {{- if and $inlineToken (not (get $tokenCfg "existingSecret" | default "")) -}}{{- $parts = append $parts (sha256sum $inlineToken) -}}{{- end -}}
+{{- if not (and $inlineAdmin (not (get $adminCfg "existingSecret" | default ""))) -}}
 {{- $admin := lookup "v1" "Secret" .Release.Namespace (include "hugegraph.server.authSecretName" .) -}}
 {{- if $admin -}}{{- $parts = append $parts (dig "metadata" "resourceVersion" "" $admin) -}}{{- end -}}
+{{- end -}}
+{{- if not (and $inlineToken (not (get $tokenCfg "existingSecret" | default ""))) -}}
 {{- $token := lookup "v1" "Secret" .Release.Namespace (include "hugegraph.server.authTokenSecretName" .) -}}
 {{- if $token -}}{{- $parts = append $parts (dig "metadata" "resourceVersion" "" $token) -}}{{- end -}}
+{{- end -}}
 {{- join "|" $parts | sha256sum -}}
 {{- end }}
 
