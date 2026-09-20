@@ -955,20 +955,48 @@ back up when ready; the Servers wait, not-ready, until Stores register.
 `kubectl scale` changes only the live StatefulSet: the next `helm upgrade`
 renders `store.replicas` from values again and restores the full topology.
 
-Scaling **down** PD or Store is not a values change. Raft and shard
-membership are persisted, and deleting Pods does not reconfigure them: a
-3-to-1 PD shrink permanently loses quorum, and removing a Store strands the
-shard copies it holds. The chart therefore rejects an upgrade whose replica
-count is below the live StatefulSet. The manual procedure: for Store, drain
-the leaving Stores first (trigger `patrolPartitions` and
-`balancePartitions`, then verify in Cluster Health that no shard lists
-them); for PD, the persisted raft membership must be reduced through PD
-itself before Pods are removed. Then scale the live StatefulSet with
-`kubectl -n <namespace> scale statefulset <name> --replicas=<n>` and run
-`helm upgrade` with the matching value. The same applies after a manual
-scale up: upgrade with the matching value, because the guard reads any
-value below the live StatefulSet as a shrink. The guard needs the live
-object, so a client-side `--dry-run` does not show it.
+Changing PD or Store replicas on a live release is not a values change.
+Raft and shard membership are persisted, and Pods alone do not reconfigure
+them. The chart rejects both directions for PD and a shrink for Store, and
+reads the live StatefulSet to do it, so a fresh install at any replica count
+is unaffected and a client-side `--dry-run` does not show the guard.
+
+**PD, either direction.** The peer list the chart renders reaches raft only
+as `NodeOptions.setInitialConf`, which jraft applies when a node bootstraps
+without a configuration of its own. On an initialized group it is inert: a
+3-to-5 upgrade starts two more PDs and changes the bootstrap list, while the
+voting configuration stays at three, and a 3-to-1 shrink loses quorum
+outright. Membership changes through `RaftEngine.changePeerList`, which the
+PD client API reaches and no REST route exposes, so this is a client-side
+operation the chart cannot perform and does not wrap. Change the membership
+through PD, confirm the new configuration in `/v1/members`, scale the live
+StatefulSet, then `helm upgrade` with the matching value. Until you have run
+and verified that sequence on your own build, treat a PD replica change as
+unsupported and install the PD count you intend to keep.
+
+**Store, shrinking.** Draining is a state transition, not a balance.
+`patrolPartitions` reallocates groups whose shard count does not match the
+configured replication factor and hands off the groups of Stores already in
+`Tombstone`; `balancePartitions` spreads shards across the active Stores,
+including the ones you mean to remove, so neither call retires a healthy
+Store and the "no shard lists them" condition may never arrive. Retire the
+leaving Store the same way the Disaster Recovery section retires a replaced
+one:
+
+1. Check the remaining Stores can still hold the persisted replication
+   factor: after the shrink, live Stores must be at least
+   `pd.partition.shardCount`.
+2. Map the ordinals the shrink will delete (the highest ones) to Store ids
+   through `/v1/stores`, matching on the Pod address.
+3. `POST /v1/store/{id}` with `{"storeState":"Tombstone"}` for each leaving
+   id, which is what drives `storeTurnoff` and the reallocation.
+4. Wait until `/v1/shardGroups` no longer lists those ids and every group
+   reports its full shard count with one leader.
+5. Scale the live StatefulSet with `kubectl -n <namespace> scale statefulset
+   <name> --replicas=<n>`, then `helm upgrade` with the matching value.
+
+Deleting the PersistentVolumeClaims of the removed ordinals is separate and
+permanent; do it only after step 4 reports the data moved.
 
 ## Troubleshooting
 

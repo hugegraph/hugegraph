@@ -93,3 +93,17 @@ tests:
       - equal:
           path: spec.clusterIP
           value: None
+
+  # The PD replica guard reads the live StatefulSet, which a render never has,
+  # so a fresh install at any supported replica count must pass. The guarded
+  # cases, growing or shrinking an initialized group, need a cluster and
+  # cannot be reached from a render.
+  - it: leaves a fresh install at five PD replicas alone
+    template: pd-statefulset.yaml
+    set:
+      pd.replicas: 5
+      pd.pdb.minAvailable: 3
+    asserts:
+      - equal:
+          path: spec.replicas
+          value: 5
