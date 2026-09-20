@@ -1030,6 +1030,21 @@ independently of the release name.
   gave PD `-Xmx3299m` and, with three to four pods per node, never converged.
   Use `values-cluster.yaml`, or set your own `resources`, for any multi-node
   deployment.
+- The Store's memory ceiling is not its heap. The shipped
+  `conf/application.yml` includes the `pd` Spring profile, and
+  `conf/application-pd.yml` sets `rocksdb.total_memory_size` to
+  `32000000000`; `RaftRocksdbOptions` splits that number into a RocksDB
+  write cache and block cache, so those native caches are bounded by 32 GB
+  and not by the container. The jraft log storage also registers its own
+  1 GiB LRU block cache once per process. With the cluster preset's
+  `-Xmx1024m -XX:MaxDirectMemorySize=512m`, a 4Gi limit sat below the
+  steady state and the kernel OOM-killed all three Stores after about 1 GB
+  of data; the preset now asks for 5Gi and limits at 8Gi, where a k3s run
+  measured 4.42 GiB anonymous RSS (2026-09-19). Scale both numbers with the
+  data size. The chart cannot lower the RocksDB budget itself: the Store
+  entrypoint rebuilds `SPRING_APPLICATION_JSON` from its own variables and
+  the chart mounts no config file, so `rocksdb.total_memory_size` can only
+  be changed in the image or through a custom config mount.
 - PD's raft IP whitelist resolves peer hostnames to IPs once at startup,
   which under Kubernetes can block peers whose pod IPs were unpublished at
   that moment or change later. The chart therefore disables the whitelist
