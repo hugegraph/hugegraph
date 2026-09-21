@@ -621,10 +621,6 @@ Cross-field validation that JSON Schema draft-07 cannot express.
 {{- end -}}
 {{- end -}}
 {{- end -}}
-{{- $networkPolicy := get .Values "networkPolicy" | default dict -}}
-{{- if (get $networkPolicy "enabled" | default false) -}}
-{{- fail "networkPolicy.enabled=true is unsupported because this chart does not implement NetworkPolicy resources" -}}
-{{- end -}}
 {{- if and .Values.server.hpa.enabled (gt (int .Values.server.hpa.minReplicas) (int .Values.server.hpa.maxReplicas)) -}}
 {{- fail "server.hpa.minReplicas must be less than or equal to server.hpa.maxReplicas" -}}
 {{- end -}}
@@ -806,12 +802,54 @@ start-hugegraph-pd.sh, start-hugegraph-store.sh, and hugegraph-server.sh).
 {{- fail "server.auth.token requires existingSecret, value, or autoGenerate=true when auth is enabled" -}}
 {{- end -}}
 {{- end -}}
+{{/* NetworkPolicy exposure check runs last, so an exposure the other checks
+     refuse (allowInsecureExposure, Ingress TLS) is reported first. */}}
+{{- $networkPolicy := get .Values "networkPolicy" | default dict -}}
+{{- if get $networkPolicy "enabled" -}}
+{{- $exposed := dict
+      "pd" (ne .Values.pd.service.type "ClusterIP")
+      "server" (or (ne .Values.server.service.type "ClusterIP") .Values.server.ingress.enabled (ne (trim (default "" .Values.server.advertiseUrl)) ""))
+      "hubble" (and .Values.hubble.enabled (or (ne .Values.hubble.service.type "ClusterIP") .Values.hubble.ingress.enabled)) -}}
+{{- range $comp := list "pd" "server" "hubble" -}}
+{{- if and (get $exposed $comp) (empty (get (get $networkPolicy $comp | default dict) "extraIngress")) -}}
+{{- fail (printf "networkPolicy.enabled admits nothing from outside the release, so the %s exposure (NodePort/LoadBalancer Service, Ingress%s) is unreachable; list its callers in networkPolicy.%s.extraIngress, for example the Ingress controller's namespace or a client CIDR" $comp (ternary ", server.advertiseUrl" "" (eq $comp "server")) $comp) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
 {{- end }}
 
 {{/*
 podAntiAffinity snippet for a component label key.
 mode: required | preferred | disabled
 */}}
+{{/*
+NetworkPolicy building blocks: a same-release peer by component, a TCP port
+list, and DNS egress by port only, so it works wherever the cluster runs its
+resolver (CoreDNS in any namespace, NodeLocal DNSCache).
+*/}}
+{{- define "hugegraph.netpol.peer" -}}
+- podSelector:
+    matchLabels:
+      {{- include "hugegraph.selectorLabels" .root | nindent 6 }}
+      app.kubernetes.io/component: {{ .component }}
+{{- end }}
+
+{{- define "hugegraph.netpol.ports" -}}
+{{- $rules := list -}}
+{{- range . -}}
+{{- $rules = append $rules (printf "- protocol: TCP\n  port: %d" (int .)) -}}
+{{- end -}}
+{{- join "\n" $rules -}}
+{{- end }}
+
+{{- define "hugegraph.netpol.dns" -}}
+- ports:
+    - protocol: UDP
+      port: 53
+    - protocol: TCP
+      port: 53
+{{- end }}
+
 {{- define "hugegraph.antiAffinity" -}}
 {{- $mode := .mode -}}
 {{- $component := .component -}}

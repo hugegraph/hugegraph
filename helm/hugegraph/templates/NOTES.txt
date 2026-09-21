@@ -76,6 +76,13 @@ Hubble Pod is replaced. Graph data is unaffected.
 
 Authentication is disabled. Do not expose this release to untrusted networks.
 {{- end }}
+{{- if (get (get .Values "networkPolicy" | default dict) "enabled") }}
+
+NetworkPolicy is on: only this release's components, Hubble and the helm test
+Pod reach each other. List other clients (applications, Prometheus, Vermeer)
+in networkPolicy.<component>.extraIngress; see README, NetworkPolicy. The
+policies are only enforced by a network plugin that implements NetworkPolicy.
+{{- end }}
 {{- $advertiseUrl := trim (default "" .Values.server.advertiseUrl) }}
 {{- if $advertiseUrl }}
 

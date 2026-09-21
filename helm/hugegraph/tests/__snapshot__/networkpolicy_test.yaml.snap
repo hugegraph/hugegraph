@@ -1,0 +1,269 @@
+matches the reviewed cluster plus Hubble render:
+  1: |
+    apiVersion: networking.k8s.io/v1
+    kind: NetworkPolicy
+    metadata:
+      labels:
+        app.kubernetes.io/component: pd
+        app.kubernetes.io/instance: RELEASE-NAME
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: hugegraph
+        app.kubernetes.io/version: latest
+        helm.sh/chart: hugegraph-0.1.0
+      name: RELEASE-NAME-hugegraph-pd
+    spec:
+      egress:
+        - ports:
+            - port: 8610
+              protocol: TCP
+            - port: 8686
+              protocol: TCP
+          to:
+            - podSelector:
+                matchLabels:
+                  app.kubernetes.io/component: pd
+                  app.kubernetes.io/instance: RELEASE-NAME
+                  app.kubernetes.io/name: hugegraph
+        - ports:
+            - port: 53
+              protocol: UDP
+            - port: 53
+              protocol: TCP
+      ingress:
+        - from:
+            - podSelector:
+                matchLabels:
+                  app.kubernetes.io/component: pd
+                  app.kubernetes.io/instance: RELEASE-NAME
+                  app.kubernetes.io/name: hugegraph
+          ports:
+            - port: 8610
+              protocol: TCP
+            - port: 8686
+              protocol: TCP
+        - from:
+            - podSelector:
+                matchLabels:
+                  app.kubernetes.io/component: store
+                  app.kubernetes.io/instance: RELEASE-NAME
+                  app.kubernetes.io/name: hugegraph
+            - podSelector:
+                matchLabels:
+                  app.kubernetes.io/component: server
+                  app.kubernetes.io/instance: RELEASE-NAME
+                  app.kubernetes.io/name: hugegraph
+            - podSelector:
+                matchLabels:
+                  app.kubernetes.io/component: hubble
+                  app.kubernetes.io/instance: RELEASE-NAME
+                  app.kubernetes.io/name: hugegraph
+          ports:
+            - port: 8686
+              protocol: TCP
+            - port: 8620
+              protocol: TCP
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/component: pd
+          app.kubernetes.io/instance: RELEASE-NAME
+          app.kubernetes.io/name: hugegraph
+      policyTypes:
+        - Ingress
+        - Egress
+  2: |
+    apiVersion: networking.k8s.io/v1
+    kind: NetworkPolicy
+    metadata:
+      labels:
+        app.kubernetes.io/component: store
+        app.kubernetes.io/instance: RELEASE-NAME
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: hugegraph
+        app.kubernetes.io/version: latest
+        helm.sh/chart: hugegraph-0.1.0
+      name: RELEASE-NAME-hugegraph-store
+    spec:
+      egress:
+        - ports:
+            - port: 8686
+              protocol: TCP
+            - port: 8620
+              protocol: TCP
+          to:
+            - podSelector:
+                matchLabels:
+                  app.kubernetes.io/component: pd
+                  app.kubernetes.io/instance: RELEASE-NAME
+                  app.kubernetes.io/name: hugegraph
+        - ports:
+            - port: 8510
+              protocol: TCP
+          to:
+            - podSelector:
+                matchLabels:
+                  app.kubernetes.io/component: store
+                  app.kubernetes.io/instance: RELEASE-NAME
+                  app.kubernetes.io/name: hugegraph
+        - ports:
+            - port: 53
+              protocol: UDP
+            - port: 53
+              protocol: TCP
+      ingress:
+        - from:
+            - podSelector:
+                matchLabels:
+                  app.kubernetes.io/component: store
+                  app.kubernetes.io/instance: RELEASE-NAME
+                  app.kubernetes.io/name: hugegraph
+          ports:
+            - port: 8510
+              protocol: TCP
+        - from:
+            - podSelector:
+                matchLabels:
+                  app.kubernetes.io/component: server
+                  app.kubernetes.io/instance: RELEASE-NAME
+                  app.kubernetes.io/name: hugegraph
+          ports:
+            - port: 8500
+              protocol: TCP
+            - port: 8520
+              protocol: TCP
+        - from:
+            - podSelector:
+                matchLabels:
+                  app.kubernetes.io/component: hubble
+                  app.kubernetes.io/instance: RELEASE-NAME
+                  app.kubernetes.io/name: hugegraph
+          ports:
+            - port: 8520
+              protocol: TCP
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/component: store
+          app.kubernetes.io/instance: RELEASE-NAME
+          app.kubernetes.io/name: hugegraph
+      policyTypes:
+        - Ingress
+        - Egress
+  3: |
+    apiVersion: networking.k8s.io/v1
+    kind: NetworkPolicy
+    metadata:
+      labels:
+        app.kubernetes.io/component: server
+        app.kubernetes.io/instance: RELEASE-NAME
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: hugegraph
+        app.kubernetes.io/version: latest
+        helm.sh/chart: hugegraph-0.1.0
+      name: RELEASE-NAME-hugegraph-server
+    spec:
+      egress:
+        - ports:
+            - port: 8686
+              protocol: TCP
+            - port: 8620
+              protocol: TCP
+          to:
+            - podSelector:
+                matchLabels:
+                  app.kubernetes.io/component: pd
+                  app.kubernetes.io/instance: RELEASE-NAME
+                  app.kubernetes.io/name: hugegraph
+        - ports:
+            - port: 8500
+              protocol: TCP
+            - port: 8520
+              protocol: TCP
+          to:
+            - podSelector:
+                matchLabels:
+                  app.kubernetes.io/component: store
+                  app.kubernetes.io/instance: RELEASE-NAME
+                  app.kubernetes.io/name: hugegraph
+        - ports:
+            - port: 53
+              protocol: UDP
+            - port: 53
+              protocol: TCP
+      ingress:
+        - from:
+            - podSelector:
+                matchLabels:
+                  app.kubernetes.io/component: test
+                  app.kubernetes.io/instance: RELEASE-NAME
+                  app.kubernetes.io/name: hugegraph
+            - podSelector:
+                matchLabels:
+                  app.kubernetes.io/component: hubble
+                  app.kubernetes.io/instance: RELEASE-NAME
+                  app.kubernetes.io/name: hugegraph
+          ports:
+            - port: 8080
+              protocol: TCP
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/component: server
+          app.kubernetes.io/instance: RELEASE-NAME
+          app.kubernetes.io/name: hugegraph
+      policyTypes:
+        - Ingress
+        - Egress
+  4: |
+    apiVersion: networking.k8s.io/v1
+    kind: NetworkPolicy
+    metadata:
+      labels:
+        app.kubernetes.io/component: hubble
+        app.kubernetes.io/instance: RELEASE-NAME
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: hugegraph
+        app.kubernetes.io/version: latest
+        helm.sh/chart: hugegraph-0.1.0
+      name: RELEASE-NAME-hugegraph-hubble
+    spec:
+      egress:
+        - ports:
+            - port: 8080
+              protocol: TCP
+          to:
+            - podSelector:
+                matchLabels:
+                  app.kubernetes.io/component: server
+                  app.kubernetes.io/instance: RELEASE-NAME
+                  app.kubernetes.io/name: hugegraph
+        - ports:
+            - port: 8686
+              protocol: TCP
+            - port: 8620
+              protocol: TCP
+          to:
+            - podSelector:
+                matchLabels:
+                  app.kubernetes.io/component: pd
+                  app.kubernetes.io/instance: RELEASE-NAME
+                  app.kubernetes.io/name: hugegraph
+        - ports:
+            - port: 8520
+              protocol: TCP
+          to:
+            - podSelector:
+                matchLabels:
+                  app.kubernetes.io/component: store
+                  app.kubernetes.io/instance: RELEASE-NAME
+                  app.kubernetes.io/name: hugegraph
+        - ports:
+            - port: 53
+              protocol: UDP
+            - port: 53
+              protocol: TCP
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/component: hubble
+          app.kubernetes.io/instance: RELEASE-NAME
+          app.kubernetes.io/name: hugegraph
+      policyTypes:
+        - Ingress
+        - Egress

@@ -185,7 +185,7 @@ helm test hugegraph --namespace hugegraph
 |---|---|
 | `values.yaml` | Default 3+3+3 topology with preferred anti-affinity, authentication on, and Hubble off |
 | `values-single.yaml` | Single-node 1+1+1 example with authentication on |
-| `values-cluster.yaml` | Production 3+3+3 starting point with JVM/resources, PD/Store PDBs, and required anti-affinity for PD and Store; authentication on, Hubble still opt-in |
+| `values-cluster.yaml` | Production 3+3+3 starting point with JVM/resources, PD/Store PDBs, required anti-affinity for PD and Store, and NetworkPolicy on; authentication on, Hubble still opt-in |
 
 `values-cluster.yaml` is a production starting point, not a capacity
 guarantee. Recalculate capacity for the graph size, traffic, failure budget,
@@ -763,8 +763,140 @@ before anything reaches the cluster:
   `instance` or `component` keys on any workload.
 - A non-ClusterIP `pd.service.type` requires
   `pd.service.allowInsecureExposure=true`.
+- With `networkPolicy.enabled`, exposing PD, Server or Hubble (a NodePort
+  or LoadBalancer Service, a Server or Hubble Ingress, or a set
+  `server.advertiseUrl`) requires a non-empty
+  `networkPolicy.<component>.extraIngress` naming who may connect.
 - An upgrade may not shrink `pd.replicas` or `store.replicas` below the
   live StatefulSet; see Scaling for the manual procedure.
+
+### NetworkPolicy
+
+`networkPolicy.enabled` renders one NetworkPolicy per component (PD, Store,
+Server, and Hubble when enabled). Each one isolates its own Pods in both
+directions and lists the traffic they need, so the policies take effect in any
+apply order. It is off in `values.yaml`, because the base values cannot know
+who your clients are, and on in `values-cluster.yaml`.
+
+It only works when the cluster's network plugin enforces NetworkPolicy (kind
+v0.25 or later, k3s, Calico, Cilium). Other plugins accept the objects and
+enforce nothing. To check, run a Pod without chart labels in another
+namespace and `curl` the PD client Service on the REST port: it must time out.
+
+With it on, the release admits only its own traffic:
+
+| To | From, ports |
+|---|---|
+| PD | PD: raft, gRPC. Store, Server, and Hubble in `pd` mode: gRPC, REST |
+| Store | Store: raft. Server: gRPC, REST. Hubble in `pd` mode: REST |
+| Server | Hubble and the `helm test` Pod: `server.port` |
+| Hubble | nothing (port-forward uses loopback and needs no rule) |
+
+Every component may also resolve DNS on port 53. Nothing outside the release
+is admitted unless it is listed in `networkPolicy.<component>.extraIngress`,
+including the Ingress controller and clients of a NodePort or LoadBalancer
+Service. Exposing PD, Server or Hubble that way, or setting
+`server.advertiseUrl`, with an empty `extraIngress` fails the render instead
+of opening the port. For PD this is the reachability restriction that
+`pd.service.allowInsecureExposure` asks for. The check sees only exposure the
+chart creates; a Service, Gateway route or proxy you add yourself needs its
+own `extraIngress` entry.
+
+PD, Store and Server reach nothing outside the release except DNS, so a
+feature that calls out (for example hugegraph-computer jobs through the
+Kubernetes API, which this chart does not enable) does not work with the
+policies on. One call is made by default: on every start the Store image
+downloads `libjemalloc.so` from github.com. With the policies on that
+connection times out after about two minutes, the Store starts without
+jemalloc and continues (measured on kind: Ready after 151 s instead of 11 s).
+The same happens on any cluster without internet access. The `helm test` Pod is selected by no chart policy, so its egress
+is open only while nothing else selects it: under a namespace-wide
+default-deny policy of your own, allow it egress to `server.port` and DNS.
+
+| Parameter | Description | Default |
+|---|---|---|
+| `networkPolicy.enabled` | Render the policies | `false` |
+| `networkPolicy.<pd\|store\|server\|hubble>.extraIngress` | Extra NetworkPolicy ingress rules, appended as written | `[]` |
+| `networkPolicy.hubble.extraEgress` | Extra egress rules for Hubble's optional outside endpoints (`es.urls`, `prometheus.url`) | `[]` |
+
+<details>
+<summary>Letting other workloads in</summary>
+
+Anything outside the release is blocked until it is listed. Every rule must
+name its peers in `from` (the schema rejects a rule without one); to admit any
+address, write an `ipBlock` such as `0.0.0.0/0` explicitly. A
+`namespaceSelector` and a `podSelector` in the same peer must both match; as
+two separate peers, either one is enough. What a
+NodePort or LoadBalancer client looks like from the Pod depends on the network
+plugin, `externalTrafficPolicy` and the node the request arrives on. Measured
+with a NodePort Server on two-node kind clusters:
+
+- kindnet, and Cilium with kube-proxy replacement: a call to the Server's own
+  node arrived with the client address; through the other node it arrived
+  with that node's address.
+- Calico: through the other node the call arrived from that node's tunnel
+  address inside the Pod CIDR.
+- Cilium with kube-proxy: no `ipBlock` rule admitted NodePort traffic, because
+  Cilium identifies node addresses by its own node identities rather than by
+  CIDR.
+
+Test with the plugin you run and name the CIDR you see arriving.
+
+```yaml
+networkPolicy:
+  server:
+    extraIngress:
+      # The ingress-nginx controller, when server.ingress is enabled.
+      - from:
+          - namespaceSelector:
+              matchLabels:
+                kubernetes.io/metadata.name: ingress-nginx
+            podSelector:
+              matchLabels:
+                app.kubernetes.io/name: ingress-nginx
+        ports:
+          - port: 8080
+      # Applications in namespace "apps" call the Server API.
+      - from:
+          - namespaceSelector:
+              matchLabels:
+                kubernetes.io/metadata.name: apps
+        ports:
+          - port: 8080
+  pd:
+    extraIngress:
+      # Prometheus scrapes /actuator/prometheus on PD REST.
+      - from:
+          - namespaceSelector:
+              matchLabels:
+                kubernetes.io/metadata.name: monitoring
+        ports:
+          - port: 8620
+      # Vermeer reads partition metadata over PD gRPC.
+      - from:
+          - namespaceSelector:
+              matchLabels:
+                kubernetes.io/metadata.name: vermeer
+        ports:
+          - port: 8686
+  store:
+    extraIngress:
+      # Vermeer scans Store over gRPC; Prometheus scrapes Store REST.
+      - from:
+          - namespaceSelector:
+              matchLabels:
+                kubernetes.io/metadata.name: vermeer
+        ports:
+          - port: 8500
+      - from:
+          - namespaceSelector:
+              matchLabels:
+                kubernetes.io/metadata.name: monitoring
+        ports:
+          - port: 8520
+```
+
+</details>
 
 ## Deep Dive
 
@@ -1118,7 +1250,9 @@ independently of the release name.
   which under Kubernetes can block peers whose pod IPs were unpublished at
   that moment or change later. The chart therefore disables the whitelist
   in-cluster via the upstream `raft.ip-whitelist.enabled` switch, leaving
-  peer authentication to Kubernetes-level controls. Setting
+  peer authentication to Kubernetes-level controls: enable
+  `networkPolicy.enabled` (on in `values-cluster.yaml`) so that only PD Pods
+  reach the raft port. Setting
   `pd.raftIpWhitelistEnabled=true` restores the image default along with
   its one-shot resolution semantics (bring-up races and pod-IP-change
   rejections included) at the operator's own risk.

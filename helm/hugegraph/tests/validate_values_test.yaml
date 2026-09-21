@@ -56,12 +56,116 @@ tests:
       - failedTemplate:
           errorPattern: "must not set the chart-managed variable JAVA_OPTIONS"
 
-  - it: rejects networkPolicy.enabled because the chart ships no policies
+  - it: rejects a PD NodePort under NetworkPolicy without pd extraIngress
     set:
       networkPolicy.enabled: true
+      pd.service.type: NodePort
+      pd.service.allowInsecureExposure: true
     asserts:
       - failedTemplate:
-          errorPattern: "does not implement NetworkPolicy resources"
+          errorPattern: "admits nothing from outside the release, so the pd exposure"
+
+  - it: rejects a PD LoadBalancer under NetworkPolicy without pd extraIngress
+    set:
+      networkPolicy.enabled: true
+      pd.service.type: LoadBalancer
+      pd.service.allowInsecureExposure: true
+    asserts:
+      - failedTemplate:
+          errorPattern: "admits nothing from outside the release, so the pd exposure"
+
+  - it: rejects a Server NodePort under NetworkPolicy without server extraIngress
+    set:
+      networkPolicy.enabled: true
+      server.service.type: NodePort
+    asserts:
+      - failedTemplate:
+          errorPattern: "admits nothing from outside the release, so the server exposure"
+
+  - it: rejects a Server LoadBalancer under NetworkPolicy without server extraIngress
+    set:
+      networkPolicy.enabled: true
+      server.service.type: LoadBalancer
+    asserts:
+      - failedTemplate:
+          errorPattern: "admits nothing from outside the release, so the server exposure"
+
+  - it: rejects a Server Ingress under NetworkPolicy without server extraIngress
+    set:
+      networkPolicy.enabled: true
+      server.ingress.enabled: true
+      server.ingress.allowPlainHttp: true
+    asserts:
+      - failedTemplate:
+          errorPattern: "admits nothing from outside the release, so the server exposure"
+
+  - it: rejects a Server advertiseUrl under NetworkPolicy without server extraIngress
+    set:
+      networkPolicy.enabled: true
+      server.advertiseUrl: http://hg.example.com:8080
+    asserts:
+      - failedTemplate:
+          errorPattern: "admits nothing from outside the release, so the server exposure"
+
+  - it: rejects a Hubble NodePort under NetworkPolicy without hubble extraIngress
+    set:
+      networkPolicy.enabled: true
+      hubble.enabled: true
+      hubble.service.type: NodePort
+    asserts:
+      - failedTemplate:
+          errorPattern: "admits nothing from outside the release, so the hubble exposure"
+
+  - it: rejects a Hubble LoadBalancer under NetworkPolicy without hubble extraIngress
+    set:
+      networkPolicy.enabled: true
+      hubble.enabled: true
+      hubble.service.type: LoadBalancer
+    asserts:
+      - failedTemplate:
+          errorPattern: "admits nothing from outside the release, so the hubble exposure"
+
+  - it: rejects a Hubble Ingress under NetworkPolicy without hubble extraIngress
+    set:
+      networkPolicy.enabled: true
+      hubble.enabled: true
+      hubble.ingress.enabled: true
+      hubble.ingress.allowPlainHttp: true
+    asserts:
+      - failedTemplate:
+          errorPattern: "admits nothing from outside the release, so the hubble exposure"
+
+  - it: names advertiseUrl in the Server exposure message only
+    set:
+      networkPolicy.enabled: true
+      server.advertiseUrl: http://hg.example.com:8080
+    asserts:
+      - failedTemplate:
+          errorPattern: "server exposure \\(NodePort/LoadBalancer Service, Ingress, server.advertiseUrl\\)"
+
+  - it: reports the PD acknowledgement before the NetworkPolicy exposure check
+    set:
+      networkPolicy.enabled: true
+      pd.service.type: NodePort
+    asserts:
+      - failedTemplate:
+          errorPattern: "pd.service.allowInsecureExposure=true"
+
+  - it: leaves exposure alone while NetworkPolicy is off
+    set:
+      server.service.type: LoadBalancer
+      server.advertiseUrl: http://hg.example.com:8080
+    asserts:
+      - hasDocuments:
+          count: 1
+
+  - it: ignores Hubble exposure settings while Hubble is disabled
+    set:
+      networkPolicy.enabled: true
+      hubble.service.type: NodePort
+    asserts:
+      - hasDocuments:
+          count: 1
 
   - it: rejects Hubble without Server auth
     set:

@@ -507,5 +507,31 @@ hubble:
       failureThreshold: 3
       timeoutSeconds: 5
 
+# Kubernetes NetworkPolicy: one policy per component that admits only the
+# traffic the components exchange, plus DNS. Off here because these values
+# cannot know this release's clients; values-cluster.yaml turns it on. Only
+# enforced when the network plugin implements NetworkPolicy (kind v0.25+,
+# k3s, Calico, Cilium); elsewhere the objects are accepted and do nothing.
+# Nothing outside the release is admitted unless it is listed in
+# <component>.extraIngress as standard NetworkPolicy ingress rules: apps in
+# other namespaces, Prometheus, Vermeer, and the Ingress controller. Exposing
+# a component (NodePort/LoadBalancer pd, server or hubble Service, a Server or
+# Hubble Ingress, server.advertiseUrl) with an empty extraIngress fails the
+# render. Every extra rule must name its peers ("from", or "to" for egress);
+# to admit any address, say so with an ipBlock such as 0.0.0.0/0.
+networkPolicy:
+  enabled: false
+  pd:
+    extraIngress: []
+  store:
+    extraIngress: []
+  server:
+    extraIngress: []
+  hubble:
+    extraIngress: []
+    # For Hubble's optional outside endpoints (es.urls, prometheus.url set
+    # through extraEnv). PD, Store and Server reach only the release and DNS.
+    extraEgress: []
+
 # No init Job; see README.md for the HStore initialization contract.
 # Install with: helm install ... --wait   (no --wait-for-jobs)
