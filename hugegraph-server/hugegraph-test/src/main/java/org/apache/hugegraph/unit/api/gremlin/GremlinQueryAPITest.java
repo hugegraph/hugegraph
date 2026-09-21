@@ -18,15 +18,24 @@
 package org.apache.hugegraph.unit.api.gremlin;
 
 import java.lang.reflect.Method;
+import java.util.Map;
 import java.util.Set;
 
 import org.apache.hugegraph.api.gremlin.GremlinAPI;
 import org.apache.hugegraph.api.gremlin.GremlinQueryAPI;
+import org.apache.tinkerpop.gremlin.server.handler.HttpHandlerUtil;
 import org.apache.tinkerpop.shaded.jackson.databind.JsonNode;
 import org.apache.tinkerpop.shaded.jackson.databind.ObjectMapper;
 import org.apache.hugegraph.testutil.Assert;
 import org.apache.hugegraph.unit.BaseUnitTest;
 import org.junit.Test;
+
+import io.netty.buffer.Unpooled;
+import io.netty.handler.codec.http.DefaultFullHttpRequest;
+import io.netty.handler.codec.http.FullHttpRequest;
+import io.netty.handler.codec.http.HttpMethod;
+import io.netty.handler.codec.http.HttpVersion;
+import io.netty.util.CharsetUtil;
 
 public class GremlinQueryAPITest extends BaseUnitTest {
 
@@ -127,6 +136,54 @@ public class GremlinQueryAPITest extends BaseUnitTest {
                          "\"bindings\":{\"value\":0.12345678901234567890123456789}}";
         String actual = normalizeAliases(request, "DEFAULT", Set.of("DEFAULT-hugegraph"));
         Assert.assertTrue(actual.contains("0.12345678901234567890123456789"));
+    }
+
+    @Test
+    public void testAliasNormalizationPreservesDecodedBindingTypes() throws Exception {
+        String numbers = "[1.0,0.0,-0.0,1e0,-0e0,1.5,1,9223372036854775807," +
+                         "0.12345678901234567890123456789]";
+        String request = "{\"gremlin\":\"x\",\"language\":\"gremlin-groovy\"," +
+                         "\"aliases\":{\"g\":\"__g_hugegraph\"}," +
+                         "\"bindings\":{\"x\":1.0,\"zero\":-0.0,\"list\":" + numbers +
+                         ",\"nested\":{\"values\":" + numbers + "}}}";
+        String actual = normalizeAliases(request, "DEFAULT", Set.of("DEFAULT-hugegraph"));
+        Assert.assertEquals(request.replace("__g_hugegraph", "__g_DEFAULT-hugegraph"), actual);
+        Map<String, Object> expected = decodeBindings(request);
+        Map<String, Object> bindings = decodeBindings(actual);
+        Assert.assertEquals(Double.class, bindings.get("x").getClass());
+        Assert.assertEquals(Double.doubleToRawLongBits(-0.0),
+                            Double.doubleToRawLongBits((Double) bindings.get("zero")));
+        Assert.assertEquals(expected, bindings);
+    }
+
+    @Test
+    public void testAliasTokenReplacementPreservesOtherRequestText() throws Exception {
+        String request = " { \"bindings\": {\"aliases\": {\"g\": \"__g_hugegraph\"}," +
+                         "\"text\":\"你好 __g_hugegraph\",\"n\":-0.0}, " +
+                         "\"aliases\": {\"graph\":\"hugegraph\", \"g\":\"__g_hugegraph\"," +
+                         "\"invalid\":{\"nested\":\"hugegraph\"}} } ";
+        String expected = request.replace("\"graph\":\"hugegraph\", \"g\":\"__g_hugegraph\"",
+                                          "\"graph\":\"DEFAULT-hugegraph\", " +
+                                          "\"g\":\"__g_DEFAULT-hugegraph\"");
+        Assert.assertEquals(expected, normalizeAliases(request, "DEFAULT",
+                                                       Set.of("DEFAULT-hugegraph")));
+        String escaped = "{\"aliases\":{\"g\":\"__g_" + "\\u0068ugegraph\"}}";
+        Assert.assertEquals("{\"aliases\":{\"g\":\"__g_DEFAULT-hugegraph\"}}",
+                            normalizeAliases(escaped, "DEFAULT", Set.of("DEFAULT-hugegraph")));
+        String malformed = "{\"aliases\":{\"g\":\"__g_hugegraph\"},\"bindings\": [";
+        Assert.assertEquals(malformed, normalizeAliases(malformed, "DEFAULT",
+                                                        Set.of("DEFAULT-hugegraph")));
+    }
+
+    private static Map<String, Object> decodeBindings(String body) throws Exception {
+        FullHttpRequest request = new DefaultFullHttpRequest(
+                HttpVersion.HTTP_1_1, HttpMethod.POST, "/gremlin",
+                Unpooled.copiedBuffer(body, CharsetUtil.UTF_8));
+        try {
+            return HttpHandlerUtil.getRequestMessageFromHttpRequest(request).getArg("bindings");
+        } finally {
+            request.release();
+        }
     }
 
 }

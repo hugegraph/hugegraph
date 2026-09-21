@@ -18,8 +18,6 @@
 package org.apache.hugegraph.api.gremlin;
 
 import java.io.IOException;
-import java.util.Iterator;
-import java.util.Map;
 import java.util.Set;
 
 import org.apache.hugegraph.api.filter.CompressInterceptor.Compress;
@@ -28,10 +26,9 @@ import org.apache.hugegraph.config.ServerOptions;
 import org.apache.hugegraph.core.GraphManager;
 import org.apache.hugegraph.metrics.MetricsUtil;
 import org.apache.hugegraph.util.E;
-import org.apache.tinkerpop.shaded.jackson.databind.DeserializationFeature;
-import org.apache.tinkerpop.shaded.jackson.databind.JsonNode;
+import org.apache.tinkerpop.shaded.jackson.core.JsonParser;
+import org.apache.tinkerpop.shaded.jackson.core.JsonToken;
 import org.apache.tinkerpop.shaded.jackson.databind.ObjectMapper;
-import org.apache.tinkerpop.shaded.jackson.databind.node.ObjectNode;
 
 import com.codahale.metrics.Histogram;
 import com.codahale.metrics.annotation.Timed;
@@ -55,8 +52,7 @@ import jakarta.ws.rs.core.UriInfo;
 @Tag(name = "GremlinAPI")
 public class GremlinAPI extends GremlinQueryAPI {
 
-    private static final ObjectMapper REQUEST_MAPPER = new ObjectMapper()
-            .enable(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS);
+    private static final ObjectMapper REQUEST_MAPPER = new ObjectMapper();
 
     private static final Histogram GREMLIN_INPUT_HISTOGRAM =
             MetricsUtil.registerHistogram(GremlinAPI.class, "gremlin-input");
@@ -90,36 +86,45 @@ public class GremlinAPI extends GremlinQueryAPI {
 
     private static String normalizeLegacyAliases(String request, String graphSpace,
                                                  Set<String> graphs) throws IOException {
-        final JsonNode root;
-        try {
-            root = REQUEST_MAPPER.readTree(request);
+        StringBuilder forwarded = new StringBuilder();
+        int copied = 0;
+        try (JsonParser parser = REQUEST_MAPPER.createParser(request)) {
+            if (parser.nextToken() != JsonToken.START_OBJECT) {
+                return request;
+            }
+            while (parser.nextToken() != JsonToken.END_OBJECT) {
+                String field = parser.currentName();
+                JsonToken value = parser.nextToken();
+                if (!"aliases".equals(field) || value != JsonToken.START_OBJECT) {
+                    parser.skipChildren();
+                    continue;
+                }
+                while (parser.nextToken() != JsonToken.END_OBJECT) {
+                    if (parser.nextToken() != JsonToken.VALUE_STRING) {
+                        parser.skipChildren();
+                        continue;
+                    }
+                    int start = (int) parser.currentTokenLocation().getCharOffset();
+                    String target = parser.getText();
+                    int end = (int) parser.currentLocation().getCharOffset();
+                    String prefix = target.startsWith("__g_") ? "__g_" : "";
+                    String graph = target.substring(prefix.length());
+                    // Explicit names take precedence over legacy names in the default space.
+                    String qualified = graphSpace + "-" + graph;
+                    if (!graphs.contains(graph) && graphs.contains(qualified)) {
+                        // Replace only the alias string token. Re-encoding the request can
+                        // change binding types, decimal precision and floating-point -0.0.
+                        forwarded.append(request, copied, start);
+                        forwarded.append(REQUEST_MAPPER.writeValueAsString(prefix + qualified));
+                        copied = end;
+                    }
+                }
+            }
         } catch (IOException e) {
             // Keep malformed-request validation and error responses in Gremlin Server.
             return request;
         }
-        JsonNode aliases = root == null ? null : root.get("aliases");
-        if (!(aliases instanceof ObjectNode)) {
-            return request;
-        }
-        boolean changed = false;
-        Iterator<Map.Entry<String, JsonNode>> fields = aliases.fields();
-        while (fields.hasNext()) {
-            Map.Entry<String, JsonNode> field = fields.next();
-            if (!field.getValue().isTextual()) {
-                continue;
-            }
-            String target = field.getValue().textValue();
-            String prefix = target.startsWith("__g_") ? "__g_" : "";
-            String graph = target.substring(prefix.length());
-            // Explicit graph-space names retain their meaning. Only resolve
-            // legacy names inside the same default space as the REST paths.
-            String qualified = graphSpace + "-" + graph;
-            if (!graphs.contains(graph) && graphs.contains(qualified)) {
-                ((ObjectNode) aliases).put(field.getKey(), prefix + qualified);
-                changed = true;
-            }
-        }
-        return changed ? REQUEST_MAPPER.writeValueAsString(root) : request;
+        return copied == 0 ? request : forwarded.append(request, copied, request.length()).toString();
     }
 
     @GET
