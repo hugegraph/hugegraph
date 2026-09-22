@@ -17,12 +17,25 @@
 
 package org.apache.hugegraph.core;
 
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
+
+import org.apache.hugegraph.backend.query.Aggregate;
+import org.apache.hugegraph.backend.query.Aggregate.AggregateFunc;
+import org.apache.hugegraph.backend.query.Query;
+import org.apache.hugegraph.backend.tx.GraphTransaction;
 import org.apache.hugegraph.exception.NoIndexException;
 import org.apache.hugegraph.schema.SchemaManager;
 import org.apache.hugegraph.testutil.Assert;
+import org.apache.hugegraph.traversal.optimize.HugeCountStep;
+import org.apache.hugegraph.traversal.optimize.HugeCountStrategy;
 import org.apache.hugegraph.traversal.optimize.HugeGraphStep;
+import org.apache.hugegraph.type.HugeType;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
+import org.apache.tinkerpop.gremlin.process.traversal.TextP;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__;
@@ -34,6 +47,7 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.TraversalParent;
 import org.apache.tinkerpop.gremlin.structure.Edge;
 import org.apache.tinkerpop.gremlin.structure.T;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
+import org.apache.tinkerpop.gremlin.structure.util.CloseableIterator;
 import org.junit.Test;
 
 public class CountStrategyCoreTest extends BaseCoreTest {
@@ -101,7 +115,8 @@ public class CountStrategyCoreTest extends BaseCoreTest {
             if (!(step instanceof HasStep)) {
                 continue;
             }
-            HasContainerHolder holder = (HasContainerHolder) step;
+            HasContainerHolder holder =
+                    (HasContainerHolder) step;
             for (HasContainer has : holder.getHasContainers()) {
                 if (key.equals(has.getKey())) {
                     return true;
@@ -109,6 +124,38 @@ public class CountStrategyCoreTest extends BaseCoreTest {
             }
         }
         return false;
+    }
+
+    private void assertNegatedBooleanPredicate(long expected,
+                                                P<Boolean> predicate) {
+        GraphTraversal<Vertex, Long> traversal = graph().traversal().V()
+                                                        .has("vp2",
+                                                             P.not(predicate))
+                                                        .count();
+        traversal.asAdmin().applyStrategies();
+
+        Assert.assertTrue(hasRemainingHasStep(traversal, "vp2"));
+        Assert.assertEquals(expected, traversal.next().longValue());
+    }
+
+    private static void assertUncommittedRangeUnsupported(
+            GraphTraversal<?, ?> traversal) {
+        Assert.assertThrows(IllegalArgumentException.class, traversal::next,
+                            e -> {
+                                Assert.assertContains("offset/limit", e.getMessage());
+                                Assert.assertContains("uncommitted records", e.getMessage());
+                            });
+    }
+
+    private static void assertNegatedCountHighRange(long expected,
+                                                    P<Long> predicate) {
+        GraphTraversal<?, Long> traversal = __.count().is(P.not(predicate));
+        HugeCountStrategy.instance().apply(traversal.asAdmin());
+
+        Step<?, ?> firstStep = traversal.asAdmin().getStartStep();
+        Assert.assertInstanceOf(RangeGlobalStep.class, firstStep);
+        Assert.assertEquals(expected,
+                            ((RangeGlobalStep<?>) firstStep).getHighRange());
     }
 
     private void initTextRangeSchema(boolean withEdge) {
@@ -132,6 +179,24 @@ public class CountStrategyCoreTest extends BaseCoreTest {
               .nullableKeys("ep4").link("vl1", "vl1").create();
         schema.edgeLabel("el3").properties("ep4")
               .nullableKeys("ep4").link("vl1", "vl1").create();
+    }
+
+    private void initNegatedDoubleSchema() {
+        SchemaManager schema = graph().schema();
+        schema.propertyKey("score").asDouble().create();
+        schema.vertexLabel("sample").properties("score").create();
+        schema.indexLabel("sampleByScore").onV("sample")
+              .by("score").range().create();
+    }
+
+    @Test
+    public void testCountAfterOrderByPresentProperty() {
+        this.initSchema();
+        this.initGraph();
+
+        long count = graph().traversal().V().order().by("name").count().next();
+
+        Assert.assertEquals(3L, count);
     }
 
     @Test
@@ -247,6 +312,63 @@ public class CountStrategyCoreTest extends BaseCoreTest {
     }
 
     @Test
+    public void testOptimizedGraphCountCanBeResetAndReused() {
+        this.initSchema();
+        this.initGraph();
+
+        GraphTraversal<Vertex, Long> traversal = graph().traversal().V().count();
+
+        Assert.assertEquals(3L, traversal.next());
+
+        traversal.asAdmin().reset();
+
+        Assert.assertEquals(3L, traversal.next());
+    }
+
+    @Test
+    public void testOptimizedGraphCountEqualityIgnoresExecutionState() {
+        this.initSchema();
+        this.initGraph();
+
+        GraphTraversal<Vertex, Long> first = graph().traversal().V().count();
+        GraphTraversal<Vertex, Long> second = graph().traversal().V().count();
+        first.asAdmin().applyStrategies();
+        second.asAdmin().applyStrategies();
+
+        Step<?, ?> firstStep = first.asAdmin().getEndStep();
+        Step<?, ?> secondStep = second.asAdmin().getEndStep();
+        Assert.assertInstanceOf(HugeCountStep.class, firstStep);
+        Assert.assertInstanceOf(HugeCountStep.class, secondStep);
+        Assert.assertEquals(firstStep, secondStep);
+
+        int hashCode = firstStep.hashCode();
+        Set<Step<?, ?>> steps = new HashSet<>();
+        steps.add(firstStep);
+
+        Assert.assertEquals(3L, first.next());
+
+        Assert.assertEquals(hashCode, firstStep.hashCode());
+        Assert.assertEquals(firstStep, secondStep);
+        Assert.assertTrue(steps.contains(firstStep));
+    }
+
+    @Test
+    public void testOptimizedGraphCountIncludesUncommittedRecords() {
+        this.initSchema();
+        graph().schema().indexLabel("personByName")
+               .onV("person").by("name").create();
+
+        graph().addVertex(T.label, "person", "name", "marko");
+
+        long count = graph().traversal().V()
+                            .hasLabel("person")
+                            .has("name", "marko")
+                            .count().next();
+
+        Assert.assertEquals(1L, count);
+    }
+
+    @Test
     public void testWhereCountFlatAndContradictionEmpty() {
         this.initSchema();
         Vertex source = graph().addVertex(T.label, "person", "name", "source");
@@ -336,6 +458,184 @@ public class CountStrategyCoreTest extends BaseCoreTest {
 
         long count = traversal.next();
         Assert.assertEquals(1L, count);
+    }
+
+    @Test
+    public void testVertexLimitCountRejectsUncommittedAddition() {
+        this.initSchema();
+        graph().addVertex(T.label, "person", "name", "marko");
+
+        assertUncommittedRangeUnsupported(
+                graph().traversal().V().limit(1L).count());
+    }
+
+    @Test
+    public void testVertexRangeCountRejectsUncommittedDeletion() {
+        this.initSchema();
+        graph().schema().indexLabel("personByName")
+               .onV("person").by("name").create();
+        this.initGraph();
+        Vertex marko = graph().traversal().V()
+                              .hasLabel("person")
+                              .has("name", "marko")
+                              .next();
+        marko.remove();
+
+        assertUncommittedRangeUnsupported(
+                graph().traversal().V().range(1L, 3L).count());
+    }
+
+    @Test
+    public void testQueryNumberKeepsOriginalAggregate() {
+        this.initSchema();
+        graph().addVertex(T.label, "person", "name", "marko");
+
+        Query query = new Query(HugeType.VERTEX);
+        Aggregate aggregate = new Aggregate(AggregateFunc.COUNT, null);
+        query.aggregate(aggregate);
+
+        Assert.assertEquals(1L, graph().queryNumber(query).longValue());
+        Assert.assertSame(aggregate, query.aggregate());
+    }
+
+    @Test
+    public void testUncommittedVertexCountClosesIteratorOnFailure() {
+        FailingCloseableIterator<Vertex> vertices =
+                new FailingCloseableIterator<>();
+        AtomicBoolean dirty = new AtomicBoolean(true);
+        GraphTransaction transaction =
+                this.newFailingCountTransaction(vertices, null, dirty);
+
+        try {
+            Query query = countQuery(HugeType.VERTEX);
+            Assert.assertThrows(IllegalStateException.class,
+                                () -> transaction.queryNumber(query));
+            Assert.assertTrue(vertices.closed());
+        } finally {
+            dirty.set(false);
+            transaction.close();
+        }
+    }
+
+    @Test
+    public void testUncommittedEdgeCountClosesIteratorOnFailure() {
+        FailingCloseableIterator<Edge> edges =
+                new FailingCloseableIterator<>();
+        AtomicBoolean dirty = new AtomicBoolean(true);
+        GraphTransaction transaction =
+                this.newFailingCountTransaction(null, edges, dirty);
+
+        try {
+            Query query = countQuery(HugeType.EDGE);
+            Assert.assertThrows(IllegalStateException.class,
+                                () -> transaction.queryNumber(query));
+            Assert.assertTrue(edges.closed());
+        } finally {
+            dirty.set(false);
+            transaction.close();
+        }
+    }
+
+    @Test
+    public void testOptimizedEdgeCountIncludesUncommittedRecords() {
+        this.initSchema();
+        graph().schema().indexLabel("personByName")
+               .onV("person").by("name").create();
+        this.initGraph();
+
+        Vertex josh = graph().traversal().V()
+                             .hasLabel("person").has("name", "josh").next();
+        Vertex marko = graph().traversal().V()
+                              .hasLabel("person").has("name", "marko").next();
+        josh.addEdge("knows", marko);
+
+        long count = graph().traversal().E().hasLabel("knows").count().next();
+
+        Assert.assertEquals(2L, count);
+    }
+
+    private static Query countQuery(HugeType type) {
+        Query query = new Query(type);
+        query.aggregate(new Aggregate(AggregateFunc.COUNT, null));
+        return query;
+    }
+
+    private GraphTransaction newFailingCountTransaction(
+            Iterator<Vertex> vertices, Iterator<Edge> edges,
+            AtomicBoolean dirty) {
+        return new GraphTransaction(params(), params().loadGraphStore()) {
+
+            @Override
+            public boolean hasUpdate() {
+                return dirty.get();
+            }
+
+            @Override
+            public Iterator<Vertex> queryVertices(Query query) {
+                return vertices;
+            }
+
+            @Override
+            public Iterator<Edge> queryEdges(Query query) {
+                return edges;
+            }
+        };
+    }
+
+    private static final class FailingCloseableIterator<T>
+            implements CloseableIterator<T> {
+
+        private boolean closed;
+
+        @Override
+        public boolean hasNext() {
+            throw new IllegalStateException("Injected iterator failure");
+        }
+
+        @Override
+        public T next() {
+            throw new IllegalStateException("Injected iterator failure");
+        }
+
+        @Override
+        public void close() {
+            this.closed = true;
+        }
+
+        public boolean closed() {
+            return this.closed;
+        }
+    }
+
+    @Test
+    public void testEdgeRangeCountRejectsUncommittedAddition() {
+        this.initSchema();
+        graph().schema().indexLabel("personByName")
+               .onV("person").by("name").create();
+        this.initGraph();
+        Vertex josh = graph().traversal().V()
+                             .hasLabel("person")
+                             .has("name", "josh")
+                             .next();
+        Vertex marko = graph().traversal().V()
+                              .hasLabel("person")
+                              .has("name", "marko")
+                              .next();
+        josh.addEdge("knows", marko);
+
+        assertUncommittedRangeUnsupported(
+                graph().traversal().E().range(1L, 3L).count());
+    }
+
+    @Test
+    public void testEdgeLimitCountRejectsUncommittedDeletion() {
+        this.initSchema();
+        this.initGraph();
+        Edge edge = graph().traversal().E().hasLabel("knows").next();
+        edge.remove();
+
+        assertUncommittedRangeUnsupported(
+                graph().traversal().E().limit(1L).count());
     }
 
     @Test
