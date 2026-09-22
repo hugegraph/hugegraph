@@ -276,6 +276,20 @@ jobs:
         run: |
           mvn clean package -U -Dmaven.javadoc.skip=true -Dmaven.test.skip=true -ntp --fail-at-end
 
+      - name: Run Store scan lifecycle regressions
+        run: |
+          REPORT=hugegraph-store/hg-store-node/target/surefire-reports/TEST-org.apache.hugegraph.store.node.grpc.scan.ScanPolicyFailureTest.xml
+          rm -f "$REPORT"
+          mvn test -pl hugegraph-store/hg-store-node -am \
+            -P store-core-test -Dtest=ScanPolicyFailureTest -ntp
+          python3 - "$REPORT" <<'PYTHON'
+          import sys
+          import xml.etree.ElementTree as ET
+          suite = ET.parse(sys.argv[1]).getroot()
+          assert int(suite.attrib["tests"]) >= 10, suite.attrib
+          assert all(int(suite.attrib[key]) == 0 for key in ("failures", "errors", "skipped")), suite.attrib
+          PYTHON
+
       - name: Verify Surefire single-class routing
         run: |
           SUREFIRE_DIR=hugegraph-store/hg-store-test/target/surefire-reports

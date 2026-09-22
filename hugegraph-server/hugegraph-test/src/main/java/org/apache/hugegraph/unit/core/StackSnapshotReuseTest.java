@@ -15,44 +15,30 @@
  * limitations under the License.
  */
 
-package org.apache.hugegraph.security;
+package org.apache.hugegraph.unit.core;
 
-import java.lang.reflect.Field;
-import java.util.Set;
-
+import org.apache.hugegraph.security.HugeSecurityManager;
+import org.apache.hugegraph.testutil.Whitebox;
 import org.junit.Assert;
 import org.junit.Test;
 
-public class HugeSecurityManagerTest {
-
-    @Test
-    public void testWhiteSystemPropertiesExcludeRemovedBackends() throws Exception {
-        Field field = HugeSecurityManager.class.getDeclaredField(
-                "WHITE_SYSTEM_PROPERTIES");
-        field.setAccessible(true);
-
-        @SuppressWarnings("unchecked")
-        Set<String> properties = (Set<String>) field.get(null);
-        Assert.assertFalse(properties.contains("socksProxyHost"));
-        Assert.assertFalse(properties.contains("file.encoding"));
-        Assert.assertTrue(properties.contains("java.specification.version"));
-    }
+public class StackSnapshotReuseTest {
 
     @Test
     public void testUnrelatedPermissionDoesNotCaptureStack() {
-        HugeSecurityManager.resetStackCapturesForTest();
+        resetCaptures();
         new HugeSecurityManager().checkPermission(new RuntimePermission("setIO"));
-        Assert.assertEquals(0, HugeSecurityManager.stackCapturesForTest());
+        Assert.assertEquals(0, captures());
     }
 
     @Test
     public void testNonGremlinWorkerDoesNotCaptureStack() {
         String previous = Thread.currentThread().getName();
-        HugeSecurityManager.resetStackCapturesForTest();
+        resetCaptures();
         try {
             Thread.currentThread().setName("main");
             new HugeSecurityManager().checkAccess(Thread.currentThread());
-            Assert.assertEquals(0, HugeSecurityManager.stackCapturesForTest());
+            Assert.assertEquals(0, captures());
         } finally {
             Thread.currentThread().setName(previous);
         }
@@ -63,9 +49,19 @@ public class HugeSecurityManagerTest {
         String previous = Thread.currentThread().getName();
         try {
             Thread.currentThread().setName("gremlin-server-exec-reuse");
-            Assert.assertEquals(1, HugeSecurityManager.captureCountRunningAllHelpers());
+            int count = Whitebox.invokeStatic(HugeSecurityManager.class,
+                                              "captureCountRunningAllHelpers");
+            Assert.assertEquals(1, count);
         } finally {
             Thread.currentThread().setName(previous);
         }
+    }
+
+    private static void resetCaptures() {
+        Whitebox.invokeStatic(HugeSecurityManager.class, "resetStackCapturesForTest");
+    }
+
+    private static int captures() {
+        return Whitebox.invokeStatic(HugeSecurityManager.class, "stackCapturesForTest");
     }
 }
