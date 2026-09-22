@@ -39,7 +39,9 @@ log() {
   echo "[wait-storage] $1"
 }
 
-PD_AUTH_ARGS="-u ${PD_AUTH_USER:-store}:${PD_AUTH_PASSWORD:-admin}"
+# Pass credentials as data to the child shell, never as part of its source.
+export PD_AUTH_USER="${PD_AUTH_USER:-store}"
+export PD_AUTH_PASSWORD="${PD_AUTH_PASSWORD:-admin}"
 
 function key_exists {
     local key=$1
@@ -101,7 +103,7 @@ if env | grep '^hugegraph\.' > /dev/null; then
 
               check_any_pd_stores() {
                 for peer in \$(echo \"\$PD_REST_LIST\" | tr ',' ' '); do
-                  if curl ${PD_AUTH_ARGS} -f -s \
+                  if curl -u \"\${PD_AUTH_USER}:\${PD_AUTH_PASSWORD}\" -f -s \
                      --connect-timeout ${WAIT_STORAGE_PD_CONNECT_TIMEOUT_S} \
                      --max-time ${WAIT_STORAGE_PD_MAX_TIMEOUT_S} \
                      http://\${peer}/v1/stores 2>/dev/null | \
