@@ -27,6 +27,7 @@ CALL_LOG="${TMP_DIR}/curl-calls"
 ARGS_LOG="${TMP_DIR}/curl-args"
 COUNT_FILE="${TMP_DIR}/store-call-count"
 TIMEOUT_LOG="${TMP_DIR}/timeout-arg"
+CREDENTIAL_ERROR="${TMP_DIR}/credential-error"
 CASE_OUTPUT=""
 CASE_RC=0
 
@@ -63,11 +64,14 @@ assert_contract() {
     if grep -Fv -- '--max-time 3' "${ARGS_LOG}" | grep -q .; then
         fail "per-peer maximum timeout was not preserved"
     fi
+    [[ ! -s "${CREDENTIAL_ERROR}" ]] || fail "curl credential argument changed"
     assert_equal "outer timeout" "300s" "$(cat "${TIMEOUT_LOG}")"
 }
 
 run_case() {
     local scenario="$1" peers="$2" abort_after="$3"
+    local username="${4-test-user}" password="${5-test-password}"
+    : > "${CREDENTIAL_ERROR}"
     : > "${CALL_LOG}"
     : > "${ARGS_LOG}"
     : > "${COUNT_FILE}"
@@ -83,8 +87,10 @@ run_case() {
         MOCK_COUNT_FILE="${COUNT_FILE}" \
         MOCK_TIMEOUT_LOG="${TIMEOUT_LOG}" \
         HG_SERVER_PD_REST_ENDPOINT="${peers}" \
-        PD_AUTH_USER="test-user" \
-        PD_AUTH_PASSWORD="test-password" \
+        PD_AUTH_USER="${username}" \
+        PD_AUTH_PASSWORD="${password}" \
+        MOCK_EXPECTED_CREDENTIALS="${username:-store}:${password:-admin}" \
+        MOCK_CREDENTIAL_ERROR="${CREDENTIAL_ERROR}" \
         'hugegraph.backend=hstore' \
         'hugegraph.pd.peers=config-only:8686' \
         "${DIST_ROOT}/bin/wait-storage.sh" 2>&1)
@@ -129,6 +135,10 @@ cat > "${MOCK_BIN}/curl" <<'EOF'
 #!/bin/bash
 set -u
 url="${!#}"
+if [[ "$#" -ne 9 || "$1" != "-u" || "$2" != "${MOCK_EXPECTED_CREDENTIALS}" ]]; then
+    echo "curl credentials were split or changed" > "${MOCK_CREDENTIAL_ERROR}"
+    exit 2
+fi
 printf '%s\n' "$*" >> "${MOCK_ARGS_LOG}"
 printf '%s\n' "${url}" >> "${MOCK_CALL_LOG}"
 
@@ -210,4 +220,24 @@ assert_output "ERROR: Timeout waiting for storage backend"
 assert_contract
 echo "  PASS all-unready timeout"
 
-echo "5 passed, 0 failed"
+# These are synthetic credentials. Their shell syntax must remain literal data.
+passwords=(
+    'secret with spaces and "quotes"; $HOME'
+    '$(printf injected) `printf injected`'
+    'back\slash*?[abc]:colon;semi&pipe|end'
+    $'single\'quote\twith tab\nand newline'
+    ''
+)
+for password in "${passwords[@]}"; do
+    run_case "pd1-up" "pd0:8620,pd1:8620" 6 'user with "quote"' "${password}"
+    assert_equal "literal credentials rc" "0" "${CASE_RC}"
+    [[ ! -s "${CREDENTIAL_ERROR}" ]] || fail "curl credential argument changed"
+    assert_equal "credential failover" "${TWO_CALLS}" "$(cat "${CALL_LOG}")"
+    assert_output "Storage backend is VIABLE"
+done
+run_case "pd1-up" "pd1:8620" 6 '' ''
+assert_equal "default credentials rc" "0" "${CASE_RC}"
+[[ ! -s "${CREDENTIAL_ERROR}" ]] || fail "default credential argument changed"
+echo "  PASS literal and default credentials"
+
+echo "11 passed, 0 failed"

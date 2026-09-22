@@ -24,13 +24,16 @@ import java.util.Set;
 
 import org.apache.hugegraph.config.HugeConfig;
 import org.apache.hugegraph.config.ServerOptions;
+import org.apache.hugegraph.core.GraphManager;
 import org.apache.hugegraph.util.E;
 import org.apache.hugegraph.util.Log;
 import org.slf4j.Logger;
 
 import com.google.common.collect.ImmutableSet;
 
+import jakarta.annotation.Priority;
 import jakarta.inject.Singleton;
+import jakarta.ws.rs.Priorities;
 import jakarta.ws.rs.container.ContainerRequestContext;
 import jakarta.ws.rs.container.ContainerRequestFilter;
 import jakarta.ws.rs.container.PreMatching;
@@ -42,12 +45,15 @@ import jakarta.ws.rs.ext.Provider;
 @Provider
 @Singleton
 @PreMatching
+@Priority(Priorities.AUTHENTICATION - 100)
 public class PathFilter implements ContainerRequestFilter {
 
     private static final Logger LOG = Log.logger(PathFilter.class);
 
     private static final String GRAPH_SPACE = "graphspaces";
     private static final String ARTHAS_START = "arthas";
+
+    public static final String LEGACY_AUTH_REQUEST = "hugegraph.legacy_auth_request";
 
     public static final String REQUEST_TIME = "request_time";
 
@@ -81,6 +87,9 @@ public class PathFilter implements ContainerRequestFilter {
     @Context
     private jakarta.inject.Provider<HugeConfig> configProvider;
 
+    @Context
+    private jakarta.inject.Provider<GraphManager> managerProvider;
+
     public static boolean isWhiteAPI(String rootPath) {
 
         return WHITE_API_LIST.contains(rootPath);
@@ -106,8 +115,29 @@ public class PathFilter implements ContainerRequestFilter {
                 this.configProvider.get().get(ServerOptions.PATH_GRAPH_SPACE);
         String path = uriInfo.getBaseUri().getPath() +
                       String.join(DELIMITER, GRAPH_SPACE, defaultPathSpace);
-        for (PathSegment segment : segments) {
-            path = String.join(DELIMITER, path, segment.getPath());
+        int start = 0;
+        // The 1.5 client scopes auth endpoints by graph. Most auth resources now
+        // belong to a graph space; login/logout/verify remain global.
+        if (segments.size() >= 4 && "graphs".equals(rootPath) &&
+            "auth".equals(segments.get(2).getPath())) {
+            context.setProperty(LEGACY_AUTH_REQUEST, Boolean.TRUE);
+            String resource = segments.get(3).getPath();
+            boolean globalGroup = false;
+            if ("groups".equals(resource)) {
+                GraphManager manager = this.managerProvider.get();
+                globalGroup = !manager.requireAuthentication() ||
+                              !manager.authManager().supportsGraphSpaceAuth();
+            }
+            if (ImmutableSet.of("login", "logout", "verify").contains(resource) || globalGroup) {
+                path = uriInfo.getBaseUri().getPath() + "auth";
+                start = 3;
+            } else if (ImmutableSet.of("users", "targets", "belongs",
+                                       "accesses", "projects", "groups").contains(resource)) {
+                start = 2;
+            }
+        }
+        for (int i = start; i < segments.size(); i++) {
+            path = String.join(DELIMITER, path, segments.get(i).getPath());
         }
         LOG.debug("Redirect request uri from {} to {}",
                   uriInfo.getRequestUri().getPath(), path);

@@ -21,11 +21,19 @@ import java.io.IOException;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.List;
 
 import org.apache.commons.configuration2.Configuration;
 import org.apache.commons.configuration2.PropertiesConfiguration;
 import org.apache.hugegraph.api.filter.PathFilter;
+import org.apache.hugegraph.api.filter.AuthenticationFilter;
+import org.apache.hugegraph.auth.AuthManager;
+import org.apache.hugegraph.auth.HugeGraphAuthProxy;
+import org.apache.hugegraph.auth.HugeAuthenticator.User;
+import org.apache.hugegraph.core.GraphManager;
+import org.glassfish.jersey.internal.MapPropertiesDelegate;
+import org.glassfish.jersey.server.ContainerRequest;
 import org.apache.hugegraph.config.HugeConfig;
 import org.apache.hugegraph.config.ServerOptions;
 import org.apache.hugegraph.testutil.Assert;
@@ -35,7 +43,10 @@ import org.junit.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 
+import jakarta.annotation.Priority;
 import jakarta.inject.Provider;
+import jakarta.ws.rs.Priorities;
+import jakarta.ws.rs.container.ContainerRequestFilter;
 import jakarta.ws.rs.container.ContainerRequestContext;
 import jakarta.ws.rs.core.PathSegment;
 import jakarta.ws.rs.core.UriBuilder;
@@ -57,6 +68,8 @@ public class PathFilterTest extends BaseUnitTest {
     private HugeConfig config;
     private ContainerRequestContext requestContext;
     private UriInfo uriInfo;
+    private GraphManager manager;
+    private AuthManager authManager;
 
     @Before
     public void setup() {
@@ -71,6 +84,11 @@ public class PathFilterTest extends BaseUnitTest {
         // Create PathFilter and inject Provider
         this.pathFilter = new PathFilter();
         injectProvider(this.pathFilter, this.configProvider);
+        this.manager = Mockito.mock(GraphManager.class);
+        this.authManager = Mockito.mock(AuthManager.class);
+        Mockito.when(this.manager.authManager()).thenReturn(this.authManager);
+        inject(this.pathFilter, PathFilter.class, "managerProvider",
+               (Provider<GraphManager>) () -> this.manager);
 
         // Mock request context and uriInfo
         this.requestContext = Mockito.mock(ContainerRequestContext.class);
@@ -427,5 +445,131 @@ public class PathFilterTest extends BaseUnitTest {
         Assert.assertFalse(PathFilter.isWhiteAPI("tasks"));
         Assert.assertFalse(PathFilter.isWhiteAPI("unknown"));
     }
+    @Test
+    public void testLegacyClientLoginLogoutAndVerifyRoutes() throws IOException {
+        for (String action : List.of("login", "logout", "verify", "groups")) {
+            Mockito.reset(this.requestContext);
+            Mockito.when(this.requestContext.getUriInfo()).thenReturn(this.uriInfo);
+            setupUriInfo("/", "/graphs/hugegraph/auth/" + action,
+                         List.of("graphs", "hugegraph", "auth", action), null);
+            this.pathFilter.filter(this.requestContext);
+            Mockito.verify(this.requestContext).setRequestUri(
+                    URI.create("http://localhost:8080/"),
+                    URI.create("http://localhost:8080/auth/" + action));
+        }
+    }
+
+    @Test
+    public void testLegacyClientAuthResourcesUseDefaultSpace() throws IOException {
+        for (String resource : List.of("users", "targets", "belongs",
+                                       "accesses", "projects")) {
+            Mockito.reset(this.requestContext);
+            Mockito.when(this.requestContext.getUriInfo()).thenReturn(this.uriInfo);
+            setupUriInfo("/", "/graphs/hugegraph/auth/" + resource + "/123",
+                         List.of("graphs", "hugegraph", "auth", resource, "123"), "limit=10");
+            this.pathFilter.filter(this.requestContext);
+            Mockito.verify(this.requestContext).setRequestUri(
+                    URI.create("http://localhost:8080/"),
+                    URI.create("http://localhost:8080/graphspaces/DEFAULT/auth/" +
+                               resource + "/123?limit=10"));
+        }
+    }
+
+    @Test
+    public void testLegacyGroupsFollowAuthenticationModel() throws Exception {
+        Mockito.when(this.manager.requireAuthentication()).thenReturn(true);
+        for (boolean scoped : List.of(false, true)) {
+            Mockito.when(this.authManager.supportsGraphSpaceAuth()).thenReturn(scoped);
+            for (String suffix : List.of("", "/123")) {
+                ContainerRequest request = request("graphs/hugegraph/auth/groups" + suffix + "?limit=10");
+                this.pathFilter.filter(request);
+                Assert.assertEquals(Boolean.TRUE, request.getProperty(PathFilter.LEGACY_AUTH_REQUEST));
+                Assert.assertEquals((scoped ? "graphspaces/DEFAULT/" : "") + "auth/groups" + suffix,
+                                    request.getUriInfo().getPath());
+                Assert.assertEquals("limit=10", request.getRequestUri().getQuery());
+            }
+        }
+    }
+
+    @Test
+    public void testDisabledAuthDoesNotResolveAuthManager() throws Exception {
+        Mockito.when(this.manager.authManager()).thenThrow(new IllegalStateException("No authenticator"));
+        ContainerRequest request = request("graphs/hugegraph/auth/groups");
+        this.pathFilter.filter(request);
+        Assert.assertEquals("auth/groups", request.getUriInfo().getPath());
+    }
+
+    @Test
+    public void testScopedAuthKeepsLoginRoutesGlobal() throws Exception {
+        Mockito.when(this.manager.requireAuthentication()).thenReturn(true);
+        Mockito.when(this.authManager.supportsGraphSpaceAuth()).thenReturn(true);
+        for (String action : List.of("login", "logout", "verify")) {
+            ContainerRequest request = request("graphs/hugegraph/auth/" + action);
+            this.pathFilter.filter(request);
+            Assert.assertEquals("auth/" + action, request.getUriInfo().getPath());
+        }
+    }
+
+    @Test
+    public void testLegacyAuthRewritePrecedesAuthentication() throws Exception {
+        Configuration conf = new PropertiesConfiguration();
+        conf.setProperty(ServerOptions.PATH_GRAPH_SPACE.name(), "SPACE_A");
+        HugeConfig custom = new HugeConfig(conf);
+        injectProvider(this.pathFilter, () -> custom);
+        Mockito.when(this.manager.requireAuthentication()).thenReturn(true);
+        Mockito.when(this.authManager.supportsGraphSpaceAuth()).thenReturn(true);
+        Mockito.when(this.manager.authenticate(Mockito.anyMap())).thenReturn(User.ANONYMOUS);
+        AuthenticationFilter authentication = new AuthenticationFilter();
+        inject(authentication, AuthenticationFilter.class, "managerProvider",
+               (Provider<GraphManager>) () -> this.manager);
+        inject(authentication, AuthenticationFilter.class, "configProvider",
+               (Provider<HugeConfig>) () -> custom);
+        inject(authentication, AuthenticationFilter.class, "requestProvider",
+               (Provider<Object>) () -> null);
+        List<ContainerRequestFilter> filters = new ArrayList<>(List.of(authentication, this.pathFilter));
+        // JAX-RS runs pre-matching request filters in ascending priority order.
+        filters.sort(Comparator.comparingInt(filter -> {
+            Priority priority = filter.getClass().getAnnotation(Priority.class);
+            return priority == null ? Priorities.USER : priority.value();
+        }));
+        try {
+            for (String resource : List.of("users", "groups", "targets", "belongs", "accesses", "projects")) {
+                HugeGraphAuthProxy.resetSpaceContext();
+                ContainerRequest request = request("graphs/hugegraph/auth/" + resource);
+                request.getHeaders().putSingle("Authorization", "Basic dXNlcjpwYXNz");
+                for (ContainerRequestFilter filter : filters) {
+                    filter.filter(request);
+                }
+                Assert.assertEquals("graphspaces/SPACE_A/auth/" + resource, request.getUriInfo().getPath());
+                Assert.assertEquals("SPACE_A", HugeGraphAuthProxy.getRequestGraphSpace());
+                Assert.assertNotNull(request.getSecurityContext());
+            }
+        } finally {
+            HugeGraphAuthProxy.resetSpaceContext();
+        }
+    }
+
+    @Test
+    public void testExplicitScopedPathIsNotMarkedLegacy() throws Exception {
+        ContainerRequest request = request("graphspaces/SPACE_A/auth/belongs");
+        this.pathFilter.filter(request);
+        Assert.assertNull(request.getProperty(PathFilter.LEGACY_AUTH_REQUEST));
+    }
+
+    private static ContainerRequest request(String path) {
+        URI base = URI.create("http://localhost:8080/");
+        return new ContainerRequest(base, base.resolve(path), "GET", null, new MapPropertiesDelegate());
+    }
+
+    private static void inject(Object target, Class<?> type, String name, Object value) {
+        try {
+            java.lang.reflect.Field field = type.getDeclaredField(name);
+            field.setAccessible(true);
+            field.set(target, value);
+        } catch (ReflectiveOperationException e) {
+            throw new AssertionError(e);
+        }
+    }
+
 }
 

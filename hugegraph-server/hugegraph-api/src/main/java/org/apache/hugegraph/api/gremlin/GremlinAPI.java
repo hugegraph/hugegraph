@@ -17,10 +17,18 @@
 
 package org.apache.hugegraph.api.gremlin;
 
+import java.io.IOException;
+import java.util.Set;
+
 import org.apache.hugegraph.api.filter.CompressInterceptor.Compress;
 import org.apache.hugegraph.config.HugeConfig;
+import org.apache.hugegraph.config.ServerOptions;
+import org.apache.hugegraph.core.GraphManager;
 import org.apache.hugegraph.metrics.MetricsUtil;
 import org.apache.hugegraph.util.E;
+import org.apache.tinkerpop.shaded.jackson.core.JsonParser;
+import org.apache.tinkerpop.shaded.jackson.core.JsonToken;
+import org.apache.tinkerpop.shaded.jackson.databind.ObjectMapper;
 
 import com.codahale.metrics.Histogram;
 import com.codahale.metrics.annotation.Timed;
@@ -44,6 +52,8 @@ import jakarta.ws.rs.core.UriInfo;
 @Tag(name = "GremlinAPI")
 public class GremlinAPI extends GremlinQueryAPI {
 
+    private static final ObjectMapper REQUEST_MAPPER = new ObjectMapper();
+
     private static final Histogram GREMLIN_INPUT_HISTOGRAM =
             MetricsUtil.registerHistogram(GremlinAPI.class, "gremlin-input");
     private static final Histogram GREMLIN_OUTPUT_HISTOGRAM =
@@ -55,9 +65,10 @@ public class GremlinAPI extends GremlinQueryAPI {
     @Consumes(APPLICATION_JSON)
     @Produces(APPLICATION_JSON_WITH_CHARSET)
     public Response post(@Context HugeConfig conf,
+                         @Context GraphManager manager,
                          @Context HttpHeaders headers,
                          @Parameter(description = "The Gremlin query request body")
-                         String request) {
+                         String request) throws IOException {
         /* The following code is reserved for forwarding request */
         // context.getRequestDispatcher(location).forward(request, response);
         // return Response.seeOther(UriBuilder.fromUri(location).build())
@@ -65,10 +76,55 @@ public class GremlinAPI extends GremlinQueryAPI {
         // Response.temporaryRedirect(UriBuilder.fromUri(location).build())
         // .build();
         String auth = headers.getHeaderString(HttpHeaders.AUTHORIZATION);
-        Response response = this.client().doPostRequest(auth, request);
+        String forwarded = normalizeLegacyAliases(
+                request, conf.get(ServerOptions.PATH_GRAPH_SPACE), manager.graphs());
+        Response response = this.client().doPostRequest(auth, forwarded);
         GREMLIN_INPUT_HISTOGRAM.update(request.length());
         GREMLIN_OUTPUT_HISTOGRAM.update(response.getLength());
         return transformResponseIfNeeded(response);
+    }
+
+    private static String normalizeLegacyAliases(String request, String graphSpace,
+                                                 Set<String> graphs) throws IOException {
+        StringBuilder forwarded = new StringBuilder();
+        int copied = 0;
+        try (JsonParser parser = REQUEST_MAPPER.createParser(request)) {
+            if (parser.nextToken() != JsonToken.START_OBJECT) {
+                return request;
+            }
+            while (parser.nextToken() != JsonToken.END_OBJECT) {
+                String field = parser.currentName();
+                JsonToken value = parser.nextToken();
+                if (!"aliases".equals(field) || value != JsonToken.START_OBJECT) {
+                    parser.skipChildren();
+                    continue;
+                }
+                while (parser.nextToken() != JsonToken.END_OBJECT) {
+                    if (parser.nextToken() != JsonToken.VALUE_STRING) {
+                        parser.skipChildren();
+                        continue;
+                    }
+                    int start = (int) parser.currentTokenLocation().getCharOffset();
+                    String target = parser.getText();
+                    int end = (int) parser.currentLocation().getCharOffset();
+                    String prefix = target.startsWith("__g_") ? "__g_" : "";
+                    String graph = target.substring(prefix.length());
+                    // Explicit names take precedence over legacy names in the default space.
+                    String qualified = graphSpace + "-" + graph;
+                    if (!graphs.contains(graph) && graphs.contains(qualified)) {
+                        // Replace only the alias string token. Re-encoding the request can
+                        // change binding types, decimal precision and floating-point -0.0.
+                        forwarded.append(request, copied, start);
+                        forwarded.append(REQUEST_MAPPER.writeValueAsString(prefix + qualified));
+                        copied = end;
+                    }
+                }
+            }
+        } catch (IOException e) {
+            // Keep malformed-request validation and error responses in Gremlin Server.
+            return request;
+        }
+        return copied == 0 ? request : forwarded.append(request, copied, request.length()).toString();
     }
 
     @GET
