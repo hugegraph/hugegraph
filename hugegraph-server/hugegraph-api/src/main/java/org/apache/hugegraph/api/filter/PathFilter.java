@@ -24,13 +24,16 @@ import java.util.Set;
 
 import org.apache.hugegraph.config.HugeConfig;
 import org.apache.hugegraph.config.ServerOptions;
+import org.apache.hugegraph.core.GraphManager;
 import org.apache.hugegraph.util.E;
 import org.apache.hugegraph.util.Log;
 import org.slf4j.Logger;
 
 import com.google.common.collect.ImmutableSet;
 
+import jakarta.annotation.Priority;
 import jakarta.inject.Singleton;
+import jakarta.ws.rs.Priorities;
 import jakarta.ws.rs.container.ContainerRequestContext;
 import jakarta.ws.rs.container.ContainerRequestFilter;
 import jakarta.ws.rs.container.PreMatching;
@@ -42,6 +45,7 @@ import jakarta.ws.rs.ext.Provider;
 @Provider
 @Singleton
 @PreMatching
+@Priority(Priorities.AUTHENTICATION - 100)
 public class PathFilter implements ContainerRequestFilter {
 
     private static final Logger LOG = Log.logger(PathFilter.class);
@@ -81,6 +85,9 @@ public class PathFilter implements ContainerRequestFilter {
     @Context
     private jakarta.inject.Provider<HugeConfig> configProvider;
 
+    @Context
+    private jakarta.inject.Provider<GraphManager> managerProvider;
+
     public static boolean isWhiteAPI(String rootPath) {
 
         return WHITE_API_LIST.contains(rootPath);
@@ -108,15 +115,21 @@ public class PathFilter implements ContainerRequestFilter {
                       String.join(DELIMITER, GRAPH_SPACE, defaultPathSpace);
         int start = 0;
         // The 1.5 client scopes auth endpoints by graph. Most auth resources now
-        // belong to a graph space; login/logout/verify and legacy groups are global.
+        // belong to a graph space; login/logout/verify remain global.
         if (segments.size() >= 4 && "graphs".equals(rootPath) &&
             "auth".equals(segments.get(2).getPath())) {
             String resource = segments.get(3).getPath();
-            if (ImmutableSet.of("login", "logout", "verify", "groups").contains(resource)) {
+            boolean globalGroup = false;
+            if ("groups".equals(resource)) {
+                GraphManager manager = this.managerProvider.get();
+                globalGroup = !manager.requireAuthentication() ||
+                              !manager.authManager().supportsGraphSpaceAuth();
+            }
+            if (ImmutableSet.of("login", "logout", "verify").contains(resource) || globalGroup) {
                 path = uriInfo.getBaseUri().getPath() + "auth";
                 start = 3;
             } else if (ImmutableSet.of("users", "targets", "belongs",
-                                       "accesses", "projects").contains(resource)) {
+                                       "accesses", "projects", "groups").contains(resource)) {
                 start = 2;
             }
         }

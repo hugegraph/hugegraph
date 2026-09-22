@@ -125,6 +125,29 @@ public class GraphSpaceAuthPayloadTest {
     }
 
     @Test
+    public void testScopedGroupPayloadCanBeUsedToCreateAccess() throws Exception {
+        AuthManager auth = Mockito.mock(AuthManager.class);
+        Mockito.when(auth.supportsGraphSpaceAuth()).thenReturn(true);
+        ObjectMapper mapper = new ObjectMapper();
+        GraphSpaceGroupAPI.JsonGroup jsonGroup = mapper.readValue(
+                "{\"group_name\":\"client-group\"}", GraphSpaceGroupAPI.JsonGroup.class);
+        HugeGroup group = jsonGroup.build("SPACE_A");
+        AccessAPI.JsonAccess jsonAccess = mapper.readValue(
+                "{\"group\":\"group-id\",\"target\":\"target\",\"access_permission\":\"READ\"}",
+                AccessAPI.JsonAccess.class);
+        HugeAccess access = jsonAccess.build("SPACE_A");
+        HugeTarget target = new HugeTarget("target", "hugegraph", "");
+        target.graphSpace("SPACE_A");
+        Mockito.when(auth.getGroup(access.source())).thenReturn(group);
+        Mockito.when(auth.getTarget("SPACE_A", access.target())).thenReturn(target);
+        Mockito.when(auth.createAccess("SPACE_A", access)).thenReturn(IdGenerator.of("access-id"));
+
+        Assert.assertEquals(IdGenerator.of("access-id"),
+                            AccessAPI.createScopedAccess(auth, "SPACE_A", access));
+        Mockito.verify(auth).createAccess("SPACE_A", access);
+    }
+
+    @Test
     public void testCreateAccessRejectsBuiltInRoleGroup() throws Exception {
         AuthManager auth = Mockito.mock(AuthManager.class);
         Mockito.when(auth.supportsGraphSpaceAuth()).thenReturn(true);
