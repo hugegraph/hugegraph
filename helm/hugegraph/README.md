@@ -73,7 +73,17 @@ so operators do not have to:
   `auth.admin_pa` from the mounted Secret alongside `usePD=true` and
   `pd.peers`, then hands off to the image entrypoint. Two caveats:
   `auth.admin_pa` applies only when the admin is first created, so changing the
-  Secret does not rotate an existing cluster's password, and the value lands in
+  Secret does not rotate an existing cluster's password. Changing it anyway
+  rolls the Server Deployment, leaves the old password working, and makes the
+  Secret disagree with the live credential, so `helm test` (which reads the
+  Secret) fails until the two match again. To change the password on a running
+  cluster, change it through the Server API
+  (`PUT /graphspaces/DEFAULT/auth/users/admin` with `{"user_password": "..."}`)
+  and set the Secret to the same value. Each Server caches users and passwords
+  for `auth.cache_expire` (600 s by default) and nothing invalidates those
+  caches across replicas, so the other replicas keep accepting the old password
+  for a while: measured 9 to 21 minutes on a three-replica install. The value
+  also lands in
   `rest-server.properties` inside the container (file mode 600). Because the
   Java properties parser reinterprets them, the Secret value must not contain
   newlines, carriage returns, or backslashes; the wrapper refuses to start if
@@ -263,27 +273,48 @@ Two cases are worth knowing about in advance:
   state `Up`. A Store is therefore `Up` before it has restored anything, and
   stays `Up` if restoring fails.
 
-  The strongest check the current images support is shard membership and
-  leadership per group, read from the PD leader:
+  Start with the Pod, not with PD. Wait for the replaced Pod to report
+  `Ready` (`kubectl -n <namespace> wait --for=condition=Ready
+  pod/<release>-hugegraph-store-<ordinal> --timeout=10m`), because PD alone
+  cannot tell you that the Store is running: PD marks a Store `Offline` only
+  after its keep-alive entry expires (`store.keepAlive-timeout`, 300 s on
+  current images) and the 60 s patrol notices, so a Pod that is deleted and
+  back inside that window never leaves `Up` and never leaves its shard
+  groups. Measured on a 3+3+3 install: a Store Pod was gone for 150 s and
+  every shard-group check below answered "healthy" on every sample for the
+  whole outage.
+
+  Then check shard membership and leadership per group, read from the PD
+  leader:
 
   ```bash
   # PD leader, then its shard groups (see Disaster Recovery for the port-forward)
   curl -s -u "hg:${PD_SECRET}" http://127.0.0.1:8620/v1/shardGroups | jq '
-    .shardGroups[] | {id,
+    .shardGroups[] | {id: (.id // 0),
                       shards: [.shards[] | {storeId, role}],
                       leaders: [.shards[] | select(.role=="Leader")] | length}'
   ```
 
-  Delete the next Store only when every group reports the full shard count
-  from `pd.partition.shardCount`, exactly one `Leader`, and the replaced
-  Store's id back in the groups it holds. `/v1/shardLeaders` gives the same
-  leadership view grouped by Store raft address.
+  (`id` is omitted for group 0 in the protobuf JSON, hence the `// 0`.)
+
+  Delete the next Store only when the replaced Pod is `Ready`, its Store id
+  shows a `lastHeartBeat` newer than the restart in `/v1/stores`, and every
+  group reports the shard count in force (`pd.partition.defaultShardCount`;
+  empty derives 3 when `store.replicas` is at least 3), exactly one
+  `Leader`, and the replaced Store's id back in the groups it holds.
+  `/v1/shardLeaders` gives the same leadership view grouped by Store raft
+  address.
 
   Know what this does not prove. The shard list is PD's membership record,
   not a statement that the Store finished loading those partitions locally
   and caught up on the raft log. No endpoint in these images reports
   restoration-complete, so a group can list a Store whose local engine is
-  still behind. Leave a margin after the membership check rather than
+  still behind. For a closer look, port-forward the replaced Store Pod and
+  read its own view of each group: `GET :8520/v1/partition/<groupId>`
+  returns the raft role, term and committed index that Store holds for that
+  group, and fails while the Store is down. (The plural `GET
+  :8520/v1/partitions` answers 500 on any Store that follows a group, so use
+  the per-group path.) Leave a margin after the membership check rather than
   deleting the next Pod on the same second, keep `store.pdb.minAvailable` at
   `replicas - 1` so an accidental second eviction is refused, and treat a
   group that is short a shard or has no leader as a stop. Closing that gap
@@ -304,6 +335,24 @@ Two cases are worth knowing about in advance:
   restart the PD pods yourself. Rotating the PD REST Secret later rolls the
   same three workloads together, which keeps their copies of the secret in
   step.
+- **A Server that starts while PD is rolling can come up without its Gremlin
+  binding.** Gremlin Server instantiates the graph once at startup; if the PD
+  client cannot connect at that moment the log says `Graph [DEFAULT-hugegraph]
+  ... could not be instantiated and will not be available in Gremlin Server`,
+  and the REST layer opens the graph seconds later anyway. The Pod then passes
+  readiness and serves REST while every Gremlin request on it fails with
+  `Could not rebind [graph]`, for the life of the Pod. Measured on current
+  images: 4 of 12 Server starts that overlapped a PD roll, none of 3 in a
+  Server-only roll. After an upgrade that rolls PD and Server together, check
+  Gremlin on each Server Pod and delete any Pod that fails; the replacement
+  binds normally once PD is stable (see Troubleshooting).
+- **Dropping an inline credential back to the chart-managed Secret rolls PD,
+  Server and Hubble once more, with no credential change.** The rollout
+  checksum takes the inline value's digest while `pd.auth.value` or
+  `server.auth.token.value` is set, and the Secret's `resourceVersion` when it
+  is not, so removing the inline value changes the annotation although the
+  credential is unchanged (the chart never hashes Secret data). Expect one
+  extra roll on that upgrade.
 
 Every optional field stays optional, so a release created by an earlier
 revision continues to render under `--reuse-values`. Note that `--reuse-values`
@@ -1037,7 +1086,21 @@ curl -u "hg:${PD_SECRET}" http://127.0.0.1:8620/v1/task/balancePartitions
 
 Read `/v1/members` again after the tasks: if leadership moved mid-sequence,
 the later tasks ran on a follower and did nothing, so rerun them on the new
-leader.
+leader. Wait at least 180 s before rerunning `balanceLeaders` after a
+`balancePartitions` call: `balancePartitions` sets a balance-shard flag for
+180 s even when it moves nothing, and `balanceLeaders` inside that window
+fails with a bare HTTP 500 whose reason (`balance shard is processing,
+please try later!`) appears only in the PD log.
+
+Telling a real run from a no-op takes the PD leader's log, because the
+responses do not. `patrolPartitions` answers `{"status": 0,"partitions": [ ]}`
+on the leader and on a follower, whether or not it repaired anything; look
+for `reallocShards`, `shardOffline` or `storeTurnoff` lines on the leader,
+or diff `/v1/shardGroups` before and after. `balancePartitions` answers `{}`
+on the leader and an empty body on a follower, which is a two-byte
+difference. `balanceLeaders` is the one call whose body carries the work: a
+JSON object of the groups whose leader moved, and `{}` when there was
+nothing to move or when it reached a follower.
 
 The credential is required; PD answers 401 without it. The Secret name
 follows the release (`<release>-pd-auth`) unless `pd.auth.existingSecret`
@@ -1047,19 +1110,33 @@ Run `patrolPartitions` after replacing a Store that is not coming back,
 `balancePartitions` once the cluster is stable again, and `balanceLeaders`
 after restarts that skewed leader placement.
 
-A Store replaced with an empty PVC registers under a **new Store ID**, even
-though its Pod name and DNS address are unchanged, and the old ID stays
-`Offline` in PD with its shard memberships intact; the patrol repairs only
-`Tombstone` members, so it never touches the `Offline` entry. After such a
-replacement, retire the old ID explicitly on the leader: find the
-`Offline` entry in `/v1/stores` whose address matches the replaced Pod,
-mark it `Tombstone` with `curl -u "hg:${PD_SECRET}" -X POST -H
-'Content-Type: application/json' -d '{"storeState":"Tombstone"}'
-http://127.0.0.1:8620/v1/store/<storeId>` (this hands its shards to the
-patrol), then run `patrolPartitions` and verify every shard group lists
-only `Up` Stores. `DELETE /v1/store/<storeId>` only erases the record and
-strands the shard memberships; use it, if at all, as cleanup after the
-patrol has finished.
+**Do not delete a Store's PersistentVolumeClaim on current images.** A Store
+replaced with an empty PVC registers under a **new Store ID**, while its Pod
+name, DNS name and raft address are unchanged, and the cluster cannot be
+brought back to full replication from there. Retiring the old ID runs, and
+still does not repair the groups: PD accepts `{"storeState":"Tombstone"}` for
+the old ID, `patrolPartitions` then logs `shardOffline` for every partition
+and `reallocShards ShardGroup N, add shards from 2 to 3` with the new ID in
+the computed list, and fires the configuration change; but the Store leader
+sees that address already in the group (`changePeers start, old peer is [...
+<same address> ...]`), so jraft has nothing to add and the group record keeps
+the old ID. Measured on a 3+3+3 install: 20 minutes and three patrols later,
+all 12 groups still listed the retired ID, the replacement Store held no
+partitions at all (`:8520/v1/partition/<groupId>` answered 500 on it for
+every group), and `balancePartitions` refused to move anything
+(`movedPartitions is empty`). `DELETE /v1/store/<storeId>` erases the record
+and leaves the groups naming an ID that no longer exists.
+
+Nothing in the documented health surface shows this: `/v1/stores` still
+counts three `Up` Stores, cluster state stays `Cluster_OK`, Hubble lists
+three Store nodes `UP`, and all Pods are `Ready`, while every shard group is
+really running on two live replicas. The one check that shows it is the
+replaced Store's own `:8520/v1/partition/<groupId>`.
+
+So: replace a Store Pod, keep its PVC (the Store id lives in the data path,
+and the Pod comes back under the same id). If a Store's volume is genuinely
+lost, treat the cluster as degraded until an image-side fix lands, and expect
+to rebuild rather than to recover in place.
 
 Periodic balancing and shard-sync progress metrics do not exist upstream
 yet and are out of scope for this chart. Periodic leader balancing is
@@ -1117,8 +1194,9 @@ leaving Store the same way the Disaster Recovery section retires a replaced
 one:
 
 1. Check the remaining Stores can still hold the persisted replication
-   factor: after the shrink, live Stores must be at least
-   `pd.partition.shardCount`.
+   factor: after the shrink, live Stores must be at least the shard count in
+   force (`pd.partition.defaultShardCount`; empty derives 3 when
+   `store.replicas` is at least 3).
 2. Map the ordinals the shrink will delete (the highest ones) to Store ids
    through `/v1/stores`, matching on the Pod address.
 3. `POST /v1/store/{id}` with `{"storeState":"Tombstone"}` for each leaving
@@ -1193,6 +1271,24 @@ Cluster-wide readiness and PD-owned graph creation remain tracked in
 [#3139](https://github.com/apache/hugegraph/pull/3139); Phase 3: PD
 orchestration).
 
+The same error has a second cause that does not close on its own: a Server
+Pod that started while PD was rolling. Gremlin Server instantiates the graph
+once at startup, so a PD client failure at that moment leaves the Pod without
+a Gremlin binding for its whole life, while readiness passes and REST works.
+The Pod's `hugegraph-server.log` names it:
+
+```
+Graph [DEFAULT-hugegraph] configured at [...] could not be instantiated and
+will not be available in Gremlin Server
+```
+
+Check Gremlin on each Server Pod after any upgrade that rolled PD (a
+port-forward to the Pod plus `POST /gremlin` with
+`{"gremlin":"graph.traversal().V().limit(1).count()","aliases":{"graph":"DEFAULT-hugegraph"}}`),
+and delete a Pod that fails. Its replacement binds normally as long as PD is
+stable; measured on a 3+3+3 install, 4 of 12 Server starts that overlapped a
+PD roll hit this, and both deletions recovered.
+
 ### Pods OOM Killed or Restarting
 
 The default `values.yaml` sets **no** resource requests or limits and preserves
@@ -1223,6 +1319,15 @@ independently of the release name.
 
 ## Limitations
 
+- A Store cannot be recovered in place after its volume is lost. The
+  replacement keeps the Pod's DNS raft address, so PD's reallocation adds a
+  peer the raft group already has and the group keeps the old Store id; the
+  replacement stays empty and the group runs on the remaining replicas, with
+  no health surface reporting it. See Disaster Recovery for what was measured
+  and what to do instead.
+- A Server Pod that starts while PD is rolling can lose its Gremlin binding
+  for the life of the Pod while passing readiness and serving REST; delete
+  that Pod. See Troubleshooting, "Could not rebind".
 - The default values set no container resources, so every pod is QoS class
   BestEffort and each JVM sizes its heap against total NODE memory rather than
   a cgroup limit. That is fine for a single-node or development install, but on
