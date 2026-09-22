@@ -661,21 +661,21 @@ non-Apache-2.0 license text is required for a bundled component.
     https://central.sonatype.com/artifact/org.rocksdb/rocksdbjni/7.7.3 -> Apache 2.0
     https://central.sonatype.com/artifact/org.rocksdb/rocksdbjni/8.10.2 -> Apache 2.0
     https://central.sonatype.com/artifact/org.skyscreamer/jsonassert/1.5.0 -> Apache 2.0
-    https://central.sonatype.com/artifact/org.springframework.boot/spring-boot-actuator-autoconfigure/2.5.23 -> Apache 2.0
-    https://central.sonatype.com/artifact/org.springframework.boot/spring-boot-actuator/2.5.23 -> Apache 2.0
+    https://central.sonatype.com/artifact/org.springframework.boot/spring-boot-actuator-autoconfigure/2.5.14 -> Apache 2.0
+    https://central.sonatype.com/artifact/org.springframework.boot/spring-boot-actuator/2.5.14 -> Apache 2.0
     https://central.sonatype.com/artifact/org.springframework.boot/spring-boot-autoconfigure/2.5.0 -> Apache 2.0
-    https://central.sonatype.com/artifact/org.springframework.boot/spring-boot-autoconfigure/2.5.23 -> Apache 2.0
-    https://central.sonatype.com/artifact/org.springframework.boot/spring-boot-starter-actuator/2.5.23 -> Apache 2.0
-    https://central.sonatype.com/artifact/org.springframework.boot/spring-boot-starter-jetty/2.5.23 -> Apache 2.0
-    https://central.sonatype.com/artifact/org.springframework.boot/spring-boot-starter-json/2.5.23 -> Apache 2.0
-    https://central.sonatype.com/artifact/org.springframework.boot/spring-boot-starter-log4j2/2.5.23 -> Apache 2.0
-    https://central.sonatype.com/artifact/org.springframework.boot/spring-boot-starter-test/2.5.23 -> Apache 2.0
-    https://central.sonatype.com/artifact/org.springframework.boot/spring-boot-starter-web/2.5.23 -> Apache 2.0
+    https://central.sonatype.com/artifact/org.springframework.boot/spring-boot-autoconfigure/2.5.14 -> Apache 2.0
+    https://central.sonatype.com/artifact/org.springframework.boot/spring-boot-starter-actuator/2.5.14 -> Apache 2.0
+    https://central.sonatype.com/artifact/org.springframework.boot/spring-boot-starter-jetty/2.5.14 -> Apache 2.0
+    https://central.sonatype.com/artifact/org.springframework.boot/spring-boot-starter-json/2.5.14 -> Apache 2.0
+    https://central.sonatype.com/artifact/org.springframework.boot/spring-boot-starter-log4j2/2.5.14 -> Apache 2.0
+    https://central.sonatype.com/artifact/org.springframework.boot/spring-boot-starter-test/2.5.14 -> Apache 2.0
+    https://central.sonatype.com/artifact/org.springframework.boot/spring-boot-starter-web/2.5.14 -> Apache 2.0
     https://central.sonatype.com/artifact/org.springframework.boot/spring-boot-starter/2.5.0 -> Apache 2.0
-    https://central.sonatype.com/artifact/org.springframework.boot/spring-boot-starter/2.5.23 -> Apache 2.0
-    https://central.sonatype.com/artifact/org.springframework.boot/spring-boot-test-autoconfigure/2.5.23 -> Apache 2.0
-    https://central.sonatype.com/artifact/org.springframework.boot/spring-boot-test/2.5.23 -> Apache 2.0
-    https://central.sonatype.com/artifact/org.springframework.boot/spring-boot/2.5.23 -> Apache 2.0
+    https://central.sonatype.com/artifact/org.springframework.boot/spring-boot-starter/2.5.14 -> Apache 2.0
+    https://central.sonatype.com/artifact/org.springframework.boot/spring-boot-test-autoconfigure/2.5.14 -> Apache 2.0
+    https://central.sonatype.com/artifact/org.springframework.boot/spring-boot-test/2.5.14 -> Apache 2.0
+    https://central.sonatype.com/artifact/org.springframework.boot/spring-boot/2.5.14 -> Apache 2.0
     https://central.sonatype.com/artifact/org.springframework.security/spring-security-core/5.8.3 -> Apache 2.0
     https://central.sonatype.com/artifact/org.springframework.security/spring-security-crypto/5.8.3 -> Apache 2.0
     https://central.sonatype.com/artifact/org.springframework/spring-aop/5.3.20 -> Apache 2.0
@@ -882,3 +882,5 @@ The text of each license is also included in licenses/LICENSE-[project].txt.
 #
 # This product includes software developed by the Jansi project (http://fusesource.github.io/jansi/).
 # See licenses/LICENSE-jansi-2.4.0.txt for license details (Apache License 2.0 or LGPL 3.0+).
+
+Groovy 2.5.23 modules share licenses/LICENSE-groovy-2.5.23.txt.
