@@ -51,7 +51,6 @@
                     <plugin>
                         <groupId>org.jacoco</groupId>
                         <artifactId>jacoco-maven-plugin</artifactId>
-                        <version>0.8.8</version>
 
                         <executions>
                             <execution>
@@ -221,11 +220,18 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
-                <version>2.20</version>
+                <dependencies>
+                    <dependency>
+                        <groupId>org.apache.maven.surefire</groupId>
+                        <artifactId>surefire-junit4</artifactId>
+                        <version>${maven.surefire.plugin.version}</version>
+                    </dependency>
+                </dependencies>
                 <executions>
                     <execution>
                         <id>store-client-test</id>
                         <configuration>
+                            <failIfNoSpecifiedTests>true</failIfNoSpecifiedTests>
                             <testSourceDirectory>${basedir}/src/main/java/
                             </testSourceDirectory>
                             <testClassesDirectory>${basedir}/target/classes/
@@ -238,6 +244,7 @@
                     <execution>
                         <id>store-core-test</id>
                         <configuration>
+                            <failIfNoSpecifiedTests>true</failIfNoSpecifiedTests>
                             <testSourceDirectory>${basedir}/src/main/java/
                             </testSourceDirectory>
                             <testClassesDirectory>${basedir}/target/classes/
@@ -251,12 +258,14 @@
                             <includes>
                                 <include>**/CoreSuiteTest.java</include>
                                 <include>**/BatchGraphIsolationTest.java</include>
+                                <include>**/GraphIDManagerTest.java</include>
                             </includes>
                         </configuration>
                     </execution>
                     <execution>
                         <id>store-common-test</id>
                         <configuration>
+                            <failIfNoSpecifiedTests>true</failIfNoSpecifiedTests>
                             <testSourceDirectory>${basedir}/src/main/java/
                             </testSourceDirectory>
                             <testClassesDirectory>${basedir}/target/classes/
@@ -269,6 +278,7 @@
                     <execution>
                         <id>store-rocksdb-test</id>
                         <configuration>
+                            <failIfNoSpecifiedTests>true</failIfNoSpecifiedTests>
                             <testSourceDirectory>${basedir}/src/main/java/
                             </testSourceDirectory>
                             <testClassesDirectory>${basedir}/target/classes/
@@ -281,6 +291,7 @@
                     <execution>
                         <id>store-server-test</id>
                         <configuration>
+                            <failIfNoSpecifiedTests>true</failIfNoSpecifiedTests>
                             <testSourceDirectory>${basedir}/src/main/java/
                             </testSourceDirectory>
                             <testClassesDirectory>${basedir}/target/classes/
@@ -296,6 +307,7 @@
                     <execution>
                         <id>store-raftcore-test</id>
                         <configuration>
+                            <failIfNoSpecifiedTests>true</failIfNoSpecifiedTests>
                             <testSourceDirectory>${basedir}/src/main/java/
                             </testSourceDirectory>
                             <testClassesDirectory>${basedir}/target/classes/
@@ -310,7 +322,6 @@
             <plugin>
                 <groupId>org.jacoco</groupId>
                 <artifactId>jacoco-maven-plugin</artifactId>
-                <version>0.8.8</version>
                 <configuration>
                     <excludes>
                         <exclude>**/grpc/**/*</exclude>
