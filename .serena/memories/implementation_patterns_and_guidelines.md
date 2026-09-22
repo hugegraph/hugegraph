@@ -23,7 +23,7 @@
 - After `.proto` changes: `mvn clean compile`; PD/Store gRPC POMs output to each module's `src/main/java/`.
 
 ## Query Languages
-- **Gremlin**: Native TinkerPop 3.5.1
+- **Gremlin**: Native TinkerPop 3.8.1
 - **OpenCypher**: `hugegraph-api/opencypher/`
 - TinkerPop exceptions are passed through in Gremlin responses
 

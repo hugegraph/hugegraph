@@ -36,7 +36,20 @@ jobs:
       HEAD_BRANCH_NAME: ${{ github.head_ref }}
       BASE_BRANCH_NAME: ${{ github.base_ref }}
       TARGET_BRANCH_NAME: ${{ github.base_ref != '' && github.base_ref || github.ref_name }}
-      RELEASE_BRANCH: ${{ startsWith(github.ref_name, 'release-') || startsWith(github.ref_name, 'test-') }}
+      RUN_TINKERPOP_TESTS: >-
+        ${{
+          startsWith(github.ref_name, 'release-') ||
+          startsWith(github.ref_name, 'test-') ||
+          startsWith(github.head_ref, 'release-') ||
+          startsWith(github.head_ref, 'test-') ||
+          startsWith(github.head_ref, 'task/tp381-3-') ||
+          startsWith(github.ref_name, 'task/tp381-3-') ||
+          startsWith(github.base_ref, 'task/tp381-3-') ||
+          github.base_ref == 'task/tinkerpop-3.7-upgrade' ||
+          github.head_ref == 'task/tinkerpop-3.7-upgrade' ||
+          github.base_ref == 'task/gsoc-phase2-java17' ||
+          github.head_ref == 'task/gsoc-phase2-java17'
+        }}
       RAFT_MODE: ${{ startsWith(github.ref_name, 'raft-') || startsWith(github.head_ref, 'raft-') }}
 
     strategy:
@@ -196,11 +209,22 @@ jobs:
         run: |
           $TRAVIS_DIR/run-api-test-for-raft.sh $BACKEND $REPORT_DIR
 
-      - name: Run TinkerPop test
-        if: ${{ env.RELEASE_BRANCH == 'true' }}
+      # TinkerPop compliance is covered by memory and rocksdb in CI.
+      # HBase still runs compile/unit/core/API because its full suite exceeds the CI budget.
+      - name: Run TinkerPop structure test
+        if: ${{ env.RUN_TINKERPOP_TESTS == 'true' && env.BACKEND != 'hbase' }}
+        timeout-minutes: 60
         run: |
-          echo "[WARNING] Enter Tinkerpop Test, current 'github.ref_name' is ${{ github.ref_name }}"
-          $TRAVIS_DIR/run-tinkerpop-test.sh $BACKEND tinkerpop
+          echo "[WARNING] Enter Tinkerpop Structure Test, current 'github.ref_name' is ${{ github.ref_name }}"
+          $TRAVIS_DIR/run-tinkerpop-test.sh $BACKEND structure
+
+      - name: Run TinkerPop process test
+        if: ${{ env.RUN_TINKERPOP_TESTS == 'true' && env.BACKEND != 'hbase' }}
+        # TODO: split ProcessStandardTest and Gherkin into separate CI jobs.
+        timeout-minutes: 120
+        run: |
+          echo "[WARNING] Enter Tinkerpop Process Test, current 'github.ref_name' is ${{ github.ref_name }}"
+          $TRAVIS_DIR/run-tinkerpop-test.sh $BACKEND process
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5
