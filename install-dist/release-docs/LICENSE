@@ -576,15 +576,15 @@ non-Apache-2.0 license text is required for a bundled component.
     https://central.sonatype.com/artifact/org.apiguardian/apiguardian-api/1.1.0 -> Apache 2.0
     https://central.sonatype.com/artifact/org.assertj/assertj-core/3.19.0 -> Apache 2.0
     https://central.sonatype.com/artifact/org.caffinitas.ohc/ohc-core/0.7.4 -> Apache 2.0
-    https://central.sonatype.com/artifact/org.codehaus.groovy/groovy-cli-picocli/2.5.14 -> Apache 2.0
-    https://central.sonatype.com/artifact/org.codehaus.groovy/groovy-console/2.5.14 -> Apache 2.0
-    https://central.sonatype.com/artifact/org.codehaus.groovy/groovy-groovysh/2.5.14 -> Apache 2.0
-    https://central.sonatype.com/artifact/org.codehaus.groovy/groovy-json/2.5.14 -> Apache 2.0
-    https://central.sonatype.com/artifact/org.codehaus.groovy/groovy-jsr223/2.5.14 -> Apache 2.0
-    https://central.sonatype.com/artifact/org.codehaus.groovy/groovy-swing/2.5.14 -> Apache 2.0
-    https://central.sonatype.com/artifact/org.codehaus.groovy/groovy-templates/2.5.14 -> Apache 2.0
-    https://central.sonatype.com/artifact/org.codehaus.groovy/groovy-xml/2.5.14 -> Apache 2.0
-    https://central.sonatype.com/artifact/org.codehaus.groovy/groovy/2.5.14 -> Apache 2.0
+    https://central.sonatype.com/artifact/org.codehaus.groovy/groovy-cli-picocli/2.5.23 -> Apache 2.0
+    https://central.sonatype.com/artifact/org.codehaus.groovy/groovy-console/2.5.23 -> Apache 2.0
+    https://central.sonatype.com/artifact/org.codehaus.groovy/groovy-groovysh/2.5.23 -> Apache 2.0
+    https://central.sonatype.com/artifact/org.codehaus.groovy/groovy-json/2.5.23 -> Apache 2.0
+    https://central.sonatype.com/artifact/org.codehaus.groovy/groovy-jsr223/2.5.23 -> Apache 2.0
+    https://central.sonatype.com/artifact/org.codehaus.groovy/groovy-swing/2.5.23 -> Apache 2.0
+    https://central.sonatype.com/artifact/org.codehaus.groovy/groovy-templates/2.5.23 -> Apache 2.0
+    https://central.sonatype.com/artifact/org.codehaus.groovy/groovy-xml/2.5.23 -> Apache 2.0
+    https://central.sonatype.com/artifact/org.codehaus.groovy/groovy/2.5.23 -> Apache 2.0
     https://central.sonatype.com/artifact/org.eclipse.jetty.websocket/javax-websocket-client-impl/9.4.46.v20220331 -> Apache 2.0
     https://central.sonatype.com/artifact/org.eclipse.jetty.websocket/javax-websocket-server-impl/9.4.46.v20220331 -> Apache 2.0
     https://central.sonatype.com/artifact/org.eclipse.jetty.websocket/websocket-api/9.4.46.v20220331 -> Apache 2.0
@@ -661,21 +661,21 @@ non-Apache-2.0 license text is required for a bundled component.
     https://central.sonatype.com/artifact/org.rocksdb/rocksdbjni/7.7.3 -> Apache 2.0
     https://central.sonatype.com/artifact/org.rocksdb/rocksdbjni/8.10.2 -> Apache 2.0
     https://central.sonatype.com/artifact/org.skyscreamer/jsonassert/1.5.0 -> Apache 2.0
-    https://central.sonatype.com/artifact/org.springframework.boot/spring-boot-actuator-autoconfigure/2.5.14 -> Apache 2.0
-    https://central.sonatype.com/artifact/org.springframework.boot/spring-boot-actuator/2.5.14 -> Apache 2.0
+    https://central.sonatype.com/artifact/org.springframework.boot/spring-boot-actuator-autoconfigure/2.5.23 -> Apache 2.0
+    https://central.sonatype.com/artifact/org.springframework.boot/spring-boot-actuator/2.5.23 -> Apache 2.0
     https://central.sonatype.com/artifact/org.springframework.boot/spring-boot-autoconfigure/2.5.0 -> Apache 2.0
-    https://central.sonatype.com/artifact/org.springframework.boot/spring-boot-autoconfigure/2.5.14 -> Apache 2.0
-    https://central.sonatype.com/artifact/org.springframework.boot/spring-boot-starter-actuator/2.5.14 -> Apache 2.0
-    https://central.sonatype.com/artifact/org.springframework.boot/spring-boot-starter-jetty/2.5.14 -> Apache 2.0
-    https://central.sonatype.com/artifact/org.springframework.boot/spring-boot-starter-json/2.5.14 -> Apache 2.0
-    https://central.sonatype.com/artifact/org.springframework.boot/spring-boot-starter-log4j2/2.5.14 -> Apache 2.0
-    https://central.sonatype.com/artifact/org.springframework.boot/spring-boot-starter-test/2.5.14 -> Apache 2.0
-    https://central.sonatype.com/artifact/org.springframework.boot/spring-boot-starter-web/2.5.14 -> Apache 2.0
+    https://central.sonatype.com/artifact/org.springframework.boot/spring-boot-autoconfigure/2.5.23 -> Apache 2.0
+    https://central.sonatype.com/artifact/org.springframework.boot/spring-boot-starter-actuator/2.5.23 -> Apache 2.0
+    https://central.sonatype.com/artifact/org.springframework.boot/spring-boot-starter-jetty/2.5.23 -> Apache 2.0
+    https://central.sonatype.com/artifact/org.springframework.boot/spring-boot-starter-json/2.5.23 -> Apache 2.0
+    https://central.sonatype.com/artifact/org.springframework.boot/spring-boot-starter-log4j2/2.5.23 -> Apache 2.0
+    https://central.sonatype.com/artifact/org.springframework.boot/spring-boot-starter-test/2.5.23 -> Apache 2.0
+    https://central.sonatype.com/artifact/org.springframework.boot/spring-boot-starter-web/2.5.23 -> Apache 2.0
     https://central.sonatype.com/artifact/org.springframework.boot/spring-boot-starter/2.5.0 -> Apache 2.0
-    https://central.sonatype.com/artifact/org.springframework.boot/spring-boot-starter/2.5.14 -> Apache 2.0
-    https://central.sonatype.com/artifact/org.springframework.boot/spring-boot-test-autoconfigure/2.5.14 -> Apache 2.0
-    https://central.sonatype.com/artifact/org.springframework.boot/spring-boot-test/2.5.14 -> Apache 2.0
-    https://central.sonatype.com/artifact/org.springframework.boot/spring-boot/2.5.14 -> Apache 2.0
+    https://central.sonatype.com/artifact/org.springframework.boot/spring-boot-starter/2.5.23 -> Apache 2.0
+    https://central.sonatype.com/artifact/org.springframework.boot/spring-boot-test-autoconfigure/2.5.23 -> Apache 2.0
+    https://central.sonatype.com/artifact/org.springframework.boot/spring-boot-test/2.5.23 -> Apache 2.0
+    https://central.sonatype.com/artifact/org.springframework.boot/spring-boot/2.5.23 -> Apache 2.0
     https://central.sonatype.com/artifact/org.springframework.security/spring-security-core/5.8.3 -> Apache 2.0
     https://central.sonatype.com/artifact/org.springframework.security/spring-security-crypto/5.8.3 -> Apache 2.0
     https://central.sonatype.com/artifact/org.springframework/spring-aop/5.3.20 -> Apache 2.0

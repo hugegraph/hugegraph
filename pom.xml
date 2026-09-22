@@ -86,6 +86,7 @@
     </scm>
 
     <properties>
+        <groovy.compat.version>2.5.23</groovy.compat.version>
         <fabric8.version>5.6.0</fabric8.version>
         <revision>1.7.0</revision>
         <lombok.version>1.18.30</lombok.version>
@@ -120,6 +121,39 @@
 
     <dependencyManagement>
         <dependencies>
+            <!-- TinkerPop 3.5.1 uses Groovy 2.5.14, which cannot read Java 17
+                 classes. Keep its Groovy API line until the TinkerPop upgrade. -->
+            <dependency>
+                <groupId>org.codehaus.groovy</groupId>
+                <artifactId>groovy-bom</artifactId>
+                <version>${groovy.compat.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <dependency>
+                <groupId>org.codehaus.groovy</groupId>
+                <artifactId>groovy</artifactId>
+                <version>${groovy.compat.version}</version>
+                <classifier>indy</classifier>
+            </dependency>
+            <dependency>
+                <groupId>org.codehaus.groovy</groupId>
+                <artifactId>groovy-groovysh</artifactId>
+                <version>${groovy.compat.version}</version>
+                <classifier>indy</classifier>
+            </dependency>
+            <dependency>
+                <groupId>org.codehaus.groovy</groupId>
+                <artifactId>groovy-json</artifactId>
+                <version>${groovy.compat.version}</version>
+                <classifier>indy</classifier>
+            </dependency>
+            <dependency>
+                <groupId>org.codehaus.groovy</groupId>
+                <artifactId>groovy-jsr223</artifactId>
+                <version>${groovy.compat.version}</version>
+                <classifier>indy</classifier>
+            </dependency>
             <dependency>
                 <groupId>org.projectlombok</groupId>
                 <artifactId>lombok</artifactId>
