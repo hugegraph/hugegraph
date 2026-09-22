@@ -21,9 +21,12 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 import org.apache.hugegraph.api.API;
+import org.apache.hugegraph.api.filter.PathFilter;
 import org.apache.hugegraph.api.filter.StatusFilter.Status;
 import org.apache.hugegraph.auth.AuthManager;
 import org.apache.hugegraph.auth.HugeBelong;
+import org.apache.hugegraph.auth.HugeGraphAuthProxy;
+import org.apache.hugegraph.auth.HugeUser;
 import org.apache.hugegraph.backend.id.Id;
 import org.apache.hugegraph.core.GraphManager;
 import org.apache.hugegraph.define.Checkable;
@@ -51,6 +54,7 @@ import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.core.Context;
+import jakarta.ws.rs.container.ContainerRequestContext;
 
 @Path("graphspaces/{graphspace}/auth/belongs")
 @Singleton
@@ -65,6 +69,7 @@ public class BelongAPI extends API {
     @Consumes(APPLICATION_JSON)
     @Produces(APPLICATION_JSON_WITH_CHARSET)
     public String create(@Context GraphManager manager,
+                         @Context ContainerRequestContext request,
                          @Parameter(description = "The graph space name")
                          @PathParam("graphspace") String graphSpace,
                          JsonBelong jsonBelong) {
@@ -73,10 +78,31 @@ public class BelongAPI extends API {
         checkCreatingBody(jsonBelong);
 
         HugeBelong belong = jsonBelong.build(graphSpace);
-        GraphSpaceGroupAPI.checkBelongReferences(manager.authManager(),
-                                                 graphSpace, belong);
-        belong.id(manager.authManager().createBelong(graphSpace, belong));
+        boolean legacy = Boolean.TRUE.equals(request.getProperty(PathFilter.LEGACY_AUTH_REQUEST));
+        belong.id(createCompatibleBelong(manager.authManager(), graphSpace, belong,
+                                         legacy, HugeGraphAuthProxy.username()));
         return manager.serializer().writeAuthElement(belong);
+    }
+
+    static Id createCompatibleBelong(
+            AuthManager auth, String graphSpace, HugeBelong belong,
+            boolean legacy, String creator) {
+        if (legacy && auth.supportsGraphSpaceAuth()) {
+            // The 1.5 client has no space-membership API. Its manager-authorized
+            // user-to-group operation also enrolls that user in the target space.
+            GraphSpaceGroupAPI.checkManagerPermission(auth, graphSpace, creator);
+            GraphSpaceGroupAPI.requireScopedGroupReference(auth, graphSpace, belong.target());
+            HugeUser user = auth.findUser(belong.source().asString());
+            if (user != null && !auth.isAdminManager(user.name()) &&
+                !auth.isSpaceManager(graphSpace, user.name()) &&
+                !auth.isSpaceMember(graphSpace, user.name())) {
+                // Enrollment is a separate operation. If creating the group relation
+                // later fails, retain membership so retrying does not remove valid state.
+                auth.createSpaceMember(graphSpace, user.name());
+            }
+        }
+        GraphSpaceGroupAPI.checkBelongReferences(auth, graphSpace, belong);
+        return auth.createBelong(graphSpace, belong);
     }
 
     @PUT

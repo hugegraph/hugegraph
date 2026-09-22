@@ -53,6 +53,8 @@ public class PathFilter implements ContainerRequestFilter {
     private static final String GRAPH_SPACE = "graphspaces";
     private static final String ARTHAS_START = "arthas";
 
+    public static final String LEGACY_AUTH_REQUEST = "hugegraph.legacy_auth_request";
+
     public static final String REQUEST_TIME = "request_time";
 
     private static final String DELIMITER = "/";
@@ -118,6 +120,7 @@ public class PathFilter implements ContainerRequestFilter {
         // belong to a graph space; login/logout/verify remain global.
         if (segments.size() >= 4 && "graphs".equals(rootPath) &&
             "auth".equals(segments.get(2).getPath())) {
+            context.setProperty(LEGACY_AUTH_REQUEST, Boolean.TRUE);
             String resource = segments.get(3).getPath();
             boolean globalGroup = false;
             if ("groups".equals(resource)) {

@@ -17,16 +17,27 @@
 
 package org.apache.hugegraph.api.auth;
 
+import java.net.URI;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.apache.hugegraph.auth.AuthManager;
+import org.apache.hugegraph.auth.HugeGraphAuthProxy;
+import org.apache.hugegraph.api.filter.PathFilter;
+import org.apache.hugegraph.core.GraphManager;
+import org.apache.hugegraph.config.HugeConfig;
+import org.apache.hugegraph.config.ServerOptions;
+import org.apache.commons.configuration2.PropertiesConfiguration;
+import org.glassfish.jersey.internal.MapPropertiesDelegate;
+import org.glassfish.jersey.server.ContainerRequest;
 import org.apache.hugegraph.auth.HugeAccess;
 import org.apache.hugegraph.auth.HugeBelong;
 import org.apache.hugegraph.auth.HugeGroup;
 import org.apache.hugegraph.auth.HugePermission;
 import org.apache.hugegraph.auth.HugeTarget;
+import org.apache.hugegraph.auth.HugeUser;
 import org.apache.hugegraph.backend.id.IdGenerator;
 import org.apache.hugegraph.testutil.Assert;
 import org.junit.Test;
@@ -34,6 +45,7 @@ import org.mockito.Mockito;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.ws.rs.ForbiddenException;
+import jakarta.inject.Provider;
 
 public class GraphSpaceAuthPayloadTest {
 
@@ -262,4 +274,148 @@ public class GraphSpaceAuthPayloadTest {
         access.creator("admin");
         return access;
     }
+    @Test
+    public void testLegacyBelongEnrollsUserBeforeCreatingRelation() {
+        for (String space : List.of("DEFAULT", "SPACE_A")) {
+            for (boolean admin : List.of(false, true)) {
+                AuthManager auth = legacyAuth(space);
+                Mockito.when(auth.isAdminManager("operator")).thenReturn(admin);
+                Mockito.when(auth.isSpaceManager(space, "operator")).thenReturn(!admin);
+                AtomicBoolean member = new AtomicBoolean();
+                Mockito.when(auth.isSpaceMember(space, "alice")).thenAnswer(call -> member.get());
+                Mockito.when(auth.createSpaceMember(space, "alice")).thenAnswer(call -> {
+                    member.set(true);
+                    return IdGenerator.of("membership");
+                });
+                HugeBelong belong = userBelong(space);
+                Mockito.when(auth.createBelong(space, belong)).thenReturn(IdGenerator.of("relation"));
+                Assert.assertEquals(IdGenerator.of("relation"),
+                                    BelongAPI.createCompatibleBelong(auth, space, belong, true, "operator"));
+                org.mockito.InOrder order = Mockito.inOrder(auth);
+                order.verify(auth).createSpaceMember(space, "alice");
+                order.verify(auth).createBelong(space, belong);
+            }
+        }
+    }
+
+    @Test
+    public void testLegacyRequestMarkerReachesBelongEndpoint() throws Exception {
+        AuthManager auth = legacyAuth("SPACE_A");
+        Mockito.when(auth.isAdminManager(HugeGraphAuthProxy.username())).thenReturn(true);
+        AtomicBoolean member = new AtomicBoolean();
+        Mockito.when(auth.isSpaceMember("SPACE_A", "alice")).thenAnswer(call -> member.get());
+        Mockito.when(auth.createSpaceMember("SPACE_A", "alice")).thenAnswer(call -> {
+            member.set(true);
+            return IdGenerator.of("membership");
+        });
+        Mockito.when(auth.createBelong(Mockito.eq("SPACE_A"), Mockito.any(HugeBelong.class)))
+               .thenReturn(IdGenerator.of("relation"));
+        GraphManager manager = Mockito.mock(GraphManager.class, Mockito.RETURNS_DEEP_STUBS);
+        Mockito.when(manager.authManager()).thenReturn(auth);
+        PropertiesConfiguration settings = new PropertiesConfiguration();
+        settings.setProperty(ServerOptions.PATH_GRAPH_SPACE.name(), "SPACE_A");
+        HugeConfig config = new HugeConfig(settings);
+        PathFilter filter = new PathFilter();
+        java.lang.reflect.Field provider = PathFilter.class.getDeclaredField("configProvider");
+        provider.setAccessible(true);
+        provider.set(filter, (Provider<HugeConfig>) () -> config);
+        URI base = URI.create("http://localhost:8080/");
+        ContainerRequest request = new ContainerRequest(base, base.resolve("graphs/hugegraph/auth/belongs"),
+                                                       "POST", null, new MapPropertiesDelegate());
+        filter.filter(request);
+        Assert.assertEquals("graphspaces/SPACE_A/auth/belongs", request.getUriInfo().getPath());
+        BelongAPI.JsonBelong payload = new ObjectMapper().readValue(
+                "{\"user\":\"alice\",\"group\":\"group\"}", BelongAPI.JsonBelong.class);
+        new BelongAPI().create(manager, request, "SPACE_A", payload);
+        Mockito.verify(auth).createSpaceMember("SPACE_A", "alice");
+        Mockito.verify(auth).createBelong(Mockito.eq("SPACE_A"), Mockito.any(HugeBelong.class));
+    }
+
+    @Test
+    public void testExplicitScopedBelongStillRequiresMembership() {
+        AuthManager auth = legacyAuth("SPACE_A");
+        Assert.assertThrows(ForbiddenException.class, () ->
+                BelongAPI.createCompatibleBelong(auth, "SPACE_A", userBelong("SPACE_A"), false, "operator"));
+        Mockito.verify(auth, Mockito.never()).createSpaceMember(Mockito.anyString(), Mockito.anyString());
+        Mockito.verify(auth, Mockito.never()).createBelong(Mockito.anyString(), Mockito.any(HugeBelong.class));
+    }
+
+    @Test
+    public void testLegacyEnrollmentRequiresManagerAndScopedGroup() {
+        AuthManager auth = legacyAuth("SPACE_A");
+        Mockito.when(auth.isAdminManager("operator")).thenReturn(false);
+        Assert.assertThrows(ForbiddenException.class, () ->
+                BelongAPI.createCompatibleBelong(auth, "SPACE_A", userBelong("SPACE_A"), true, "operator"));
+        Mockito.verify(auth, Mockito.never()).createSpaceMember(Mockito.anyString(), Mockito.anyString());
+        Mockito.when(auth.isAdminManager("operator")).thenReturn(true);
+        Mockito.when(auth.getGroup(IdGenerator.of("group"))).thenReturn(
+                new HugeGroup(GraphSpaceGroupAPI.scopedPrefix("SPACE_B") + "0123456789abcdef0123456789abcdef"));
+        Assert.assertThrows(ForbiddenException.class, () ->
+                BelongAPI.createCompatibleBelong(auth, "SPACE_A", userBelong("SPACE_A"), true, "operator"));
+        Mockito.when(auth.getGroup(IdGenerator.of("group"))).thenReturn(null);
+        Assert.assertThrows(ForbiddenException.class, () ->
+                BelongAPI.createCompatibleBelong(auth, "SPACE_A", userBelong("SPACE_A"), true, "operator"));
+        Mockito.verify(auth, Mockito.never()).createSpaceMember(Mockito.anyString(), Mockito.anyString());
+    }
+
+    @Test
+    public void testLegacyExistingRolesAndV1DoNotEnrollAgain() {
+        for (String role : List.of("admin", "manager", "member", "v1")) {
+            AuthManager auth = legacyAuth("SPACE_A");
+            Mockito.when(auth.isAdminManager("alice")).thenReturn(role.equals("admin"));
+            Mockito.when(auth.isSpaceManager("SPACE_A", "alice")).thenReturn(role.equals("manager"));
+            Mockito.when(auth.isSpaceMember("SPACE_A", "alice")).thenReturn(role.equals("member"));
+            Mockito.when(auth.supportsGraphSpaceAuth()).thenReturn(!role.equals("v1"));
+            HugeBelong belong = userBelong("SPACE_A");
+            BelongAPI.createCompatibleBelong(auth, "SPACE_A", belong, true, "operator");
+            Mockito.verify(auth, Mockito.never()).createSpaceMember(Mockito.anyString(), Mockito.anyString());
+            Mockito.verify(auth).createBelong("SPACE_A", belong);
+        }
+    }
+
+    @Test
+    public void testFailedEnrollmentDoesNotCreateRelation() {
+        AuthManager auth = legacyAuth("SPACE_A");
+        Mockito.when(auth.createSpaceMember("SPACE_A", "alice"))
+               .thenThrow(new IllegalStateException("membership write failed"));
+        Assert.assertThrows(IllegalStateException.class, () ->
+                BelongAPI.createCompatibleBelong(auth, "SPACE_A", userBelong("SPACE_A"), true, "operator"));
+        Mockito.verify(auth, Mockito.never()).createBelong(Mockito.anyString(), Mockito.any(HugeBelong.class));
+    }
+
+    @Test
+    public void testFailedRelationCanRetryWithoutEnrollingAgain() {
+        AuthManager auth = legacyAuth("SPACE_A");
+        AtomicBoolean member = new AtomicBoolean();
+        Mockito.when(auth.isSpaceMember("SPACE_A", "alice")).thenAnswer(call -> member.get());
+        Mockito.when(auth.createSpaceMember("SPACE_A", "alice")).thenAnswer(call -> {
+            member.set(true);
+            return IdGenerator.of("membership");
+        });
+        HugeBelong belong = userBelong("SPACE_A");
+        Mockito.when(auth.createBelong("SPACE_A", belong))
+               .thenThrow(new IllegalStateException("relation write failed"))
+               .thenReturn(IdGenerator.of("relation"));
+        Assert.assertThrows(IllegalStateException.class, () ->
+                BelongAPI.createCompatibleBelong(auth, "SPACE_A", belong, true, "operator"));
+        Assert.assertEquals(IdGenerator.of("relation"),
+                            BelongAPI.createCompatibleBelong(auth, "SPACE_A", belong, true, "operator"));
+        Mockito.verify(auth, Mockito.times(1)).createSpaceMember("SPACE_A", "alice");
+        Mockito.verify(auth, Mockito.never()).deleteSpaceMember(Mockito.anyString(), Mockito.anyString());
+    }
+
+    private static HugeBelong userBelong(String space) {
+        return new HugeBelong(space, IdGenerator.of("alice"), IdGenerator.of("group"), null, HugeBelong.UG);
+    }
+
+    private static AuthManager legacyAuth(String space) {
+        AuthManager auth = Mockito.mock(AuthManager.class);
+        Mockito.when(auth.supportsGraphSpaceAuth()).thenReturn(true);
+        Mockito.when(auth.isAdminManager("operator")).thenReturn(true);
+        Mockito.when(auth.findUser("alice")).thenReturn(new HugeUser("alice"));
+        Mockito.when(auth.getGroup(IdGenerator.of("group"))).thenReturn(
+                new HugeGroup(GraphSpaceGroupAPI.scopedPrefix(space) + "0123456789abcdef0123456789abcdef"));
+        return auth;
+    }
+
 }

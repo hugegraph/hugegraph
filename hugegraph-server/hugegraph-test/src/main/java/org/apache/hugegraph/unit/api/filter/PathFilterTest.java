@@ -483,6 +483,7 @@ public class PathFilterTest extends BaseUnitTest {
             for (String suffix : List.of("", "/123")) {
                 ContainerRequest request = request("graphs/hugegraph/auth/groups" + suffix + "?limit=10");
                 this.pathFilter.filter(request);
+                Assert.assertEquals(Boolean.TRUE, request.getProperty(PathFilter.LEGACY_AUTH_REQUEST));
                 Assert.assertEquals((scoped ? "graphspaces/DEFAULT/" : "") + "auth/groups" + suffix,
                                     request.getUriInfo().getPath());
                 Assert.assertEquals("limit=10", request.getRequestUri().getQuery());
@@ -546,6 +547,13 @@ public class PathFilterTest extends BaseUnitTest {
         } finally {
             HugeGraphAuthProxy.resetSpaceContext();
         }
+    }
+
+    @Test
+    public void testExplicitScopedPathIsNotMarkedLegacy() throws Exception {
+        ContainerRequest request = request("graphspaces/SPACE_A/auth/belongs");
+        this.pathFilter.filter(request);
+        Assert.assertNull(request.getProperty(PathFilter.LEGACY_AUTH_REQUEST));
     }
 
     private static ContainerRequest request(String path) {
