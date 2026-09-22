@@ -285,7 +285,7 @@ curl http://localhost:8080/versions
 #   "versions": {
 #     "version": "v1",
 #     "core": "1.7.0",
-#     "gremlin": "3.5.1",
+#     "gremlin": "3.8.1",
 #     "api": "1.7.0"
 #   }
 # }
