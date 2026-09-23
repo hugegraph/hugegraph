@@ -24,6 +24,7 @@ import static org.apache.hugegraph.ct.base.ClusterConstant.SERVER_TEMPLATE_FILE;
 import static org.apache.hugegraph.ct.base.EnvUtil.getAvailablePort;
 
 import java.nio.file.Paths;
+import java.util.List;
 
 import lombok.Getter;
 
@@ -44,6 +45,10 @@ public class ServerConfig extends AbstractConfig {
         properties.put("GREMLIN_SERVER_ADDRESS",
                        LOCALHOST + ":" + this.gremlinPort);
         properties.put("RPC_PORT", String.valueOf(this.rpcPort));
+    }
+
+    public void setPDPeersList(List<String> pdPeersList) {
+        setProperty("PD_PEERS_LIST", String.join(",", pdPeersList));
     }
 
     public void setServerID(String serverID) {
