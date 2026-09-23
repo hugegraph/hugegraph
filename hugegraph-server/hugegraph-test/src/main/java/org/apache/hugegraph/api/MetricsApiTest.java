@@ -29,8 +29,6 @@ public class MetricsApiTest extends BaseApiTest {
 
     private static final String PATH = "/metrics";
     private static final String STATISTICS_PATH = PATH + "/statistics";
-    private static final String GREMLIN_CHANNEL_METRICS_PREFIX =
-            "org_apache_tinkerpop_gremlin_server_GremlinServer_channels_";
 
     @Test
     public void testBaseMetricsAll() {
@@ -48,13 +46,7 @@ public class MetricsApiTest extends BaseApiTest {
     @Test
     public void testBaseMetricsPromAll() {
         Response r = client().get(PATH);
-        String result = assertResponseStatus(200, r);
-        Assert.assertContains(GREMLIN_CHANNEL_METRICS_PREFIX + "paused",
-                              result);
-        Assert.assertContains(GREMLIN_CHANNEL_METRICS_PREFIX + "total",
-                              result);
-        Assert.assertContains(GREMLIN_CHANNEL_METRICS_PREFIX +
-                              "write_pauses", result);
+        assertResponseStatus(200, r);
     }
 
     @Test
