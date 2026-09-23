@@ -82,8 +82,12 @@ so operators do not have to:
   and set the Secret to the same value. Each Server caches users and passwords
   for `auth.cache_expire` (600 s by default) and nothing invalidates those
   caches across replicas, so the other replicas keep accepting the old password
-  for a while: measured 9 to 21 minutes on a three-replica install. The value
-  also lands in
+  for a while: measured 9 to 21 minutes on a three-replica install, during
+  which `helm test` passes or fails depending on the replica it reaches. Restart
+  the Server Pods to apply the change everywhere at once
+  (`kubectl -n <namespace> rollout restart deployment/<fullname>-server`;
+  measured: 32 s, all replicas on the new password, `helm test` 4 of 4). The
+  value also lands in
   `rest-server.properties` inside the container (file mode 600). Because the
   Java properties parser reinterprets them, the Secret value must not contain
   newlines, carriage returns, or backslashes; the wrapper refuses to start if
@@ -118,9 +122,12 @@ production use.
 The command examples in this document assume the release is named
 `hugegraph`. With a different release name, substitute the release-prefixed
 resource names (`kubectl get svc,secret -n <namespace>` lists them).
-Workloads and Services are named `<release>-hugegraph-*`, while the kept
-Secrets are `<release>-admin`, `<release>-auth-token`, and
-`<release>-pd-auth`.
+Workloads and Services are named `<fullname>-*`, where `<fullname>` is the
+release name itself when it already contains `hugegraph` (release
+`hugegraph` gives `hugegraph-pd`, `hugegraph-store`), `<release>-hugegraph`
+otherwise (release `hg` gives `hg-hugegraph-pd`), or `fullnameOverride` when
+set. The kept Secrets always use the release name: `<release>-admin`,
+`<release>-auth-token`, and `<release>-pd-auth`.
 
 **Authentication is enabled by default.** The chart creates a kept Secret
 named `<release>-admin` (for example `hugegraph-admin`) with a random
@@ -275,7 +282,7 @@ Two cases are worth knowing about in advance:
 
   Start with the Pod, not with PD. Wait for the replaced Pod to report
   `Ready` (`kubectl -n <namespace> wait --for=condition=Ready
-  pod/<release>-hugegraph-store-<ordinal> --timeout=10m`), because PD alone
+  pod/<fullname>-store-<ordinal> --timeout=10m`), because PD alone
   cannot tell you that the Store is running: PD marks a Store `Offline` only
   after its keep-alive entry expires (`store.keepAlive-timeout`, 300 s on
   current images) and the 60 s patrol notices, so a Pod that is deleted and
@@ -312,7 +319,9 @@ Two cases are worth knowing about in advance:
   still behind. For a closer look, port-forward the replaced Store Pod and
   read its own view of each group: `GET :8520/v1/partition/<groupId>`
   returns the raft role, term and committed index that Store holds for that
-  group, and fails while the Store is down. (The plural `GET
+  group, and fails while the Store is down. Compare term and index with the
+  same group on a peer Store rather than reading them alone: on a cluster
+  that has taken no writes they are 0 on every Store. (The plural `GET
   :8520/v1/partitions` answers 500 on any Store that follows a group, so use
   the per-group path.) Leave a margin after the membership check rather than
   deleting the next Pod on the same second, keep `store.pdb.minAvailable` at
@@ -588,7 +597,7 @@ chart wires PD/Server for you.
 Open the UI with one port-forward:
 
 ```bash
-kubectl -n <namespace> port-forward svc/<release>-hugegraph-hubble 8088:8088
+kubectl -n <namespace> port-forward svc/<fullname>-hubble 8088:8088
 ```
 
 Then open `http://127.0.0.1:8088`. For a shared environment, expose Hubble with
@@ -1160,7 +1169,7 @@ overwrite the autoscaler's live replica count.
 `values.schema.json` requires at least one replica per component, so a
 staged rollout (PD and Server first, Stores later) cannot be written in a
 values file. Install the full topology and stage it with
-`kubectl scale statefulset <release>-hugegraph-store --replicas=0`, scaling
+`kubectl scale statefulset <fullname>-store --replicas=0`, scaling
 back up when ready; the Servers wait, not-ready, until Stores register.
 `kubectl scale` changes only the live StatefulSet: the next `helm upgrade`
 renders `store.replicas` from values again and restores the full topology.
@@ -1282,10 +1291,20 @@ Graph [DEFAULT-hugegraph] configured at [...] could not be instantiated and
 will not be available in Gremlin Server
 ```
 
-Check Gremlin on each Server Pod after any upgrade that rolled PD (a
-port-forward to the Pod plus `POST /gremlin` with
-`{"gremlin":"graph.traversal().V().limit(1).count()","aliases":{"graph":"DEFAULT-hugegraph"}}`),
-and delete a Pod that fails. Its replacement binds normally as long as PD is
+Check Gremlin on each Server Pod after any upgrade that rolled PD: a
+port-forward to the Pod, then `POST /gremlin` with the admin credential read
+into `PASSWORD` as in Installing the Chart (authentication is on by default, so
+the call answers 401 without it):
+
+```bash
+kubectl port-forward -n hugegraph pod/<server-pod> 8080:8080
+curl -s --compressed -u "admin:${PASSWORD}" -H 'Content-Type: application/json' \
+  -X POST http://127.0.0.1:8080/gremlin \
+  -d '{"gremlin":"graph.traversal().V().limit(1).count()","aliases":{"graph":"DEFAULT-hugegraph"}}'
+```
+
+A healthy Pod answers with `result.data`; delete a Pod that answers
+`Could not rebind`. Its replacement binds normally as long as PD is
 stable; measured on a 3+3+3 install, 4 of 12 Server starts that overlapped a
 PD roll hit this, and both deletions recovered.
 
