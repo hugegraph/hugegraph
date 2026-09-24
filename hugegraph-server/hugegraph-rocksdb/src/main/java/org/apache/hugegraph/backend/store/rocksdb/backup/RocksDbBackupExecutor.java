@@ -39,11 +39,8 @@ public class RocksDbBackupExecutor {
     private final String databaseId;
 
     public RocksDbBackupExecutor(String databaseId) {
-        if (databaseId == null || databaseId.isEmpty() ||
-            databaseId.contains("/") || databaseId.contains("\\")) {
-            throw new IllegalArgumentException("Invalid database identity: " + databaseId);
-        }
-        this.databaseId = databaseId;
+        this.databaseId = BackupPathUtils.requireComponent(databaseId,
+                                                          "database identity");
     }
 
     public long capture(RocksDB database, Path repositoryRoot) {
@@ -78,14 +75,22 @@ public class RocksDbBackupExecutor {
         if (backupId < 0 || backupId > Integer.MAX_VALUE) {
             throw new BackendException("Invalid RocksDB backup id '%s'", backupId);
         }
+        Path absoluteStage = stagePath.toAbsolutePath().normalize();
+        if (absoluteStage.getParent() == null ||
+            absoluteStage.getFileName() == null) {
+            throw new BackendException("Invalid restore stage '%s'", stagePath);
+        }
+        Path safeStage = BackupPathUtils.resolve(absoluteStage.getParent(),
+                                                 absoluteStage.getFileName().toString(),
+                                                 "restore stage");
         try {
-            Files.createDirectories(stagePath);
+            Files.createDirectories(safeStage);
         } catch (IOException e) {
-            throw new BackendException("Failed to create restore stage '%s'", e, stagePath);
+            throw new BackendException("Failed to create restore stage '%s'", e, safeStage);
         }
         try (BackupEngine engine = this.open(repositoryRoot);
              RestoreOptions options = new RestoreOptions(false)) {
-            String path = stagePath.toString();
+            String path = safeStage.toString();
             engine.restoreDbFromBackup((int) backupId, path, path, options);
         } catch (RocksDBException e) {
             throw new BackendException("Failed to restore RocksDB backup '%s'", e, backupId);
@@ -110,7 +115,10 @@ public class RocksDbBackupExecutor {
     }
 
     private BackupEngine open(Path repositoryRoot) throws RocksDBException {
-        Path path = repositoryRoot.resolve("databases").resolve(this.databaseId);
+        Path path = BackupPathUtils.resolve(
+                BackupPathUtils.resolve(repositoryRoot, "databases",
+                                        "backup database root"),
+                this.databaseId, "database identity");
         try {
             Files.createDirectories(path);
         } catch (IOException e) {

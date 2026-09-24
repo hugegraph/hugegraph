@@ -121,8 +121,12 @@ public final class RocksDbGraphBackupService implements GraphBackupService {
             Map<RocksDBStore, Map<String, Path>> originalPaths =
                     new LinkedHashMap<>();
             Map<RocksDBStore, Map<Path, Path>> switched = new LinkedHashMap<>();
-            Path stage = root.resolve(STAGES).resolve(manifest.version() + "-" +
-                                                      UUID.randomUUID());
+            Path stageRoot = BackupPathUtils.resolve(root, STAGES,
+                                                     "restore stage root");
+            Path stage = BackupPathUtils.resolve(stageRoot,
+                                                manifest.version() + "-" +
+                                                UUID.randomUUID(),
+                                                "restore stage");
             boolean providerClosed = false;
             boolean providerReopenStarted = false;
             fence.enterCapture();
@@ -185,17 +189,21 @@ public final class RocksDbGraphBackupService implements GraphBackupService {
     }
 
     private Path repository(String name) {
-        E.checkArgument(name != null && name.matches(REPOSITORY_PATTERN),
+        BackupPathUtils.requireComponent(name, "repository name");
+        E.checkArgument(name.matches(REPOSITORY_PATTERN),
                         "Invalid repository name '%s'", name);
         Path configured = Path.of(this.config.get(CoreOptions.BACKUP_REPOSITORY_ROOT))
                               .toAbsolutePath().normalize();
-        Path graphRoot = configured.resolve(this.graphScope).normalize();
-        Path root = graphRoot.resolve(name).normalize();
+        Path graphRoot = BackupPathUtils.resolve(configured, this.graphScope,
+                                                "graph backup scope");
+        Path root = BackupPathUtils.resolve(graphRoot, name, "repository name");
         E.checkState(root.getParent() != null && root.getParent().equals(graphRoot),
                      "Backup repository escapes configured root");
         try {
-            Files.createDirectories(root.resolve(MANIFESTS));
-            Files.createDirectories(root.resolve(STAGES));
+            Files.createDirectories(BackupPathUtils.resolve(root, MANIFESTS,
+                                                             "manifest directory"));
+            Files.createDirectories(BackupPathUtils.resolve(root, STAGES,
+                                                             "stage directory"));
         } catch (IOException e) {
             throw new BackendException("Failed to create backup repository '%s'",
                                        e, root);
@@ -204,7 +212,13 @@ public final class RocksDbGraphBackupService implements GraphBackupService {
     }
 
     private void writeManifest(Path root, GraphBackupManifest manifest) {
-        Path target = root.resolve(MANIFESTS).resolve(manifest.version() + ".json");
+        E.checkArgument(manifest.version().matches(VERSION_PATTERN),
+                        "Invalid backup version '%s'", manifest.version());
+        Path manifests = BackupPathUtils.resolve(root, MANIFESTS,
+                                                "manifest directory");
+        Path target = BackupPathUtils.resolve(manifests,
+                                             manifest.version() + ".json",
+                                             "manifest file");
         Path temp = target.resolveSibling(target.getFileName() + ".tmp");
         try {
             Map<String, Object> content = new LinkedHashMap<>();
@@ -233,6 +247,8 @@ public final class RocksDbGraphBackupService implements GraphBackupService {
             Map<String, Object> values = (Map<String, Object>) content.get("databases");
             Map<String, Long> databases = new LinkedHashMap<>();
             for (Map.Entry<String, Object> entry : values.entrySet()) {
+                BackupPathUtils.requireComponent(entry.getKey(),
+                                                 "database identity");
                 databases.put(entry.getKey(), ((Number) entry.getValue()).longValue());
             }
             GraphBackupManifest manifest = new GraphBackupManifest(
@@ -240,6 +256,11 @@ public final class RocksDbGraphBackupService implements GraphBackupService {
                     (String) content.get("repository"),
                     ((Number) content.get("created_at")).longValue(),
                     databases);
+            E.checkState(manifest.version().matches(VERSION_PATTERN),
+                         "Invalid backup version '%s'", manifest.version());
+            E.checkState(manifest.repository().matches(REPOSITORY_PATTERN),
+                         "Invalid backup repository '%s'", manifest.repository());
+            String fileName = path.getFileName().toString();
             String fileName = path.getFileName().toString();
             E.checkState(fileName.endsWith(".json"),
                          "Backup manifest must use a JSON file: '%s'", path);
@@ -264,9 +285,13 @@ public final class RocksDbGraphBackupService implements GraphBackupService {
             return readManifest(paths.get(paths.size() - 1));
         }
         E.checkArgument(!version.trim().isEmpty(), "Backup id must not be blank");
+        BackupPathUtils.requireComponent(version, "backup version");
         E.checkArgument(version.matches(VERSION_PATTERN),
                         "Invalid backup id '%s'", version);
-        return readManifest(root.resolve(MANIFESTS).resolve(version + ".json"));
+        Path manifest = BackupPathUtils.resolve(
+                BackupPathUtils.resolve(root, MANIFESTS, "manifest directory"),
+                version + ".json", "manifest file");
+        return readManifest(manifest);
     }
 
     private void validateManifest(GraphBackupManifest manifest) {
@@ -288,11 +313,12 @@ public final class RocksDbGraphBackupService implements GraphBackupService {
 
     private List<Path> manifests(Path root) {
         try {
-            if (!Files.isDirectory(root.resolve(MANIFESTS))) {
+            Path directory = BackupPathUtils.resolve(root, MANIFESTS,
+                                                    "manifest directory");
+            if (!Files.isDirectory(directory)) {
                 return new ArrayList<>();
             }
-            try (java.util.stream.Stream<Path> stream = Files.list(
-                    root.resolve(MANIFESTS))) {
+            try (java.util.stream.Stream<Path> stream = Files.list(directory)) {
                 return stream.filter(path -> path.getFileName().toString()
                                                .endsWith(".json"))
                              .sorted(Comparator.comparing(path ->

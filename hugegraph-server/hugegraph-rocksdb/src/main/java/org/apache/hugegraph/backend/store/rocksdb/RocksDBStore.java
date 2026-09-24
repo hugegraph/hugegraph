@@ -62,6 +62,7 @@ import org.apache.hugegraph.backend.store.BackendMutation;
 import org.apache.hugegraph.backend.store.BackendSessionPool;
 import org.apache.hugegraph.backend.store.BackendStoreProvider;
 import org.apache.hugegraph.backend.store.BackendTable;
+import org.apache.hugegraph.backend.store.rocksdb.backup.BackupPathUtils;
 import org.apache.hugegraph.backend.store.rocksdb.backup.RocksDbBackupExecutor;
 import org.apache.hugegraph.config.CoreOptions;
 import org.apache.hugegraph.config.HugeConfig;
@@ -211,8 +212,10 @@ public abstract class RocksDBStore extends AbstractBackendStore<RocksDBSessions.
             Long backupId = backups.get(entry.getKey());
             E.checkArgument(backupId != null,
                             "Backup manifest misses database '%s'", entry.getKey());
+            Path staged = BackupPathUtils.resolve(stageRoot, entry.getKey(),
+                                                   "database identity");
             new RocksDbBackupExecutor(entry.getKey()).restore(
-                    repository, backupId, stageRoot.resolve(entry.getKey()));
+                    repository, backupId, staged);
         }
     }
 
@@ -227,7 +230,8 @@ public abstract class RocksDBStore extends AbstractBackendStore<RocksDBSessions.
         Map<Path, Path> switched = new HashMap<>();
         for (Map.Entry<String, Path> entry : originalPaths.entrySet()) {
             Path target = entry.getValue();
-            Path staged = stageRoot.resolve(entry.getKey());
+            Path staged = BackupPathUtils.resolve(stageRoot, entry.getKey(),
+                                                   "database identity");
             E.checkState(Files.isDirectory(staged),
                          "Restore stage '%s' does not exist", staged);
             Path old = null;
@@ -278,9 +282,9 @@ public abstract class RocksDBStore extends AbstractBackendStore<RocksDBSessions.
             }
             try {
                 Map<String, Object> content = readRestoreMarker(marker);
-                writeRestoreMarker(marker, target,
-                                   path(content.get("old")),
-                                   path(content.get("staged")),
+                Path old = path(content.get("old"));
+                validateRestoreMarker(content, target, old);
+                writeRestoreMarker(marker, target, old, null,
                                    RESTORE_COMMITTED);
                 deleteRestoreMarker(marker);
             } catch (IOException e) {
@@ -317,7 +321,41 @@ public abstract class RocksDBStore extends AbstractBackendStore<RocksDBSessions.
     }
 
     private static Path path(Object value) {
-        return value == null ? null : Paths.get((String) value);
+        if (value == null) {
+            return null;
+        }
+        E.checkArgument(value instanceof String, "Restore marker path must be a string");
+        try {
+            return Paths.get((String) value).toAbsolutePath().normalize();
+        } catch (RuntimeException e) {
+            throw new BackendException("Invalid restore marker path", e);
+        }
+    }
+
+    private static void validateRestoreMarker(Map<String, Object> content,
+                                              Path target, Path old) {
+        Path normalizedTarget = target.toAbsolutePath().normalize();
+        Path markerTarget = path(content.get("target"));
+        E.checkState(normalizedTarget.equals(markerTarget),
+                     "Restore marker target does not match database '%s'", target);
+        String state = (String) content.get(RESTORE_STATE);
+        E.checkState(RESTORE_SWITCHING.equals(state) ||
+                     RESTORE_SWITCHED.equals(state) ||
+                     RESTORE_COMMITTED.equals(state),
+                     "Invalid restore marker state '%s'", state);
+        if (old == null) {
+            return;
+        }
+        Path parent = normalizedTarget.getParent();
+        Path oldParent = old.getParent();
+        String targetName = normalizedTarget.getFileName().toString();
+        String oldName = old.getFileName().toString();
+        String prefix = targetName + ".backup-old-";
+        E.checkState(parent != null && parent.equals(oldParent) &&
+                     oldName.startsWith(prefix) &&
+                     oldName.substring(prefix.length()).matches(
+                             "[0-9a-fA-F-]{36}"),
+                     "Invalid old path in restore marker '%s'", old);
     }
 
     private static void writeRestoreMarker(Path marker, Path target, Path old,
@@ -360,7 +398,7 @@ public abstract class RocksDBStore extends AbstractBackendStore<RocksDBSessions.
         try {
             Map<String, Object> content = readRestoreMarker(marker);
             Path old = path(content.get("old"));
-            Path staged = path(content.get("staged"));
+            validateRestoreMarker(content, target, old);
             String state = (String) content.get(RESTORE_STATE);
             if (RESTORE_COMMITTED.equals(state) ||
                 (RESTORE_SWITCHED.equals(state) &&
@@ -376,9 +414,6 @@ public abstract class RocksDBStore extends AbstractBackendStore<RocksDBSessions.
             } else if (RESTORE_SWITCHING.equals(state) &&
                        Files.exists(target)) {
                 FileUtils.deleteDirectory(target.toFile());
-            }
-            if (staged != null && Files.exists(staged)) {
-                FileUtils.deleteDirectory(staged.toFile());
             }
             deleteRestoreMarker(marker);
         } catch (IOException | RuntimeException e) {
