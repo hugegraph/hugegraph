@@ -7,6 +7,12 @@
 This chart deploys a distributed HugeGraph cluster - PD, Store, and Server - on
 Kubernetes. For HugeGraph itself see <https://hugegraph.apache.org/docs/>.
 
+Two docs-site pages accompany this README:
+[deploying with Helm](https://hugegraph.apache.org/docs/quickstart/hugegraph/hugegraph-helm/)
+and
+[operating on Kubernetes](https://hugegraph.apache.org/docs/quickstart/hugegraph/hugegraph-helm-operations/).
+The operations page carries the walkthroughs this README links to below.
+
 Note that this chart requires Helm 3. `--reset-then-reuse-values`, referenced
 under Upgrading, requires Helm 3.14 or later.
 
@@ -32,12 +38,10 @@ A distributed HugeGraph cluster has a startup contract that this chart encodes
 so operators do not have to:
 
 - **Server does not run `init-store`.** The chart injects
-  `HG_SERVER_INIT_STORE_ENABLED=false`, and the image's `init-store` exits when
-  `init_store.enabled=false`, after which Server registers with PD normally.
-  This matters because nothing serializes Server replicas: without the gate,
-  every replica would initialize the same backend concurrently. The chart
-  creates no init Job and does not set `HG_SERVER_SKIP_INIT`. Standalone
-  behavior is unchanged, because the option defaults to `true` when unset.
+  `HG_SERVER_INIT_STORE_ENABLED=false`; nothing serializes Server replicas,
+  so without the gate every replica would initialize the same backend
+  concurrently. The chart creates no init Job and does not set
+  `HG_SERVER_SKIP_INIT`.
 - **Every Server uses PD for graph metadata.** The startup wrapper always writes
   `usePD=true` and the chart-derived `pd.peers` into
   `rest-server.properties`, so all Server replicas share the graph catalog
@@ -56,46 +60,28 @@ so operators do not have to:
   to the Server storage wait as `PD_AUTH_PASSWORD`, and to Hubble as
   `operations.pd.password`; a `checksum/pd-auth` annotation rolls all three
   when the Secret changes.
-- **The Server startup probe allows at least 450 seconds, and the image gets
-  the same budget.** The container may spend 300 seconds waiting for storage
-  and the rest in the start command, so the chart sets
-  `HG_SERVER_STARTUP_TIMEOUT_S` to the startup probe's own budget
-  (`failureThreshold` * `periodSeconds`, 450 seconds by default) rather than
-  leaving the image's 120-second default, which would self-kill a Server that
-  was still starting. A lower configured `failureThreshold` is raised to the
-  450-second floor rather than being rejected, and raising the probe budget
-  raises the timeout with it. The variable is chart-managed, so
-  `server.extraEnv` may not set it; change the probe instead.
+- **The Server startup probe allows at least 450 seconds, and the image
+  gets the same budget.** The chart sets `HG_SERVER_STARTUP_TIMEOUT_S` to
+  the startup probe's budget (`failureThreshold` * `periodSeconds`, 450 s
+  by default), so the image's 120-second default cannot self-kill a Server
+  that is still starting; a lower probe budget is raised to the floor, and
+  raising the probe raises the timeout. The variable is chart-managed;
+  change the probe, not `server.extraEnv`.
 - **The wrapper writes `auth.admin_pa` from the auth Secret.** With
   `init_store.enabled=false` the admin credential is created on the PD startup
-  path from `auth.admin_pa`, not from the Docker `PASSWORD` stdin path. When
-  authentication is enabled, the chart's wrapper therefore writes
-  `auth.admin_pa` from the mounted Secret alongside `usePD=true` and
-  `pd.peers`, then hands off to the image entrypoint. Two caveats:
-  `auth.admin_pa` applies only when the admin is first created, so changing the
-  Secret does not rotate an existing cluster's password. Changing it anyway
-  rolls the Server Deployment, leaves the old password working, and makes the
-  Secret disagree with the live credential, so `helm test` (which reads the
-  Secret) fails until the two match again. To change the password on a running
-  cluster, change it through the Server API
-  (`PUT /graphspaces/DEFAULT/auth/users/admin` with `{"user_password": "..."}`)
-  and set the Secret to the same value. Each Server caches users and passwords
-  for `auth.cache_expire` (600 s by default) and nothing invalidates those
-  caches across replicas, so the other replicas keep accepting the old password
-  for a while: measured 9 to 21 minutes on a three-replica install, during
-  which `helm test` passes or fails depending on the replica it reaches. Restart
-  the Server Pods to apply the change everywhere at once
-  (`kubectl -n <namespace> rollout restart deployment/<fullname>-server`;
-  measured: 32 s, all replicas on the new password, `helm test` 4 of 4). The
-  value also lands in
-  `rest-server.properties` inside the container (file mode 600). Because the
-  Java properties parser reinterprets them, the Secret value must not contain
-  newlines, carriage returns, or backslashes; the wrapper refuses to start if
-  it does.
-- **Resource names reserve their suffix and StatefulSet ordinal before
-  truncation,** so a long release name cannot produce colliding or over-long
-  Pod and Service names, and PD/Store identities stay fixed when replicas
-  change.
+  path from `auth.admin_pa`, which applies only when the admin is first
+  created: changing the Secret later does not rotate a live cluster's
+  password, and only makes `helm test` disagree with the live credential. To
+  rotate, change the password through the Server API
+  (`PUT /graphspaces/DEFAULT/auth/users/admin` with `{"user_password": "..."}`),
+  set the Secret to the same value, and
+  `kubectl -n <namespace> rollout restart deployment/<fullname>-server` so
+  every replica's auth cache drops the old password at once (the caches
+  otherwise expire per replica over minutes). The Secret value lands in
+  `rest-server.properties` (mode 600) and must not contain newlines, carriage
+  returns, or backslashes; the wrapper refuses to start if it does. The
+  rotation caveats are also on the
+  [deployment page](https://hugegraph.apache.org/docs/quickstart/hugegraph/hugegraph-helm/#4-authentication-and-secrets).
 
 ## Installing the Chart
 
@@ -121,13 +107,11 @@ production use.
 
 The command examples in this document assume the release is named
 `hugegraph`. With a different release name, substitute the release-prefixed
-resource names (`kubectl get svc,secret -n <namespace>` lists them).
-Workloads and Services are named `<fullname>-*`, where `<fullname>` is the
-release name itself when it already contains `hugegraph` (release
-`hugegraph` gives `hugegraph-pd`, `hugegraph-store`), `<release>-hugegraph`
-otherwise (release `hg` gives `hg-hugegraph-pd`), or `fullnameOverride` when
-set. The kept Secrets always use the release name: `<release>-admin`,
-`<release>-auth-token`, and `<release>-pd-auth`.
+resource names (`kubectl get svc,secret -n <namespace>` lists them):
+workloads and Services are named `<fullname>-*` (the release name itself
+when it already contains `hugegraph`, `<release>-hugegraph` otherwise, or
+`fullnameOverride`), while the kept Secrets always use the release name:
+`<release>-admin`, `<release>-auth-token`, and `<release>-pd-auth`.
 
 **Authentication is enabled by default.** The chart creates a kept Secret
 named `<release>-admin` (for example `hugegraph-admin`) with a random
@@ -143,15 +127,12 @@ kubectl -n hugegraph create secret generic my-hugegraph-admin \
 
 Then add `--set-string server.auth.admin.existingSecret=my-hugegraph-admin` to
 the install command. The Secret must contain a `password` key with no newlines,
-carriage returns, backslashes, or surrounding whitespace. The last one bites
-quietly: the Server wrapper writes the value into a properties file, and
-Commons Configuration trims it when the Server reads it back, so a padded
-Secret would create the account under the trimmed password and then fail to
-authenticate with the value the Secret holds. The schema rejects padding on
-inline values; for a bring-your-own Secret the chart cannot see the value, so
-check it yourself. The JWT signing key uses
-the same shape under `server.auth.token` (`value`, `existingSecret`,
-`autoGenerate`), and its value must be at least 32 bytes.
+carriage returns, backslashes, or surrounding whitespace (a properties read
+trims padding, so a padded Secret creates the account under a different
+password than it holds; the schema rejects padding on inline values but
+cannot see a bring-your-own Secret). The JWT signing key uses the same shape
+under `server.auth.token` (`value`, `existingSecret`, `autoGenerate`), and
+its value must be at least 32 bytes.
 Read the password and exercise the API:
 
 ```bash
@@ -271,28 +252,14 @@ Two cases are worth knowing about in advance:
   listener, not shard recovery: the controller can replace the next Store
   while the previous one is still rejoining its shard groups. For a
   production image roll, set `store.updateStrategy.type=OnDelete` and delete
-  Store Pods one at a time, checking shard membership between deletions.
+  Store Pods one at a time, checking between deletions.
 
-  `Up` in PD is not that check. PD sets `StoreState.Up` and persists it in
-  `StoreNodeService.register()`, and only then does the notification reach
-  the Store, whose `HgStoreEngine.stateChanged` starts
-  `restoreLocalPartitionEngine()`; a failure there is logged and leaves the
-  state `Up`. A Store is therefore `Up` before it has restored anything, and
-  stays `Up` if restoring fails.
-
-  Start with the Pod, not with PD. Wait for the replaced Pod to report
-  `Ready` (`kubectl -n <namespace> wait --for=condition=Ready
-  pod/<fullname>-store-<ordinal> --timeout=10m`), because PD alone
-  cannot tell you that the Store is running: PD marks a Store `Offline` only
-  after its keep-alive entry expires (`store.keepAlive-timeout`, 300 s on
-  current images) and the 60 s patrol notices, so a Pod that is deleted and
-  back inside that window never leaves `Up` and never leaves its shard
-  groups. Measured on a 3+3+3 install: a Store Pod was gone for 150 s and
-  every shard-group check below answered "healthy" on every sample for the
-  whole outage.
-
-  Then check shard membership and leadership per group, read from the PD
-  leader:
+  `Up` in PD is not that check: PD marks a Store `Up` at registration,
+  before anything is restored, and a stopped Store stays `Up` in every
+  shard group until its keep-alive entry expires (300 s on current images).
+  Start with the Pod (`kubectl -n <namespace> wait --for=condition=Ready
+  pod/<fullname>-store-<ordinal> --timeout=10m`), then check shard
+  membership and leadership per group, read from the PD leader:
 
   ```bash
   # PD leader, then its shard groups (see Disaster Recovery for the port-forward)
@@ -302,39 +269,15 @@ Two cases are worth knowing about in advance:
                       leaders: [.shards[] | select(.role=="Leader")] | length}'
   ```
 
-  (`id` is omitted for group 0 in the protobuf JSON, hence the `// 0`.)
-
   Delete the next Store only when the replaced Pod is `Ready`, its Store id
-  shows a `lastHeartBeat` newer than the restart in `/v1/stores`, and every
-  group reports the shard count in force (`pd.partition.defaultShardCount`;
-  empty derives 3 when `store.replicas` is at least 3), exactly one
-  `Leader`, and the replaced Store's id back in the groups it holds.
-  `/v1/shardLeaders` gives the same leadership view grouped by Store raft
-  address.
-
-  Know what this does not prove. The shard list is PD's membership record,
-  not a statement that the Store finished loading those partitions locally
-  and caught up on the raft log. No endpoint in these images reports
-  restoration-complete, so a group can list a Store whose local engine is
-  still behind. For a closer look, port-forward the replaced Store Pod and
-  read its own view of each group: `GET :8520/v1/partition/<groupId>`
-  returns the raft role, term and committed index that Store holds for that
-  group, and fails while the Store is down. Compare term and index with the
-  same group on a peer Store rather than reading them alone: on a cluster
-  that has taken no writes they are 0 on every Store. The plural `GET
-  :8520/v1/partitions` answers 500 on any Store that follows a group on
-  images built before
-  [apache/hugegraph#3232](https://github.com/apache/hugegraph/pull/3232)
-  (merged 2026-09-24); after it, the endpoint answers 200 on every Store,
-  with `conf` and `peers` null for the groups that Store follows. The
-  per-group path works on both. Leave a margin after the membership check
-  rather than
-  deleting the next Pod on the same second, keep `store.pdb.minAvailable` at
-  `replicas - 1` so an accidental second eviction is refused, and treat a
-  group that is short a shard or has no leader as a stop. Closing that gap
-  needs an image-side readiness signal for partition restoration, which is
-  the Store-side counterpart of the Server work in
-  [apache/hugegraph#3212](https://github.com/apache/hugegraph/issues/3212).
+  shows a fresh `lastHeartBeat` in `/v1/stores`, and every group reports its
+  full shard count with exactly one `Leader`. Leave a margin after the
+  membership check, keep `store.pdb.minAvailable` at `replicas - 1` so an
+  accidental second eviction is refused, and treat a group that is short a
+  shard or has no leader as a stop. What the membership record does not
+  prove, and the closer per-group check on the Store's own REST port, are on
+  the
+  [operations page](https://hugegraph.apache.org/docs/quickstart/hugegraph/hugegraph-helm-operations/#6-rolling-store-images-safely).
 - **Server** rolls once on the first `helm upgrade` after a fresh install,
   when the `checksum/auth` annotation first observes the install-created
   Secrets. Template-only pipelines (`helm template`, GitOps renderers) never
@@ -342,24 +285,15 @@ Two cases are worth knowing about in advance:
   does not roll pods.
 - **PD and Hubble** roll once on the first `helm upgrade` after a fresh
   install as well, when the `checksum/pd-auth` annotation first observes the
-  install-created PD REST Secret (same mechanism as the Server annotation
-  above; measured on a kind cluster: PD, Server and Hubble replaced, Store
-  untouched). A PD roll is a raft rolling restart, one pod at a time; for a
-  maintenance-window upgrade set `pd.updateStrategy.type=OnDelete` and
-  restart the PD pods yourself. Rotating the PD REST Secret later rolls the
-  same three workloads together, which keeps their copies of the secret in
-  step.
+  install-created PD REST Secret; Store is untouched. A PD roll is a raft
+  rolling restart, one pod at a time. Rotating the PD REST Secret later
+  rolls PD, Server and Hubble together, which keeps their copies in step.
 - **A Server that starts while PD is rolling can come up without its Gremlin
-  binding.** Gremlin Server instantiates the graph once at startup; if the PD
-  client cannot connect at that moment the log says `Graph [DEFAULT-hugegraph]
-  ... could not be instantiated and will not be available in Gremlin Server`,
-  and the REST layer opens the graph seconds later anyway. The Pod then passes
-  readiness and serves REST while every Gremlin request on it fails with
-  `Could not rebind [graph]`, for the life of the Pod. Measured on current
-  images: 4 of 12 Server starts that overlapped a PD roll, none of 3 in a
-  Server-only roll. After an upgrade that rolls PD and Server together, check
-  Gremlin on each Server Pod and delete any Pod that fails; the replacement
-  binds normally once PD is stable (see Troubleshooting).
+  binding** and then passes readiness and serves REST while every Gremlin
+  request on it fails with `Could not rebind [graph]`, for the life of the
+  Pod. After an upgrade that rolls PD and Server together, check Gremlin on
+  each Server Pod and delete any Pod that fails; the replacement binds
+  normally once PD is stable (see Troubleshooting).
 - **Dropping an inline credential back to the chart-managed Secret rolls PD,
   Server and Hubble once more, with no credential change.** The rollout
   checksum takes the inline value's digest while `pd.auth.value` or
@@ -369,19 +303,13 @@ Two cases are worth knowing about in advance:
   extra roll on that upgrade.
 
 Every optional field stays optional, so a release created by an earlier
-revision continues to render under `--reuse-values`. Note that `--reuse-values`
-keeps the old release's values as the complete base, so a release created
-before a field existed does **not** pick up its new default, including the
-hardened `securityContext`, ServiceAccounts, and `terminationGracePeriodSeconds`.
-Use `-f` with your own values, or `--reset-then-reuse-values`, to adopt them.
-That rule covers values-sourced defaults only; the asymmetry is that
-template-derived settings **are** applied even under `--reuse-values`,
-because they are computed at render time from whatever values are in effect.
-Pod-level token mounting (disabled unconditionally) and the derived
-`-Dpartition.default-shard-count` in the PD `JAVA_OPTS`, plus the Server's
-enforced PD metadata mode, are the current cases. The PD metadata change rolls
-the Server Deployment. On an already-initialized cluster the seeded shard
-count is inert either way; see Partition Sharding.
+revision continues to render under `--reuse-values`. That flag keeps the old
+values as the complete base, so such a release does **not** pick up new
+values defaults (the hardened `securityContext`, ServiceAccounts,
+`terminationGracePeriodSeconds`); use `-f` with your own values, or
+`--reset-then-reuse-values`, to adopt them. Template-derived settings
+**are** applied either way, because they are computed at render time from
+whatever values are in effect.
 
 Upgrading an existing release to this chart version rolls the PD StatefulSet
 once: PD Pods now always carry a `JAVA_OPTS` environment variable with the
@@ -393,10 +321,6 @@ The `pd.antiAffinity` and `store.antiAffinity` defaults changed from
 effective value, but installs that relied on the old `required` default
 while supplying their own values files must now pin `antiAffinity: required`
 explicitly.
-
-PD and Store resource names reserve room for their StatefulSet ordinal before truncation, so
-identities stay fixed across replica changes and scaling never renames a
-PersistentVolumeClaim.
 
 ## Uninstalling the Chart
 
@@ -594,85 +518,25 @@ PD. Store Operations metrics from outside the cluster are out of scope here.
 
 #### 1. In-cluster Hubble (recommended)
 
-Set `hubble.enabled=true` (off by default so API-only clusters stay lean). The
-chart wires PD/Server for you.
-
-Open the UI with one port-forward:
+Set `hubble.enabled=true` (off by default so API-only clusters stay lean);
+the chart wires PD/Server for you. Open the UI with one port-forward, then
+open `http://127.0.0.1:8088` and log in with the chart admin password:
 
 ```bash
 kubectl -n <namespace> port-forward svc/<fullname>-hubble 8088:8088
 ```
 
-Then open `http://127.0.0.1:8088`. For a shared environment, expose Hubble with
-`hubble.service.type` NodePort/LoadBalancer or `hubble.ingress` instead of
-port-forward. Log in with the chart admin password from the NOTES / admin
-Secret.
+For a shared environment, expose Hubble with `hubble.service.type`
+NodePort/LoadBalancer or `hubble.ingress` instead of port-forward.
 
-This is the average-user path: no Docker, no advertise URL, no PD peer list.
+#### 2 and 3. Outside Hubble (direct Server URL, or PD discovery)
 
-#### 2. Outside Hubble, direct Server URL (simple external)
-
-Use this when Hubble runs on a host or VM outside the cluster, and you only
-need graph / schema / data / Gremlin (not PD discovery).
-
-1. Leave in-chart Hubble off (`hubble.enabled=false`).
-2. Expose Server (`server.service.type` NodePort/LoadBalancer, or Ingress).
-3. Run a standalone Hubble image with `pd.enabled=false` and
-   `server.direct_url` set to that reachable Server URL (match Server auth).
-4. Open the standalone Hubble port in a browser (or SSH tunnel to it).
-
-Use HTTPS (or a trusted channel such as a local port-forward) for
-`server.direct_url`: login sends the Server credentials over that URL.
-
-Example property fragment for the standalone process:
-
-```properties
-pd.enabled=false
-server.direct_url=https://<reachable-server-host>:<port>
-```
-
-Mount the file at `/hubble/conf/hugegraph-hubble.properties` inside the
-official image (workdir is `/hubble`). One Server URL is enough; you do not
-need to expose PD.
-
-#### 3. Outside Hubble, PD discovery (advanced)
-
-Use this when an outside Hubble must ask PD for the Server address.
-
-In-cluster names such as `*.svc` are not reachable from outside. The chart
-helps with two knobs: advertise a reachable Server URL to PD, and expose the
-PD client Service.
-
-The chart always registers `server.urls_to_pd` with PD, so `server.advertiseUrl`
-is honored whenever it is set.
-
-1. Leave in-chart Hubble off if the bundled UI is not wanted.
-2. Expose Server and set `server.advertiseUrl` to the absolute `http(s)://`
-   URL outside Hubble will use after discovery. The chart registers it via
-   `server.urls_to_pd` instead of the in-cluster Service URL.
-3. Expose PD (`pd.service.type` NodePort/LoadBalancer, which needs
-   `pd.service.allowInsecureExposure=true`; PD gRPC has no authentication,
-   so restrict who can reach it first) so Hubble can dial PD
-   REST and gRPC.
-4. Run standalone Hubble with `pd.enabled=true` and `pd.peers` / `pd.server`
-   pointed at those external PD addresses. Mount config at
-   `/hubble/conf/hugegraph-hubble.properties`.
-
-Example property fragment:
-
-```properties
-pd.enabled=true
-pd.peers=<reachable-pd-host>:<grpc-port>
-pd.server=<reachable-pd-host>:<rest-port>
-```
-
-Trade-off: when `server.advertiseUrl` is set, every Server replica registers that same logical URL and PD returns it to every discovery client, including an in-cluster Hubble. Leave it empty for the default in-cluster path, where each Server Pod registers its own IP and Hubble can retain the replica list.
-
-Local quick test (cluster and Hubble on the same machine): port-forward Server
-`8080` and PD client `8620`/`8686`, set
-`server.advertiseUrl=http://127.0.0.1:8080`, run standalone Hubble with
-`--network host` and the PD properties above, then open Hubble on `8088`
-(or SSH `-L 8088:127.0.0.1:8088` from a laptop).
+A non-ClusterIP PD Service requires `pd.service.allowInsecureExposure=true`
+(PD gRPC has no authentication; restrict who can reach it first), and a set
+`server.advertiseUrl` registers that one URL with PD for every discovery
+client, an in-cluster Hubble included. The walkthrough for both paths is on
+the
+[operations page](https://hugegraph.apache.org/docs/quickstart/hugegraph/hugegraph-helm-operations/#9-running-hubble-outside-the-cluster).
 
 | Parameter | Description | Default |
 |---|---|---|
@@ -689,28 +553,18 @@ How to open Hubble (in-cluster vs outside) is under
 [Reaching Hubble](#reaching-hubble-pick-one-path) above. This section covers
 chart wiring and parameters.
 
-Set `hubble.enabled=true` to deploy [HugeGraph Hubble](https://hugegraph.apache.org/docs/quickstart/toolchain/hugegraph-hubble/),
-the web UI for graph management, schema browsing, Gremlin queries, and the
-cluster operations view. A default install leaves Hubble off so API-only
-clusters stay lean; authentication is already on, so enabling the UI is a
-single flag (see Installing above). Login uses the admin credential from
-`server.auth.admin.existingSecret` or the chart-managed `<release>-admin` Secret.
-`hubble.mode` selects the wiring. In the default
-`pd` mode the chart points `pd.peers` at the PD gRPC peers, `pd.server` at
-the PD client Service REST port, and the Store metrics allow-list at the
-Store REST endpoints, so the cluster view works without manual wiring; the
-Server is additionally configured to register each Server Pod IP with PD
-(see below). In `direct` mode Hubble only receives `server.direct_url`
-pointing at the Server client Service; there is no PD discovery and no
-operations view. Everything else in `hugegraph-hubble.properties` keeps the
-image default.
-
-The chart always runs the Server in PD meta mode (`usePD`, `pd.peers`,
-`server.urls_to_pd`, `server.deploy_in_k8s`). In `pd` mode, Hubble uses that
-registration so PD can hand it a resolvable Server address. The Store
+`hubble.enabled=true` deploys [HugeGraph Hubble](https://hugegraph.apache.org/docs/quickstart/toolchain/hugegraph-hubble/),
+the web UI; login uses the chart admin credential. `hubble.mode` selects
+the wiring. The default `pd` mode points Hubble at the PD gRPC peers, the
+PD client Service REST port, and the Store REST endpoints, so the cluster
+operations view works without manual wiring (the Server's own PD
+registration supplies a resolvable Server address); `direct` mode hands
+Hubble only `server.direct_url` on the Server client Service, with no PD
+discovery and no operations view. Everything else in
+`hugegraph-hubble.properties` keeps the image default. The Store metrics
 allow-list is computed from `store.replicas` at render time, so scale Store
-with `helm upgrade`, not `kubectl scale`, or the list goes stale until the next
-upgrade.
+with `helm upgrade`, not `kubectl scale`, or the list goes stale until the
+next upgrade.
 
 Hubble is one replica by design: it keeps UI connection metadata, including
 any graph credentials entered in the UI, in an embedded per-instance H2
@@ -723,19 +577,16 @@ stored metadata), `size` and `storageClassName` apply at install time only,
 and a non-root `podSecurityContext` needs a matching `fsGroup` so H2 can
 write the volume.
 
-**Current Hubble images still require `server.auth`.** The UI login
-authenticates against the cluster; with authentication explicitly disabled
-the login cannot complete (the server rejects `/auth/login` with
-"Unconfigured authenticator"). The chart therefore refuses to render
-`hubble.enabled=true` when `server.auth.enabled=false` unless
+**Current Hubble images still require `server.auth`**: the UI login
+authenticates against the cluster, so the chart refuses to render
+`hubble.enabled=true` with `server.auth.enabled=false` unless
 `hubble.allowWithoutServerAuth=true` overrides it for images whose login
 does not need cluster authentication.
 
-**Hubble serves plain HTTP.** Reach it with `kubectl port-forward` or behind
-an HTTPS-terminating Ingress; never expose the port directly to an untrusted
-network. An Ingress without `tls` is rejected at render time unless
-`hubble.ingress.allowPlainHttp=true` explicitly accepts plain HTTP for a
-trusted network.
+**Hubble serves plain HTTP.** Reach it through a port-forward or an
+HTTPS-terminating Ingress, never directly from an untrusted network; an
+Ingress without `tls` is rejected unless `hubble.ingress.allowPlainHttp=true`
+opts in.
 
 | Parameter | Description | Default |
 |---|---|---|
@@ -852,35 +703,14 @@ v0.25 or later, k3s, Calico, Cilium). Other plugins accept the objects and
 enforce nothing. To check, run a Pod without chart labels in another
 namespace and `curl` the PD client Service on the REST port: it must time out.
 
-With it on, the release admits only its own traffic:
-
-| To | From, ports |
-|---|---|
-| PD | PD: raft, gRPC. Store, Server, and Hubble in `pd` mode: gRPC, REST |
-| Store | Store: raft. Server: gRPC, REST. Hubble in `pd` mode: REST |
-| Server | Hubble and the `helm test` Pod: `server.port` |
-| Hubble | nothing (port-forward uses loopback and needs no rule) |
-
-Every component may also resolve DNS on port 53. Nothing outside the release
-is admitted unless it is listed in `networkPolicy.<component>.extraIngress`,
-including the Ingress controller and clients of a NodePort or LoadBalancer
-Service. Exposing PD, Server or Hubble that way, or setting
-`server.advertiseUrl`, with an empty `extraIngress` fails the render instead
-of opening the port. For PD this is the reachability restriction that
-`pd.service.allowInsecureExposure` asks for. The check sees only exposure the
-chart creates; a Service, Gateway route or proxy you add yourself needs its
-own `extraIngress` entry.
-
-PD, Store and Server reach nothing outside the release except DNS, so a
-feature that calls out (for example hugegraph-computer jobs through the
-Kubernetes API, which this chart does not enable) does not work with the
-policies on. One call is made by default: on every start the Store image
-downloads `libjemalloc.so` from github.com. With the policies on that
-connection times out after about two minutes, the Store starts without
-jemalloc and continues (measured on kind: Ready after 151 s instead of 11 s).
-The same happens on any cluster without internet access. The `helm test` Pod is selected by no chart policy, so its egress
-is open only while nothing else selects it: under a namespace-wide
-default-deny policy of your own, allow it egress to `server.port` and DNS.
+With it on, the release admits only its own traffic plus DNS; anything
+else, the Ingress controller and NodePort or LoadBalancer clients included,
+must be listed in `networkPolicy.<component>.extraIngress`, and exposing
+PD, Server or Hubble (or setting `server.advertiseUrl`) with an empty
+`extraIngress` fails the render instead of opening the port. The
+admitted-traffic matrix, the egress notes, and worked `extraIngress`
+examples with the per-plugin NodePort client addresses are on the
+[operations page](https://hugegraph.apache.org/docs/quickstart/hugegraph/hugegraph-helm-operations/#5-networkpolicy).
 
 | Parameter | Description | Default |
 |---|---|---|
@@ -888,206 +718,41 @@ default-deny policy of your own, allow it egress to `server.port` and DNS.
 | `networkPolicy.<pd\|store\|server\|hubble>.extraIngress` | Extra NetworkPolicy ingress rules, appended as written | `[]` |
 | `networkPolicy.hubble.extraEgress` | Extra egress rules for Hubble's optional outside endpoints (`es.urls`, `prometheus.url`) | `[]` |
 
-<details>
-<summary>Letting other workloads in</summary>
-
-Anything outside the release is blocked until it is listed. Every rule must
-name its peers in `from` (the schema rejects a rule without one); to admit any
-address, write an `ipBlock` such as `0.0.0.0/0` explicitly. A
-`namespaceSelector` and a `podSelector` in the same peer must both match; as
-two separate peers, either one is enough. What a
-NodePort or LoadBalancer client looks like from the Pod depends on the network
-plugin, `externalTrafficPolicy` and the node the request arrives on. Measured
-with a NodePort Server on two-node kind clusters:
-
-- kindnet, and Cilium with kube-proxy replacement: a call to the Server's own
-  node arrived with the client address; through the other node it arrived
-  with that node's address.
-- Calico: through the other node the call arrived from that node's tunnel
-  address inside the Pod CIDR.
-- Cilium with kube-proxy: no `ipBlock` rule admitted NodePort traffic, because
-  Cilium identifies node addresses by its own node identities rather than by
-  CIDR.
-
-Test with the plugin you run and name the CIDR you see arriving.
-
-```yaml
-networkPolicy:
-  server:
-    extraIngress:
-      # The ingress-nginx controller, when server.ingress is enabled.
-      - from:
-          - namespaceSelector:
-              matchLabels:
-                kubernetes.io/metadata.name: ingress-nginx
-            podSelector:
-              matchLabels:
-                app.kubernetes.io/name: ingress-nginx
-        ports:
-          - port: 8080
-      # Applications in namespace "apps" call the Server API.
-      - from:
-          - namespaceSelector:
-              matchLabels:
-                kubernetes.io/metadata.name: apps
-        ports:
-          - port: 8080
-  pd:
-    extraIngress:
-      # Prometheus scrapes /actuator/prometheus on PD REST.
-      - from:
-          - namespaceSelector:
-              matchLabels:
-                kubernetes.io/metadata.name: monitoring
-        ports:
-          - port: 8620
-      # Vermeer reads partition metadata over PD gRPC.
-      - from:
-          - namespaceSelector:
-              matchLabels:
-                kubernetes.io/metadata.name: vermeer
-        ports:
-          - port: 8686
-  store:
-    extraIngress:
-      # Vermeer scans Store over gRPC; Prometheus scrapes Store REST.
-      - from:
-          - namespaceSelector:
-              matchLabels:
-                kubernetes.io/metadata.name: vermeer
-        ports:
-          - port: 8500
-      - from:
-          - namespaceSelector:
-              matchLabels:
-                kubernetes.io/metadata.name: monitoring
-        ports:
-          - port: 8520
-```
-
-</details>
-
 ## Deep Dive
-
-### Connecting to the Cluster
-
-```bash
-PASSWORD="$(kubectl get secret -n hugegraph hugegraph-admin \
-  -o jsonpath='{.data.password}' | base64 --decode)"
-kubectl port-forward -n hugegraph svc/hugegraph-server 8080:8080
-curl --user "admin:${PASSWORD}" http://127.0.0.1:8080/versions
-curl --user "admin:${PASSWORD}" http://127.0.0.1:8080/graphs
-```
 
 ### Cluster Health
 
-| Component | Port | Purpose |
-|------|-------------|---------|
-| PD | `8686` | gRPC (Store and Server clients) |
-| PD | `8620` | REST / health probes |
-| PD | `8610` | Raft |
-| Store | `8500` | gRPC |
-| Store | `8510` | Raft |
-| Store | `8520` | REST / health probes |
-| Server | `8080` | Gremlin and REST API |
-
-All ports are configurable through `values.yaml`. Changing `server.port` updates
-the listener, container port, and Service together.
-
-A stalled component (process alive but frozen) is ended by its liveness
-probe, so the default 20 s period and 3-failure threshold bound the blast
-radius of a stalled Store at roughly one minute; raft moves its partition
-leaders within seconds of the restart.
-
----
+Component ports are in the configuration tables above; a stalled component
+is ended by its liveness probe within about a minute. The connection
+commands and the health walkthrough are on the
+[operations page](https://hugegraph.apache.org/docs/quickstart/hugegraph/hugegraph-helm-operations/#2-ports-and-health).
 
 ### Scheduling
 
-Every component (`pd`, `store`, `server`, `hubble`) exposes the full set of
-scheduling controls: `nodeSelector`, `tolerations`, `affinity`,
-`topologySpreadConstraints`, and `priorityClassName`. For example, pinning
-Store to labeled nodes is just:
-
-```yaml
-store:
-  nodeSelector:
-    hugegraph/role: storage
-```
-
-`antiAffinity` (`required` | `preferred` | `disabled`) renders a hostname
-pod-anti-affinity preset for `pd`, `store`, and `server`; Hubble has no
-`antiAffinity` key because it is single-replica by design. Setting a raw
-`affinity` replaces the preset entirely. All three default to `preferred`
-(Server always did; the pd and store defaults changed from `required`), so
-the chart schedules on clusters with fewer nodes than replicas (including
-single-node development clusters). The trade: `preferred` lets the
-scheduler co-locate replicas under node pressure, so a single node failure
-can then take more than one PD or Store replica with it. Production
-clusters with enough nodes should pin `pd.antiAffinity` and
-`store.antiAffinity` to `required`, as `values-cluster.yaml` does.
+Every component exposes the full set of scheduling controls, and
+`antiAffinity` renders the hostname anti-affinity preset described under
+Installing. Examples and the preferred-versus-required trade are on the
+[operations page](https://hugegraph.apache.org/docs/quickstart/hugegraph/hugegraph-helm-operations/#3-scheduling).
 
 ### Partition Sharding
 
-A fresh install seeds PD's persisted configuration with a partition shard
-count of 3 when `store.replicas` is at least 3, and 1 otherwise. Without
-this the PD image's `conf/application.yml` would pin
-`partition.default-shard-count` to 1, leaving chart-deployed clusters
-without store-level HA. The derivation never produces 2 because PD clamps a
-shard count of 2 to 1: two shards cannot elect a leader.
-
-The chart renders the setting as `-Dpartition.default-shard-count` in the PD
-container's `JAVA_OPTS`; system properties outrank the shipped config file,
-and the PD start script appends `JAVA_OPTS` after its automatically computed
-heap flags, so the image's JVM auto-sizing is unaffected.
-
-**The seed applies at first bootstrap only.** PD persists the shard count
-into its own metadata the first time it starts with empty storage, and from
-then on the stored value is authoritative: every PD leader change re-reads
-it from storage, overwriting whatever the `-D` flag says. Changing
-`pd.partition.defaultShardCount` later, or scaling `store.replicas` across
-the derivation boundary, therefore has **no** effect on an initialized
-cluster. Nor is the value frozen at partition creation: PD reconciles
-existing shard groups toward the stored value whenever a partition patrol
-runs. To change the shard count of a running cluster, use PD's own config
-API (which accepts only odd values not exceeding the live store count) and
-then trigger `GET /v1/task/patrolPartitions`; expect shard-group
-reallocation when the counts differ.
-
-The shard count also fixes the initial partition count:
-`store.replicas x storeMaxShardCount / shardCount`, computed once at
-bootstrap. With the image's `store-max-shard-count` default of 12, the
-derived shard count moves a default 3-store install from 36 partitions
-(shard count 1) to 12 (shard count 3). Set
-`pd.partition.storeMaxShardCount` higher to compensate when more partitions
-are wanted; it is likewise seeded at first bootstrap only.
-
-An explicit `pd.partition.defaultShardCount` must be odd and at most
-`store.replicas`. The chart rejects other values at render time: PD would
-silently clamp a value above the live store count, clamp 2 to 1, and reject
-even values at its config API, so an accepted render would not mean an
-honored setting.
+**The shard-count seed applies at first bootstrap only**: changing
+`pd.partition.defaultShardCount`, or scaling `store.replicas` across the
+derivation boundary, has no effect on an initialized cluster. Change a
+running cluster through PD's own config API (odd values only, at most the
+live store count), then trigger `GET /v1/task/patrolPartitions`. The
+derivation, the initial partition count, and the constraints are on the
+[operations page](https://hugegraph.apache.org/docs/quickstart/hugegraph/hugegraph-helm-operations/#4-partition-sharding).
 
 ### Disaster Recovery
 
-What PD automates on current builds is narrow. A scheduled patrol runs on a
-hardcoded 60-second cadence and only marks Stores that stopped sending
-heartbeats as `Offline`; it does not touch partitions. There is **no
-automatic re-replication**: re-placing the replicas of a lost Store,
-reconciling shard groups against the stored shard count, and processing
-tombstoned Stores all run only when a partition patrol is triggered
-explicitly. PD's configuration binds `pd.patrol-interval` and
-`store.max-down-time` keys, but no code path on current builds reads
-either, which is why this chart does not expose them.
-
-Recovery and rebalancing are operator-triggered, and the task endpoints
-execute **locally on the PD that receives them**: a follower answers with
-an empty success and does no recovery work. Port-forwarding the client
-Service selects an arbitrary PD, so identify the leader first and
-port-forward that Pod:
-
-`kubectl port-forward` runs in the foreground, so use a second terminal
-(or background the forward) for the curls, and stop the Service forward
-before starting the leader one:
+Recovery is operator-triggered on current builds: PD's own patrol only
+marks silent Stores `Offline`, and there is **no automatic
+re-replication**. The task endpoints execute locally on the PD that
+receives them, and a follower answers with an empty success while doing
+nothing, so identify the leader first and port-forward that Pod (the
+forward runs in the foreground; use a second terminal for the curls). The
+credential is required; PD answers 401 without it:
 
 ```bash
 kubectl port-forward -n hugegraph svc/hugegraph-pd-client 8620:8620
@@ -1105,90 +770,40 @@ curl -u "hg:${PD_SECRET}" http://127.0.0.1:8620/v1/task/balancePartitions
 ```
 
 Read `/v1/members` again after the tasks: if leadership moved mid-sequence,
-the later tasks ran on a follower and did nothing, so rerun them on the new
-leader. Wait at least 180 s before rerunning `balanceLeaders` after a
-`balancePartitions` call: `balancePartitions` sets a balance-shard flag for
-180 s even when it moves nothing, and `balanceLeaders` inside that window
-is refused. On images built before
-[apache/hugegraph#3233](https://github.com/apache/hugegraph/pull/3233)
-(merged 2026-09-24) the refusal is a bare HTTP 500 whose reason (`balance
-shard is processing, please try later!`) appears only in the PD log; after
-it, the same reason comes back in the response body as
-`{"status":1001,"error":"balance shard is processing, please try later!"}`.
+the later tasks ran on a follower and did nothing. Wait at least 180 s
+before rerunning `balanceLeaders` after a `balancePartitions` call; the
+refusal shapes, when to run which task, and telling a real run from a
+no-op or a follower answer are on the
+[operations page](https://hugegraph.apache.org/docs/quickstart/hugegraph/hugegraph-helm-operations/#7-disaster-recovery).
 
-Telling a real run from a no-op takes the PD leader's log, because the
-responses do not. `patrolPartitions` answers `{"status": 0,"partitions": [ ]}`
-on the leader and on a follower, whether or not it repaired anything; look
-for `reallocShards`, `shardOffline` or `storeTurnoff` lines on the leader,
-or diff `/v1/shardGroups` before and after. `balancePartitions` answers `{}`
-on the leader and an empty body on a follower, which is a two-byte
-difference. `balanceLeaders` is the one call whose body carries the work: a
-JSON object of the groups whose leader moved, and `{}` when there was
-nothing to move or when it reached a follower.
-
-The credential is required; PD answers 401 without it. The Secret name
-follows the release (`<release>-pd-auth`) unless `pd.auth.existingSecret`
-is set.
-
-Run `patrolPartitions` after replacing a Store that is not coming back,
-`balancePartitions` once the cluster is stable again, and `balanceLeaders`
-after restarts that skewed leader placement.
-
-**A Store rebuilt with an empty PVC recovers in place on images carrying
+**Replace a Store Pod, keep its PVC**: the Store id lives in the data path,
+and the Pod comes back under the same id. A Store rebuilt with an empty PVC
+registers under a **new Store ID** at the unchanged address, and recovers
+in place only on images carrying
 [apache/hugegraph#3234](https://github.com/apache/hugegraph/pull/3234)
-(merged 2026-09-24); on every earlier image, including all published release
-images, it does not.** In both cases the replacement registers under a
-**new Store ID** while its Pod name, DNS name and raft address are
-unchanged, so `/v1/stores` lists two IDs at one address.
+(merged 2026-09-24); on every earlier image, including all published
+release images, it does not. On post-#3234 images, retire the old ID on
+the PD leader:
 
-On post-#3234 images the documented retirement then works: find the old ID
-in `/v1/stores` (the row at the replaced Pod's address that is not the
-newly registered one), `POST /v1/store/<oldId>` with
-`{"storeState":"Tombstone"}` on the PD leader, run
-`GET /v1/task/patrolPartitions`, and wait; verify that every shard group
-is back to full shard count with one leader, that no group names the old
-ID, and that the replaced Store's own `:8520/v1/partition/<groupId>`
-answers 200 for every group; then `DELETE /v1/store/<oldId>` to erase the
-retired record. Measured 2026-09-24 on a 3+3+3 install with pd, store and
-server built from `master` at `dbb6663a`: after deleting the Store's PVC
-and Pod, the replacement was Ready in 156 s, every one of the 12 groups
-converged onto the new ID 1 s after the Tombstone and patrol (the empty
-Store caught up by raft snapshot install), the replaced Store answered 200
-on all 12 groups with its data directory back at full size, a later
-restart with the kept PVC came back under the same ID with zero
-registration rejections, the `DELETE` left no group naming the old ID, and
-a continuous writer lost 0 of its 1,443 acknowledged vertices and 1,441
-acknowledged edges.
+```bash
+# The old ID is the row at the replaced Pod's address that is not the
+# newly registered one.
+curl -su "hg:${PD_SECRET}" http://127.0.0.1:8620/v1/stores
+curl -u "hg:${PD_SECRET}" -X POST -H 'Content-Type: application/json' \
+  -d '{"storeState":"Tombstone"}' http://127.0.0.1:8620/v1/store/<oldId>
+curl -u "hg:${PD_SECRET}" http://127.0.0.1:8620/v1/task/patrolPartitions
+# Verify: every group at full shard count with one leader, the old ID in
+# no group, and the replaced Store answering 200 on :8520/v1/partition/<id>.
+curl -u "hg:${PD_SECRET}" -X DELETE http://127.0.0.1:8620/v1/store/<oldId>
+```
 
-On images without #3234 the same retirement runs and does not repair the
-groups: PD accepts `{"storeState":"Tombstone"}` for the old ID,
-`patrolPartitions` then logs `shardOffline` for every partition and
-`reallocShards ShardGroup N, add shards from 2 to 3` with the new ID in
-the computed list, and fires the configuration change; but the Store leader
-sees that address already in the group (`changePeers start, old peer is [...
-<same address> ...]`), so jraft has nothing to add and the group record keeps
-the old ID. Measured on a 3+3+3 install: 20 minutes and three patrols later,
-all 12 groups still listed the retired ID, the replacement Store held no
-partitions at all (`:8520/v1/partition/<groupId>` answered 500 on it for
-every group), and `balancePartitions` refused to move anything
-(`movedPartitions is empty`). `DELETE /v1/store/<storeId>` there erases the
-record and leaves the groups naming an ID that no longer exists.
+On earlier images the same retirement runs and does not repair the groups,
+and nothing in the health surface shows the loss: treat a genuinely lost
+volume there as a degraded cluster and expect to rebuild rather than to
+recover in place. Both measurements and the full walkthrough are on the
+[operations page](https://hugegraph.apache.org/docs/quickstart/hugegraph/hugegraph-helm-operations/#7-disaster-recovery).
 
-Nothing in the documented health surface shows that failure: `/v1/stores`
-still counts three `Up` Stores, cluster state stays `Cluster_OK`, Hubble
-lists three Store nodes `UP`, and all Pods are `Ready`, while every shard
-group is really running on two live replicas. The one check that shows it
-is the replaced Store's own `:8520/v1/partition/<groupId>`.
-
-So the default remains: replace a Store Pod, keep its PVC (the Store id
-lives in the data path, and the Pod comes back under the same id). Treat
-the empty-PVC replacement above as a recovery procedure for post-#3234
-images only. On a released image a genuinely lost volume leaves the
-cluster degraded; expect to rebuild rather than to recover in place.
-
-Periodic balancing and shard-sync progress metrics do not exist upstream
-yet and are out of scope for this chart. Periodic leader balancing is
-tracked in
+Periodic leader balancing is tracked in
 [apache/hugegraph#3135](https://github.com/apache/hugegraph/issues/3135);
 disaster-recovery metrics are tracked in
 [apache/hugegraph#3136](https://github.com/apache/hugegraph/issues/3136).
@@ -1197,65 +812,24 @@ disaster-recovery metrics are tracked in
 
 ### Scaling
 
-PD and Store reserve the maximum StatefulSet ordinal in their resource names,
-so scaling never renames a PersistentVolumeClaim or shifts a Pod identity.
-Both are capped at 99 replicas.
+Server scales through `server.replicas`, or by enabling `server.hpa` (the
+Deployment then omits `spec.replicas`, so a Helm upgrade does not overwrite
+the autoscaler). PD and Store are capped at 99 replicas. Stage a rollout
+with `kubectl scale statefulset <fullname>-store --replicas=0` and scale
+back up when ready; the Servers wait, not-ready, until Stores register, and
+the next `helm upgrade` restores the values topology.
 
-Server scales through `server.replicas`, or by enabling `server.hpa`. With HPA
-enabled the Deployment omits `spec.replicas`, so a Helm upgrade does not
-overwrite the autoscaler's live replica count.
-
-`values.schema.json` requires at least one replica per component, so a
-staged rollout (PD and Server first, Stores later) cannot be written in a
-values file. Install the full topology and stage it with
-`kubectl scale statefulset <fullname>-store --replicas=0`, scaling
-back up when ready; the Servers wait, not-ready, until Stores register.
-`kubectl scale` changes only the live StatefulSet: the next `helm upgrade`
-renders `store.replicas` from values again and restores the full topology.
-
-Changing PD or Store replicas on a live release is not a values change.
+**Changing PD or Store replicas on a live release is not a values change.**
 Raft and shard membership are persisted, and Pods alone do not reconfigure
-them. The chart rejects both directions for PD and a shrink for Store, and
-reads the live StatefulSet to do it, so a fresh install at any replica count
-is unaffected and a client-side `--dry-run` does not show the guard.
-
-**PD, either direction.** The peer list the chart renders reaches raft only
-as `NodeOptions.setInitialConf`, which jraft applies when a node bootstraps
-without a configuration of its own. On an initialized group it is inert: a
-3-to-5 upgrade starts two more PDs and changes the bootstrap list, while the
-voting configuration stays at three, and a 3-to-1 shrink loses quorum
-outright. Membership changes through `RaftEngine.changePeerList`, which the
-PD client API reaches and no REST route exposes, so this is a client-side
-operation the chart cannot perform and does not wrap. Change the membership
-through PD, confirm the new configuration in `/v1/members`, scale the live
-StatefulSet, then `helm upgrade` with the matching value. Until you have run
-and verified that sequence on your own build, treat a PD replica change as
-unsupported and install the PD count you intend to keep.
-
-**Store, shrinking.** Draining is a state transition, not a balance.
-`patrolPartitions` reallocates groups whose shard count does not match the
-configured replication factor and hands off the groups of Stores already in
-`Tombstone`; `balancePartitions` spreads shards across the active Stores,
-including the ones you mean to remove, so neither call retires a healthy
-Store and the "no shard lists them" condition may never arrive. Retire the
-leaving Store the same way the Disaster Recovery section retires a replaced
-one:
-
-1. Check the remaining Stores can still hold the persisted replication
-   factor: after the shrink, live Stores must be at least the shard count in
-   force (`pd.partition.defaultShardCount`; empty derives 3 when
-   `store.replicas` is at least 3).
-2. Map the ordinals the shrink will delete (the highest ones) to Store ids
-   through `/v1/stores`, matching on the Pod address.
-3. `POST /v1/store/{id}` with `{"storeState":"Tombstone"}` for each leaving
-   id, which is what drives `storeTurnoff` and the reallocation.
-4. Wait until `/v1/shardGroups` no longer lists those ids and every group
-   reports its full shard count with one leader.
-5. Scale the live StatefulSet with `kubectl -n <namespace> scale statefulset
-   <name> --replicas=<n>`, then `helm upgrade` with the matching value.
-
-Deleting the PersistentVolumeClaims of the removed ordinals is separate and
-permanent; do it only after step 4 reports the data moved.
+them; the chart rejects both directions for PD and a shrink for Store by
+reading the live StatefulSet (a client-side `--dry-run` does not show the
+guard). Treat a PD replica change as unsupported and install the PD count
+you intend to keep. The PD membership background and the Store
+drain-then-scale procedure (Tombstone the leaving ids, wait for the groups,
+then scale) are on the
+[operations page](https://hugegraph.apache.org/docs/quickstart/hugegraph/hugegraph-helm-operations/#8-scaling).
+Deleting the PVCs of removed ordinals is separate and permanent; do it only
+after the groups no longer list the retired ids.
 
 ## Troubleshooting
 
@@ -1296,34 +870,18 @@ curl -s --user "admin:${PASSWORD}" http://127.0.0.1:8080/graphs
 
 ### Queries Fail with "Could not rebind" Right After Creating a Graph
 
-The Server that handles `CreateGraph` waits for its own Gremlin binding
-before returning HTTP 200
-([#3138](https://github.com/apache/hugegraph/pull/3138)), so create-then-query
-on the **same** Server (or sticky routing to that Pod) is reliable.
+Two causes. Right after `CreateGraph`, the creating Server is consistent at
+HTTP 200 ([#3138](https://github.com/apache/hugegraph/pull/3138)), but the
+other replicas converge independently for a short window, and a Gremlin
+query routed to a not-yet-converged replica fails with a 400 such as
+`Could not rebind [g]`: retry with backoff, use sticky routing for
+create-then-verify flows, or poll `/graphs` on each replica before opening
+query traffic (cluster-wide readiness is tracked in
+[#3137](https://github.com/apache/hugegraph/issues/3137)).
 
-Other Server replicas still converge independently through a PD metadata
-watch plus a local graph open. Until they finish, a Gremlin query routed
-through the load-balanced Service to a not-yet-converged replica can still
-fail with a 400 error such as `Could not rebind [g]`. This is upstream
-behavior, not a chart setting. Mitigations for multi-replica load-balanced
-deployments:
-
-- Retry with backoff in the client; the window normally closes in seconds.
-- Use sticky routing (or `kubectl port-forward` to one Pod) for
-  create-then-verify flows.
-- Poll `/graphs` on each replica until the new graph appears everywhere
-  before opening query traffic.
-
-Cluster-wide readiness and PD-owned graph creation remain tracked in
-[#3137](https://github.com/apache/hugegraph/issues/3137) (Phase 2:
-[#3139](https://github.com/apache/hugegraph/pull/3139); Phase 3: PD
-orchestration).
-
-The same error has a second cause that does not close on its own: a Server
-Pod that started while PD was rolling. Gremlin Server instantiates the graph
-once at startup, so a PD client failure at that moment leaves the Pod without
-a Gremlin binding for its whole life, while readiness passes and REST works.
-The Pod's `hugegraph-server.log` names it:
+The second cause does not close on its own: a Server Pod that started while
+PD was rolling serves REST and passes readiness while every Gremlin call on
+it fails, for the life of the Pod. Its `hugegraph-server.log` names it:
 
 ```
 Graph [DEFAULT-hugegraph] configured at [...] could not be instantiated and
@@ -1343,9 +901,9 @@ curl -s --compressed -u "admin:${PASSWORD}" -H 'Content-Type: application/json' 
 ```
 
 A healthy Pod answers with `result.data`; delete a Pod that answers
-`Could not rebind`. Its replacement binds normally as long as PD is
-stable; measured on a 3+3+3 install, 4 of 12 Server starts that overlapped a
-PD roll hit this, and both deletions recovered.
+`Could not rebind`, and its replacement binds normally once PD is stable.
+The measurements behind both causes are on the
+[operations page](https://hugegraph.apache.org/docs/quickstart/hugegraph/hugegraph-helm-operations/#10-when-gremlin-fails-with-could-not-rebind).
 
 ### Pods OOM Killed or Restarting
 
@@ -1388,74 +946,49 @@ independently of the release name.
 - A Server Pod that starts while PD is rolling can lose its Gremlin binding
   for the life of the Pod while passing readiness and serving REST; delete
   that Pod. See Troubleshooting, "Could not rebind".
-- The default values set no container resources, so every pod is QoS class
-  BestEffort and each JVM sizes its heap against total NODE memory rather than
-  a cgroup limit. That is fine for a single-node or development install, but on
-  a multi-node cluster where several pods share a node the heaps oversubscribe
-  it and pods abort. A measured example: on 7.6 GB workers the default install
-  gave PD `-Xmx3299m` and, with three to four pods per node, never converged.
-  Use `values-cluster.yaml`, or set your own `resources`, for any multi-node
-  deployment.
-- The Store's memory ceiling is not its heap. The shipped
-  `conf/application.yml` includes the `pd` Spring profile, and
-  `conf/application-pd.yml` sets `rocksdb.total_memory_size` to
-  `32000000000`; `RaftRocksdbOptions` splits that number into a RocksDB
-  write cache and block cache, so those native caches are bounded by 32 GB
-  and not by the container. The jraft log storage also registers its own
-  1 GiB LRU block cache once per process. With the cluster preset's
-  `-Xmx1024m -XX:MaxDirectMemorySize=512m`, a 4Gi limit sat below the
-  steady state and the kernel OOM-killed all three Stores after about 1 GB
-  of data; the preset now asks for 5Gi and limits at 8Gi, where a k3s run
-  measured 4.42 GiB anonymous RSS (2026-09-19). Scale both numbers with the
-  data size. The chart cannot lower the RocksDB budget itself: the Store
-  entrypoint rebuilds `SPRING_APPLICATION_JSON` from its own variables and
-  the chart mounts no config file, so `rocksdb.total_memory_size` can only
-  be changed in the image or through a custom config mount.
-- PD's raft IP whitelist resolves peer hostnames to IPs once at startup,
-  which under Kubernetes can block peers whose pod IPs were unpublished at
-  that moment or change later. The chart therefore disables the whitelist
-  in-cluster via the upstream `raft.ip-whitelist.enabled` switch, leaving
-  peer authentication to Kubernetes-level controls: enable
-  `networkPolicy.enabled` (on in `values-cluster.yaml`) so that only PD Pods
-  reach the raft port. Setting
-  `pd.raftIpWhitelistEnabled=true` restores the image default along with
-  its one-shot resolution semantics (bring-up races and pod-IP-change
-  rejections included) at the operator's own risk.
-- PD's `/v1/health` answers 200 as soon as the REST listener is up and never
-  consults raft, so it cannot see a lost quorum. With more than one PD the
-  chart uses it for startup and liveness on purpose, so that a follower which
-  merely lost its leader is not restarted, and puts readiness and the Store
-  wait on `/v1/ready`, which answers 503 without a raft leader. A single PD
-  is the exception: it has no election to lose, and a PD that steps down for
-  good, as after a failed raft snapshot on a full disk
+- The default values set no container resources, so every pod is
+  BestEffort and each JVM sizes its heap against total node memory. Fine on
+  a single node; on a multi-node cluster the heaps oversubscribe the nodes
+  and pods abort. Use `values-cluster.yaml`, or set your own `resources`,
+  for any multi-node deployment.
+- The Store's memory ceiling is not its heap: the image pins
+  `rocksdb.total_memory_size` at 32 GB of native caches outside the JVM,
+  and the chart cannot lower it (the entrypoint rebuilds its Spring config
+  and no file is mounted). The cluster preset requests 5Gi and limits at
+  8Gi per Store for this reason; a 4Gi limit was OOM-killed after about
+  1 GB of data. Scale both numbers with the data size; the full breakdown
+  is in the `values-cluster.yaml` comment.
+- PD's raft IP whitelist resolves peer hostnames once at startup, which
+  under Kubernetes can block peers whose pod IPs were unpublished at that
+  moment or change later. The chart disables the whitelist in-cluster via
+  the upstream `raft.ip-whitelist.enabled` switch; enable
+  `networkPolicy.enabled` (on in `values-cluster.yaml`) so only PD Pods
+  reach the raft port. `pd.raftIpWhitelistEnabled=true` restores the image
+  default and its one-shot resolution races at the operator's own risk.
+- PD's `/v1/health` answers 200 as soon as the REST listener is up and
+  cannot see a lost quorum. With more than one PD the chart uses it for
+  startup and liveness on purpose (a follower that merely lost its leader
+  is not restarted) and puts readiness and the Store wait on `/v1/ready`.
+  A single PD derives startup and liveness to `/v1/ready` instead: one
+  that steps down for good, as after a failed raft snapshot on a full disk
   ([apache/hugegraph#3222](https://github.com/apache/hugegraph/issues/3222)),
-  answers `/v1/health` forever while serving no writes. At `pd.replicas: 1`
-  startup and liveness therefore derive to `/v1/ready`, so the kubelet
-  restarts such a PD; `pd.livenessPath` overrides the derivation. If a future
-  PD answers 503 from `/v1/health` in that state, the value becomes
-  unnecessary.
-- Server discovery is a lease. Each Server re-registers its Pod IP with PD
-  every 15 seconds and PD drops an entry after three missed heartbeats, so a
-  replaced or evicted Server can stay in PD's list for up to 45 seconds after
-  it stops (measured 30 to 35 seconds on a live rollout). Hubble's cluster
-  view and other discovery clients may show that stale address for the
-  duration; application traffic is unaffected because it reaches Servers
-  through the Service, which drops the Pod immediately.
-- No TLS, backups, Operator, multi-cluster support, automatic leader transfer,
-  or a complete monitoring stack. Store recovery is manual on current builds:
-  re-replication after Store loss, leader balancing, and partition
-  rebalancing run only when triggered (see Disaster Recovery); periodic
-  balancing and shard-sync metrics are upstream feature work.
+  would answer `/v1/health` forever; `pd.livenessPath` overrides.
+- Server discovery is a lease: a replaced Server can stay in PD's list for
+  up to 45 seconds after it stops, so Hubble's cluster view may briefly
+  show a stale address. Application traffic is unaffected, because it
+  reaches Servers through the Service, which drops the Pod immediately.
+- No TLS, backups, Operator, multi-cluster support, automatic leader
+  transfer, or a complete monitoring stack. Store recovery is manual on
+  current builds (see Disaster Recovery); periodic balancing and shard-sync
+  metrics are upstream feature work.
 - After [#3138](https://github.com/apache/hugegraph/pull/3138), the creating
   Server is consistent at HTTP 200; other replicas may still lag for a short
-  window on load-balanced installs (see Troubleshooting: "Could not rebind";
-  [#3137](https://github.com/apache/hugegraph/issues/3137) stays open for
-  cluster-wide and PD-owned creation).
+  window (see Troubleshooting: "Could not rebind";
+  [#3137](https://github.com/apache/hugegraph/issues/3137) stays open).
 - The published images run as root, so `runAsNonRoot` and
-  `readOnlyRootFilesystem` are not chart defaults. The container
-  `securityContext` does default to `allowPrivilegeEscalation: false`,
-  `capabilities.drop: [ALL]`, and `seccompProfile: RuntimeDefault`, which are
-  valid for a root image; `podSecurityContext` and `securityContext` are fully
+  `readOnlyRootFilesystem` are not chart defaults; the container
+  `securityContext` is still hardened (`allowPrivilegeEscalation: false`,
+  `capabilities.drop: [ALL]`, `seccompProfile: RuntimeDefault`) and fully
   configurable per component.
 - `values-cluster.yaml` is a starting point, not a capacity guarantee.
 - Authentication is on by default. The auth Secret sets the admin password
@@ -1465,8 +998,6 @@ independently of the release name.
   `HG_SERVER_AUTH_TOKEN_SECRET` from `server.auth.token`
   (chart-managed by default) so Hubble login stays stable behind a
   multi-replica Service.
-- Hubble is single-replica, serves plain HTTP, requires `server.auth` to be
-  enabled for its login to complete, and keeps UI connection metadata,
-  including any graph credentials entered in the UI, in an embedded H2
-  database that is lost on Pod replacement unless `hubble.persistence` is
-  enabled.
+- Hubble is single-replica, serves plain HTTP, and requires `server.auth`
+  for its login to complete; the persistence and H2 constraints are in the
+  Hubble section above.
