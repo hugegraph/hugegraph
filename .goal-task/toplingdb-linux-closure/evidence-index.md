@@ -1,0 +1,20 @@
+# 本地证据索引
+
+本文件只记录本地证据的逻辑位置和用途，不提交原始日志、大 JSON、镜像或数据集。原始证据位于忽略的 `.goal-task/toplingdb-linux-closure/evidence/`，仅本机可读；PR 中只保留本索引。
+
+| 逻辑证据 | 用途 | 当前结论 |
+| --- | --- | --- |
+| `repaired-full-core-summary.json` | standalone 标准 RocksDB CoreTestSuite | 818 tests，0 failures/errors，42 skips |
+| `repaired-full-api-summary.json` | standalone 标准 RocksDB API suite | 161 tests，0 failures/errors，14 skips |
+| `helm-standard-111-full-api-summary.json` | Helm 1+1+1 标准 RocksDB API | 155 tests，0 failures/errors，50 skips |
+| `helm-standard-333-runtime.json` | Helm 3+3+3 pod 与 JNI 采样 | 9 pods Ready；HA 未验证 |
+| `pd-common-core-standard-summary.json` | PD common/core | 83/104，0 failures/errors |
+| `pd-client-rest-standard-summary.json` | PD client/rest 与服务退出 | 83/22，0 failures/errors |
+| `commons-struct-current-summary.json` | Commons/RPC/Struct | 351/24/8，0 failures/errors |
+| `store-standard-audit-summary.json` | Store RocksDB/client/core audit | 3/50/22，0 failures/errors |
+
+## 证据使用规则
+
+- 历史证据可能没有在文件内部嵌入 commit SHA；使用前先核对对应 build input、日志和源 hash。
+- 不得把上述标准 RocksDB 结果写成 Topling、HStore HA 或 benchmark 结果。
+- 后续每轮新增证据时，优先写一个小的 summary JSON 或 Markdown，并在文档中记录 commit、镜像 digest、JNI hash、命令和边界。
