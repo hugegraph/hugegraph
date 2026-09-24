@@ -7,7 +7,7 @@
 - [x] 1+1+1 停止、重启，并核对重启前已确认写入。仅绑定历史镜像 `closure-std-9abae9dbaaa1`，不算当前 SHA。证据 `evidence/helm-standard-111-stop-restart-confirmed.json`。
 - [ ] 1+1+1 删图重建、truncate、snapshot/restore 到新卷。删图重建和 truncate 已在 `9aba` 通过；snapshot/restore 第 1 次失败，未勾选。证据 `evidence/helm-standard-111-lifecycle.json`。
 - [ ] 3+3+3 三个 Server 的功能、认证和写入一致性。顶点和边已在三个 Server 上读到；错误口令返回 401。DEFAULT 图空间 `auth=false`，无角色新用户可以建图和删图，角色拒绝尚未验证。证据 `evidence/helm-standard-333-write-consistency.json`、`evidence/helm-standard-333-auth-function.json`。
-- [ ] 3+3+3 leader/follower 退出、Server 副本切换、多数派丢失与恢复、恢复时间。
+- [ ] 3+3+3 leader/follower 退出、Server 副本切换、多数派丢失与恢复、恢复时间。Store-2 Pod 删除后 142.869 秒恢复，PVC 未变，原顶点仍可读，恢复后新写入成功。尚未覆盖 leader、Server 切换和多数派丢失。证据 `evidence/helm-standard-333-store-pod-restart.json`。
 - [ ] 3+3+3 网络分区。Chaos Mesh 不可用时后置，不阻止 Pod 级 HA。
 
 历史线索：1+1+1 API 155/0/0/50，Store 同 PVC 重建一次；3+3+3 为 9/9 Ready 和 JNI 采样。镜像均为 `closure-std-9abae9dbaaa1`。

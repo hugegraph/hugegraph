@@ -25,7 +25,7 @@
 | 阶段 | 当前状态 | 完成条件 |
 | --- | --- | --- |
 | P0 合同刷新 | 文档已刷新，随本提交推送 | `state.md` 与 `todo.md` 进入 `org/toplingdb`；goal 尚未启动 |
-| P1 历史标准集群补证 | 1+1+1 生命周期除 snapshot 外已通过；3+3+3 完成点边一致性，角色拒绝未测 | 1+1+1 生命周期、3+3+3 功能与 HA 有日志和业务证据；结果绑定 `9aba`，不算当前 SHA |
+| P1 历史标准集群补证 | 3+3+3 已完成 Store-2 Pod 恢复；leader、多数派和 snapshot 仍未完成 | 1+1+1 生命周期、3+3+3 功能与 HA 有日志和业务证据；结果绑定 `9aba`，不算当前 SHA |
 | P2 当前 SHA 构建与 JNI | 未开始 | 标准与 Topling 镜像隔离，实际 JNI 映射证明无静默 fallback |
 | P3 当前 SHA 功能 | 未开始 | 单机、1+1+1、3+3+3 两个 provider 的功能证据 |
 | P4 生命周期与 provider | 未开始 | 停止重启、持久化、truncate、snapshot/restore、混合 provider 与错误复用拒绝 |
@@ -56,6 +56,6 @@
 - 不提交 `evidence/`、`.codex-handoff/`、RocksDB 数据、tmp、原始大日志、镜像或 benchmark 原始大文件。
 
 ## 下一动作
-3+3+3 认证和功能补充：错误口令返回 401。边 `knows` 由 Server-0 写入返回 201，三个 Server 都能读到目标顶点。DEFAULT 图空间 `auth=false`，因此无角色新用户创建 `closure_should_fail` 返回 201，并删除了 `closure_333_probe`（204）。临时图已由 admin 删除。角色级拒绝没有测试条件。结果只绑定 `closure-std-9abae9dbaaa1`。
+3+3+3 Store-2 Pod 恢复：删除前顶点 `store2-before-1790255446` 三个 Server 读取为 200。Pod UID 从 `b560a0c9` 变为 `7ce1f7ff`，PVC `pvc-1b94e967` 不变。Ready 用时 142.869 秒。恢复后原顶点仍为 200，新顶点 `store2-after-1790255589` 写入 201 且三个 Server 可读。启动日志显示 jemalloc 下载失败后跳过，恢复时间包含这次外部下载等待。Store-2 启动日志中的分区是 follower，不能当成 leader 或多数派测试。单节点 kind 不是物理 HA。结果绑定 `closure-std-9abae9dbaaa1`。
 
-1+1+1 当前 Store 卷仍不删除。下一动作是 3+3+3 的单个 Store Pod 退出和恢复，保留 PVC，并先写入可复核数据。
+1+1+1 Store 卷仍不删除。下一动作是删除一个 Store leader 或 Server 副本并记录业务连续性，仍保留 PVC。
