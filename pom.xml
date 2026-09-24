@@ -201,6 +201,8 @@
                             <exclude>.gitattributes</exclude>
                             <!-- AI Tools -->
                             <exclude>.serena/**</exclude>
+                            <!-- Local validation evidence, not a release artifact -->
+                            <exclude>.goal-task/**</exclude>
                             <!-- Intellij -->
                             <exclude>**/*.iml</exclude>
                             <exclude>**/*.iws</exclude>

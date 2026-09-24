@@ -184,12 +184,21 @@ public class BaseApiTest {
                                     String.valueOf(task));
             String content = assertResponseStatus(200, r);
             status = assertJsonContains(content, "task_status");
+            if (expectedStatus.contains(status)) {
+                return;
+            }
+            // A success-only wait must not spin after the task has ended.
+            if (!expectedStatus.contains("failed") &&
+                ("failed".equals(status) || "cancelled".equals(status))) {
+                Assert.fail(String.format("Task %s ended with status %s: %s",
+                                          task, status, content));
+            }
             if (times++ > maxTimes) {
                 Assert.fail(String.format("Failed to wait for task %s " +
-                                          "due to timeout", task));
+                                          "due to timeout, last status %s",
+                                          task, status));
             }
-        }
-        while (!expectedStatus.contains(status));
+        } while (true);
     }
 
     protected static void initVertexLabel() {
