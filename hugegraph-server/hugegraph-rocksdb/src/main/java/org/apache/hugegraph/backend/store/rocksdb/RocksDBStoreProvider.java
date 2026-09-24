@@ -23,6 +23,7 @@ import java.util.List;
 
 import org.apache.hugegraph.backend.store.AbstractBackendStoreProvider;
 import org.apache.hugegraph.backend.store.BackendStore;
+import org.apache.hugegraph.backend.store.BackendStoreProvider;
 import org.apache.hugegraph.backend.store.rocksdb.backup.RocksDbGraphBackupService;
 import org.apache.hugegraph.backup.GraphBackupService;
 import org.apache.hugegraph.config.HugeConfig;
@@ -37,10 +38,13 @@ public class RocksDBStoreProvider extends AbstractBackendStoreProvider {
 
     public List<RocksDBStore> backupStores() {
         List<RocksDBStore> result = new ArrayList<>();
-        for (BackendStore store : this.stores.values()) {
-            if (store instanceof RocksDBStore) {
-                result.add((RocksDBStore) store);
-            }
+        BackendStore schema = this.stores.get(BackendStoreProvider.SCHEMA_STORE);
+        BackendStore graph = this.stores.get(BackendStoreProvider.GRAPH_STORE);
+        if (schema instanceof RocksDBStore) {
+            result.add((RocksDBStore) schema);
+        }
+        if (graph instanceof RocksDBStore) {
+            result.add((RocksDBStore) graph);
         }
         return result;
     }
@@ -49,6 +53,20 @@ public class RocksDBStoreProvider extends AbstractBackendStoreProvider {
         for (BackendStore store : this.stores.values()) {
             store.open(config);
         }
+        this.notifyAndWaitEvent(org.apache.hugegraph.util.Events.STORE_INIT);
+    }
+
+    public void forceCloseSessions() {
+        for (BackendStore store : this.stores.values()) {
+            if (store instanceof RocksDBStore) {
+                ((RocksDBStore) store).forceCloseSessions();
+            }
+        }
+    }
+
+    public void closeAndForceCloseSessions() {
+        this.notifyAndWaitEvent(org.apache.hugegraph.util.Events.STORE_CLOSE);
+        this.forceCloseSessions();
     }
 
     protected String database() {

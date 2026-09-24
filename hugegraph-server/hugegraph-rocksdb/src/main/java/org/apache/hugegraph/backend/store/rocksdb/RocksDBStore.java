@@ -18,10 +18,12 @@
 package org.apache.hugegraph.backend.store.rocksdb;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.nio.charset.StandardCharsets;
+import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
@@ -69,6 +71,7 @@ import org.apache.hugegraph.util.Consumers;
 import org.apache.hugegraph.util.E;
 import org.apache.hugegraph.util.ExecutorUtil;
 import org.apache.hugegraph.util.InsertionOrderUtil;
+import org.apache.hugegraph.util.JsonUtil;
 import org.apache.hugegraph.util.Log;
 import org.rocksdb.RocksDB;
 import org.rocksdb.RocksDBException;
@@ -97,6 +100,11 @@ public abstract class RocksDBStore extends AbstractBackendStore<RocksDBSessions.
     private final ReadWriteLock storeLock;
 
     private static final String TABLE_GENERAL_KEY = "general";
+    private static final String RESTORE_MARKER_SUFFIX = ".backup-restore";
+    private static final String RESTORE_STATE = "state";
+    private static final String RESTORE_SWITCHING = "switching";
+    private static final String RESTORE_SWITCHED = "switched";
+    private static final String RESTORE_COMMITTED = "committed";
     private static final String DB_OPEN = "db-open-%s";
 
     private static final long DB_OPEN_TIMEOUT = 600L; // unit s
@@ -208,6 +216,12 @@ public abstract class RocksDBStore extends AbstractBackendStore<RocksDBSessions.
         }
     }
 
+    public final void forceCloseSessions() {
+        for (RocksDBSessions sessions : this.dbs.values()) {
+            sessions.forceClose();
+        }
+    }
+
     public final Map<Path, Path> switchNativeBackups(
             Path stageRoot, Map<String, Path> originalPaths) {
         Map<Path, Path> switched = new HashMap<>();
@@ -217,14 +231,21 @@ public abstract class RocksDBStore extends AbstractBackendStore<RocksDBSessions.
             E.checkState(Files.isDirectory(staged),
                          "Restore stage '%s' does not exist", staged);
             Path old = null;
+            Path marker = restoreMarker(target);
             try {
                 if (Files.exists(target)) {
                     old = target.resolveSibling(target.getFileName() +
                                                 ".backup-old-" +
                                                 UUID.randomUUID());
+                }
+                writeRestoreMarker(marker, target, old, staged,
+                                   RESTORE_SWITCHING);
+                if (old != null) {
                     FileUtils.moveDirectory(target.toFile(), old.toFile());
                 }
                 FileUtils.moveDirectory(staged.toFile(), target.toFile());
+                writeRestoreMarker(marker, target, old, staged,
+                                   RESTORE_SWITCHED);
                 if (old != null) {
                     switched.put(target, old);
                 }
@@ -241,11 +262,32 @@ public abstract class RocksDBStore extends AbstractBackendStore<RocksDBSessions.
                 } catch (RuntimeException rollbackError) {
                     e.addSuppressed(rollbackError);
                 }
+                deleteRestoreMarker(marker);
                 throw new BackendException("Failed to switch restored database '%s'",
                                            e, target);
             }
         }
         return switched;
+    }
+
+    public final void completeNativeBackupSwitch() {
+        for (Path target : this.backupDatabasePaths().values()) {
+            Path marker = restoreMarker(target);
+            if (!Files.exists(marker)) {
+                continue;
+            }
+            try {
+                Map<String, Object> content = readRestoreMarker(marker);
+                writeRestoreMarker(marker, target,
+                                   path(content.get("old")),
+                                   path(content.get("staged")),
+                                   RESTORE_COMMITTED);
+                deleteRestoreMarker(marker);
+            } catch (IOException e) {
+                throw new BackendException("Failed to commit restored database '%s'",
+                                           e, target);
+            }
+        }
     }
 
     public final void rollbackNativeBackups(Map<Path, Path> switched) {
@@ -266,6 +308,82 @@ public abstract class RocksDBStore extends AbstractBackendStore<RocksDBSessions.
                 throw new BackendException("Failed to roll back restored database '%s'",
                                            e, target);
             }
+            deleteRestoreMarker(restoreMarker(target));
+        }
+    }
+
+    private static Path restoreMarker(Path target) {
+        return target.resolveSibling(target.getFileName() + RESTORE_MARKER_SUFFIX);
+    }
+
+    private static Path path(Object value) {
+        return value == null ? null : Paths.get((String) value);
+    }
+
+    private static void writeRestoreMarker(Path marker, Path target, Path old,
+                                           Path staged, String state)
+            throws IOException {
+        Map<String, Object> content = new HashMap<>();
+        content.put("target", target.toString());
+        content.put("old", old == null ? null : old.toString());
+        content.put("staged", staged == null ? null : staged.toString());
+        content.put(RESTORE_STATE, state);
+        Path temp = marker.resolveSibling(marker.getFileName() + ".tmp");
+        Files.writeString(temp, JsonUtil.toJson(content), StandardCharsets.UTF_8);
+        try {
+            Files.move(temp, marker, StandardCopyOption.ATOMIC_MOVE,
+                       StandardCopyOption.REPLACE_EXISTING);
+        } catch (AtomicMoveNotSupportedException e) {
+            Files.move(temp, marker, StandardCopyOption.REPLACE_EXISTING);
+        }
+    }
+
+    private static Map<String, Object> readRestoreMarker(Path marker)
+            throws IOException {
+        return JsonUtil.fromJson(Files.readString(marker), Map.class);
+    }
+
+    private static void deleteRestoreMarker(Path marker) {
+        try {
+            Files.deleteIfExists(marker);
+        } catch (IOException e) {
+            throw new BackendException("Failed to delete restore marker '%s'",
+                                       e, marker);
+        }
+    }
+
+    private static void recoverNativeBackupSwitch(Path target) {
+        Path marker = restoreMarker(target);
+        if (!Files.exists(marker)) {
+            return;
+        }
+        try {
+            Map<String, Object> content = readRestoreMarker(marker);
+            Path old = path(content.get("old"));
+            Path staged = path(content.get("staged"));
+            String state = (String) content.get(RESTORE_STATE);
+            if (RESTORE_COMMITTED.equals(state) ||
+                (RESTORE_SWITCHED.equals(state) &&
+                 (old == null || !Files.exists(old)))) {
+                if (old != null) {
+                    FileUtils.deleteDirectory(old.toFile());
+                }
+            } else if (old != null && Files.exists(old)) {
+                if (Files.exists(target)) {
+                    FileUtils.deleteDirectory(target.toFile());
+                }
+                FileUtils.moveDirectory(old.toFile(), target.toFile());
+            } else if (RESTORE_SWITCHING.equals(state) &&
+                       Files.exists(target)) {
+                FileUtils.deleteDirectory(target.toFile());
+            }
+            if (staged != null && Files.exists(staged)) {
+                FileUtils.deleteDirectory(staged.toFile());
+            }
+            deleteRestoreMarker(marker);
+        } catch (IOException | RuntimeException e) {
+            throw new BackendException("Failed to recover restored database '%s'",
+                                       e, target);
         }
     }
 
@@ -363,6 +481,12 @@ public abstract class RocksDBStore extends AbstractBackendStore<RocksDBSessions.
         String graphStore = config.get(CoreOptions.STORE_GRAPH);
         this.isGraphStore = this.store.equals(graphStore);
         this.dataPath = config.get(RocksDBOptions.DATA_PATH);
+        this.recoverNativeBackupSwitch(Path.of(this.dataPath));
+        Map<String, String> configuredDisks =
+                config.getMap(RocksDBOptions.DATA_DISKS);
+        for (String disk : configuredDisks.values()) {
+            this.recoverNativeBackupSwitch(Path.of(disk));
+        }
 
         if (this.sessions != null && !this.sessions.closed()) {
             LOG.debug("Store {} has been opened before", this.store);

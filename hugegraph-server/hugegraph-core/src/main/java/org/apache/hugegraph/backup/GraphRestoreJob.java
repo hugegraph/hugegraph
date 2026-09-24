@@ -35,9 +35,7 @@ public class GraphRestoreJob extends GraphBackupJob {
         E.checkArgument(RESTORE.equals(operation),
                         "Unsupported graph backup operation '%s'", operation);
         String repository = string(request, "repository");
-        Object value = request.get("backup_id");
-        E.checkArgument(value == null || value instanceof String,
-                        "Backup id must be a string");
-        return this.graph().backupService().restore(repository, (String) value);
+        String version = string(request, "backup_id");
+        return this.graph().backupService().restore(repository, version);
     }
 }

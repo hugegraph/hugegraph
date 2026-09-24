@@ -124,13 +124,14 @@ public final class RocksDbGraphBackupService implements GraphBackupService {
             Path stage = root.resolve(STAGES).resolve(manifest.version() + "-" +
                                                       UUID.randomUUID());
             boolean providerClosed = false;
+            boolean providerReopenStarted = false;
             fence.enterCapture();
             try {
                 for (RocksDBStore store : this.stores()) {
                     originalPaths.put(store, store.backupDatabasePaths());
                     store.restoreNativeBackups(root, manifest.databases(), stage);
                 }
-                this.provider.close();
+                this.provider.closeAndForceCloseSessions();
                 providerClosed = true;
                 for (Map.Entry<RocksDBStore, Map<String, Path>> entry :
                         originalPaths.entrySet()) {
@@ -140,12 +141,16 @@ public final class RocksDbGraphBackupService implements GraphBackupService {
                         switched.put(entry.getKey(), paths);
                     }
                 }
+                providerReopenStarted = true;
                 this.provider.reopen(this.config);
                 providerClosed = false;
+                for (RocksDBStore store : switched.keySet()) {
+                    store.completeNativeBackupSwitch();
+                }
                 cleanupOldPaths(switched);
                 return result(manifest);
             } catch (RuntimeException e) {
-                rollbackRestore(switched, providerClosed, e);
+                rollbackRestore(switched, providerClosed, providerReopenStarted, e);
                 throw e;
             } finally {
                 fence.leaveCapture();
@@ -362,7 +367,16 @@ public final class RocksDbGraphBackupService implements GraphBackupService {
     }
 
     private void rollbackRestore(Map<RocksDBStore, Map<Path, Path>> switched,
-                                 boolean providerClosed, RuntimeException cause) {
+                                 boolean providerClosed,
+                                 boolean providerReopenStarted,
+                                 RuntimeException cause) {
+        if (providerReopenStarted) {
+            try {
+                this.provider.close();
+            } catch (RuntimeException e) {
+                cause.addSuppressed(e);
+            }
+        }
         List<Map.Entry<RocksDBStore, Map<Path, Path>>> entries =
                 new ArrayList<>(switched.entrySet());
         java.util.Collections.reverse(entries);

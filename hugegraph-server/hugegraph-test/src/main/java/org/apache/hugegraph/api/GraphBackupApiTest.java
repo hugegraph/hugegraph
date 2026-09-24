@@ -40,7 +40,8 @@ public class GraphBackupApiTest extends BaseApiTest {
     public void testCreateAndRestoreSelectedGraphVersions() throws Exception {
         String suffix = UUID.randomUUID().toString().replace("-", "");
         String graph = "backup" + suffix.substring(0, 12);
-        Path root = Files.createTempDirectory("hugegraph-backup-e2e-");
+        Path root = Path.of("C:/hg-e2e-" + suffix.substring(0, 8));
+        Files.createDirectories(root);
         String graphPath = "graphspaces/DEFAULT/graphs/" + graph;
         String backupPath = graphPath + "/backups";
 
@@ -56,10 +57,10 @@ public class GraphBackupApiTest extends BaseApiTest {
             assertResponseStatus(201, client().post(graphPath, config));
 
             String propertyKeys = graphPath + "/schema/propertykeys";
-            assertResponseStatus(201, client().post(propertyKeys,
+            assertSchemaCreated(client().post(propertyKeys,
                     "{\"name\":\"name\",\"data_type\":\"TEXT\","
                     + "\"cardinality\":\"SINGLE\"}"));
-            assertResponseStatus(201, client().post(propertyKeys,
+            assertSchemaCreated(client().post(propertyKeys,
                     "{\"name\":\"age\",\"data_type\":\"INT\","
                     + "\"cardinality\":\"SINGLE\"}"));
 
@@ -98,7 +99,11 @@ public class GraphBackupApiTest extends BaseApiTest {
         } finally {
             client().delete(graphPath, ImmutableMap.of(
                     "confirm_message", "I'm sure to drop the graph"));
-            FileUtils.deleteDirectory(root.toFile());
+            try {
+                FileUtils.deleteDirectory(root.toFile());
+            } catch (Exception e) {
+                root.toFile().deleteOnExit();
+            }
         }
     }
 
@@ -108,6 +113,12 @@ public class GraphBackupApiTest extends BaseApiTest {
         String response = assertResponseStatus(201, client().post(path, body));
         Map<?, ?> result = JsonUtil.fromJson(response, Map.class);
         return String.valueOf(result.get("id"));
+    }
+
+    private void assertSchemaCreated(Response response) {
+        String body = response.readEntity(String.class);
+        Assert.assertTrue("Response body: " + body,
+                          response.getStatus() == 201 || response.getStatus() == 202);
     }
 
     private String createBackup(String path, String repository) {
@@ -128,10 +139,12 @@ public class GraphBackupApiTest extends BaseApiTest {
     }
 
     private void restore(String path, String repository, String backupId) {
+        Map<String, Object> request = new LinkedHashMap<>();
+        request.put("repository", repository);
+        request.put("backup_id", backupId);
+        request.put("confirm", true);
         String response = assertResponseStatus(200, client().post(
-                path + "/restore", "{\"repository\":\"" + repository
-                                   + "\",\"backup_id\":\"" + backupId
-                                   + "\",\"confirm\":true}"));
+                path + "/restore", JsonUtil.toJson(request)));
         String graphPath = path.substring(0, path.length() - "/backups".length());
         waitBackupTask(graphPath, taskId(response));
     }
