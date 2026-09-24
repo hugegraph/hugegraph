@@ -33,6 +33,7 @@ import org.junit.runners.Suite;
         VertexApiTest.class,
         EdgeApiTest.class,
         TaskApiTest.class,
+        GraphBackupApiTest.class,
         GremlinApiTest.class,
         MetricsApiTest.class,
         UserApiTest.class,
