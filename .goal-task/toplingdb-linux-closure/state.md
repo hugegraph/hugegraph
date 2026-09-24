@@ -25,7 +25,7 @@
 | 阶段 | 当前状态 | 完成条件 |
 | --- | --- | --- |
 | P0 合同刷新 | 文档已刷新，随本提交推送 | `state.md` 与 `todo.md` 进入 `org/toplingdb`；goal 尚未启动 |
-| P1 历史标准集群补证 | Store follower 与 Server 副本切换已有证据；leader、多数派、snapshot 仍未完成 | 1+1+1 生命周期、3+3+3 功能与 HA 有日志和业务证据；结果绑定 `9aba`，不算当前 SHA |
+| P1 历史标准集群补证 | Store leader Pod 恢复已有证据；多数派、网络分区和 snapshot 仍未完成 | 1+1+1 生命周期、3+3+3 功能与 HA 有日志和业务证据；结果绑定 `9aba`，不算当前 SHA |
 | P2 当前 SHA 构建与 JNI | 未开始 | 标准与 Topling 镜像隔离，实际 JNI 映射证明无静默 fallback |
 | P3 当前 SHA 功能 | 未开始 | 单机、1+1+1、3+3+3 两个 provider 的功能证据 |
 | P4 生命周期与 provider | 未开始 | 停止重启、持久化、truncate、snapshot/restore、混合 provider 与错误复用拒绝 |
@@ -56,6 +56,6 @@
 - 不提交 `evidence/`、`.codex-handoff/`、RocksDB 数据、tmp、原始大日志、镜像或 benchmark 原始大文件。
 
 ## 下一动作
-3+3+3 Server 副本切换：删除 `hg-closure-standard-333-hugegraph-server-76968f686b-qh7lv` 后，18082 和 18083 仍能读取删除前顶点，并接受新顶点 `server-during-1790255707`。替换 Pod `...-2bgvc` Ready 后能读取这两个顶点。自动计时 0.118 秒只看到 Pending，不是 Ready 时间。没有删除 PVC。单节点 kind 不是物理 HA，也还没有 Store leader 或多数派证据。结果绑定 `closure-std-9abae9dbaaa1`。
+3+3+3 Store leader：删除前 Store-0 `leaderCount=8`，Store-1 为 4，Store-2 为 0。只删除 Store-0 Pod。PVC `pvc-0ac37d84` 不变，Pod UID 从 `c4365947` 变为 `8684e455`，143.014 秒后 Ready。已提交顶点 `leader-before-1790255908` 在删除期间和恢复后都返回 200。删除后立即写入 `leader-during-1790255908` 没有返回 HTTP 状态，之后读取为 404。恢复后的重试写入 `leader-diag` 返回 201，两个 Server 读取为 200。恢复后 leader 计数变为 Store-0=0、Store-1=9、Store-2=3。单节点 kind 不是物理 HA，多数派丢失尚未测试。结果绑定 `closure-std-9abae9dbaaa1`。
 
-1+1+1 Store 卷仍不删除。下一动作是确认一个 Store Raft leader 后只删除该 Pod，并记录其余副本的读写连续性。
+1+1+1 Store 卷仍不删除。下一动作是在保留多数 Store 的前提下，不做网络分区，先记录当前边界；多数派测试需要单独安排，避免和正在恢复的集群叠加。
