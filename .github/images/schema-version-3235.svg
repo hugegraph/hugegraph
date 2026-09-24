@@ -1,0 +1,85 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1300 800" width="1300" height="800" font-family="Helvetica Neue, Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="ag" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#1f7a4d"/>
+    </marker>
+    <marker id="ak" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#333333"/>
+    </marker>
+    <marker id="ax" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#999999"/>
+    </marker>
+  </defs>
+  <rect x="0" y="0" width="1300" height="800" fill="#ffffff"/>
+
+  <text x="40" y="44" font-size="24" font-weight="bold" fill="#111111">How a schema change reaches the other Servers</text>
+
+  <!-- Server A -->
+  <rect x="40" y="90" width="270" height="170" rx="10" fill="#f4f4f4" stroke="#555555" stroke-width="2"/>
+  <text x="60" y="126" font-size="22" font-weight="bold" fill="#111111">Server A</text>
+  <text x="60" y="160" font-size="18" fill="#333333">schema change:</text>
+  <text x="60" y="186" font-size="18" fill="#333333">add, update, status flip,</text>
+  <text x="60" y="212" font-size="18" fill="#333333">remove, clear</text>
+
+  <!-- PD -->
+  <rect x="500" y="70" width="330" height="330" rx="10" fill="#f4f4f4" stroke="#555555" stroke-width="2"/>
+  <text x="520" y="106" font-size="22" font-weight="bold" fill="#111111">PD KV</text>
+  <rect x="520" y="124" width="290" height="60" rx="6" fill="#ffffff" stroke="#888888"/>
+  <text x="536" y="160" font-size="18" fill="#333333">schema elements</text>
+  <rect x="520" y="202" width="290" height="80" rx="6" fill="#e6f4ec" stroke="#1f7a4d" stroke-width="2"/>
+  <text x="536" y="234" font-size="18" font-weight="bold" fill="#1f7a4d">SCHEMA_VERSION/{gs}/{graph}</text>
+  <text x="536" y="262" font-size="18" fill="#1f7a4d">new: one opaque value</text>
+  <rect x="520" y="300" width="290" height="80" rx="6" fill="#ffffff" stroke="#999999" stroke-dasharray="6 4"/>
+  <text x="536" y="332" font-size="18" fill="#666666">EVENT/GRAPH/SCHEMA/CLEAR</text>
+  <text x="536" y="360" font-size="18" fill="#666666">unchanged</text>
+
+  <!-- Servers B, C -->
+  <rect x="1010" y="90" width="250" height="310" rx="10" fill="#f4f4f4" stroke="#555555" stroke-width="2"/>
+  <text x="1030" y="126" font-size="22" font-weight="bold" fill="#111111">Servers B, C</text>
+  <text x="1030" y="160" font-size="18" fill="#333333">schema cache</text>
+  <text x="1030" y="186" font-size="18" fill="#333333">(no expiry)</text>
+  <rect x="1030" y="210" width="210" height="90" rx="6" fill="#e6f4ec" stroke="#1f7a4d" stroke-width="2"/>
+  <text x="1044" y="242" font-size="18" font-weight="bold" fill="#1f7a4d">reconciler</text>
+  <text x="1044" y="268" font-size="18" fill="#1f7a4d">one task per graph,</text>
+  <text x="1044" y="292" font-size="18" fill="#1f7a4d">every 10 s</text>
+
+  <!-- A -> PD arrows -->
+  <line x1="310" y1="150" x2="516" y2="152" stroke="#333333" stroke-width="2.5" marker-end="url(#ak)"/>
+  <text x="330" y="140" font-size="17" fill="#333333">1. write schema</text>
+  <line x1="310" y1="200" x2="516" y2="240" stroke="#1f7a4d" stroke-width="3" marker-end="url(#ag)"/>
+  <text x="318" y="252" font-size="17" fill="#1f7a4d">2. write new version,</text>
+  <text x="318" y="274" font-size="17" fill="#1f7a4d">every change</text>
+  <line x1="250" y1="260" x2="516" y2="340" stroke="#999999" stroke-width="2" stroke-dasharray="7 5" marker-end="url(#ax)"/>
+  <text x="250" y="330" font-size="17" fill="#777777">3. event: add, remove,</text>
+  <text x="250" y="352" font-size="17" fill="#777777">clear only (as today)</text>
+
+  <!-- event path to B,C -->
+  <line x1="810" y1="350" x2="1006" y2="350" stroke="#999999" stroke-width="2" stroke-dasharray="7 5" marker-end="url(#ax)"/>
+  <text x="846" y="386" font-size="16" fill="#777777">watch: fast, but</text>
+  <text x="846" y="406" font-size="16" fill="#777777">no replay</text>
+
+  <!-- reconciler poll -->
+  <line x1="1028" y1="236" x2="814" y2="236" stroke="#1f7a4d" stroke-width="3" marker-end="url(#ag)"/>
+  <text x="836" y="224" font-size="16" fill="#1f7a4d">read version</text>
+  <line x1="814" y1="262" x2="1028" y2="262" stroke="#1f7a4d" stroke-width="3" marker-end="url(#ag)"/>
+  <text x="836" y="290" font-size="16" fill="#1f7a4d">changed: clear the</text>
+  <text x="836" y="310" font-size="16" fill="#1f7a4d">graph's cache once</text>
+
+  <text x="40" y="450" font-size="18" fill="#333333">Correctness comes from the version (green), not the event (grey): with the watch down, a change still arrives on the next tick.</text>
+
+  <!-- storm comparison -->
+  <line x1="40" y1="480" x2="1260" y2="480" stroke="#dddddd" stroke-width="2"/>
+  <text x="40" y="520" font-size="22" font-weight="bold" fill="#111111">Full cache clears per remote Server during a burst of M schema updates</text>
+  <text x="40" y="550" font-size="18" fill="#555555">Measured on kind: 3 Servers, about 5,000 property-key updates in 60 s through one Server, counted over 90 s</text>
+
+  <text x="40" y="604" font-size="19" fill="#111111">Notify on every update (naive)</text>
+  <rect x="380" y="582" width="860" height="34" fill="#c0392b"/>
+  <text x="392" y="606" font-size="19" font-weight="bold" fill="#ffffff">4,980 clears on each remote Server: one per update</text>
+
+  <text x="40" y="664" font-size="19" fill="#111111">Version reconciler (this PR)</text>
+  <rect x="380" y="642" width="4" height="34" fill="#1f7a4d"/>
+  <text x="396" y="666" font-size="19" font-weight="bold" fill="#1f7a4d">7 clears on each Server: one per 10 s tick, whatever M is</text>
+
+  <text x="40" y="724" font-size="18" fill="#333333">Cluster-wide clears: naive M x (N - 1); this PR at most N x (ceil(D / T) + 1) for a burst lasting D seconds.</text>
+  <text x="40" y="754" font-size="18" fill="#333333">Stock master clears nothing on updates, which is why remote caches stay stale.</text>
+</svg>
