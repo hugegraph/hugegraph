@@ -189,4 +189,6 @@ Store 删除后的复测无效：脚本把仍在终止的旧 Pod 读成 0.074 �
 
 2026-09-25 04:42：标准 `hg-closure-std-e109-111` 导入图 `law_twitter_1m_std`。Loader 退出 0，80.973 秒，1000000 点、2098771 边、失败 0。PD `4c9011a7bd64`、Store `f53fa5f612c2` 是标准 `e109012a0` 镜像。Server 是 overlay `closure-e109-channelrefresh` `3a129d448516`。证据 `evidence/loader-law-twitter-1m-std-e109.json`。第一次启动误写了 Topling 证据目录的 `start.json` 和 `loader.log`；Topling 导入结论仍以 `loader-law-twitter-1m-e109.json` 里的退出 0 和计数为准。
 
-下一步：HStore 图快照仍未实现。重连修复还要审查后才能提交。标准固定子集还没有邻接复核。核心功能未完成前不开始 benchmark。
+2026-09-25 04:45：标准 `law_twitter_1m_std` 重启前 32 个邻接样本 0 不一致，9 个自环通过，Gremlin 计数 `1000000:2098771`。证据 `evidence/loader-law-twitter-1m-std-e109-adjacency.json`。随后删除 Store-0，新 UID 12.835 秒 Ready，PVC `pvc-4b0bd019-0456-44a6-b2c3-b76266773958` 未变，JNI 仍是标准 `8b8fb2ed…6dff`。同一个 overlay Server 没有重启。恢复后 32 个样本和 9 个自环再次通过，计数仍是 `1000000:2098771`。证据 `evidence/loader-law-twitter-1m-std-e109-restart.json`、`evidence/loader-law-twitter-1m-std-e109-adjacency-after.json`。
+
+下一步：HStore 图快照仍未实现。重连修复还要审查后才能提交。核心功能未完成前不开始 benchmark。

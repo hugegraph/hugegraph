@@ -6,7 +6,7 @@
 
 完成标记仍只看下面的复选框。本机按这个顺序继续：
 
-1. 标准 `e109012a0` 1+1+1 的写入、12.239 秒 Store 替换、JNI 不变和 Server 重新解析后的读回已留证。标准和 Topling 的 `e109` 3+3+3 都已写入并被三台 Server 读到。标准删图重建和 truncate 已留证。Store 重连修复已在标准 1+1+1 的 overlay Server 上复测通过，但仍未审查、未提交，也不是完整 SHA 镜像。标准和 Topling 的 e109 3+3+3 都有单 Store leader 删除和 Server 副本删除证据。标准 e109 3+3+3 在 overlay Server 上完成了两台 Store 同时删除和恢复。标准和 Topling 的 e109 3+3+3 都在 overlay Server 上完成了两台 Store 同时删除和恢复。标准 1+1+1 也导入了同一固定子集，1000000/2098771/0。标准和 Topling 的 e109 1+1+1 都完成了删图重建和 truncate。标准和 Topling 的 e109 3+3+3 都有 PD leader 删除证据。两边的 HStore snapshot_create 仍是 500 UnsupportedOperationException。
+1. 标准 `e109012a0` 1+1+1 的写入、12.239 秒 Store 替换、JNI 不变和 Server 重新解析后的读回已留证。标准和 Topling 的 `e109` 3+3+3 都已写入并被三台 Server 读到。标准删图重建和 truncate 已留证。Store 重连修复已在标准 1+1+1 的 overlay Server 上复测通过，但仍未审查、未提交，也不是完整 SHA 镜像。标准和 Topling 的 e109 3+3+3 都有单 Store leader 删除和 Server 副本删除证据。标准 e109 3+3+3 在 overlay Server 上完成了两台 Store 同时删除和恢复。标准和 Topling 的 e109 3+3+3 都在 overlay Server 上完成了两台 Store 同时删除和恢复。标准 1+1+1 固定子集已导入，32 个邻接样本和 9 个自环在 Store 重启前后都通过，计数是 1000000:2098771。标准和 Topling 的 e109 1+1+1 都完成了删图重建和 truncate。标准和 Topling 的 e109 3+3+3 都有 PD leader 删除证据。两边的 HStore snapshot_create 仍是 500 UnsupportedOperationException。
 2. P6：Topling 导入、重启前样本、Server 替换后的 32 样本和 `1000000:2098771` 计数已经留证。Store 客户端没有自行改连新 IP，所以重启项仍不勾选。
 3. P3 剩余：标准 3+3+3、两个 provider 的单机，以及 API 155 没有覆盖的功能矩阵。
 4. P4 剩余：异常退出、PD/Store 混合组合、错误 provider 拒绝原数据。snapshot 没有 CRD 时保持带解除条件的后置。
