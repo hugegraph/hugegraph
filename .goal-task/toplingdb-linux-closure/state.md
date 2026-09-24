@@ -26,7 +26,7 @@
 | --- | --- | --- |
 | P0 合同刷新 | 文档已刷新，随本提交推送 | `state.md` 与 `todo.md` 进入 `org/toplingdb`；goal 尚未启动 |
 | P1 历史标准集群补证 | Store 多数派 Pod 删除已有证据；网络分区后置，snapshot 仍失败 | 1+1+1 生命周期、3+3+3 功能与 HA 有日志和业务证据；结果绑定 `9aba`，不算当前 SHA |
-| P2 当前 SHA 构建与 JNI | 未开始 | 标准与 Topling 镜像隔离，实际 JNI 映射证明无静默 fallback |
+| P2 当前 SHA 构建与 JNI | 标准镜像构建进行中 | 标准与 Topling 镜像隔离，实际 JNI 映射证明无静默 fallback |
 | P3 当前 SHA 功能 | 未开始 | 单机、1+1+1、3+3+3 两个 provider 的功能证据 |
 | P4 生命周期与 provider | 未开始 | 停止重启、持久化、truncate、snapshot/restore、混合 provider 与错误复用拒绝 |
 | P5 HA | 未开始 | 副本退出、切换、分区、多数派恢复、写入一致性和恢复时间 |
@@ -56,6 +56,4 @@
 - 不提交 `evidence/`、`.codex-handoff/`、RocksDB 数据、tmp、原始大日志、镜像或 benchmark 原始大文件。
 
 ## 下一动作
-3+3+3 Store 多数派：保留 Store-1，同时删除 Store-0 和 Store-2。已提交顶点 `majority-before-1790256192` 在两个 Server 上删除期间和恢复后都返回 200。删除期间写入 `majority-during-1790256192` 超时，恢复后仍是 404。两个 Pod 143.544 秒后 Ready，PVC 不变。恢复后写入 `majority-after-1790256336` 返回 201，两个 Server 读取为 200。这是单节点 kind 的 Pod 删除，不是网络分区，也不是当前 SHA。
-
-Chaos Mesh CRD 和 namespace 都不存在，网络分区后置。1+1+1 Store 卷仍不删除。下一动作转到当前 `org/toplingdb` HEAD 的标准与 Topling 隔离镜像构建，使用新 namespace。
+当前 SHA 标准镜像构建已启动，绑定 `cc14333f0da8b624ed618cf3bdefcd28658764e3`。tag 为 `closure-std-cc14333f0`，只构建 linux/amd64 的 pd、store、server-hstore、server-standalone。上下文是干净归档加未改动的 `docker/`，因为 `docker/` 在 `.gitattributes` 里是 `export-ignore`。日志是 `evidence/build/current-sha-standard-image-build.log`，进程 3441890。不要再启动第二个 bake，也不要升级两个 `9aba` namespace。Topling 镜像等标准构建结束后再开始。

@@ -14,7 +14,7 @@
 
 ## P2 当前 SHA 构建
 
-- [ ] 从执行时的 `org/toplingdb` HEAD 构建隔离的标准镜像和 Topling 镜像。
+- [ ] 从执行时的 `org/toplingdb` HEAD 构建隔离的标准镜像和 Topling 镜像。标准镜像构建已开始，tag `closure-std-cc14333f0`，尚未完成；Topling 未开始。
 - [ ] 证明 Topling 进程实际映射 Topling JNI，标准镜像不包含或不会静默加载 Topling。
 - [ ] 用新 namespace 加载镜像，不升级两个 `9aba` namespace。
 
