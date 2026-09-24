@@ -56,4 +56,4 @@
 - 不提交 `evidence/`、`.codex-handoff/`、RocksDB 数据、tmp、原始大日志、镜像或 benchmark 原始大文件。
 
 ## 下一动作
-当前 SHA 标准镜像构建已启动，绑定 `cc14333f0da8b624ed618cf3bdefcd28658764e3`。tag 为 `closure-std-cc14333f0`，只构建 linux/amd64 的 pd、store、server-hstore、server-standalone。上下文是干净归档加未改动的 `docker/`，因为 `docker/` 在 `.gitattributes` 里是 `export-ignore`。日志是 `evidence/build/current-sha-standard-image-build.log`，进程 3441890。不要再启动第二个 bake，也不要升级两个 `9aba` namespace。Topling 镜像等标准构建结束后再开始。
+当前 SHA 标准镜像构建由 systemd 用户单元 `hg-closure-std-image-cc14333f0-r2` 运行，MainPID 3444902，日志 `evidence/build/current-sha-standard-image-build-r2.log`。绑定 `cc14333f0da8b624ed618cf3bdefcd28658764e3`，tag `closure-std-cc14333f0`，只构建 linux/amd64。第一次直接 `git archive` 失败，因为 `.gitattributes` 的 `docker/ export-ignore` 把模块里的 Docker 脚本也排除了；已从干净工作树补回这些已跟踪文件。不要再启动另一个 bake，也不要升级两个 `9aba` namespace。Topling 镜像等这次标准构建结束后再开始。
