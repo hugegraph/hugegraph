@@ -5486,6 +5486,29 @@ public class VertexCoreTest extends BaseCoreTest {
         this.assertQueryByJointIndexesWithSearchAndTwoRangeIndexesAndWithin();
         this.commitTx();
         this.assertQueryByJointIndexesWithSearchAndTwoRangeIndexesAndWithin();
+
+        // Every confirmType branch and the search index reach the threshold.
+        // Only type=0 is selective, independently of joint-index iteration order.
+        int kid = 5;
+        for (int confirmType : new int[]{0, 1, 3}) {
+            graph.addVertex(T.label, "test", "name", "诚信", "confirmType", confirmType,
+                            "type", 1, "kid", kid++);
+        }
+        this.commitTx();
+        Object tx = Whitebox.invoke(graph.getClass(), "graphTransaction", graph);
+        Object threshold = Whitebox.getInternalState(tx, "indexTx.indexIntersectThresh");
+        try {
+            Whitebox.setInternalState(tx, "indexTx.indexIntersectThresh", 2);
+            List<Vertex> vertices = graph.traversal().V()
+                                         .has("type", 0)
+                                         .has("confirmType", P.within(0, 1, 3))
+                                         .has("name", Text.contains("诚信"))
+                                         .toList();
+            Assert.assertEquals(1, vertices.size());
+            assertContains(vertices, T.label, "test", "kid", 0);
+        } finally {
+            Whitebox.setInternalState(tx, "indexTx.indexIntersectThresh", threshold);
+        }
     }
 
     private void assertQueryByJointIndexesWithSearchAndTwoRangeIndexesAndWithin() {

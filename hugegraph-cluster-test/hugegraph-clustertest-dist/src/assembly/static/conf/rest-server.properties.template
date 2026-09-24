@@ -23,6 +23,9 @@ gremlinserver.url=http://$GREMLIN_SERVER_ADDRESS$
 
 graphs=./conf/graphs
 
+# Server metadata and graph storage must use the same test PD cluster.
+pd.peers=$PD_PEERS_LIST$
+
 # The maximum thread ratio for batch writing, only take effect if the batch.max_write_threads is 0
 batch.max_write_ratio=80
 batch.max_write_threads=0

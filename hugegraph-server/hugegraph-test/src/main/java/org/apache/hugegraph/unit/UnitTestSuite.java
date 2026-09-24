@@ -63,6 +63,7 @@ import org.apache.hugegraph.unit.core.HstoreSessionsTest;
 import org.apache.hugegraph.unit.core.IdHolderTest;
 import org.apache.hugegraph.unit.core.LocksTableTest;
 import org.apache.hugegraph.unit.core.PageStateTest;
+import org.apache.hugegraph.unit.core.ConfigPathTest;
 import org.apache.hugegraph.unit.core.QueryResultsTest;
 import org.apache.hugegraph.unit.core.QueryTest;
 import org.apache.hugegraph.unit.core.RangeTest;
@@ -168,6 +169,7 @@ import org.junit.runners.Suite;
         GraphIndexTransactionTest.class,
         GraphTransactionTest.class,
         QueryTest.class,
+        ConfigPathTest.class,
         QueryResultsTest.class,
         QueryListTest.class,
         RangeTest.class,

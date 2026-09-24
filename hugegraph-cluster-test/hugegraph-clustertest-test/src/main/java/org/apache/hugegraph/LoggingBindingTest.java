@@ -15,21 +15,19 @@
  * limitations under the License.
  */
 
-package org.apache.hugegraph.MultiClusterTest;
+package org.apache.hugegraph;
 
-import org.apache.hugegraph.LoggingBindingTest;
-import org.junit.runner.RunWith;
-import org.junit.runners.Suite;
+import org.junit.Assert;
+import org.junit.Test;
+import org.slf4j.LoggerFactory;
+import org.slf4j.helpers.NOPLoggerFactory;
 
-import lombok.extern.slf4j.Slf4j;
+public class LoggingBindingTest {
 
-@RunWith(Suite.class)
-@Suite.SuiteClasses({
-        LoggingBindingTest.class,
-        MultiClusterDeployTest.class,
-        MultiClusterFileTest.class,
-})
-@Slf4j
-public class MultiClusterSuiteTest {
-
+    @Test
+    public void testClusterDiagnosticsHaveLoggingBackend() {
+        Assert.assertFalse("Cluster diagnostics must not use a no-op logger",
+                           LoggerFactory.getILoggerFactory() instanceof NOPLoggerFactory);
+        Assert.assertTrue(LoggerFactory.getLogger(LoggingBindingTest.class).isErrorEnabled());
+    }
 }

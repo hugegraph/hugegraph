@@ -183,3 +183,11 @@ docker run -itd --name=graph -p 8080:8080 -e HG_SERVER_STARTUP_TIMEOUT_S=450 hug
 Raising it does not move the health check above. The images set `--interval=15s --start-period=90s --retries=3`, so a container given a longer startup budget is reported `unhealthy` around 135 seconds while the entrypoint is still legitimately waiting; raise it with `--health-start-period` on `docker run`. The Compose files replace those values with their own (`start_period: 60s`, `interval: 10s`, `retries: 30`, so roughly 360 seconds), and anything gated on `depends_on: condition: service_healthy`, Hubble included, waits on that budget rather than on this variable. Move the two together.
 
 </details>
+
+### Offline store dump output
+
+After stopping a standalone RocksDB Server, `bin/dump-store.sh` uses the
+packaged `conf/log4j2.xml` configuration to print the selected table and entries.
+No external `JAVA_TOOL_OPTIONS` setting is required. If an operator changes the
+logging configuration, keep INFO output enabled for
+`org.apache.hugegraph.cmd.StoreDumper` to see the dump contents.

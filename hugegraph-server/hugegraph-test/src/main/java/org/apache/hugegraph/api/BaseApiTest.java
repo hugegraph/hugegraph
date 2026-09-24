@@ -59,13 +59,16 @@ import jakarta.ws.rs.core.Response;
 
 public class BaseApiTest {
 
-    protected static final String BASE_URL = "http://127.0.0.1:8080";
+    protected static final String BASE_URL = System.getenv().getOrDefault(
+            "HUGEGRAPH_TEST_SERVER_URL", "http://127.0.0.1:8080");
     private static final String GRAPH = "hugegraph";
     private static final String GRAPHSPACE = "DEFAULT";
     protected static final String URL_PREFIX = "graphspaces/" + GRAPHSPACE + "/graphs/" + GRAPH;
     protected static final String TRAVERSERS_API = URL_PREFIX + "/traversers";
-    private static final String USERNAME = "admin";
-    private static final String PASSWORD = "pa";
+    private static final String USERNAME = System.getenv().getOrDefault(
+            "HUGEGRAPH_TEST_ADMIN_USERNAME", "admin");
+    private static final String PASSWORD = System.getenv().getOrDefault(
+            "HUGEGRAPH_TEST_ADMIN_PASSWORD", "pa");
     private static final int NO_LIMIT = -1;
     private static final String SCHEMA_PKS = "/schema/propertykeys";
     private static final String SCHEMA_VLS = "/schema/vertexlabels";

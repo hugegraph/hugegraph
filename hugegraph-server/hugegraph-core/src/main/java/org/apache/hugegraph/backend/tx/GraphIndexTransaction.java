@@ -168,7 +168,7 @@ public class GraphIndexTransaction extends AbstractTransaction {
             return;
         }
         // Update index(only property, no edge) of a vertex
-        for (Id id : vertex.schemaLabel().indexLabels()) {
+        for (Id id : this.indexLabelIds(vertex.schemaLabel())) {
             this.updateIndex(id, vertex, removed);
         }
     }
@@ -176,7 +176,7 @@ public class GraphIndexTransaction extends AbstractTransaction {
     @Watched(prefix = "index")
     public void updateEdgeIndex(HugeEdge edge, boolean removed) {
         // Update index of an edge
-        for (Id id : edge.schemaLabel().indexLabels()) {
+        for (Id id : this.indexLabelIds(edge.schemaLabel())) {
             this.updateIndex(id, edge, removed);
         }
 
@@ -857,18 +857,9 @@ public class GraphIndexTransaction extends AbstractTransaction {
 
     private ConditionQuery constructSearchQuery(ConditionQuery query, MatchedIndex index) {
         ConditionQuery newQuery = query;
-        ConditionQuery filterQuery = query;
-        Query rootQuery = query.rootOriginQuery();
-        if (rootQuery instanceof ConditionQuery) {
-            /*
-             * Index queries can be flattened before reaching this method. Keep
-             * the filter on the original query so that an IN condition is
-             * checked as a whole instead of only against the current EQ
-             * sub-query.
-             */
-            filterQuery = (ConditionQuery) rootQuery;
-        }
-        final ConditionQuery originalQuery = filterQuery;
+        // Keep this incoming branch's non-search conditions. Expanding an EQ
+        // branch back to its root IN condition can return the same element
+        // once per branch when joint indexes fall back to filtering.
         Set<Id> indexFields = new HashSet<>();
         // Convert has(key, text) to has(key, textContainsAny(word1, word2))
         for (IndexLabel il : index.indexLabels()) {
@@ -888,7 +879,7 @@ public class GraphIndexTransaction extends AbstractTransaction {
         // Register results filter to compare property value and search text
         newQuery.registerResultsFilter(element -> {
             assert element != null;
-            for (Condition cond : originalQuery.conditions()) {
+            for (Condition cond : query.conditions()) {
                 Object key = cond.isRelation() ?
                              ((Relation) cond).key() : null;
                 if (key instanceof Id && indexFields.contains(key)) {
@@ -896,8 +887,7 @@ public class GraphIndexTransaction extends AbstractTransaction {
                     Id field = (Id) key;
                     HugeProperty<?> property = element.getProperty(field);
                     String propValue = propertyValueToString(property.value());
-                    String fieldValue =
-                            (String) originalQuery.userpropValue(field);
+                    String fieldValue = (String) query.userpropValue(field);
                     if (this.matchSearchIndexWords(propValue, fieldValue)) {
                         continue;
                     }
@@ -1570,13 +1560,27 @@ public class GraphIndexTransaction extends AbstractTransaction {
                         indexLabel, indexLabel.status());
     }
 
-    private static boolean hasNullableProp(HugeElement element, Id key) {
-        return element.schemaLabel().nullableKeys().contains(key);
+    private boolean hasNullableProp(HugeElement element, Id key) {
+        return this.currentSchemaLabel(element.schemaLabel()).nullableKeys().contains(key);
     }
 
-    private static Set<IndexLabel> relatedIndexLabels(HugeElement element) {
+    Set<Id> indexLabelIds(SchemaLabel label) {
+        return this.currentSchemaLabel(label).indexLabels();
+    }
+
+    private SchemaLabel currentSchemaLabel(SchemaLabel label) {
+        // Elements can outlive schema cache eviction. Resolve the current index
+        // membership rather than using the schema object retained by an element.
+        ISchemaTransaction schema = this.params().schemaTransaction();
+        SchemaLabel current = label.type() == HugeType.VERTEX_LABEL ?
+                              schema.getVertexLabel(label.id()) : schema.getEdgeLabel(label.id());
+        E.checkArgument(current != null, "Not exist schema label with id '%s'", label.id());
+        return current;
+    }
+
+    private Set<IndexLabel> relatedIndexLabels(HugeElement element) {
         Set<IndexLabel> indexLabels = InsertionOrderUtil.newSet();
-        Set<Id> indexLabelIds = element.schemaLabel().indexLabels();
+        Set<Id> indexLabelIds = this.indexLabelIds(element.schemaLabel());
 
         for (Id id : indexLabelIds) {
             IndexLabel indexLabel = element.graph().indexLabel(id);
@@ -1883,7 +1887,7 @@ public class GraphIndexTransaction extends AbstractTransaction {
             // Delete unused index
             long count = 0;
             Set<Id> incorrectPkIds;
-            for (IndexLabel il : relatedIndexLabels(deletion)) {
+            for (IndexLabel il : this.tx.relatedIndexLabels(deletion)) {
                 incorrectPkIds = incorrectPKs.keySet().stream()
                                              .map(PropertyKey::id)
                                              .collect(Collectors.toSet());
