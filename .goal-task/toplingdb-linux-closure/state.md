@@ -56,4 +56,6 @@
 - 不提交 `evidence/`、`.codex-handoff/`、RocksDB 数据、tmp、原始大日志、镜像或 benchmark 原始大文件。
 
 ## 下一动作
-当前 SHA 标准镜像构建由 systemd 用户单元 `hg-closure-std-image-cc14333f0-r2` 运行，MainPID 3444902，日志 `evidence/build/current-sha-standard-image-build-r2.log`。绑定 `cc14333f0da8b624ed618cf3bdefcd28658764e3`，tag `closure-std-cc14333f0`，只构建 linux/amd64。第一次直接 `git archive` 失败，因为 `.gitattributes` 的 `docker/ export-ignore` 把模块里的 Docker 脚本也排除了；已从干净工作树补回这些已跟踪文件。不要再启动另一个 bake，也不要升级两个 `9aba` namespace。Topling 镜像等这次标准构建结束后再开始。
+标准镜像构建仍在运行：systemd 用户单元 `hg-closure-std-image-cc14333f0-r2`，MainPID 3444902，日志 `evidence/build/current-sha-standard-image-build-r2.log`。当前处于共享 Maven `mvn install`，尚未产出镜像。不要启动第二个 bake，不要升级 `9aba` namespace。
+
+Topling 构建的已知前提：已跟踪 JAR `hugegraph-server/hugegraph-dist/src/assembly/static/lib/topling/rocksdbjni-8.10.2-20260725.141011-1.jar` 存在。`install-dist/scripts/` 被 `export-ignore`，构建上下文必须另外带上 `build-topling-distribution.sh`。等标准构建结束后再开始 Topling。
