@@ -732,6 +732,31 @@ public class CachedSchemaTransactionTest extends BaseUnitTest {
     }
 
     @Test
+    public void testV2LocalWriteIsNotCachedAcrossRemoteClear() {
+        Id id = IdGenerator.of(1);
+        PropertyKey pk = new FakeObjects("unit-test-v2").newPropertyKey(id,
+                                                                        "pk");
+        CachedSchemaTransactionV2 tx = v2Tx();
+        Object arrayCaches = Whitebox.getInternalState(tx, "arrayCaches");
+        Cache<Id, Object> idCache = Whitebox.getInternalState(tx, "idCache");
+
+        // A remote clear between the storage write and the cache update
+        long generation = generation(arrayCaches);
+        nextGeneration(arrayCaches);
+        updateV2Cache(tx, pk, generation);
+        Mockito.verify(idCache, Mockito.never()).update(Mockito.any(),
+                                                        Mockito.any());
+        Assert.assertNull(getV2SchemaCache(arrayCaches,
+                                           HugeType.PROPERTY_KEY, id));
+
+        // Without a clear the written element is cached
+        updateV2Cache(tx, pk, generation(arrayCaches));
+        Mockito.verify(idCache).update(Mockito.any(), Mockito.eq(pk));
+        Assert.assertSame(pk, getV2SchemaCache(arrayCaches,
+                                               HugeType.PROPERTY_KEY, id));
+    }
+
+    @Test
     public void testV2LocalClearKeepsGeneration() {
         CachedSchemaTransactionV2 tx = v2Tx();
         Object arrayCaches = Whitebox.getInternalState(tx, "arrayCaches");
@@ -847,6 +872,13 @@ public class CachedSchemaTransactionTest extends BaseUnitTest {
         return Whitebox.invoke(CachedSchemaTransactionV2.class,
                                new Class<?>[]{HugeType.class, Id.class},
                                "getSchema", tx, HugeType.PROPERTY_KEY, id);
+    }
+
+    private static void updateV2Cache(CachedSchemaTransactionV2 tx,
+                                      SchemaElement schema, long generation) {
+        Whitebox.invoke(CachedSchemaTransactionV2.class,
+                        new Class<?>[]{SchemaElement.class, long.class},
+                        "updateCache", tx, schema, generation);
     }
 
     private static List<SchemaElement> getV2AllSchema(

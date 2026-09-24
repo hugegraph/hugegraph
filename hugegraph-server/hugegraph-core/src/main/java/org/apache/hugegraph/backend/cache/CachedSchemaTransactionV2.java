@@ -397,9 +397,10 @@ public class CachedSchemaTransactionV2 extends SchemaTransactionV2 {
     @Override
     protected void updateSchema(SchemaElement schema,
                                 Consumer<SchemaElement> updateCallback) {
+        long generation = this.arrayCaches.generation();
         super.updateSchema(schema, updateCallback);
 
-        this.updateCache(schema);
+        this.updateCache(schema, generation);
         // No meta event here: one per updateSchemaStatus() call from background
         // jobs would be a broadcast storm. The schema version has no fan-out,
         // other servers check it at most once per reconcile interval.
@@ -408,9 +409,10 @@ public class CachedSchemaTransactionV2 extends SchemaTransactionV2 {
 
     @Override
     protected void addSchema(SchemaElement schema) {
+        long generation = this.arrayCaches.generation();
         super.addSchema(schema);
 
-        this.updateCache(schema);
+        this.updateCache(schema, generation);
 
         this.bumpSchemaVersion();
         // Schema additions must always propagate to remote nodes regardless
@@ -418,19 +420,29 @@ public class CachedSchemaTransactionV2 extends SchemaTransactionV2 {
         this.notifySchemaCacheClear();
     }
 
-    private void updateCache(SchemaElement schema) {
-        this.resetCachedAllIfReachedCapacity();
+    private void updateCache(SchemaElement schema, long generation) {
+        synchronized (this.arrayCaches) {
+            /*
+             * Skip the update if a remote change cleared the caches after
+             * the storage write: another server may have written a newer
+             * element meanwhile, and the next read loads it from storage.
+             */
+            if (generation != this.arrayCaches.generation()) {
+                return;
+            }
+            this.resetCachedAllIfReachedCapacity();
 
-        // update id cache
-        Id prefixedId = generateId(schema.type(), schema.id());
-        this.idCache.update(prefixedId, schema);
+            // update id cache
+            Id prefixedId = generateId(schema.type(), schema.id());
+            this.idCache.update(prefixedId, schema);
 
-        // update name cache
-        Id prefixedName = generateId(schema.type(), schema.name());
-        this.nameCache.update(prefixedName, schema);
+            // update name cache
+            Id prefixedName = generateId(schema.type(), schema.name());
+            this.nameCache.update(prefixedName, schema);
 
-        // update optimized array cache
-        this.arrayCaches.updateIfNeeded(schema);
+            // update optimized array cache
+            this.arrayCaches.updateIfNeeded(schema);
+        }
     }
 
     @Override
