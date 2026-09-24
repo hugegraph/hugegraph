@@ -25,7 +25,7 @@
 | 阶段 | 当前状态 | 完成条件 |
 | --- | --- | --- |
 | P0 合同刷新 | 文档已刷新，随本提交推送 | `state.md` 与 `todo.md` 进入 `org/toplingdb`；goal 尚未启动 |
-| P1 历史标准集群补证 | Store leader Pod 恢复已有证据；多数派、网络分区和 snapshot 仍未完成 | 1+1+1 生命周期、3+3+3 功能与 HA 有日志和业务证据；结果绑定 `9aba`，不算当前 SHA |
+| P1 历史标准集群补证 | Store 多数派 Pod 删除已有证据；网络分区后置，snapshot 仍失败 | 1+1+1 生命周期、3+3+3 功能与 HA 有日志和业务证据；结果绑定 `9aba`，不算当前 SHA |
 | P2 当前 SHA 构建与 JNI | 未开始 | 标准与 Topling 镜像隔离，实际 JNI 映射证明无静默 fallback |
 | P3 当前 SHA 功能 | 未开始 | 单机、1+1+1、3+3+3 两个 provider 的功能证据 |
 | P4 生命周期与 provider | 未开始 | 停止重启、持久化、truncate、snapshot/restore、混合 provider 与错误复用拒绝 |
@@ -56,6 +56,6 @@
 - 不提交 `evidence/`、`.codex-handoff/`、RocksDB 数据、tmp、原始大日志、镜像或 benchmark 原始大文件。
 
 ## 下一动作
-3+3+3 Store leader：删除前 Store-0 `leaderCount=8`，Store-1 为 4，Store-2 为 0。只删除 Store-0 Pod。PVC `pvc-0ac37d84` 不变，Pod UID 从 `c4365947` 变为 `8684e455`，143.014 秒后 Ready。已提交顶点 `leader-before-1790255908` 在删除期间和恢复后都返回 200。删除后立即写入 `leader-during-1790255908` 没有返回 HTTP 状态，之后读取为 404。恢复后的重试写入 `leader-diag` 返回 201，两个 Server 读取为 200。恢复后 leader 计数变为 Store-0=0、Store-1=9、Store-2=3。单节点 kind 不是物理 HA，多数派丢失尚未测试。结果绑定 `closure-std-9abae9dbaaa1`。
+3+3+3 Store 多数派：保留 Store-1，同时删除 Store-0 和 Store-2。已提交顶点 `majority-before-1790256192` 在两个 Server 上删除期间和恢复后都返回 200。删除期间写入 `majority-during-1790256192` 超时，恢复后仍是 404。两个 Pod 143.544 秒后 Ready，PVC 不变。恢复后写入 `majority-after-1790256336` 返回 201，两个 Server 读取为 200。这是单节点 kind 的 Pod 删除，不是网络分区，也不是当前 SHA。
 
-1+1+1 Store 卷仍不删除。下一动作是在保留多数 Store 的前提下，不做网络分区，先记录当前边界；多数派测试需要单独安排，避免和正在恢复的集群叠加。
+Chaos Mesh CRD 和 namespace 都不存在，网络分区后置。1+1+1 Store 卷仍不删除。下一动作转到当前 `org/toplingdb` HEAD 的标准与 Topling 隔离镜像构建，使用新 namespace。
