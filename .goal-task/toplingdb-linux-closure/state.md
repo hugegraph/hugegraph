@@ -187,4 +187,6 @@ Store 删除后的复测无效：脚本把仍在终止的旧 Pod 读成 0.074 �
 
 2026-09-25 04:38：Topling `hg-closure-top-e109-333` 的三台 Server 换成同一张 overlay 后，同时删除 Store-1 和 Store-2（leaderCount 4 和 8），保留 Store-0。故障期间新写入超时。两台新 Pod 21.427 秒都 Ready，PVC 未变，JNI 仍是 `c25ff6e6…dd38`，mmap WAL 错误 0。44.711 秒时旧顶点可读，新写入返回 201。恢复后 leaderCount 是 9、0、3。没有重启 Server。这是单节点 Pod 删除，不是网络分区，也不是完整 SHA 镜像。证据 `evidence/helm-topling-e109-333-store-majority.json`。
 
-下一步：HStore 图快照仍未实现。重连修复还要审查后才能提交。核心功能未完成前不开始 benchmark。
+2026-09-25 04:42：标准 `hg-closure-std-e109-111` 导入图 `law_twitter_1m_std`。Loader 退出 0，80.973 秒，1000000 点、2098771 边、失败 0。PD `4c9011a7bd64`、Store `f53fa5f612c2` 是标准 `e109012a0` 镜像。Server 是 overlay `closure-e109-channelrefresh` `3a129d448516`。证据 `evidence/loader-law-twitter-1m-std-e109.json`。第一次启动误写了 Topling 证据目录的 `start.json` 和 `loader.log`；Topling 导入结论仍以 `loader-law-twitter-1m-e109.json` 里的退出 0 和计数为准。
+
+下一步：HStore 图快照仍未实现。重连修复还要审查后才能提交。标准固定子集还没有邻接复核。核心功能未完成前不开始 benchmark。
