@@ -7,7 +7,7 @@
 - 合同正文提交：`3d64b67de2aec6299addd63cd26bdd7678d225ee`。恢复时以 `org/toplingdb` 的 HEAD 为准。产品修复提交：`0d2d334c5214b2dc467c9368b28035135a9d2386`。
 - Kubernetes：`KUBECONFIG=/home/soc-baidu/.kube/config`，context `kind-kind`。不使用 k3s，不执行全局清理。
 - 2026-09-24 仍在运行的历史集群：`hg-closure-standard-111`、`hg-closure-standard-333`，镜像 `closure-std-9abae9dbaaa1`，源码快照 `f2f300356-worktree-9abae9dbaaa1`。它们不是当前 SHA 的通过证据。
-- 本文件刷新时尚未启动新的测试波次，也尚未启动 goal。
+- 2026-09-24 goal 已启动。当前波次只测 `hg-closure-standard-111` 的停止、重启和已确认写入，不改动 3+3+3。
 
 ## 活动真相与优先级
 
@@ -25,7 +25,7 @@
 | 阶段 | 当前状态 | 完成条件 |
 | --- | --- | --- |
 | P0 合同刷新 | 文档已刷新，随本提交推送 | `state.md` 与 `todo.md` 进入 `org/toplingdb`；goal 尚未启动 |
-| P1 历史标准集群补证 | 未开始 | 1+1+1 生命周期、3+3+3 功能与 HA 有日志和业务证据；结果绑定 `9aba`，不算当前 SHA |
+| P1 历史标准集群补证 | 1+1+1 停止/重启已通过；其余未开始 | 1+1+1 生命周期、3+3+3 功能与 HA 有日志和业务证据；结果绑定 `9aba`，不算当前 SHA |
 | P2 当前 SHA 构建与 JNI | 未开始 | 标准与 Topling 镜像隔离，实际 JNI 映射证明无静默 fallback |
 | P3 当前 SHA 功能 | 未开始 | 单机、1+1+1、3+3+3 两个 provider 的功能证据 |
 | P4 生命周期与 provider | 未开始 | 停止重启、持久化、truncate、snapshot/restore、混合 provider 与错误复用拒绝 |
@@ -57,4 +57,4 @@
 
 ## 下一动作
 
-goal 启动后的第一动作：只对 `hg-closure-standard-111` 做标准 RocksDB 停止、重启和已确认写入复查。不部署 Topling，不改动 `hg-closure-standard-333`。
+`hg-closure-standard-111` 停止/重启已完成，证据 `evidence/helm-standard-111-stop-restart-confirmed.json`。顶点 `restart-confirmed-1790254446` 停止前和重启后均为 HTTP 200；停止 33.616 秒，拉起 21.426 秒；两个 PVC UID 不变，三个 Pod UID 变化。PD/Store JNI SHA256 均为 `8b8fb2ed3ab69581cf1897bd116d484f073e66e9a5b6d61effc7b4c783d66dff`，路径不含 Topling。镜像 tag `closure-std-9abae9dbaaa1`，因此只关闭 P1 的这一项，不计入当前 SHA。文档审查尚未由独立审查者完成。下一动作是同一 namespace 的删图重建、truncate 和 snapshot/restore，仍不改动 `hg-closure-standard-333`。

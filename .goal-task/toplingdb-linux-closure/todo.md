@@ -4,7 +4,7 @@
 
 ## P1 历史标准集群
 
-- [ ] 1+1+1 停止、重启，并核对重启前已确认写入。
+- [x] 1+1+1 停止、重启，并核对重启前已确认写入。仅绑定历史镜像 `closure-std-9abae9dbaaa1`，不算当前 SHA。证据 `evidence/helm-standard-111-stop-restart-confirmed.json`。
 - [ ] 1+1+1 删图重建、truncate、snapshot/restore 到新卷。
 - [ ] 3+3+3 三个 Server 的功能、认证和写入一致性。
 - [ ] 3+3+3 leader/follower 退出、Server 副本切换、多数派丢失与恢复、恢复时间。
