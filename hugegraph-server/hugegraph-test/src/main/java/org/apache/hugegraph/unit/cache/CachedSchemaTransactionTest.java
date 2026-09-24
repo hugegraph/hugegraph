@@ -732,28 +732,37 @@ public class CachedSchemaTransactionTest extends BaseUnitTest {
     }
 
     @Test
-    public void testV2LocalWriteIsNotCachedAcrossRemoteClear() {
+    public void testV2LocalWriteIsDroppedAcrossRemoteClear()
+            throws Exception {
         Id id = IdGenerator.of(1);
         PropertyKey pk = new FakeObjects("unit-test-v2").newPropertyKey(id,
                                                                         "pk");
         CachedSchemaTransactionV2 tx = v2Tx();
         Object arrayCaches = Whitebox.getInternalState(tx, "arrayCaches");
         Cache<Id, Object> idCache = Whitebox.getInternalState(tx, "idCache");
-
-        // A remote clear between the storage write and the cache update
-        long generation = generation(arrayCaches);
-        nextGeneration(arrayCaches);
-        updateV2Cache(tx, pk, generation);
-        Mockito.verify(idCache, Mockito.never()).update(Mockito.any(),
-                                                        Mockito.any());
-        Assert.assertNull(getV2SchemaCache(arrayCaches,
-                                           HugeType.PROPERTY_KEY, id));
+        Map<HugeType, Boolean> cachedTypes = readField(arrayCaches,
+                                                       "cachedTypes");
 
         // Without a clear the written element is cached
         updateV2Cache(tx, pk, generation(arrayCaches));
         Mockito.verify(idCache).update(Mockito.any(), Mockito.eq(pk));
         Assert.assertSame(pk, getV2SchemaCache(arrayCaches,
                                                HugeType.PROPERTY_KEY, id));
+
+        /*
+         * A remote clear between the start of the write and the cache update:
+         * a reader may have cached an older copy since, so the element is
+         * dropped instead of skipped or overwritten
+         */
+        cachedTypes.put(HugeType.PROPERTY_KEY, true);
+        long generation = generation(arrayCaches);
+        nextGeneration(arrayCaches);
+        updateV2Cache(tx, pk, generation);
+        Mockito.verify(idCache).update(Mockito.any(), Mockito.eq(pk));
+        Mockito.verify(idCache).invalidate(Mockito.any());
+        Assert.assertNull(getV2SchemaCache(arrayCaches,
+                                           HugeType.PROPERTY_KEY, id));
+        Assert.assertEquals(false, cachedTypes.get(HugeType.PROPERTY_KEY));
     }
 
     @Test

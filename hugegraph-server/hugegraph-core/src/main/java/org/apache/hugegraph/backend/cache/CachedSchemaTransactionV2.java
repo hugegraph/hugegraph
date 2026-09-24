@@ -421,23 +421,28 @@ public class CachedSchemaTransactionV2 extends SchemaTransactionV2 {
     }
 
     private void updateCache(SchemaElement schema, long generation) {
+        Id prefixedId = generateId(schema.type(), schema.id());
+        Id prefixedName = generateId(schema.type(), schema.name());
         synchronized (this.arrayCaches) {
-            /*
-             * Skip the update if a remote change cleared the caches after
-             * the storage write: another server may have written a newer
-             * element meanwhile, and the next read loads it from storage.
-             */
             if (generation != this.arrayCaches.generation()) {
+                /*
+                 * A remote change cleared the caches during this write. Since
+                 * then a reader may have cached an older copy, and another
+                 * server may have written a newer one, so drop the element
+                 * and let the next read load it from storage.
+                 */
+                this.idCache.invalidate(prefixedId);
+                this.nameCache.invalidate(prefixedName);
+                this.arrayCaches.remove(schema.type(), schema.id());
+                this.resetCachedAll(schema.type());
                 return;
             }
             this.resetCachedAllIfReachedCapacity();
 
             // update id cache
-            Id prefixedId = generateId(schema.type(), schema.id());
             this.idCache.update(prefixedId, schema);
 
             // update name cache
-            Id prefixedName = generateId(schema.type(), schema.name());
             this.nameCache.update(prefixedName, schema);
 
             // update optimized array cache
