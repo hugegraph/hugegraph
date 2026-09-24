@@ -25,7 +25,7 @@
 | 阶段 | 当前状态 | 完成条件 |
 | --- | --- | --- |
 | P0 合同刷新 | 文档已刷新，随本提交推送 | `state.md` 与 `todo.md` 进入 `org/toplingdb`；goal 尚未启动 |
-| P1 历史标准集群补证 | 停止/重启、删图、truncate 已通过；3+3+3 只完成写入一致性；snapshot 失败 1 次 | 1+1+1 生命周期、3+3+3 功能与 HA 有日志和业务证据；结果绑定 `9aba`，不算当前 SHA |
+| P1 历史标准集群补证 | 1+1+1 生命周期除 snapshot 外已通过；3+3+3 完成点边一致性，角色拒绝未测 | 1+1+1 生命周期、3+3+3 功能与 HA 有日志和业务证据；结果绑定 `9aba`，不算当前 SHA |
 | P2 当前 SHA 构建与 JNI | 未开始 | 标准与 Topling 镜像隔离，实际 JNI 映射证明无静默 fallback |
 | P3 当前 SHA 功能 | 未开始 | 单机、1+1+1、3+3+3 两个 provider 的功能证据 |
 | P4 生命周期与 provider | 未开始 | 停止重启、持久化、truncate、snapshot/restore、混合 provider 与错误复用拒绝 |
@@ -56,8 +56,6 @@
 - 不提交 `evidence/`、`.codex-handoff/`、RocksDB 数据、tmp、原始大日志、镜像或 benchmark 原始大文件。
 
 ## 下一动作
-稀疏文件复查：快照卷 1120 个文件、逻辑 38797918942 字节、实际分配 146243584 字节、36 个稀疏文件。`cp -a` 保留了逻辑大小和空洞，没有把 10Gi 卷写满，因此不能用稀疏展开解释顶点丢失。当前 Store 卷仍不删除。
+3+3+3 认证和功能补充：错误口令返回 401。边 `knows` 由 Server-0 写入返回 201，三个 Server 都能读到目标顶点。DEFAULT 图空间 `auth=false`，因此无角色新用户创建 `closure_should_fail` 返回 201，并删除了 `closure_333_probe`（204）。临时图已由 admin 删除。角色级拒绝没有测试条件。结果只绑定 `closure-std-9abae9dbaaa1`。
 
-`hg-closure-standard-333` 写入一致性：顶点 `cross-1790255141` 由 Server-0 写入返回 201，三个 Server 读取都返回 200。未认证访问返回 401。PD0/Store0 JNI 都是标准 `8b8fb2ed3ab69581cf1897bd116d484f073e66e9a5b6d61effc7b4c783d66dff`。这只绑定 `closure-std-9abae9dbaaa1`，不是完整功能或 HA。
-
-下一动作：继续 3+3+3 的认证正反例和更完整功能，不删除 1+1+1 当前 Store 卷。
+1+1+1 当前 Store 卷仍不删除。下一动作是 3+3+3 的单个 Store Pod 退出和恢复，保留 PVC，并先写入可复核数据。
