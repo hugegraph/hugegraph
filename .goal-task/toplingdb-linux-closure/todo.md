@@ -6,7 +6,7 @@
 
 - [x] 1+1+1 停止、重启，并核对重启前已确认写入。仅绑定历史镜像 `closure-std-9abae9dbaaa1`，不算当前 SHA。证据 `evidence/helm-standard-111-stop-restart-confirmed.json`。
 - [ ] 1+1+1 删图重建、truncate、snapshot/restore 到新卷。删图重建和 truncate 已在 `9aba` 通过；snapshot/restore 第 1 次失败，未勾选。证据 `evidence/helm-standard-111-lifecycle.json`。
-- [ ] 3+3+3 三个 Server 的功能、认证和写入一致性。
+- [ ] 3+3+3 三个 Server 的功能、认证和写入一致性。跨 Server 写入一致性已通过，未认证请求返回 401；完整功能仍未勾选。证据 `evidence/helm-standard-333-write-consistency.json`。
 - [ ] 3+3+3 leader/follower 退出、Server 副本切换、多数派丢失与恢复、恢复时间。
 - [ ] 3+3+3 网络分区。Chaos Mesh 不可用时后置，不阻止 Pod 级 HA。
 

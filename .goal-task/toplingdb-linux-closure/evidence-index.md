@@ -11,6 +11,7 @@
 | `pd-common-core-standard-summary.json` | PD common/core | 83/104，0 failures/errors |
 | `pd-client-rest-standard-summary.json` | PD client/rest 与服务退出 | 83/22，0 failures/errors |
 | `commons-struct-current-summary.json` | Commons/RPC/Struct | 351/24/8，0 failures/errors |
+| `helm-standard-333-write-consistency.json` | 历史标准 3+3+3 三 Server 写入一致性 | Server-0 写 201，三个 Server 读 200；未认证 401 |
 | `helm-standard-111-lifecycle.json` | 历史标准 1+1+1 删图、truncate、新卷恢复 | 删图和 truncate 通过；新卷恢复后已确认顶点 404 |
 | `helm-standard-111-stop-restart-confirmed.json` | 历史标准 1+1+1 停止/重启和已确认写入 | 写 201，重启前后读 200；PVC 保持；JNI 为标准 RocksDB |
 | `store-standard-audit-summary.json` | Store RocksDB/client/core audit | 3/50/22，0 failures/errors |

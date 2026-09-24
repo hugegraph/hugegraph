@@ -25,7 +25,7 @@
 | 阶段 | 当前状态 | 完成条件 |
 | --- | --- | --- |
 | P0 合同刷新 | 文档已刷新，随本提交推送 | `state.md` 与 `todo.md` 进入 `org/toplingdb`；goal 尚未启动 |
-| P1 历史标准集群补证 | 停止/重启、删图重建、truncate 已通过；snapshot/restore 失败 1 次 | 1+1+1 生命周期、3+3+3 功能与 HA 有日志和业务证据；结果绑定 `9aba`，不算当前 SHA |
+| P1 历史标准集群补证 | 停止/重启、删图、truncate 已通过；3+3+3 只完成写入一致性；snapshot 失败 1 次 | 1+1+1 生命周期、3+3+3 功能与 HA 有日志和业务证据；结果绑定 `9aba`，不算当前 SHA |
 | P2 当前 SHA 构建与 JNI | 未开始 | 标准与 Topling 镜像隔离，实际 JNI 映射证明无静默 fallback |
 | P3 当前 SHA 功能 | 未开始 | 单机、1+1+1、3+3+3 两个 provider 的功能证据 |
 | P4 生命周期与 provider | 未开始 | 停止重启、持久化、truncate、snapshot/restore、混合 provider 与错误复用拒绝 |
@@ -56,4 +56,8 @@
 - 不提交 `evidence/`、`.codex-handoff/`、RocksDB 数据、tmp、原始大日志、镜像或 benchmark 原始大文件。
 
 ## 下一动作
-`hg-closure-standard-111` 的删图重建和 truncate 已通过，只绑定 `closure-std-9abae9dbaaa1`。`drop-1790254765` 删除后为 404，重建后的 `recreate-1790254765` 为 200；`trunc-1790254765` 清空后为 404，随后重写成功。snapshot/restore 没有 VolumeSnapshot CRD，使用文件系统复制到新 PVC。旧卷 `pvc-63ee15ee` 已被新卷 `pvc-c002ae93` 替换，快照卷 `pvc-dc2e7813` 保留。复制前后文件数都是 1120，但恢复后 `snap-1790254765` 为 404。该项第 1 次失败，不勾选。3+3+3 未改动。下一动作是复查 snapshot 复制是否破坏 RocksDB 稀疏文件；在得出结论前不重复删除当前 Store 卷。
+稀疏文件复查：快照卷 1120 个文件、逻辑 38797918942 字节、实际分配 146243584 字节、36 个稀疏文件。`cp -a` 保留了逻辑大小和空洞，没有把 10Gi 卷写满，因此不能用稀疏展开解释顶点丢失。当前 Store 卷仍不删除。
+
+`hg-closure-standard-333` 写入一致性：顶点 `cross-1790255141` 由 Server-0 写入返回 201，三个 Server 读取都返回 200。未认证访问返回 401。PD0/Store0 JNI 都是标准 `8b8fb2ed3ab69581cf1897bd116d484f073e66e9a5b6d61effc7b4c783d66dff`。这只绑定 `closure-std-9abae9dbaaa1`，不是完整功能或 HA。
+
+下一动作：继续 3+3+3 的认证正反例和更完整功能，不删除 1+1+1 当前 Store 卷。
