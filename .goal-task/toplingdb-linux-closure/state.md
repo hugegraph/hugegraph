@@ -4,7 +4,7 @@
 
 - 仓库：`hugegraph/hugegraph`；远端 `org`；分支 `toplingdb`；PR #179。
 - 工作树：`/home/soc-baidu/.codex/worktrees/f29e/hugegraph`；本地分支 `codex/toplingdb-linux-validation`，推送目标 `org/toplingdb`。
-- 当前文档基线：`763f9675cca1d6cd544c290b5868fc96b17e113d`。产品修复提交：`0d2d334c5214b2dc467c9368b28035135a9d2386`。
+- 合同正文提交：`3d64b67de2aec6299addd63cd26bdd7678d225ee`。恢复时以 `org/toplingdb` 的 HEAD 为准。产品修复提交：`0d2d334c5214b2dc467c9368b28035135a9d2386`。
 - Kubernetes：`KUBECONFIG=/home/soc-baidu/.kube/config`，context `kind-kind`。不使用 k3s，不执行全局清理。
 - 2026-09-24 仍在运行的历史集群：`hg-closure-standard-111`、`hg-closure-standard-333`，镜像 `closure-std-9abae9dbaaa1`，源码快照 `f2f300356-worktree-9abae9dbaaa1`。它们不是当前 SHA 的通过证据。
 - 本文件刷新时尚未启动新的测试波次，也尚未启动 goal。
