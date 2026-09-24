@@ -17,20 +17,28 @@
 
 package org.apache.hugegraph.api.graphs;
 
+import java.math.BigDecimal;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 
 import org.apache.hugegraph.HugeGraph;
 import org.apache.hugegraph.api.API;
+import org.apache.hugegraph.backup.GraphBackupJob;
+import org.apache.hugegraph.backup.GraphRestoreJob;
 import org.apache.hugegraph.core.GraphManager;
-import org.apache.hugegraph.job.EphemeralJob;
-import org.apache.hugegraph.job.EphemeralJobBuilder;
+import org.apache.hugegraph.job.Job;
+import org.apache.hugegraph.job.JobBuilder;
 import org.apache.hugegraph.task.HugeTask;
+import org.apache.hugegraph.task.TaskScheduler;
 import org.apache.hugegraph.util.E;
+import org.apache.hugegraph.util.JsonUtil;
 import org.apache.hugegraph.util.Log;
 import org.slf4j.Logger;
 
 import com.codahale.metrics.annotation.Timed;
-import com.google.common.collect.ImmutableMap;
 
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -54,6 +62,10 @@ public class GraphBackupsAPI extends API {
             "[A-Za-z0-9][A-Za-z0-9._-]{0,62}";
     private static final String VERSION_PATTERN =
             "v-[0-9]{13}-[0-9a-f]{8}";
+    private static final String REQUEST_ID = "request_id";
+    private static final int MAX_REQUEST_ID_LENGTH = 128;
+    private static final ConcurrentMap<String, Object> REQUEST_LOCKS =
+            new ConcurrentHashMap<>();
 
     @POST
     @Timed
@@ -68,25 +80,13 @@ public class GraphBackupsAPI extends API {
         String repository = repository(request);
         int keepNum = integer(request, "keep_num", 0);
         E.checkArgument(keepNum >= 0, "Keep number must be non-negative");
+        String requestId = requestId(request);
         HugeGraph target = graph(manager, graphSpace, graph);
-        LOG.info("Schedule graph backup for '{}' in repository '{}'", graph,
-                 repository);
-        HugeTask<Map<String, Object>> task = EphemeralJobBuilder
-                .<Map<String, Object>>of(target)
-                .name("graph-backup:" + repository)
-                .input(request == null ? null : request.toString())
-                .job(new EphemeralJob<Map<String, Object>>() {
-                    @Override
-                    public String type() {
-                        return "graph_backup";
-                    }
-
-                    @Override
-                    public Map<String, Object> execute() {
-                        return target.backupService().create(repository, keepNum);
-                    }
-                }).schedule();
-        return ImmutableMap.of("task_id", task.id().asLong());
+        target.backupService();
+        Map<String, Object> input = backupInput(repository, keepNum, requestId);
+        HugeTask<?> task = submit(target, GraphBackupJob.BACKUP,
+                                  requestId, input, new GraphBackupJob());
+        return taskResult(task, requestId);
     }
 
     @POST
@@ -102,31 +102,14 @@ public class GraphBackupsAPI extends API {
         E.checkArgument(request != null && Boolean.TRUE.equals(request.get("confirm")),
                         "Restore requires confirm=true");
         String repository = repository(request);
-        Object value = request.get("backup_id");
-        E.checkArgument(value == null || value instanceof String,
-                        "Backup id must be a string");
-        String version = (String) value;
-        if (version != null) {
-            E.checkArgument(version.matches(VERSION_PATTERN),
-                            "Invalid backup id '%s'", version);
-        }
+        String version = backupId(request);
+        String requestId = requestId(request);
         HugeGraph target = graph(manager, graphSpace, graph);
-        HugeTask<Map<String, Object>> task = EphemeralJobBuilder
-                .<Map<String, Object>>of(target)
-                .name("graph-restore:" + repository)
-                .input(request.toString())
-                .job(new EphemeralJob<Map<String, Object>>() {
-                    @Override
-                    public String type() {
-                        return "graph_restore";
-                    }
-
-                    @Override
-                    public Map<String, Object> execute() {
-                        return target.backupService().restore(repository, version);
-                    }
-                }).schedule();
-        return ImmutableMap.of("task_id", task.id().asLong());
+        target.backupService();
+        Map<String, Object> input = restoreInput(repository, version, requestId);
+        HugeTask<?> task = submit(target, GraphRestoreJob.RESTORE,
+                                  requestId, input, new GraphRestoreJob());
+        return taskResult(task, requestId);
     }
 
     @GET
@@ -140,7 +123,9 @@ public class GraphBackupsAPI extends API {
                                     String repository) {
         HugeGraph target = graph(manager, graphSpace, graph);
         String name = repository == null ? "default" : repository;
-        return ImmutableMap.of("backups", target.backupService().list(name));
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("backups", target.backupService().list(name));
+        return result;
     }
 
     @GET
@@ -175,6 +160,131 @@ public class GraphBackupsAPI extends API {
         }
         Object value = request.get(key);
         E.checkArgument(value instanceof Number, "'%s' must be numeric", key);
-        return ((Number) value).intValue();
+        BigDecimal decimal = new BigDecimal(value.toString()).stripTrailingZeros();
+        E.checkArgument(decimal.scale() <= 0, "'%s' must be an integer", key);
+        try {
+            return decimal.intValueExact();
+        } catch (ArithmeticException e) {
+            throw new IllegalArgumentException(String.format(
+                    "'%s' is outside the supported integer range", key), e);
+        }
+    }
+
+    private static String backupId(Map<String, Object> request) {
+        if (request == null || !request.containsKey("backup_id") ||
+            request.get("backup_id") == null) {
+            return null;
+        }
+        Object value = request.get("backup_id");
+        E.checkArgument(value instanceof String, "Backup id must be a string");
+        String version = ((String) value).trim();
+        E.checkArgument(!version.isEmpty(), "Backup id must not be blank");
+        E.checkArgument(version.matches(VERSION_PATTERN),
+                        "Invalid backup id '%s'", version);
+        return version;
+    }
+
+    private static String requestId(Map<String, Object> request) {
+        if (request == null || !request.containsKey(REQUEST_ID) ||
+            request.get(REQUEST_ID) == null) {
+            return null;
+        }
+        Object value = request.get(REQUEST_ID);
+        E.checkArgument(value instanceof String,
+                        "Request id must be a string");
+        String id = ((String) value).trim();
+        E.checkArgument(!id.isEmpty() && id.length() <= MAX_REQUEST_ID_LENGTH,
+                        "Request id must be non-blank and at most %s characters",
+                        MAX_REQUEST_ID_LENGTH);
+        return id;
+    }
+
+    private static Map<String, Object> backupInput(String repository,
+                                                   int keepNum,
+                                                   String requestId) {
+        Map<String, Object> input = new LinkedHashMap<>();
+        input.put("operation", GraphBackupJob.BACKUP);
+        input.put("repository", repository);
+        input.put("keep_num", keepNum);
+        input.put(REQUEST_ID, requestId);
+        return input;
+    }
+
+    private static Map<String, Object> restoreInput(String repository,
+                                                    String version,
+                                                    String requestId) {
+        Map<String, Object> input = new LinkedHashMap<>();
+        input.put("operation", GraphBackupJob.RESTORE);
+        input.put("repository", repository);
+        input.put("backup_id", version);
+        input.put(REQUEST_ID, requestId);
+        return input;
+    }
+
+    private static HugeTask<?> submit(HugeGraph graph, String operation,
+                                      String requestId,
+                                      Map<String, Object> input,
+                                      Job<Map<String, Object>> job) {
+        String payload = JsonUtil.toJson(input);
+        Object lock = REQUEST_LOCKS.computeIfAbsent(graph.spaceGraphName(),
+                                                    key -> new Object());
+        synchronized (lock) {
+            if (requestId != null) {
+                HugeTask<?> existing = findRequestTask(graph.taskScheduler(),
+                                                       requestId);
+                if (existing != null) {
+                    E.checkArgument(payload.equals(existing.input()),
+                                    "Request id '%s' was already used with a " +
+                                    "different graph backup request", requestId);
+                    return existing;
+                }
+            }
+            LOG.info("Schedule durable graph {} task for '{}'", operation,
+                     graph.spaceGraphName());
+            return JobBuilder.<Map<String, Object>>of(graph)
+                             .name("graph-" + operation + ":" + input.get("repository"))
+                             .input(payload)
+                             .job(job)
+                             .schedule();
+        }
+    }
+
+    private static HugeTask<?> findRequestTask(TaskScheduler scheduler,
+                                               String requestId) {
+        Iterator<HugeTask<Object>> tasks = scheduler.tasks(
+                null, TaskScheduler.NO_LIMIT, null, false);
+        while (tasks.hasNext()) {
+            HugeTask<?> task = tasks.next();
+            if (!isGraphBackupTask(task) || task.input() == null) {
+                continue;
+            }
+            try {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> input = JsonUtil.fromJson(task.input(),
+                                                              Map.class);
+                if (requestId.equals(input.get(REQUEST_ID))) {
+                    return task;
+                }
+            } catch (RuntimeException e) {
+                LOG.warn("Skip graph backup task '{}' with invalid input",
+                         task.id(), e);
+            }
+        }
+        return null;
+    }
+
+    private static boolean isGraphBackupTask(HugeTask<?> task) {
+        return GraphBackupJob.BACKUP_TASK_TYPE.equals(task.type()) ||
+               GraphBackupJob.RESTORE_TASK_TYPE.equals(task.type());
+    }
+
+    private static Map<String, Object> taskResult(HugeTask<?> task,
+                                                   String requestId) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("task_id", task.id().asLong());
+        if (requestId != null) {
+            result.put(REQUEST_ID, requestId);
+        }
+        return result;
     }
 }

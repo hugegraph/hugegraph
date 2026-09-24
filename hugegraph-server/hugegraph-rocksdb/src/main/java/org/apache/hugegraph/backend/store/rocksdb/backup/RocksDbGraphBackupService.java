@@ -18,10 +18,12 @@
 package org.apache.hugegraph.backend.store.rocksdb.backup;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.util.Base64;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -42,9 +44,12 @@ import org.apache.hugegraph.config.CoreOptions;
 import org.apache.hugegraph.config.HugeConfig;
 import org.apache.hugegraph.util.E;
 import org.apache.hugegraph.util.JsonUtil;
+import org.apache.hugegraph.util.Log;
+import org.slf4j.Logger;
 
 public final class RocksDbGraphBackupService implements GraphBackupService {
 
+    private static final Logger LOG = Log.logger(RocksDbGraphBackupService.class);
     private static final String MANIFESTS = "manifests";
     private static final String STAGES = "stages";
     private static final String REPOSITORY_PATTERN =
@@ -55,12 +60,15 @@ public final class RocksDbGraphBackupService implements GraphBackupService {
     private final RocksDBStoreProvider provider;
     private final HugeConfig config;
     private final String graphName;
+    private final String graphScope;
 
     public RocksDbGraphBackupService(RocksDBStoreProvider provider,
                                      HugeConfig config, String graphName) {
         this.provider = provider;
         this.config = config;
         this.graphName = graphName;
+        this.graphScope = Base64.getUrlEncoder().withoutPadding().encodeToString(
+                graphName.getBytes(StandardCharsets.UTF_8));
     }
 
     @Override
@@ -84,6 +92,7 @@ public final class RocksDbGraphBackupService implements GraphBackupService {
 
             GraphBackupManifest manifest = new GraphBackupManifest(
                     version, repository, System.currentTimeMillis(), databases);
+            validateManifest(manifest);
             for (Map.Entry<String, Long> entry : databases.entrySet()) {
                 new RocksDbBackupExecutor(entry.getKey()).verify(root,
                                                                 entry.getValue());
@@ -103,6 +112,7 @@ public final class RocksDbGraphBackupService implements GraphBackupService {
         try {
             Path root = repository(repository);
             GraphBackupManifest manifest = select(root, version);
+            validateManifest(manifest);
             for (Map.Entry<String, Long> entry : manifest.databases().entrySet()) {
                 new RocksDbBackupExecutor(entry.getKey()).verify(root,
                                                                 entry.getValue());
@@ -132,6 +142,7 @@ public final class RocksDbGraphBackupService implements GraphBackupService {
                 }
                 this.provider.reopen(this.config);
                 providerClosed = false;
+                cleanupOldPaths(switched);
                 return result(manifest);
             } catch (RuntimeException e) {
                 rollbackRestore(switched, providerClosed, e);
@@ -150,14 +161,18 @@ public final class RocksDbGraphBackupService implements GraphBackupService {
         Path root = repository(repository);
         List<Map<String, Object>> result = new ArrayList<>();
         for (Path path : manifests(root)) {
-            result.add(result(readManifest(path)));
+            GraphBackupManifest manifest = readManifest(path);
+            validateManifest(manifest);
+            result.add(result(manifest));
         }
         return result;
     }
 
     @Override
     public Map<String, Object> get(String repository, String version) {
-        return result(select(repository(repository), version));
+        GraphBackupManifest manifest = select(repository(repository), version);
+        validateManifest(manifest);
+        return result(manifest);
     }
 
     private List<RocksDBStore> stores() {
@@ -169,8 +184,9 @@ public final class RocksDbGraphBackupService implements GraphBackupService {
                         "Invalid repository name '%s'", name);
         Path configured = Path.of(this.config.get(CoreOptions.BACKUP_REPOSITORY_ROOT))
                               .toAbsolutePath().normalize();
-        Path root = configured.resolve(name).normalize();
-        E.checkState(root.getParent() != null && root.getParent().equals(configured),
+        Path graphRoot = configured.resolve(this.graphScope).normalize();
+        Path root = graphRoot.resolve(name).normalize();
+        E.checkState(root.getParent() != null && root.getParent().equals(graphRoot),
                      "Backup repository escapes configured root");
         try {
             Files.createDirectories(root.resolve(MANIFESTS));
@@ -214,10 +230,23 @@ public final class RocksDbGraphBackupService implements GraphBackupService {
             for (Map.Entry<String, Object> entry : values.entrySet()) {
                 databases.put(entry.getKey(), ((Number) entry.getValue()).longValue());
             }
-            return new GraphBackupManifest((String) content.get("version"),
-                                           (String) content.get("repository"),
-                                           ((Number) content.get("created_at")).longValue(),
-                                           databases);
+            GraphBackupManifest manifest = new GraphBackupManifest(
+                    (String) content.get("version"),
+                    (String) content.get("repository"),
+                    ((Number) content.get("created_at")).longValue(),
+                    databases);
+            String fileName = path.getFileName().toString();
+            E.checkState(fileName.endsWith(".json"),
+                         "Backup manifest must use a JSON file: '%s'", path);
+            String fileVersion = fileName.substring(0, fileName.length() - 5);
+            E.checkState(fileVersion.equals(manifest.version()),
+                         "Backup manifest version does not match file '%s'", path);
+            Path repository = path.getParent().getParent();
+            E.checkState(repository.getFileName().toString().equals(
+                                 manifest.repository()),
+                         "Backup manifest repository does not match path '%s'",
+                         path);
+            return manifest;
         } catch (IOException | RuntimeException e) {
             throw new BackendException("Invalid backup manifest '%s'", e, path);
         }
@@ -226,12 +255,30 @@ public final class RocksDbGraphBackupService implements GraphBackupService {
     private GraphBackupManifest select(Path root, String version) {
         List<Path> paths = manifests(root);
         E.checkArgument(!paths.isEmpty(), "No graph backup exists in '%s'", root);
-        if (version == null || version.isEmpty()) {
+        if (version == null) {
             return readManifest(paths.get(paths.size() - 1));
         }
+        E.checkArgument(!version.trim().isEmpty(), "Backup id must not be blank");
         E.checkArgument(version.matches(VERSION_PATTERN),
                         "Invalid backup id '%s'", version);
         return readManifest(root.resolve(MANIFESTS).resolve(version + ".json"));
+    }
+
+    private void validateManifest(GraphBackupManifest manifest) {
+        Set<String> expected = new TreeSet<>();
+        for (RocksDBStore store : this.stores()) {
+            expected.addAll(store.backupDatabasePaths().keySet());
+        }
+        Set<String> actual = new TreeSet<>(manifest.databases().keySet());
+        E.checkState(expected.equals(actual),
+                     "Backup '%s' does not contain a complete graph: expected " +
+                     "databases %s but got %s", manifest.version(), expected, actual);
+        for (Long backupId : manifest.databases().values()) {
+            E.checkState(backupId != null && backupId >= 0 &&
+                         backupId <= Integer.MAX_VALUE,
+                         "Invalid native backup id '%s' in graph backup '%s'",
+                         backupId, manifest.version());
+        }
     }
 
     private List<Path> manifests(Path root) {
@@ -297,6 +344,20 @@ public final class RocksDbGraphBackupService implements GraphBackupService {
             FileUtils.deleteDirectory(path.toFile());
         } catch (IOException e) {
             throw new BackendException("Failed to delete restore stage '%s'", e, path);
+        }
+    }
+
+    private static void cleanupOldPaths(
+            Map<RocksDBStore, Map<Path, Path>> switched) {
+        for (Map<Path, Path> paths : switched.values()) {
+            for (Path old : paths.values()) {
+                try {
+                    FileUtils.deleteDirectory(old.toFile());
+                } catch (IOException e) {
+                    LOG.warn("Failed to remove old RocksDB data after restore: {}",
+                             old, e);
+                }
+            }
         }
     }
 

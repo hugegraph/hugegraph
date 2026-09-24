@@ -75,6 +75,9 @@ public class RocksDbBackupExecutor {
     }
 
     public void restore(Path repositoryRoot, long backupId, Path stagePath) {
+        if (backupId < 0 || backupId > Integer.MAX_VALUE) {
+            throw new BackendException("Invalid RocksDB backup id '%s'", backupId);
+        }
         try {
             Files.createDirectories(stagePath);
         } catch (IOException e) {
@@ -93,6 +96,10 @@ public class RocksDbBackupExecutor {
         try (BackupEngine engine = this.open(repositoryRoot)) {
             for (long backupId : this.backupIds(engine)) {
                 if (!retainedIds.contains(backupId)) {
+                    if (backupId > Integer.MAX_VALUE) {
+                        throw new BackendException("Invalid RocksDB backup id '%s'",
+                                                   backupId);
+                    }
                     engine.deleteBackup((int) backupId);
                 }
             }
