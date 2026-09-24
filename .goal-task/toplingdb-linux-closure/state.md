@@ -193,4 +193,6 @@ Store 删除后的复测无效：脚本把仍在终止的旧 Pod 读成 0.074 �
 
 2026-09-25 04:48：Topling `hg-closure-top-e109-111` 的 Server 换成 overlay `closure-e109-channelrefresh`。重启前 `law_twitter_1m` 的 32 个样本、9 个自环和计数 `1000000:2098771` 通过。删除 Store-0 后新 UID 14.505 秒 Ready，PVC `pvc-782709b8-cc8d-4f60-9c17-ec8440d73cfb` 未变，JNI 仍是 `c25ff6e6…dd38`。同一个 Server Pod `mm7h8` 没有重启。第一轮复测只有 `54148543` IN 返回 500，立刻重试得到 142 条；第二轮 32 个样本和 9 个自环通过，计数仍是 `1000000:2098771`。证据 `evidence/loader-law-twitter-1m-e109-restart-overlay.json`、`evidence/loader-law-twitter-1m-e109-adjacency-after-overlay.json`、`evidence/loader-law-twitter-1m-e109-adjacency-after-retry.json`。
 
+2026-09-25 04:52：标准和 Topling 的 e109 1+1+1 上各建独立图做功能矩阵。`/versions` 无认证返回 200；图列表无认证和错误口令都是 401，正确口令是 200。二级索引创建 202，`limit=2` 返回 2 条，按 `title=beta` 只命中一个目标顶点。Gremlin 写入和 Cypher 查询都是 200。Server 是 overlay `closure-e109-channelrefresh`，PD/Store 仍是 `e109012a0` 镜像。证据 `evidence/e109-functional-matrix.json`。
+
 下一步：HStore 图快照仍未实现。重连修复还要审查后才能提交。核心功能未完成前不开始 benchmark。
