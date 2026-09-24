@@ -172,6 +172,27 @@
     "updateStrategy": {
       "type": "object",
       "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "OnDelete"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "not": {
+              "required": [
+                "rollingUpdate"
+              ]
+            }
+          }
+        }
+      ],
       "properties": {
         "type": {
           "type": "string",
@@ -772,36 +793,6 @@
         },
         "waitResources": {
           "$ref": "#/definitions/resources"
-        },
-        "restServer": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "minFreeMemory": {
-              "oneOf": [
-                {
-                  "type": "integer",
-                  "minimum": 0
-                },
-                {
-                  "type": "string",
-                  "const": ""
-                }
-              ]
-            },
-            "batchMaxWriteThreads": {
-              "oneOf": [
-                {
-                  "type": "integer",
-                  "minimum": 0
-                },
-                {
-                  "type": "string",
-                  "const": ""
-                }
-              ]
-            }
-          }
         },
         "initStoreEnabled": {
           "type": "boolean",

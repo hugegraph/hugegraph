@@ -173,6 +173,16 @@ jobs:
           helm template ci helm/hugegraph \
             --set server.ingress.enabled=true \
             --set server.ingress.allowPlainHttp=true > /dev/null
+          # Kubernetes refuses a StatefulSet that carries rollingUpdate
+          # options with updateStrategy OnDelete; the schema rejects the
+          # combination up front (a schema abort, so it lives here).
+          for component in pd store; do
+            must_fail \
+              --set "${component}.updateStrategy.type=OnDelete" \
+              --set "${component}.updateStrategy.rollingUpdate.partition=1"
+            helm template ci helm/hugegraph \
+              --set "${component}.updateStrategy.type=OnDelete" > /dev/null
+          done
           # PD PDB must keep the Raft majority: floor(replicas/2)+1
           must_fail --set pd.replicas=5 --set pd.pdb.minAvailable=2
           must_fail --set pd.replicas=4 --set pd.pdb.minAvailable=2

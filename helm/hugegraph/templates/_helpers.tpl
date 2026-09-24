@@ -620,6 +620,16 @@ Cross-field validation that JSON Schema draft-07 cannot express.
 {{- fail (printf "%s.podLabels must not set %s: the chart manages it and the workload selectors, Services and PDBs match on it" $comp $reserved) -}}
 {{- end -}}
 {{- end -}}
+{{/* User pod annotations render after the chart's own, and the Kubernetes
+     decoder keeps the last duplicate key, so a fixed checksum/* value would
+     replace the rendered checksum and pin it: rotating a Secret or changing
+     config would no longer roll the pods. */}}
+{{- $compAnnotations := get (get $.Values $comp | default dict) "podAnnotations" | default dict -}}
+{{- range $key, $_ := $compAnnotations -}}
+{{- if hasPrefix "checksum/" $key -}}
+{{- fail (printf "%s.podAnnotations must not set %s: the chart owns the checksum/ annotation prefix, which triggers pod rollouts when resolved Secrets or config change" $comp $key) -}}
+{{- end -}}
+{{- end -}}
 {{- end -}}
 {{- if and .Values.server.hpa.enabled (gt (int .Values.server.hpa.minReplicas) (int .Values.server.hpa.maxReplicas)) -}}
 {{- fail "server.hpa.minReplicas must be less than or equal to server.hpa.maxReplicas" -}}
@@ -738,6 +748,9 @@ keys for releases stored before the values existed.
 {{- if and (get $serverIngress "enabled" | default false) (empty (get $serverIngress "tls")) (not (get $serverIngress "allowPlainHttp" | default false)) -}}
 {{- fail "server.ingress.enabled without tls publishes Basic-auth credentials and JWTs over plain HTTP; configure server.ingress.tls, or set server.ingress.allowPlainHttp=true to accept that on a trusted network" -}}
 {{- end -}}
+{{- if get (get .Values.server "securityContext" | default dict) "readOnlyRootFilesystem" | default false -}}
+{{- fail "server.securityContext.readOnlyRootFilesystem=true breaks Server: its wrapper rewrites conf/rest-server.properties inside the image at startup and the chart mounts no writable volume there" -}}
+{{- end -}}
 {{/*
 extraEnv entries render after the chart-owned variables and Kubernetes lets
 the last duplicate win, so a duplicate name would silently override a
@@ -807,9 +820,9 @@ start-hugegraph-pd.sh, start-hugegraph-store.sh, and hugegraph-server.sh).
 {{- $networkPolicy := get .Values "networkPolicy" | default dict -}}
 {{- if get $networkPolicy "enabled" -}}
 {{- $exposed := dict
-      "pd" (ne .Values.pd.service.type "ClusterIP")
-      "server" (or (ne .Values.server.service.type "ClusterIP") .Values.server.ingress.enabled (ne (trim (default "" .Values.server.advertiseUrl)) ""))
-      "hubble" (and .Values.hubble.enabled (or (ne .Values.hubble.service.type "ClusterIP") .Values.hubble.ingress.enabled)) -}}
+      "pd" (ne $pdSvcType "ClusterIP")
+      "server" (or (ne (get $svc "type" | default "ClusterIP") "ClusterIP") (get $serverIngress "enabled" | default false) (ne $advertiseUrl ""))
+      "hubble" (and (get $hubble "enabled" | default false) (or (ne (get (get $hubble "service" | default dict) "type" | default "ClusterIP") "ClusterIP") (get (get $hubble "ingress" | default dict) "enabled" | default false))) -}}
 {{- range $comp := list "pd" "server" "hubble" -}}
 {{- if and (get $exposed $comp) (empty (get (get $networkPolicy $comp | default dict) "extraIngress")) -}}
 {{- fail (printf "networkPolicy.enabled admits nothing from outside the release, so the %s exposure (NodePort/LoadBalancer Service, Ingress%s) is unreachable; list its callers in networkPolicy.%s.extraIngress, for example the Ingress controller's namespace or a client CIDR" $comp (ternary ", server.advertiseUrl" "" (eq $comp "server")) $comp) -}}

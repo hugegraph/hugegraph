@@ -321,9 +321,14 @@ Two cases are worth knowing about in advance:
   returns the raft role, term and committed index that Store holds for that
   group, and fails while the Store is down. Compare term and index with the
   same group on a peer Store rather than reading them alone: on a cluster
-  that has taken no writes they are 0 on every Store. (The plural `GET
-  :8520/v1/partitions` answers 500 on any Store that follows a group, so use
-  the per-group path.) Leave a margin after the membership check rather than
+  that has taken no writes they are 0 on every Store. The plural `GET
+  :8520/v1/partitions` answers 500 on any Store that follows a group on
+  images built before
+  [apache/hugegraph#3232](https://github.com/apache/hugegraph/pull/3232)
+  (merged 2026-09-24); after it, the endpoint answers 200 on every Store,
+  with `conf` and `peers` null for the groups that Store follows. The
+  per-group path works on both. Leave a margin after the membership check
+  rather than
   deleting the next Pod on the same second, keep `store.pdb.minAvailable` at
   `replicas - 1` so an accidental second eviction is refused, and treat a
   group that is short a shard or has no leader as a stop. Closing that gap
@@ -547,9 +552,7 @@ default values.
 | `server.serviceAccount.annotations` | Annotations on the created ServiceAccount | `{}` |
 | `server.serviceAccount.automountServiceAccountToken` | Mount an API token. The chart makes no API calls | `false` |
 | `server.waitImage` | Image for the Helm test hook | `curlimages/curl:8.5.0` |
-| `server.testResources` | Resources for the Helm test hook container | `{}` |
-| `server.restServer.minFreeMemory` | Empty preserves the image default | `""` |
-| `server.restServer.batchMaxWriteThreads` | Empty preserves the image default | `""` |
+| `server.testResources` | Resources for the Helm test hook container | requests `25m`/`32Mi`, limits `250m`/`64Mi` |
 | `server.initStoreEnabled` | Must remain `false` for distributed HStore | `false` |
 | `server.auth.enabled` | Enable admin authentication | `true` |
 | `server.auth.admin.password` | Optional inline admin password; prefer a Secret in shared clusters | `""` |
@@ -813,12 +816,20 @@ before anything reaches the cluster:
   opts in.
 - `hubble.enabled` without `server.auth.enabled` is rejected unless
   `hubble.allowWithoutServerAuth=true`, and
-  `hubble.securityContext.readOnlyRootFilesystem=true` is rejected because
-  the Hubble wrapper writes its properties file inside the image at startup.
+  `securityContext.readOnlyRootFilesystem=true` is rejected for Server and
+  Hubble alike because each one's wrapper rewrites its properties file
+  inside the image at startup and the chart mounts no writable volume there.
 - `store.pdb.minAvailable` must be at least `store.replicas - 1`, so
   voluntary evictions cannot remove two copies of one shard at once.
 - `podLabels` may not override the chart-managed `app.kubernetes.io/name`,
   `instance` or `component` keys on any workload.
+- `podAnnotations` may not set keys under the chart-owned `checksum/`
+  prefix on any workload: user annotations render after the chart's own
+  and the last duplicate key wins, so a fixed value would pin the checksum
+  and stop Secret or config rotation from rolling the pods.
+- `updateStrategy.rollingUpdate` options are rejected together with
+  `updateStrategy.type: OnDelete` for PD and Store: Kubernetes refuses such
+  a StatefulSet at apply time, which would otherwise surface mid-upgrade.
 - A non-ClusterIP `pd.service.type` requires
   `pd.service.allowInsecureExposure=true`.
 - With `networkPolicy.enabled`, exposing PD, Server or Hubble (a NodePort
@@ -1098,8 +1109,12 @@ the later tasks ran on a follower and did nothing, so rerun them on the new
 leader. Wait at least 180 s before rerunning `balanceLeaders` after a
 `balancePartitions` call: `balancePartitions` sets a balance-shard flag for
 180 s even when it moves nothing, and `balanceLeaders` inside that window
-fails with a bare HTTP 500 whose reason (`balance shard is processing,
-please try later!`) appears only in the PD log.
+is refused. On images built before
+[apache/hugegraph#3233](https://github.com/apache/hugegraph/pull/3233)
+(merged 2026-09-24) the refusal is a bare HTTP 500 whose reason (`balance
+shard is processing, please try later!`) appears only in the PD log; after
+it, the same reason comes back in the response body as
+`{"status":1001,"error":"balance shard is processing, please try later!"}`.
 
 Telling a real run from a no-op takes the PD leader's log, because the
 responses do not. `patrolPartitions` answers `{"status": 0,"partitions": [ ]}`
@@ -1119,13 +1134,36 @@ Run `patrolPartitions` after replacing a Store that is not coming back,
 `balancePartitions` once the cluster is stable again, and `balanceLeaders`
 after restarts that skewed leader placement.
 
-**Do not delete a Store's PersistentVolumeClaim on current images.** A Store
-replaced with an empty PVC registers under a **new Store ID**, while its Pod
-name, DNS name and raft address are unchanged, and the cluster cannot be
-brought back to full replication from there. Retiring the old ID runs, and
-still does not repair the groups: PD accepts `{"storeState":"Tombstone"}` for
-the old ID, `patrolPartitions` then logs `shardOffline` for every partition
-and `reallocShards ShardGroup N, add shards from 2 to 3` with the new ID in
+**A Store rebuilt with an empty PVC recovers in place on images carrying
+[apache/hugegraph#3234](https://github.com/apache/hugegraph/pull/3234)
+(merged 2026-09-24); on every earlier image, including all published release
+images, it does not.** In both cases the replacement registers under a
+**new Store ID** while its Pod name, DNS name and raft address are
+unchanged, so `/v1/stores` lists two IDs at one address.
+
+On post-#3234 images the documented retirement then works: find the old ID
+in `/v1/stores` (the row at the replaced Pod's address that is not the
+newly registered one), `POST /v1/store/<oldId>` with
+`{"storeState":"Tombstone"}` on the PD leader, run
+`GET /v1/task/patrolPartitions`, and wait; verify that every shard group
+is back to full shard count with one leader, that no group names the old
+ID, and that the replaced Store's own `:8520/v1/partition/<groupId>`
+answers 200 for every group; then `DELETE /v1/store/<oldId>` to erase the
+retired record. Measured 2026-09-24 on a 3+3+3 install with pd, store and
+server built from `master` at `dbb6663a`: after deleting the Store's PVC
+and Pod, the replacement was Ready in 156 s, every one of the 12 groups
+converged onto the new ID 1 s after the Tombstone and patrol (the empty
+Store caught up by raft snapshot install), the replaced Store answered 200
+on all 12 groups with its data directory back at full size, a later
+restart with the kept PVC came back under the same ID with zero
+registration rejections, the `DELETE` left no group naming the old ID, and
+a continuous writer lost 0 of its 1,443 acknowledged vertices and 1,441
+acknowledged edges.
+
+On images without #3234 the same retirement runs and does not repair the
+groups: PD accepts `{"storeState":"Tombstone"}` for the old ID,
+`patrolPartitions` then logs `shardOffline` for every partition and
+`reallocShards ShardGroup N, add shards from 2 to 3` with the new ID in
 the computed list, and fires the configuration change; but the Store leader
 sees that address already in the group (`changePeers start, old peer is [...
 <same address> ...]`), so jraft has nothing to add and the group record keeps
@@ -1133,19 +1171,20 @@ the old ID. Measured on a 3+3+3 install: 20 minutes and three patrols later,
 all 12 groups still listed the retired ID, the replacement Store held no
 partitions at all (`:8520/v1/partition/<groupId>` answered 500 on it for
 every group), and `balancePartitions` refused to move anything
-(`movedPartitions is empty`). `DELETE /v1/store/<storeId>` erases the record
-and leaves the groups naming an ID that no longer exists.
+(`movedPartitions is empty`). `DELETE /v1/store/<storeId>` there erases the
+record and leaves the groups naming an ID that no longer exists.
 
-Nothing in the documented health surface shows this: `/v1/stores` still
-counts three `Up` Stores, cluster state stays `Cluster_OK`, Hubble lists
-three Store nodes `UP`, and all Pods are `Ready`, while every shard group is
-really running on two live replicas. The one check that shows it is the
-replaced Store's own `:8520/v1/partition/<groupId>`.
+Nothing in the documented health surface shows that failure: `/v1/stores`
+still counts three `Up` Stores, cluster state stays `Cluster_OK`, Hubble
+lists three Store nodes `UP`, and all Pods are `Ready`, while every shard
+group is really running on two live replicas. The one check that shows it
+is the replaced Store's own `:8520/v1/partition/<groupId>`.
 
-So: replace a Store Pod, keep its PVC (the Store id lives in the data path,
-and the Pod comes back under the same id). If a Store's volume is genuinely
-lost, treat the cluster as degraded until an image-side fix lands, and expect
-to rebuild rather than to recover in place.
+So the default remains: replace a Store Pod, keep its PVC (the Store id
+lives in the data path, and the Pod comes back under the same id). Treat
+the empty-PVC replacement above as a recovery procedure for post-#3234
+images only. On a released image a genuinely lost volume leaves the
+cluster degraded; expect to rebuild rather than to recover in place.
 
 Periodic balancing and shard-sync progress metrics do not exist upstream
 yet and are out of scope for this chart. Periodic leader balancing is
@@ -1338,12 +1377,14 @@ independently of the release name.
 
 ## Limitations
 
-- A Store cannot be recovered in place after its volume is lost. The
-  replacement keeps the Pod's DNS raft address, so PD's reallocation adds a
-  peer the raft group already has and the group keeps the old Store id; the
-  replacement stays empty and the group runs on the remaining replicas, with
-  no health surface reporting it. See Disaster Recovery for what was measured
-  and what to do instead.
+- On images predating
+  [apache/hugegraph#3234](https://github.com/apache/hugegraph/pull/3234)
+  (merged 2026-09-24, in no release yet), a Store cannot be recovered in
+  place after its volume is lost: the replacement keeps the Pod's DNS raft
+  address, PD's reallocation adds a peer the raft group already has, the
+  group keeps the old Store id, and no health surface reports it. Images
+  built from `master` at or after `dbb6663a` repair this through the
+  documented retirement; see Disaster Recovery for both measurements.
 - A Server Pod that starts while PD is rolling can lose its Gremlin binding
   for the life of the Pod while passing readiness and serving REST; delete
   that Pod. See Troubleshooting, "Could not rebind".

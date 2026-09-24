@@ -16,23 +16,13 @@
 #
 
 {{- include "hugegraph.validateValues" . }}
-{{- $restServer := .Values.server.restServer | default dict }}
-{{- $minFreeMemory := "" }}
-{{- $batchMaxWriteThreads := "" }}
-{{- if hasKey $restServer "minFreeMemory" }}
-{{- $minFreeMemory = toString (get $restServer "minFreeMemory") }}
-{{- end }}
-{{- if hasKey $restServer "batchMaxWriteThreads" }}
-{{- $batchMaxWriteThreads = toString (get $restServer "batchMaxWriteThreads") }}
-{{- end }}
 {{- $customPort := ne (int .Values.server.port) 8080 }}
 {{/*
 Distributed HStore requires every Server replica to share graph metadata
 through PD. The same registration properties let PD-mode Hubble discover the
-Server and let the built-in authenticator create the admin on the PD path.
+Server and let the built-in authenticator create the admin on the PD path,
+so the config-rewrite wrapper below runs unconditionally.
 */}}
-{{- $pdMeta := true }}
-{{- $wrapper := or $pdMeta $customPort (ne $minFreeMemory "") (ne $batchMaxWriteThreads "") }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -106,7 +96,6 @@ spec:
           securityContext:
             {{- toYaml . | nindent 12 }}
           {{- end }}
-          {{- if $wrapper }}
           command:
             - /usr/bin/dumb-init
             - --
@@ -137,7 +126,6 @@ spec:
                 exit 1
               fi
               TMP=$(mktemp)
-              {{- if $pdMeta }}
               FOUND_USE_PD=false
               FOUND_PD_PEERS=false
               FOUND_URLS_TO_PD=false
@@ -148,22 +136,14 @@ spec:
               if [[ "${POD_IP:-}" == *:* && "${HG_SERVER_URLS_TO_PD:-}" == "http://${POD_IP}:"* ]]; then
                 HG_SERVER_URLS_TO_PD="http://[${POD_IP}]:${HG_SERVER_URLS_TO_PD##*:}"
               fi
-              {{- end }}
               {{- if .Values.server.auth.enabled }}
               FOUND_AUTH_ADMIN_PA=false
               {{- end }}
               {{- if $customPort }}
               FOUND_RESTSERVER_URL=false
               {{- end }}
-              {{- if ne $minFreeMemory "" }}
-              FOUND_MIN_FREE_MEMORY=false
-              {{- end }}
-              {{- if ne $batchMaxWriteThreads "" }}
-              FOUND_BATCH_MAX_WRITE_THREADS=false
-              {{- end }}
               while IFS= read -r LINE || [[ -n "${LINE}" ]]; do
                 case "${LINE}" in
-                  {{- if $pdMeta }}
                   usePD=*)
                     printf 'usePD=true\n' >>"${TMP}"
                     FOUND_USE_PD=true
@@ -180,7 +160,6 @@ spec:
                     printf 'server.deploy_in_k8s=true\n' >>"${TMP}"
                     FOUND_DEPLOY_IN_K8S=true
                     ;;
-                  {{- end }}
                   {{- if .Values.server.auth.enabled }}
                   auth.admin_pa=*)
                     printf 'auth.admin_pa=%s\n' "${PASSWORD}" >>"${TMP}"
@@ -194,26 +173,11 @@ spec:
                     FOUND_RESTSERVER_URL=true
                     ;;
                   {{- end }}
-                  {{- if ne $minFreeMemory "" }}
-                  restserver.min_free_memory=*)
-                    printf 'restserver.min_free_memory=%s\n' \
-                      {{ $minFreeMemory | quote }} >>"${TMP}"
-                    FOUND_MIN_FREE_MEMORY=true
-                    ;;
-                  {{- end }}
-                  {{- if ne $batchMaxWriteThreads "" }}
-                  batch.max_write_threads=*)
-                    printf 'batch.max_write_threads=%s\n' \
-                      {{ $batchMaxWriteThreads | quote }} >>"${TMP}"
-                    FOUND_BATCH_MAX_WRITE_THREADS=true
-                    ;;
-                  {{- end }}
                   *)
                     printf '%s\n' "${LINE}" >>"${TMP}"
                     ;;
                 esac
               done <"${CONF}"
-              {{- if $pdMeta }}
               if [[ "${FOUND_USE_PD}" == false ]]; then
                 printf 'usePD=true\n' >>"${TMP}"
               fi
@@ -232,7 +196,6 @@ spec:
               if [[ "${FOUND_DEPLOY_IN_K8S}" == false ]]; then
                 printf 'server.deploy_in_k8s=true\n' >>"${TMP}"
               fi
-              {{- end }}
               {{- if .Values.server.auth.enabled }}
               if [[ "${FOUND_AUTH_ADMIN_PA}" == false ]]; then
                 printf 'auth.admin_pa=%s\n' "${PASSWORD}" >>"${TMP}"
@@ -244,22 +207,9 @@ spec:
                   {{ .Values.server.port | quote }} >>"${TMP}"
               fi
               {{- end }}
-              {{- if ne $minFreeMemory "" }}
-              if [[ "${FOUND_MIN_FREE_MEMORY}" == false ]]; then
-                printf 'restserver.min_free_memory=%s\n' \
-                  {{ $minFreeMemory | quote }} >>"${TMP}"
-              fi
-              {{- end }}
-              {{- if ne $batchMaxWriteThreads "" }}
-              if [[ "${FOUND_BATCH_MAX_WRITE_THREADS}" == false ]]; then
-                printf 'batch.max_write_threads=%s\n' \
-                  {{ $batchMaxWriteThreads | quote }} >>"${TMP}"
-              fi
-              {{- end }}
               chmod 600 "${TMP}"
               mv "${TMP}" "${CONF}"
               exec ./docker-entrypoint.sh
-          {{- end }}
           ports:
             - name: http
               containerPort: {{ .Values.server.port }}
@@ -290,10 +240,8 @@ spec:
             # coming up. Track the startup probe's own budget instead.
             - name: HG_SERVER_STARTUP_TIMEOUT_S
               value: {{ include "hugegraph.server.startupTimeoutSeconds" . | quote }}
-            {{- if $pdMeta }}
             - name: HG_SERVER_URLS_TO_PD
               value: {{ include "hugegraph.server.urlsToPd" . | quote }}
-            {{- end }}
             {{- with .Values.server.extraEnv }}{{ toYaml . | nindent 12 }}{{- end }}
             {{- with include "hugegraph.javaOptsEnv" .Values.server.javaOpts }}{{ . | trim | nindent 12 }}{{- end }}
             {{- if .Values.server.auth.enabled }}

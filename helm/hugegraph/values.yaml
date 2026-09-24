@@ -331,7 +331,6 @@ server:
     minAvailable: 2
   # Image used by the Helm test hook.
   waitImage: curlimages/curl:8.5.0
-  # Optional resources for the Helm test hook container.
   # Resources for the Helm test hook container. Bounded by default so the hook
   # cannot run unlimited on a restricted or quota-managed namespace.
   testResources:
@@ -341,11 +340,6 @@ server:
     limits:
       cpu: 250m
       memory: 64Mi
-  restServer:
-    # Empty preserves the image's restserver.min_free_memory default.
-    minFreeMemory: ""
-    # Empty preserves the image's batch.max_write_threads default.
-    batchMaxWriteThreads: ""
   # Distributed HStore: the init-store gate must be explicitly false, so that
   # concurrent Server replicas never initialize the same backend. No
   # HG_SERVER_SKIP_INIT and no init Job.

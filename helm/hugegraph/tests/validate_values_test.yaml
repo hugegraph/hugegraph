@@ -227,3 +227,26 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "readOnlyRootFilesystem=true breaks Hubble"
+
+  - it: rejects a read-only root filesystem on Server
+    set:
+      server.securityContext.readOnlyRootFilesystem: true
+    asserts:
+      - failedTemplate:
+          errorPattern: "readOnlyRootFilesystem=true breaks Server"
+
+  - it: rejects a Server pod annotation under the chart-owned checksum prefix
+    set:
+      server.podAnnotations:
+        checksum/auth: pinned
+    asserts:
+      - failedTemplate:
+          errorPattern: "server.podAnnotations must not set checksum/auth"
+
+  - it: rejects a PD pod annotation under the chart-owned checksum prefix
+    set:
+      pd.podAnnotations:
+        checksum/pd-auth: pinned
+    asserts:
+      - failedTemplate:
+          errorPattern: "pd.podAnnotations must not set checksum/pd-auth"
