@@ -89,9 +89,9 @@ Topling 构建上下文必须包含已存在的 `hugegraph-server/hugegraph-dist
 
 ## 下一动作
 
-1. 标准和 Topling 的 a35 百万图都已在一台 Store 更换 IP 后通过 32 个邻接样本、9 个自环和 Gremlin 计数。不要再删 Store 重复这项。
-2. 失败重试路径仍未触发，因为两次导入的失败数都是 0。不要为了勾选而制造失败。P6 仍不勾选。
-3. 文档仍需 1 名独立只读审查后才提交推送。不要提交 `evidence/`、未审查的 WAL 或 channel refresh，也不要自动开第四轮审查。HStore snapshot 保持 500，不要重试或做目录拷贝。网络分区、全量 LAW 和 benchmark 仍后置。
+1. 文档提交 `1a495ad43` 已推送到 `org/toplingdb`。不要重复提交同一批笔记，也不要再删 Store 重复 IP 测试。
+2. 失败重试路径仍未触发。不要为了勾选而制造失败。HStore snapshot 保持 500，不要重试或做目录拷贝。不要自动开第四轮 WAL 或 channel refresh 审查。
+3. 网络分区仍缺多节点和 Chaos Mesh。全量 LAW 和 benchmark 仍后置。本段审查结论是 HIGH_SEVERITY=0，不要把它混进 Java 提交。
 
 ## 进展日志
 
@@ -399,3 +399,5 @@ Store 删除后的复测无效：脚本把仍在终止的旧 Pod 读成 0.074 �
 2026-09-25：Topling `hg-closure-top-a35-s3` 只删除 Store-1。旧 IP `10.244.0.33`，新 IP `10.244.0.98`，UID 改变，PVC `store-data-hg-closure-top-a35-s3-hugegraph-store-1` 不变，12.797 秒 Ready。这是 1 个 PD，不是 3+3+3。0 字节 jemalloc curl 被终止。新 Pod 没有上一容器，不能判断 `db not closed`。删除前和 Ready 后 Gremlin 都是 `1000000:2098771`。样本 `56862681` 的 compact_id、出边和入边在新 IP 后仍匹配。JNI 是 `/hugegraph-store/library/librocksdbjni-linux64.so` 的 `c25ff6e6…dd38`。证据 `evidence/a35-top-s3-store-ip.json`。
 
 随后不再删除 Pod，只重读两个已经更换过 Store IP 的百万图。标准 `law_a35std_1m` 和 Topling `law_a35top_1m` 都是 32 个样本 0 不一致，9 个自环通过。证据 `evidence/a35-std-333-store-ip-adjacency.json`、`evidence/a35-top-s3-store-ip-adjacency.json`。导入失败数仍是 0，失败重试路径没有被触发。P6 不勾选。笔记尚未审查或提交。
+
+2026-09-25：文档审查 `evidence/build/doc-review-a35-notes.md` 是 HIGH_SEVERITY=3。已改掉 e109 当前绑定、数据线索和 drop 时间顺序这三处矛盾。重审 `evidence/build/doc-rereview-a35-notes.md` 是 HIGH_SEVERITY=0。随后只提交 `state.md` 和 `todo.md`，提交 `1a495ad43`，并推送到 `org/toplingdb`。没有提交 Java、WAL、channel refresh 或 evidence。
