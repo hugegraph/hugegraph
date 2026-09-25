@@ -93,7 +93,7 @@ Cypher 记录在进展日志，是否可提交以当前文档审查为准。chan
 
 ## 下一动作
 
-1. HA Compose 与 Helm 的配置对齐已在 `todo.md` 记为不勾选。`/tmp/ha-align-disposition-review.md` 是 HIGH_SEVERITY=0。没有修改 Compose、Helm 或正在运行的集群。
+1. Store 关闭证据已在 `todo.md` 记为不勾选，也不是卡住 worker 的超时演练。`still_waiting` 是 0，`forced_db_close` 是 false。`/tmp/store-shutdown-disposition-review.md` 是 HIGH_SEVERITY=0。不要再给 Store 发信号，也不要强行关库。
 2. 继续单节点 `kind-kind` 上还能执行的项。不要删 Store，不要制造导入失败，不要重试 HStore `snapshot_create`，不要实现跨分区图快照，不要自动开 channel refresh 或 WAL 的第四轮审查。
 3. 主 checkout `/home/soc-baidu/github/hugegraph` 不要使用。Java 差异仍不提交。
 
