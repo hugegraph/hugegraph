@@ -89,7 +89,7 @@ Topling 构建上下文必须包含已存在的 `hugegraph-server/hugegraph-dist
 
 ## 下一动作
 
-1. Store-0 最终记录 41 次 HTTP 200，没有非 200。关闭日志先写 closed gRPC，再写 closing all rocksdb，随后仍有 Topling `db not closed`。没有 `Still waiting`。证据 JSON 没有信号名、顶点 ID、请求 URL 或发信号瞬间的计数。不要为了补这些字段而再发信号，也不要强行关库。
+1. Store-0 最终记录 41 次 HTTP 200，没有非 200。关闭日志先写 closed gRPC，再写 closing all rocksdb，随后仍有 Topling `db not closed`。没有 `Still waiting`。证据 JSON 没有信号名、顶点 ID、请求 URL 或发信号瞬间的计数。不要为了补这些字段而再发信号，也不要强行关库。 随后三台 Server 对 `law_a35top333_1m` 的计数响应都是 HTTP 200，data 是 `1000000:2098771`，OLDIP 都是 NO。这不勾选 P6，也不写成地址缓存已修复。
 2. 不要把地址缓存恢复写成已修复，不要再删 Store，不要自动开第四轮审查，不要制造导入失败，不要重试 HStore snapshot。
 3. 网络分区仍缺多节点和 Chaos Mesh。全量 LAW 和 benchmark 仍后置。Store-0 关闭笔记的审查结论是 HIGH_SEVERITY=0。不要把它混进 Java 提交。
 
@@ -411,3 +411,5 @@ Store 删除后的复测无效：脚本把仍在终止的旧 Pod 读成 0.074 �
 2026-09-25：只对 `nwjsq` 的 Java 发 SIGTERM，没有删 Store。UID `0c84ecdc-ddfa-4930-8266-cfe73c4f6924` 和 IP `10.244.0.77` 不变，restartCount 0 到 1，容器结束并再次启动都在 `2026-09-25T05:39:22Z`。重启后的全图计数是 HTTP 200 `1000000:2098771`，`54148543` IN 也是 200，响应里没有 `10.244.0.93`。对照的 `qkpz5` 这次没有收到信号，restartCount 仍是 2，启动时间仍是 `2026-09-25T04:48:51Z`，同样返回 `1000000:2098771` 和 IN 200。因此不能证明必须重启 Server 才能恢复，也不能把运行中的 `a35ebeb17` 镜像写成已修复。P6 不勾选。证据 `evidence/a35-top-333-server-refresh.json`。笔记尚未审查或提交。
 
 2026-09-25：`hg-closure-top-a35-333` 的 Store-0 第二次尝试记录 41 次 HTTP 200，没有非 200。第一次 shell 循环因为 `sh` 拒绝 `SECONDS` 没有发出请求。UID `434437bd-f2fa-4ead-8eed-fc7b590968ce` 和 IP `10.244.0.89` 不变，restartCount 1 到 2，74.674 秒 Ready，所以 Pod 没有被替换。上一容器日志有 `closed gRPC callbacks`、`closing all rocksdb`，然后是 Topling `SidePluginRepo` `db not closed`。`still_waiting` 是 0。`vertex_after` 只有 `http=200` 和 `found=true`。`signal.stdout` 只有 `PID:37` 和 `SENT`，没有信号名。`forced_db_close` 是 false。证据 JSON 没有请求 URL、顶点 ID 或发信号瞬间的计数。这还不是卡住 worker 的超时演练，关闭项不勾选。证据 `evidence/a35-top-333-shutdown-inflight.json`。1 名只读审查结论是 HIGH_SEVERITY=0。
+
+2026-09-25：只读复查 `hg-closure-top-a35-333` 的三台 Server。证据 purpose 是 Store-0 SIGTERM 之后的只读计数，并写明 no pod delete。`nwjsq` IP `10.244.0.77`、restartCount 1，`qkpz5` IP `10.244.0.79`、restartCount 2，`vv5sv` IP `10.244.0.96`、restartCount 2，三台都 Ready。图 `law_a35top333_1m` 的计数响应都是 HTTP 200，data 是 `1000000:2098771`。三段响应的 OLDIP 都是 NO。这不能写成地址缓存已修复，P6 不勾选。证据 `evidence/a35-top-333-post-shutdown-count.json`。1 名只读审查结论是 HIGH_SEVERITY=0。
