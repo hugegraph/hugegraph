@@ -93,9 +93,9 @@ Cypher 记录在进展日志，是否可提交以当前文档审查为准。chan
 
 ## 下一动作
 
-1. 邻接段的新审查文件 `/tmp/adj-after-sigterm-r2-review.md` 首行是 HIGH_SEVERITY=0。这不勾选 P6。审查通过后的邻接段可以提交，不要和 Java 混提。
-2. `327737f16` 的 PD leader 原地 SIGTERM 正在重跑。第一次在发信号前退出，没有改 Pod，因为状态里的镜像带 `docker.io/` 前缀。不要删 Store，不要制造导入失败，不要重试 HStore `snapshot_create`，不要实现跨分区图快照，不要把单节点写成网络分区，不要自动开 channel refresh 或 WAL 的第四轮审查。
-3. 主 checkout `/home/soc-baidu/github/hugegraph` 不要使用。
+1. PD leader 两段笔记已由 `/tmp/pd-leader-sigterm-review-r2.md` 给出 HIGH_SEVERITY=0。这不勾选 P5，也不是网络分区。
+2. 继续单节点 `kind-kind` 上还能执行的项。不要删 Store，不要制造导入失败，不要重试 HStore `snapshot_create`，不要实现跨分区图快照，不要自动开 channel refresh 或 WAL 的第四轮审查。
+3. 主 checkout `/home/soc-baidu/github/hugegraph` 不要使用。Java 差异仍不提交。
 
 ## 进展日志
 
@@ -463,3 +463,7 @@ Store 删除后的复测无效：脚本把仍在终止的旧 Pod 读成 0.074 �
 Server 原地 SIGTERM 之后做只读 Gremlin 计数。没有删 Pod，也没有新发信号。`hg-closure-std-a35-333` 的 `ggkzf` 图 `law_a35std_1m` 是 HTTP 200，data 是 `1000000:2098771`，rc 0。`hg-closure-top-a35-333` 的 `nwjsq` 图 `law_a35top333_1m` 是 HTTP 200，data 是 `1000000:2098771`，rc 0。这不勾选 P6。证据 `evidence/a35-333-count-after-server-sigterm.json`。笔记尚未审查或提交。
 
 对两台原地重启后的 Server 做只读邻接。没有删 Pod，也没有新发信号。`hg-closure-std-a35-333` 的 `mcf26` 图 `law_a35std_1m`：samples 32，directions 64，mismatch_count 0，http_fail 0。`hg-closure-top-a35-333` 的 `qkpz5` 图 `law_a35top333_1m`：samples 32，directions 64，mismatch_count 0，http_fail 0。这不勾选 P6。证据 `evidence/a35-333-adjacency-after-server-sigterm.json`。
+
+对 `hg-closure-std-a35-333` 的 `hg-closure-std-a35-333-hugegraph-pd-2` 向 pid 1 发 SIGTERM。没有删 Pod，也没有给 Store 发信号。镜像 `docker.io/hugegraph/pd:closure-std-327737f16`，source_revision `327737f16`。UID `a6621897-8d89-4e2f-a2ab-acf9e1162a04`，PVC `6fbc3792-e7f1-4855-88ad-f687788c8895`，restartCount 从 0 到 1，same_uid 和 same_pvc 都是 true。信号前 ready_body 是 `{"ready":true,"state":"STATE_LEADER","isLeader":true}`，信号后是 `{"ready":true,"state":"STATE_FOLLOWER","isLeader":false}`。signal_rc 是 0，signal_stdout 是 SENT。recovery_s 是 13.963，`recovery_s_includes_during_vertex_http` 是 true。`during_vertex_http` 是 200，`during_vertex_http_is_after_ready` 是 true。顶点 `10001:pd327-std` 由 `hg-closure-std-a35-333-hugegraph-server-54958cdd4d-ggkzf` 读取，vertex_http 前后都是 200。cluster_before 和 cluster_after 的 0、1、2 都是 HTTP 200、`Cluster_OK`。leaders_after 是 `1`。这不勾选 P5。证据 `evidence/a35-std-333-pd-leader-sigterm-327737f16.json`。
+
+对 `hg-closure-top-a35-333` 的 `hg-closure-top-a35-333-hugegraph-pd-1` 向 pid 1 发 SIGTERM。没有删 Pod，也没有给 Store 发信号。镜像 `docker.io/hugegraph/pd:closure-327737f16`，source_revision `327737f16`。UID `ddce86f8-2583-4e99-a716-e64504ff9249`，PVC `ca20600c-9bb1-484c-86a8-5119a95b503c`，restartCount 从 0 到 1，same_uid 和 same_pvc 都是 true。信号前 ready_body 是 `{"ready":true,"state":"STATE_LEADER","isLeader":true}`，信号后是 `{"ready":true,"state":"STATE_FOLLOWER","isLeader":false}`。signal_rc 是 0，signal_stdout 是 SENT。recovery_s 是 14.978，`recovery_s_includes_during_vertex_http` 是 true。`during_vertex_http` 是 200，`during_vertex_http_is_after_ready` 是 true。顶点 `1:pd327-top` 由 `hg-closure-top-a35-333-hugegraph-server-6549c45474-nwjsq` 读取，vertex_http 前后都是 200。cluster_before 和 cluster_after 的 0、1、2 都是 HTTP 200、`Cluster_OK`。leaders_after 是 `0`。这不勾选 P5。证据 `evidence/a35-top-333-pd-leader-sigterm-327737f16.json`。
