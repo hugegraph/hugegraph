@@ -34,6 +34,8 @@
 2026-09-25 用户确认生成 goal 并立即复用本目录：本机持续完成 todo.md 的全部 Linux 实测，阶段边界和会话结束前更新并推送 `state.md` 与 `todo.md`。明显且可复现的阻塞缺陷可以直接修复、补回归测试，审查通过后与文档分开提交并推送。不新开分支、PR 或 goal-task 目录，不 force-push。
 同日确认可执行 goal 时，上述范围不变。初始化只补记已经发生、但当时还没写入合同的标准 a35 子集导入，不启动测试，也不提交。
 
+2026-09-25 用户回来后再次确认：继续本机 goal，只复用本目录、工作树 `/home/soc-baidu/.codex/worktrees/f29e/hugegraph`、`org/toplingdb` 和 PR #179。主 checkout `/home/soc-baidu/github/hugegraph` 仍停在较旧的 `f9829899c`，不要在那里继续。本机把 todo.md 里还能在单节点 kind 上执行的 Linux 实测做完；每项最终只能是绑定证据的通过、失败，或写明解除条件的后置。阶段边界和会话结束前更新并推送 `state.md` 与 `todo.md`。明显且可复现的阻塞缺陷可以直接修复并补回归测试，审查通过后与文档分开提交、再非强制推送。不新开分支、PR 或 goal-task 目录，不 force-push，不实现新的跨分区图快照协议。
+
 ## 阶段
 
 | 阶段 | 状态 | 依赖 |
@@ -85,13 +87,15 @@ Topling 构建上下文必须包含已存在的 `hugegraph-server/hugegraph-dist
 
 ## Initialization TODO
 
-无未完成的一次性初始化。嵌套 WAL 修复已在 `457295ac8`，并包含于已推送的 `a7a4a6f1b`。2026-09-25 核对 `hg-closure-top-image-e109012a0` 为 `inactive/success`，不要因为旧记录重新启动它。
+无需要另建文件的初始化。嵌套 WAL 修复已在 `457295ac8`，并包含于已推送的 `a7a4a6f1b`。2026-09-25 核对 `hg-closure-top-image-e109012a0` 为 `inactive/success`，不要因为旧记录重新启动它。
+
+Cypher 记录在进展日志，是否可提交以当前文档审查为准。channel refresh 和 WAL 的未提交 Java 差异仍禁止提交。
 
 ## 下一动作
 
 1. Store-0 最终记录 41 次 HTTP 200，没有非 200。关闭日志先写 closed gRPC，再写 closing all rocksdb，随后仍有 Topling `db not closed`。没有 `Still waiting`。证据 JSON 没有信号名、顶点 ID、请求 URL 或发信号瞬间的计数。不要为了补这些字段而再发信号，也不要强行关库。 随后三台 Server 对 `law_a35top333_1m` 的计数响应都是 HTTP 200，data 是 `1000000:2098771`，OLDIP 都是 NO。这不勾选 P6，也不写成地址缓存已修复。 只读邻接摘要：32 个样本中 63 个方向在 4000 字节截断前解析通过，真实不一致数是 0。`54148543` 的截断 IN 已重读，三台 Server 的 IN 都是 HTTP 200、count 142、expected 142、first_ok true，OUT 都是 count 4、expected 4。9 个自环都是 HTTP 200 且存在。`old_ip_seen` 是 false。Store-0 JNI SHA-256 与证据 `jni_sha256` 相同。运行镜像 revision 仍是 `a35ebeb17`。P6 不勾选，`address_cache_fixed` 是 false。 五个 Server 的只读邻接都是 64 个方向、mismatch_count 0。9 个自环共 45 行且都存在。`failure_retry_triggered` 是 false，所以 P6 仍不勾选。
 2. 不要把地址缓存恢复写成已修复，不要再删 Store，不要自动开第四轮审查，不要制造导入失败，不要重试 HStore snapshot。
-3. 网络分区仍缺多节点和 Chaos Mesh。全量 LAW 和 benchmark 仍后置。Store-0 关闭笔记的审查结论是 HIGH_SEVERITY=0。不要把它混进 Java 提交。 本次检查没有给 kind 增加节点，也没有安装 CRD。 JNI 扫描 `row_count` 是 18，`all_no_silent_fallback` 是 true，`bad_count` 是 0。这不勾选 P4、P5、P6 或 P7。 两个 a35 3+3+3 的 PD leader `balanceLeaders` 是 HTTP 200，不是异常体。这仍不是网络分区。 随后两边新建的 person 顶点在三台 Server 上都是 HTTP 200。 两个 a35 3+3+3 里 pd-0 和 pd-1 报 `Cluster_OK`，pd-2 报 `Cluster_Not_Ready`，三台都认为 leader 是 pd-1。这仍不是网络分区。 上一容器日志里 12 个 PartitionEngine 已关闭，随后只记下 `hgstore-metadata`，原生行仍没有数据库名。 同一代标准 Store-0 的上一容器日志没有 `db not closed`。
+3. 网络分区仍缺多节点和 Chaos Mesh。全量 LAW 和 benchmark 仍后置。Store-0 关闭笔记的审查结论是 HIGH_SEVERITY=0。不要把它混进 Java 提交。 本次检查没有给 kind 增加节点，也没有安装 CRD。 JNI 扫描 `row_count` 是 18，`all_no_silent_fallback` 是 true，`bad_count` 是 0。这不勾选 P4、P5、P6 或 P7。 两个 a35 3+3+3 的 PD leader `balanceLeaders` 是 HTTP 200，不是异常体。这仍不是网络分区。 随后两边新建的 person 顶点在三台 Server 上都是 HTTP 200。 两个 a35 3+3+3 里 pd-0 和 pd-1 报 `Cluster_OK`，pd-2 报 `Cluster_Not_Ready`，三台都认为 leader 是 pd-1。这仍不是网络分区。 上一容器日志里 12 个 PartitionEngine 已关闭，随后只记下 `hgstore-metadata`，原生行仍没有数据库名。 同一代标准 Store-0 的上一容器日志没有 `db not closed`。 两个 a35 3+3+3 的六台 Server 对新建 person 的原始 Cypher 都是 HTTP 200、inner_code 200。这不勾选 P4、P5、P6 或 P7。
 
 ## 进展日志
 
@@ -431,3 +435,23 @@ Store 删除后的复测无效：脚本把仍在终止的旧 Pod 读成 0.074 �
 2026-09-25：重读 `hg-closure-top-a35-333` Store-0 的上一容器日志。没有新发信号，也没有删 Pod；证据 purpose 写了这一点。`line_count` 是 430。`event_order` 先是 `grpc`，接着 12 个 `pe`，然后 `closeall`、`shutdown-db`、`native`。`partition_engine_shutdown_count` 是 12，`group_ids` 是 0 到 11。`segment_log_storage_true_count` 是 12。`still_waiting_count` 是 0。`db_not_closed_count` 是 1。唯一的 shutdown db 行是 `hgstore-metadata`，路径 `/hugegraph-store/storage/hgstore-metadata`。`native_names_db` 是 false，`close_all_db_called` 是 false，`p4_checked` 是 false。证据 `evidence/a35-top-333-shutdown-log-order.json`。1 名只读审查结论是 HIGH_SEVERITY=0。
 
 2026-09-25：重读标准 `hg-closure-std-a35-333` Store-0 的上一容器日志。没有新发信号，也没有删 Pod；证据 purpose 写了这一点。`kubectl_rc` 是 0，`line_count` 是 1360。`partition_engine_shutdown_count` 是 12，`segment_log_storage_true_count` 是 12，`still_waiting_count` 是 0，`db_not_closed_count` 是 0，`shutdown_db_count` 是 1，名称是 `hgstore-metadata`。`event_order` 以 `grpc` 开始，然后是 12 个 `pe`，最后是 `closeall` 和 `shutdown-db`，没有 `native`。`close_all_db_called` 是 false，`p4_checked` 是 false。证据 `evidence/a35-std-333-shutdown-log-order.json`。1 名只读审查结论是 HIGH_SEVERITY=0。
+
+2026-09-25：在两个 a35 3+3+3 的运行中 Server 上，对 `hugegraph` 图发送原始 Cypher。没有删 Pod，也没有发信号；证据 purpose 写了这一点。标准查询名是 `bal333-std-a4fd`，Topling 查询名是 `bal333-top-a4fd`。标准 `ggkzf`、`mcf26`、`zggsl` 和 Topling `nwjsq`、`qkpz5`、`vv5sv` 都是 HTTP 200、`inner_code` 200、`hit` true。`quoted_body_control` 是 HTTP 200、`inner_code` 400、`hit` false。`running_image_revision` 是 `a35ebeb17`。这不勾选 P4、P5、P6 或 P7。证据 `evidence/a35-333-cypher.json`。笔记尚未审查或提交。
+
+2026-09-25：只读复查两个 a35 3+3+3 的三台 PD。没有删 Pod，也没有发信号。标准和 Topling 的 pd-1 `/v1/ready` 都是 `STATE_LEADER`，`/v1/cluster` 是 `Cluster_OK`，`onlineStoreSize` 是 3。两边 pd-2 的 `/v1/ready` 都是 HTTP 200、`STATE_FOLLOWER`，`/v1/cluster` 仍是 `Cluster_Not_Ready`；日志里 `Raft becomes leader`、`Store register`、`update cluster state` 和 `The cluster is not ready` 都是 0。两边 pd-0 都有 1 次 `Raft becomes leader` 和 1 次 `Raft  lost leader`，现在是 follower，但 `/v1/cluster` 仍是 `Cluster_OK`。镜像分别是 `hugegraph/pd:closure-std-a35ebeb17` 和 `hugegraph/pd:closure-a35ebeb17`，revision `a35ebeb17`。这不是 Topling 特有，也不是网络分区，P5 不勾选。证据 `evidence/a35-333-pd-local-cluster-state.json`。笔记尚未审查或提交。
+
+本地未提交修复：`IndexAPI.clusterState()` 每次 REST 读取前都调用 `checkStoreStatus()`，避免 follower 留下构造时的 `Cluster_Not_Ready` 或旧任期的 `Cluster_OK`。读取抛 `PDException` 时不再把初始 `Cluster_OK` 写回缓存。`/v1/ready` 不走这个方法。测试次数和审查结论分别见 `hugegraph-pd/hg-pd-test/target/surefire-reports/org.apache.hugegraph.pd.rest.IndexAPIClusterStateTest.txt` 与 `evidence/build/pd-cluster-state-review-1.md`、`pd-cluster-state-review-2.md`、`pd-cluster-state-review-3.md`。没有和 channel refresh 或 WAL 改动混在同一个提交里。代码已单独提交并推送为 `327737f16`，没有混入 channel refresh、WAL 或文档。写这句话时，运行中的 a35 镜像仍是 `a35ebeb17`，还没有这个修复，所以当时不把 Service 抽查改写成已通过。后面的 PD 替换记录覆盖这一句。
+
+2026-09-25：从 Server Pod 再查。标准 `ggkzf` 直连 pd-0/1 是 `Cluster_OK`，pd-2 是 `Cluster_Not_Ready`；Service 18 次里 `Cluster_OK` 8 次、`Cluster_Not_Ready` 10 次。Topling `nwjsq` 同样 pd-2 为 `Cluster_Not_Ready`，Service 18 次里 `Cluster_OK` 10 次、`Cluster_Not_Ready` 8 次。没有删 Pod，也没有发信号。P5 不勾选。证据 `evidence/a35-333-pd-service-cluster-mix.json`。笔记尚未审查或提交。
+
+2026-09-25：PD Service 抽查之后，在 Pod 内只读执行 Gremlin 计数。Topling `nwjsq` 图 `law_a35top333_1m` 和标准 `ggkzf` 图 `law_a35std_1m` 都是 HTTP 200，data 是 `1000000:2098771`。耗时含 kubectl exec，分别 0.066 秒和 0.078 秒，不是全图扫描基准，也不勾选 P6。没有删 Pod，也没有发信号。证据 `evidence/a35-333-count-after-pd-service.json`。笔记尚未审查或提交。
+
+2026-09-25：开始用干净 detached worktree `build-context-327737f16` 构建标准 PD 镜像 `hugegraph/pd:closure-std-327737f16`。上下文 revision 是 `327737f16`，工作区为空，源码含 `clusterState()`。systemd 单元 `hg-pd-bake-327737f16-std.service` 正在执行 Maven。日志 `evidence/build/bake-327737f16-standard-pd.log`。没有覆盖 `closure-std-a35ebeb17`，没有从脏的 f29e 工作树构建，也还没有加载到 kind。Topling PD 镜像还没开始。
+
+2026-09-25：标准 PD 构建单元 `hg-pd-bake-327737f16-std.service` 仍在运行，不要另起一份。Maven 已到 `hugegraph-dist` `[20/27]`，正在打包；日志停在 assembly 的 parent POM 警告，进程还在。还没有镜像，没有加载 kind，没有滚动 PD。
+
+2026-09-25：标准 PD 镜像 `hugegraph/pd:closure-std-327737f16` 构建成功，Docker id `sha256:31c5659ca3353b125c14da190ef6a273bad1a8c9e7ce6d79de4408e84b30f198`。已加载到 kind，并逐台替换 `hg-closure-std-a35-333` 的三台 PD。最终三台镜像都是 `closure-std-327737f16` 且 Ready。leader 是 pd-2，pd-0 和 pd-1 是 follower，三台 `/v1/cluster` 都是 `Cluster_OK`，Service 18 次都是 `Cluster_OK`。PVC UID 与替换前相同，字段在 `pvc_unchanged_vs_pre_roll`。pd-2 JNI 是 `/tmp/librocksdbjni*.so` 的 `8b8fb2ed…6dff`，没有 Topling `.so`。`law_a35std_1m` 计数仍是 `1000000:2098771`。这不勾选 P5。证据 `evidence/a35-std-333-pd-327737f16.json`。Topling PD 构建单元 `hg-pd-bake-327737f16-top.service` 已开始，标签 `closure-327737f16`，还没有加载或替换。
+
+2026-09-25：Topling PD 镜像 `hugegraph/pd:closure-327737f16` 构建成功，Docker id `sha256:acec1af25e9d4e011167048252d7eebc7bde31205718462b75380e43ab2382f6`。已加载到 kind，并逐台替换 `hg-closure-top-a35-333` 的三台 PD。最终三台镜像都是 `closure-327737f16` 且 Ready。pd-1 是 leader，pd-0 和 pd-2 是 follower，三台 `/v1/cluster` 都是 `Cluster_OK`，`onlineStoreSize` 是 3，Service 18 次都是 `Cluster_OK`。PVC UID 与替换前相同，字段在 `pvc_unchanged_vs_pre_roll`。pd-2 JNI 是 `/hugegraph-pd/library/librocksdbjni-linux64.so` 的 `c25ff6e6…dd38`，`/tmp/librocksdbjni*` 不存在。`law_a35top333_1m` 计数仍是 `1000000:2098771`。这不勾选 P5。证据 `evidence/a35-top-333-pd-327737f16.json`。笔记尚未审查或提交。
+
+2026-09-25：PD 换成 `327737f16` 之后，在两个 a35 3+3+3 的 `hugegraph` 图各新建一个 person 顶点。标准 `pd327-std` 创建 HTTP 201，id `10001:pd327-std`，`ggkzf`、`mcf26`、`zggsl` 用 JSON 引号编码的 id 读取都是 HTTP 200。Topling `pd327-top` 创建 HTTP 201，id `1:pd327-top`，`nwjsq`、`qkpz5`、`vv5sv` 同样都是 HTTP 200。未加引号的 id 是 HTTP 400，不是顶点丢失。没有删 Pod，也没有发信号。Server 镜像仍是 `a35ebeb17`。这不勾选 P4、P5、P6 或 P7。证据 `evidence/a35-333-write-after-pd-327737f16.json`。笔记尚未审查或提交。
