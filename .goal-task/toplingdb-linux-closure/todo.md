@@ -101,3 +101,8 @@ Topling 同一检查也已通过：`hugegraph/store:closure-a35ebeb17`，HTTP 20
 
 - macOS ARM/Intel 最终 SHA 的 Cypher CI。
 - 发行审批和公共仓库发布。
+
+## 终态但未勾选
+
+- HStore `snapshot_create` 终态是失败，不勾选 P4。标准 `hg-closure-std-a35-333` 图 `hugegraph` 的 http 是 500，message 是 `UnsupportedOperationException: createSnapshot`，server_image 是 `hugegraph/server:closure-a35ebeb17`，source_revision 是 `a35ebeb17faaa191d2360ad5fea02b8aeb04eb60`。证据 `evidence/a35-std-333-server-loss.json`。Topling `hg-closure-top-a35-333` 图 `hugegraph` 的 http 是 `500`，message 是 `createSnapshot`，exception 是 `class java.lang.UnsupportedOperationException`，server_image 是 `docker.io/hugegraph/server:closure-a35ebeb17`，source_revision 是 `a35ebeb17faaa191d2360ad5fea02b8aeb04eb60`。证据 `evidence/a35-top-333-snapshot.json`。
+- 网络分区终态是后置，不勾选。`kind_node_count` 是 1，`kubectl_node_count` 是 1。kind nodes stdout 是 `kind-control-plane`。kubectl nodes stdout 是 `kind-control-plane   Ready   control-plane   25d   v1.37.0`。`crd_stdout_empty` 是 true，crds rc 是 0，crds stderr 是 `No resources found`。purpose 写了没有新增节点，也没有安装 CRD。证据 `evidence/a35-kind-partition-capability.json`。

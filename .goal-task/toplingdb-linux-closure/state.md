@@ -93,8 +93,8 @@ Cypher 记录在进展日志，是否可提交以当前文档审查为准。chan
 
 ## 下一动作
 
-1. 六台当前 a35 Server 的只读 JNI 已由 `/tmp/server-jni-after-leader-review.md` 给出 HIGH_SEVERITY=0。jni_present_count 是 0，all_jni_none 是 true。这不勾选 P4、P5 或 P6。
-2. 继续单节点 `kind-kind` 上还能执行的项。不要删 Store，不要制造导入失败，不要重试 HStore `snapshot_create`，不要实现跨分区图快照，不要自动开 channel refresh 或 WAL 的第四轮审查。
+1. HStore `snapshot_create` 已在 `todo.md` 记为失败，网络分区记为后置。`/tmp/terminal-disposition-review.md` 是 HIGH_SEVERITY=0。两项都不勾选，也不要重试 snapshot 或新增节点。
+2. 继续单节点 `kind-kind` 上还能执行的项。不要删 Store，不要制造导入失败，不要实现跨分区图快照，不要自动开 channel refresh 或 WAL 的第四轮审查。
 3. 主 checkout `/home/soc-baidu/github/hugegraph` 不要使用。Java 差异仍不提交。
 
 ## 进展日志
