@@ -258,7 +258,7 @@ Third party Apache 2.0 licenses
 The following components are provided under the Apache 2.0 License. See project link for details.
 Per-component LICENSE-[project].txt files are included only when additional
 non-Apache-2.0 license text is required for a bundled component.
-The Netty 4.1.125.Final modules share licenses/LICENSE-netty-4.1.125.Final.txt.
+The Netty 4.1.137.Final modules share licenses/LICENSE-netty-4.1.137.Final.txt.
 Paths referenced by upstream licenses are reproduced as labeled sections in
 the corresponding per-component license file.
 
@@ -432,50 +432,39 @@ the corresponding per-component license file.
     https://central.sonatype.com/artifact/io.jsonwebtoken/jjwt-jackson/0.11.5 -> Apache 2.0
     https://central.sonatype.com/artifact/io.micrometer/micrometer-core/1.7.12 -> Apache 2.0
     https://central.sonatype.com/artifact/io.micrometer/micrometer-registry-prometheus/1.7.12 -> Apache 2.0
-    https://central.sonatype.com/artifact/io.netty/netty-all/4.1.125.Final -> Apache 2.0
-    https://central.sonatype.com/artifact/io.netty/netty-all/4.1.42.Final -> Apache 2.0
-    https://central.sonatype.com/artifact/io.netty/netty-buffer/4.1.125.Final -> Apache 2.0
-    https://central.sonatype.com/artifact/io.netty/netty-buffer/4.1.52.Final -> Apache 2.0
-    https://central.sonatype.com/artifact/io.netty/netty-codec-dns/4.1.125.Final -> Apache 2.0
-    https://central.sonatype.com/artifact/io.netty/netty-codec-haproxy/4.1.125.Final -> Apache 2.0
-    https://central.sonatype.com/artifact/io.netty/netty-codec-http/4.1.125.Final -> Apache 2.0
-    https://central.sonatype.com/artifact/io.netty/netty-codec-http/4.1.52.Final -> Apache 2.0
-    https://central.sonatype.com/artifact/io.netty/netty-codec-http2/4.1.125.Final -> Apache 2.0
-    https://central.sonatype.com/artifact/io.netty/netty-codec-http2/4.1.52.Final -> Apache 2.0
-    https://central.sonatype.com/artifact/io.netty/netty-codec-memcache/4.1.125.Final -> Apache 2.0
-    https://central.sonatype.com/artifact/io.netty/netty-codec-mqtt/4.1.125.Final -> Apache 2.0
-    https://central.sonatype.com/artifact/io.netty/netty-codec-redis/4.1.125.Final -> Apache 2.0
-    https://central.sonatype.com/artifact/io.netty/netty-codec-smtp/4.1.125.Final -> Apache 2.0
-    https://central.sonatype.com/artifact/io.netty/netty-codec-socks/4.1.125.Final -> Apache 2.0
-    https://central.sonatype.com/artifact/io.netty/netty-codec-socks/4.1.52.Final -> Apache 2.0
-    https://central.sonatype.com/artifact/io.netty/netty-codec-stomp/4.1.125.Final -> Apache 2.0
-    https://central.sonatype.com/artifact/io.netty/netty-codec-xml/4.1.125.Final -> Apache 2.0
-    https://central.sonatype.com/artifact/io.netty/netty-codec/4.1.125.Final -> Apache 2.0
-    https://central.sonatype.com/artifact/io.netty/netty-codec/4.1.52.Final -> Apache 2.0
-    https://central.sonatype.com/artifact/io.netty/netty-common/4.1.125.Final -> Apache 2.0
-    https://central.sonatype.com/artifact/io.netty/netty-common/4.1.52.Final -> Apache 2.0
-    https://central.sonatype.com/artifact/io.netty/netty-handler-proxy/4.1.125.Final -> Apache 2.0
-    https://central.sonatype.com/artifact/io.netty/netty-handler-proxy/4.1.52.Final -> Apache 2.0
-    https://central.sonatype.com/artifact/io.netty/netty-handler-ssl-ocsp/4.1.125.Final -> Apache 2.0
-    https://central.sonatype.com/artifact/io.netty/netty-handler/4.1.125.Final -> Apache 2.0
-    https://central.sonatype.com/artifact/io.netty/netty-handler/4.1.52.Final -> Apache 2.0
-    https://central.sonatype.com/artifact/io.netty/netty-resolver-dns-classes-macos/4.1.125.Final -> Apache 2.0
-    https://central.sonatype.com/artifact/io.netty/netty-resolver-dns-native-macos/4.1.125.Final -> Apache 2.0
-    https://central.sonatype.com/artifact/io.netty/netty-resolver-dns/4.1.125.Final -> Apache 2.0
-    https://central.sonatype.com/artifact/io.netty/netty-resolver/4.1.125.Final -> Apache 2.0
-    https://central.sonatype.com/artifact/io.netty/netty-resolver/4.1.52.Final -> Apache 2.0
-    https://central.sonatype.com/artifact/io.netty/netty-tcnative-boringssl-static/2.0.25.Final -> Apache 2.0
-    https://central.sonatype.com/artifact/io.netty/netty-transport-classes-epoll/4.1.125.Final -> Apache 2.0
-    https://central.sonatype.com/artifact/io.netty/netty-transport-classes-kqueue/4.1.125.Final -> Apache 2.0
-    https://central.sonatype.com/artifact/io.netty/netty-transport-native-epoll/4.1.125.Final -> Apache 2.0
-    https://central.sonatype.com/artifact/io.netty/netty-transport-native-epoll/4.1.130.Final -> Apache 2.0
-    https://central.sonatype.com/artifact/io.netty/netty-transport-native-kqueue/4.1.125.Final -> Apache 2.0
-    https://central.sonatype.com/artifact/io.netty/netty-transport-native-unix-common/4.1.125.Final -> Apache 2.0
-    https://central.sonatype.com/artifact/io.netty/netty-transport-rxtx/4.1.125.Final -> Apache 2.0
-    https://central.sonatype.com/artifact/io.netty/netty-transport-sctp/4.1.125.Final -> Apache 2.0
-    https://central.sonatype.com/artifact/io.netty/netty-transport-udt/4.1.125.Final -> Apache 2.0
-    https://central.sonatype.com/artifact/io.netty/netty-transport/4.1.125.Final -> Apache 2.0
-    https://central.sonatype.com/artifact/io.netty/netty-transport/4.1.52.Final -> Apache 2.0
+    https://central.sonatype.com/artifact/io.netty/netty-all/4.1.137.Final -> Apache 2.0
+    https://central.sonatype.com/artifact/io.netty/netty-buffer/4.1.137.Final -> Apache 2.0
+    https://central.sonatype.com/artifact/io.netty/netty-codec-dns/4.1.137.Final -> Apache 2.0
+    https://central.sonatype.com/artifact/io.netty/netty-codec-haproxy/4.1.137.Final -> Apache 2.0
+    https://central.sonatype.com/artifact/io.netty/netty-codec-http/4.1.137.Final -> Apache 2.0
+    https://central.sonatype.com/artifact/io.netty/netty-codec-http2/4.1.137.Final -> Apache 2.0
+    https://central.sonatype.com/artifact/io.netty/netty-codec-memcache/4.1.137.Final -> Apache 2.0
+    https://central.sonatype.com/artifact/io.netty/netty-codec-mqtt/4.1.137.Final -> Apache 2.0
+    https://central.sonatype.com/artifact/io.netty/netty-codec-redis/4.1.137.Final -> Apache 2.0
+    https://central.sonatype.com/artifact/io.netty/netty-codec-smtp/4.1.137.Final -> Apache 2.0
+    https://central.sonatype.com/artifact/io.netty/netty-codec-socks/4.1.137.Final -> Apache 2.0
+    https://central.sonatype.com/artifact/io.netty/netty-codec-stomp/4.1.137.Final -> Apache 2.0
+    https://central.sonatype.com/artifact/io.netty/netty-codec-xml/4.1.137.Final -> Apache 2.0
+    https://central.sonatype.com/artifact/io.netty/netty-codec/4.1.137.Final -> Apache 2.0
+    https://central.sonatype.com/artifact/io.netty/netty-common/4.1.137.Final -> Apache 2.0
+    https://central.sonatype.com/artifact/io.netty/netty-handler-proxy/4.1.137.Final -> Apache 2.0
+    https://central.sonatype.com/artifact/io.netty/netty-handler-ssl-ocsp/4.1.137.Final -> Apache 2.0
+    https://central.sonatype.com/artifact/io.netty/netty-handler/4.1.137.Final -> Apache 2.0
+    https://central.sonatype.com/artifact/io.netty/netty-resolver-dns-classes-macos/4.1.137.Final -> Apache 2.0
+    https://central.sonatype.com/artifact/io.netty/netty-resolver-dns-native-macos/4.1.137.Final -> Apache 2.0
+    https://central.sonatype.com/artifact/io.netty/netty-resolver-dns/4.1.137.Final -> Apache 2.0
+    https://central.sonatype.com/artifact/io.netty/netty-resolver/4.1.137.Final -> Apache 2.0
+    https://central.sonatype.com/artifact/io.netty/netty-tcnative-boringssl-static/2.0.81.Final -> Apache 2.0
+    https://central.sonatype.com/artifact/io.netty/netty-tcnative-classes/2.0.81.Final -> Apache 2.0
+    https://central.sonatype.com/artifact/io.netty/netty-transport-classes-epoll/4.1.137.Final -> Apache 2.0
+    https://central.sonatype.com/artifact/io.netty/netty-transport-classes-kqueue/4.1.137.Final -> Apache 2.0
+    https://central.sonatype.com/artifact/io.netty/netty-transport-native-epoll/4.1.137.Final -> Apache 2.0
+    https://central.sonatype.com/artifact/io.netty/netty-transport-native-kqueue/4.1.137.Final -> Apache 2.0
+    https://central.sonatype.com/artifact/io.netty/netty-transport-native-unix-common/4.1.137.Final -> Apache 2.0
+    https://central.sonatype.com/artifact/io.netty/netty-transport-rxtx/4.1.137.Final -> Apache 2.0
+    https://central.sonatype.com/artifact/io.netty/netty-transport-sctp/4.1.137.Final -> Apache 2.0
+    https://central.sonatype.com/artifact/io.netty/netty-transport-udt/4.1.137.Final -> Apache 2.0
+    https://central.sonatype.com/artifact/io.netty/netty-transport/4.1.137.Final -> Apache 2.0
     https://central.sonatype.com/artifact/io.opentelemetry.semconv/opentelemetry-semconv/1.29.0-alpha -> Apache 2.0
     https://central.sonatype.com/artifact/io.opentelemetry/opentelemetry-api/1.49.0 -> Apache 2.0
     https://central.sonatype.com/artifact/io.opentelemetry/opentelemetry-context/1.49.0 -> Apache 2.0
