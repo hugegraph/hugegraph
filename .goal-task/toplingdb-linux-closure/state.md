@@ -4,11 +4,12 @@
 
 - 仓库 `hugegraph/hugegraph`；fetch/push 远端 `org`；唯一分支 `toplingdb`；PR #179。不新建分支或 PR，不 force-push，不直接合入 master。
 - 执行工作树：`/home/soc-baidu/.codex/worktrees/f29e/hugegraph`。本地分支 `codex/toplingdb-linux-validation`，推送目标 `org/toplingdb`。主 checkout `/home/soc-baidu/github/hugegraph` 停在较旧的 `f9829899c`，不要在那里继续。
-- 2026-09-25 刷新：`git fetch org toplingdb` 后，推送前 fetch 发现 `org/toplingdb` 前进到 `a35ebeb17`，包含 Store 空地址重入、follower partitions GET 和 PD task/balanceLeaders 异常体修复。本地文档提交已 rebase 到其上。镜像和功能证据仍绑定源码 `e109012a07e2e9918f4a98d3faa23e21b93435d1`，不是这些新提交。
-- 工作区另有未提交的 channel refresh：`AbstractGrpcClient.java`、`KvPageScanner.java`、`KvBatchScanner.java`、`KvBatchScanner5.java`、`GrpcStoreStreamClient.java`、`query/CommonKvStreamObserver.java`、`query/QueryExecutor.java`，以及未跟踪的 `AbstractGrpcClientChannelRefreshTest.java`。3 名独立审查通过且没有未解决的高严重度问题之前，禁止提交或推送这些文件。不要把它们和文档提交混在一起。
+- 2026-09-25 刷新：`git fetch org toplingdb` 后，推送前 fetch 发现 `org/toplingdb` 前进到 `a35ebeb17`，包含 Store 空地址重入、follower partitions GET 和 PD task/balanceLeaders 异常体修复。本地文档提交已 rebase 到其上。当时的镜像和功能证据还绑定 `e109012a07e2e9918f4a98d3faa23e21b93435d1`。这不是当前状态。后面的 a35 镜像和实测绑定干净的 `a35ebeb17`。
+- 工作区另有未提交的 channel refresh：`AbstractGrpcClient.java`、`KvPageScanner.java`、`KvBatchScanner.java`、`KvBatchScanner5.java`、`GrpcStoreStreamClient.java`、`query/CommonKvStreamObserver.java`、`query/QueryExecutor.java`、`NotifyingExecutor.java`，以及未跟踪的 `hg-store-client/src/test/`（含 `AbstractGrpcClientChannelRefreshTest.java`）。3 名独立审查通过且没有未解决的高严重度问题之前，禁止提交或推送这些文件。不要把它们和文档提交混在一起。
 - 工作区另有未提交的 WAL 失败路径修复：`RocksDBStdSessions.java` 和 `RocksDBSessionsTest.java`。`RocksDBSessionsTest` 20 个通过、0 失败、0 跳过。最新差异没有新的三份审查，禁止提交或推送，也不要和 channel refresh 或文档混在同一个提交里。
 - 不要提交 `evidence/`、`.codex-handoff/`、RocksDB 数据、`tmp/` 或 `cacerts.jks`。
 - `e109012a0` 已包含 gRPC 沙箱白名单、嵌套 WAL 恢复和三份 Topling profile 的 `memtable_as_log_index: false`。`closure-top-mmapfix` 仍是旧的脏工作区镜像，不能代表这个 SHA。
+- 2026-09-25 的 a35 镜像来自干净目录 `/home/soc-baidu/.codex/validation-runtime/toplingdb-linux-closure/build-context-a35ebeb17`，detached HEAD `a35ebeb17`，状态为空。不要用脏的 f29e 工作树构建镜像。
 - Kubernetes 只用 `KUBECONFIG=/home/soc-baidu/.kube/config` 和 context `kind-kind`。不用 k3s，不清理无关资源。只有 snapshot/restore 或网络分区门禁需要时，才安装对应 CRD，并且不能改动两个历史 namespace。
 - 历史 namespace `hg-closure-standard-111`、`hg-closure-standard-333` 在 2026-09-24 仍为 Running，镜像是 `closure-std-9abae9dbaaa1`。它们不是当前 SHA 的通过证据，禁止原位升级。
 
@@ -31,18 +32,19 @@
 2026-09-25 用户确认：继续本机 goal，复用本目录、当前工作树、`org/toplingdb` 和 PR #179。 同日再次确认不新开 goal-task 目录；本机 goal 从当前 `state.md` 与 `todo.md` 继续。本机记录并持续完成 todo.md 里全部 Linux 实测；阶段边界和会话结束前更新并推送 `state.md` 与 `todo.md`。明显且可复现的阻塞缺陷可以直接修复、补回归测试，审查通过后提交并推送。这不是只读限制，但不是授权实现新的跨分区图快照协议。
 
 2026-09-25 用户确认生成 goal 并立即复用本目录：本机持续完成 todo.md 的全部 Linux 实测，阶段边界和会话结束前更新并推送 `state.md` 与 `todo.md`。明显且可复现的阻塞缺陷可以直接修复、补回归测试，审查通过后与文档分开提交并推送。不新开分支、PR 或 goal-task 目录，不 force-push。
+同日确认可执行 goal 时，上述范围不变。初始化只补记已经发生、但当时还没写入合同的标准 a35 子集导入，不启动测试，也不提交。
 
 ## 阶段
 
 | 阶段 | 状态 | 依赖 |
 | --- | --- | --- |
-| P0 合同与修复 | HEAD `a7a4a6f1b` 等于 `org/toplingdb`，只在 `e109012a0` 上增加文档。channel refresh 未提交；审查前先判断另外三处 `onError` 会不会留下旧 Store channel | 3 名独立审查前不提交 Java，也不构建脏工作区完整镜像 |
+| P0 合同与修复 | 已推送文档 `04e642ff6`。标准 `a35ebeb17` Store 已证明 follower `GET /v1/partitions`。channel refresh 与未提交 WAL 仍不提交 | 不构建脏工作区镜像，不自动开第四轮审查 |
 | P1 历史集群 | `9aba` 有 Pod 级证据；snapshot 失败一次；网络分区后置 | 不阻塞当前 SHA |
 | P2 当前 SHA 镜像与 JNI | 两个 provider 的 e109 单机镜像和 JNI 已证明。HStore server 两个 tag 是同一镜像。e109 的 1+1+1 与 3+3+3 namespace 已存在 | 不升级 `9aba`、cc143 或 mmapfix namespace |
 | P3 当前 SHA 功能 | 四项已勾选。未修改 Server 现已覆盖批量、索引、Gremlin/Cypher、多图、口令认证、边更新删除和角色 403 | 不重复已通过项 |
 | P4 生命周期与 provider | 混合 provider 和错误 provider 已勾选。生命周期总项未勾选：e109 崩溃、删图和 truncate 已有证据，HStore `snapshot_create` 仍是 500 | 不新做跨分区图快照，不重复已有 kill -9 |
 | P5 当前 SHA HA | 三项都未勾选。单节点进程或 Pod 恢复不能代替网络分区。Compose 与 Helm 差异已记录且故意不改 | 不把 kind 写成物理多机，不顺手改 HA 配置 |
-| P6 Loader | 固定子集导入已勾选。完整 e109 Server 在 Store IP 变化后仍连接旧地址，邻接复测未通过。全量 LAW 后置 | 先完成 channel refresh 审查，再用该提交的完整镜像复测 |
+| P6 Loader | 两个 a35 百万图在一台 Store 更换 IP 后，32 个样本和 9 个自环通过，计数仍是 `1000000:2098771`。失败重试路径没有触发。全量 LAW 后置 | 不重跑 IP 测试；channel refresh 不自动开第四轮 |
 | P7 Benchmark | 未开始 | 核心功能未收口前禁止性能结论 |
 
 分项计数和完成标记以 todo.md 为准。当前 SHA 测试使用新 namespace。同一时间只运行一个重任务；Maven 全量、镜像构建、Helm 变更和故障注入不叠加。
@@ -87,9 +89,9 @@ Topling 构建上下文必须包含已存在的 `hugegraph-server/hugegraph-dist
 
 ## 下一动作
 
-1. 文档重审 `evidence/build/doc-rereview-1.md` 是 HIGH_SEVERITY=0。只提交 `state.md` 和 `todo.md`，不提交 Java、WAL 修复或 channel refresh。
-2. WAL 最新源码仍没有新的三份审查，不要自动开第四轮，也不要提交。进程 `1322802` 如果还在重连，让它结束，不采用它的结论。
-3. 已完成的 kill、SIGTERM、邻接、边 CRUD 和角色 403 不重跑。HStore snapshot、网络分区、全量 LAW、benchmark 和 HA 配置对齐仍后置。
+1. 标准和 Topling 的 a35 百万图都已在一台 Store 更换 IP 后通过 32 个邻接样本、9 个自环和 Gremlin 计数。不要再删 Store 重复这项。
+2. 失败重试路径仍未触发，因为两次导入的失败数都是 0。不要为了勾选而制造失败。P6 仍不勾选。
+3. 文档仍需 1 名独立只读审查后才提交推送。不要提交 `evidence/`、未审查的 WAL 或 channel refresh，也不要自动开第四轮审查。HStore snapshot 保持 500，不要重试或做目录拷贝。网络分区、全量 LAW 和 benchmark 仍后置。
 
 ## 进展日志
 
@@ -295,3 +297,105 @@ Store 删除后的复测无效：脚本把仍在终止的旧 Pod 读成 0.074 �
 2026-09-25：文档审查 HIGH_SEVERITY=2，见 `evidence/build/doc-review-1.md`。P3 原先把边更新/删除和角色 403 算进未修改 Server，但那些证据在 overlay 或 mmapfix。已在当前未修改 Helm Server 上补做：标准和 Topling 边创建 201、更新 200、`since=2`、删除 204 后为空；无角色建图 403，没有新增 Kubernetes namespace。证据 `evidence/e109-edge-crud-fullsha.json`、`evidence/e109-role-denial-fullsha.json`。channel refresh 的 todo 时间线改为 07:40 的 14 个测试和 08:00 的 15 个测试，不再把它们写成同一份最终差异。文档重审未做，所以还不提交。
 
 2026-09-25：文档重审完成，HIGH_SEVERITY=0，证据 `evidence/build/doc-rereview-1.md`。P3 的边更新和角色 403 已改由未修改 Server 证据支持。channel refresh 的 14 个测试和 15 个测试不再写成同一份差异。图空间 `closure_role_std` 和 `closure_role_top` 复查都是 400 Cannot find graph space。随后只提交这两份合同文件。
+
+2026-09-25：文档重审 HIGH_SEVERITY=0 后提交 `04e642ff6`，只含两份合同文件，并 rebase 到远端新提交 `a35ebeb17`。推送 `org/toplingdb` 时执行策略直接拒绝，远端仍停留在 `a35ebeb17`。没有改用 force-push。
+
+2026-09-25：再次 `git fetch org toplingdb` 后仍是 ahead 1、behind 0。推送仍被执行策略拒绝。在不重建镜像的前提下跑了 `a35ebeb17` 新增单测：`BalanceLeadersAPITest` 4 个、`PartitionAPITest` 2 个、`StoreIdChangeTest` 8 个，全部 0 失败，Maven BUILD SUCCESS。运行中的 e109 镜像不包含这些提交。证据 `evidence/build/upstream-a35ebeb-unit.txt`。
+
+2026-09-25：推送再次被执行策略拒绝，ahead 1、behind 0。在未重建镜像的 e109 3+3+3 上查 `GET /v1/partitions`。标准 store-0 和 Topling store-2 返回 200，各 12 个 `STATE_LEADER`。标准 store-1/2 与 Topling store-0/1 返回 500，标准 store-1 日志是 `IllegalStateException: Not leader`，来自 `NodeImpl.listPeers`。证据 `evidence/e109-follower-partitions-baseline.json`。
+
+2026-09-25：`git fetch org toplingdb` 后仍是 ahead 1、behind 0，随后 `git push org HEAD:toplingdb` 成功，远端从 `a35ebeb17` 到 `04e642ff6`。没有 force-push，WAL 和 channel refresh 未纳入。已从干净 worktree 启动标准 Store bake，单元 `hg-closure-std-store-a35ebeb17`。这次笔记还没提交。
+
+2026-09-25：标准 follower 分区查询已在干净 `a35ebeb17` Store 镜像上证明。`hg-closure-std-a35-s3` 是 1 个 e109 PD、3 个新 Store、1 个 e109 Server。三台 Store 的 `GET /v1/partitions` 都是 HTTP 200，各 12 个 raft group，合计 12 个 `STATE_LEADER` 和 24 个 `STATE_FOLLOWER`。最近两分钟 store-0 没有 `Not leader`。JNI 都是 `/tmp/librocksdbjni*.so` 的 `8b8fb2ed…6dff`。首次启动时本地引擎为空，因为 PD 在 Server 创建图期间被 Helm 升级重启；删除并重建三台 Store Pod 后才出现分区。jemalloc curl 没有写出文件，只终止了 curl。证据 `evidence/a35-std-follower-partitions.json`。这次笔记尚未提交。
+
+2026-09-25：Topling Store 镜像 `hugegraph/store:closure-a35ebeb17` 也从同一个干净 worktree 建成。Docker ID `sha256:2117096ad897`，标签 revision `a35ebeb17`，runtime `topling`。包内 JNI `c25ff6e6…dd38`，`PartitionAPI.class` 含 follower guard。`hg-closure-top-a35-s3` Helm 退出 0：1 个 e109 Topling PD、3 个新 Store、1 个 e109 Server。三台 Store 的 `GET /v1/partitions` 都是 HTTP 200，合计 12 个 `STATE_LEADER` 和 24 个 `STATE_FOLLOWER`。进程映射 `/hugegraph-store/library/librocksdbjni-linux64.so`，没有 `Not leader`，mmap WAL 错误 0。kind import digest `sha256:b72eedece1a8`。证据 `evidence/a35-top-follower-partitions.json`。随后标准和 Topling 都通过 e109 Server 写入并读回顶点，证据 `evidence/a35-vertex-write-read.json`。笔记尚未审查或提交。
+
+2026-09-25：a35 标准 Store-0 收到 SIGTERM，不是 kill -9。Pod UID `98d6eb18` 和 PVC `store-data-hg-closure-std-a35-s3-hugegraph-store-0` 不变，restartCount 0 到 1，12.233 秒 Ready。JNI 仍是 `/tmp/librocksdbjni*.so` 的 `8b8fb2ed…6dff`。顶点 `1:a35probe` 前后都是 200。本机分区查询仍是 HTTP 200，重启后 12 个 `STATE_FOLLOWER`；三台合计仍是 12 个 `STATE_LEADER` 和 24 个 `STATE_FOLLOWER`。上一容器有 `closing all rocksdb`，没有 `db not closed`。jemalloc 文件不存在时只杀了 curl。证据 `evidence/a35-std-store0-sigterm.json`。
+
+2026-09-25：a35 Topling Store-0 同样只发 SIGTERM。UID `c2f1a298` 和 PVC `store-data-hg-closure-top-a35-s3-hugegraph-store-0` 不变，restartCount 0 到 1，67.414 秒 Ready。JNI 仍是 `library/librocksdbjni-linux64.so` 的 `c25ff6e6…dd38`。顶点 `1:a35probe2` 前后都是 200。本机重启后是 12 个 `STATE_FOLLOWER`，三台合计仍是 12/24。上一容器有 `closing all rocksdb`，随后 `sideplugin/rockside/src/topling/side_plugin_repo.cc:199` 的 `db not closed`。没有 mmap WAL 错误，也没有 `Not leader`。证据 `evidence/a35-top-store0-sigterm.json`。
+
+2026-09-25：两个 a35 最小集群对默认图 `hugegraph` 执行 `DELETE /clear`，确认消息匹配后都是 204。标准旧顶点 `a35probe` 和 Topling 旧顶点 `a35probe2` 查询都变成空 200。随后各自写入 `a35afterclear`，都是 201，再读 200。Server 镜像仍是 e109，Store 是 a35。这不是 HStore snapshot。证据 `evidence/a35-graph-clear.json`。
+
+2026-09-25：干净 `a35ebeb17` 标准 PD 镜像 `hugegraph/pd:closure-std-a35ebeb17`，Docker `sha256:937b14bc3b5f`，runtime `standard`。已替换 `hg-closure-std-a35-s3` 的 PD，Helm 退出 0。运行 JNI 是 `/tmp/librocksdbjni*.so` 的 `8b8fb2ed…6dff`。`/v1/cluster` 200，`Cluster_OK`，3 个 Store Up。`/v1/task/balanceLeaders` 200，返回 7 个分区到 Store 的 JSON，不是异常体。顶点 `a35afterclear` 仍是 200。Store 分区合计 12 个 `STATE_LEADER`、24 个 `STATE_FOLLOWER`。证据 `evidence/a35-std-pd-balance-leaders.json`。
+
+2026-09-25：干净 `a35ebeb17` Topling PD 镜像 `hugegraph/pd:closure-a35ebeb17`，Docker `sha256:9ca5b5fb8495`，runtime `topling`，包内 JNI `c25ff6e6…dd38`。替换 `hg-closure-top-a35-s3` 的 PD 时 Helm 也滚动了 Server，新 Server 就绪，旧 Server 为 Completed。PD JNI 映射 `library/librocksdbjni-linux64.so` 的同一哈希，mmap WAL 错误 0。`balanceLeaders` 200，JSON 长度 9。顶点仍在，Store 分区合计仍是 12/24。证据 `evidence/a35-top-pd-balance-leaders.json`。这次调用同样没有进入 `PDException`。笔记尚未审查或提交。
+
+2026-09-25：两个 a35 最小集群删除并重建默认图 `hugegraph`。drop 都是 204，之后图列表为空；create 都是 201。标准顶点 `2:a35rebuilt`、Topling 顶点 `10001:a35rebuilt` 都是写入 201、读取 200。删图后三台 Store 的 `GET /v1/partitions` 仍是 HTTP 200，合计 12/24。Server 当时还是 e109 镜像。证据 `evidence/a35-graph-drop-recreate.json`。
+
+2026-09-25：干净 `a35ebeb17` 的 HStore Server 镜像 `hugegraph/server:closure-a35ebeb17`，Docker `sha256:61db7557d753`，标签 runtime `hstore`，revision `a35ebeb17`。镜像内没有 `librocksdbjni`。`e109012a0` 到 `a35ebeb17` 的 `hugegraph-server` 源码无差异。两个 a35 namespace 已换上该镜像。标准 Server SIGTERM 后 15.183 秒 Ready，UID `164c0d85` 不变，restartCount 0 到 1，顶点仍是 200，进程没有 RocksDB JNI，上一容器没有 `db not closed`。Topling Server 12.165 秒，UID `58368eb6` 不变，顶点 `10001:a35rebuilt` 仍在，同样没有 JNI 和 `db not closed`。kind import digest 都是 `sha256:b6ee25851186`。证据 `evidence/a35-std-server-sigterm.json`、`evidence/a35-top-server-sigterm.json`。笔记尚未审查或提交。
+
+2026-09-25：标准 a35 最小集群同时删除 Store-1 和 Store-2。Store-0 的 UID `98d6eb18` 和三台 PVC 都不变，Store-1、Store-2 是新 UID。两台大约 32.8 秒 Ready。故障期间旧顶点 `a35rebuilt` 返回 200，新写入 12 秒超时且之后查询为空。恢复后分区合计 12 个 `STATE_LEADER`、24 个 `STATE_FOLLOWER`，JNI 仍是 `8b8fb2ed…6dff`。刚 Ready 的写入也超时，但 `a35aftermajority` 随后可读；再写入 `a35aftermajority2` 为 201，耗时约 0.1 秒。证据 `evidence/a35-std-store-majority.json`。
+
+2026-09-25：Topling 同样删除 Store-1 和 Store-2。记录脚本在删除后因格式化错误退出，没有第二次删除；后续只观察这次恢复。故障期间旧顶点可读，12 秒写入超时且没有留下顶点。新 Pod 启动时间是 `03:14:56Z`，观察循环里两台在 18.6 秒变为 Ready，距离删除大约 70 秒。PVC 不变，JNI 仍是 `c25ff6e6…dd38`。分区合计回到 12/24，其中 Store-1 当时 12 个都是 `STATE_FOLLOWER`。Ready 后第一次写入 30.261 秒返回 500 `HgStoreClientException`，顶点不在；下一次 `a35aftermajority2` 为 201，耗时 0.098 秒。证据 `evidence/a35-top-store-majority.json`。
+
+2026-09-25：标准 a35 PD `hg-closure-std-a35-s3-hugegraph-pd-0` 收到 SIGTERM，不是 kill -9。UID `03ef756e` 和 PVC `pd-data-hg-closure-std-a35-s3-hugegraph-pd-0` 不变，restartCount 0 到 1，18.8 秒 Ready。镜像 `hugegraph/pd:closure-std-a35ebeb17`，JNI 仍是 `/tmp/librocksdbjni*.so` 的 `8b8fb2ed…6dff`。前后 `/v1/cluster` 都是 `Cluster_OK`、`PState_Normal`、3 个 Store Up。顶点 `a35aftermajority2` 复查为 200。完整上一日志有 `shutdown completed`，没有 `db not closed`。证据 `evidence/a35-std-pd-sigterm.json`。
+
+2026-09-25：Topling a35 PD 同样只发 SIGTERM。UID 和 PVC `pd-data-hg-closure-top-a35-s3-hugegraph-pd-0` 不变，restartCount 0 到 1，58.618 秒 Ready。JNI 仍是 `library/librocksdbjni-linux64.so` 的 `c25ff6e6…dd38`。上一日志先有 `shutdown completed`，随后 `sideplugin/rockside/src/topling/side_plugin_repo.cc:199` 的 `db not closed`。Ready 当下 `/v1/cluster` 是 `Cluster_Not_Ready`，3 个 Store 已 Up；随后复查为 `Cluster_OK`、`PState_Normal`。顶点 `a35aftermajority2` 为 200。证据 `evidence/a35-top-pd-sigterm.json`。笔记尚未审查或提交。
+
+2026-09-25：干净 `a35ebeb17` 标准单机镜像 `hugegraph/hugegraph:closure-std-a35ebeb17`，Docker `sha256:4f1db2033ac3`，runtime `standard`，镜像内没有 `librocksdbjni`。容器 `hg-a35-std-snap` 使用 2Gi 内存上限和空的 `rocksdb-data` 挂载，因为镜像里没有该目录，入口会拒绝不存在的路径。启动 8.126 秒后 schema 202/201，快照前顶点 201，`snapshot_create` 200，快照后顶点 201，`snapshot_resume` 200。重启 10.403 秒后快照前顶点仍在、快照后顶点不在。日志 `Replaced separate WAL` 3 次，mmap WAL 错误 0，`db not closed` 0。进程 JNI 是 `/tmp/librocksdbjni*.so` 的 `8b8fb2ed…6dff`。容器已删除。证据 `evidence/a35-standalone-std-snapshot.json`。
+
+2026-09-25：Topling 单机镜像 `hugegraph/hugegraph:closure-a35ebeb17`，Docker `sha256:7100b2807112`，runtime `topling`，包内 JNI `c25ff6e6…dd38`。同样的 snapshot/resume 流程都是 200。启动 20.142 秒，重启 24.571 秒。快照前顶点仍在，快照后顶点不在。`Replaced separate WAL` 3 次，mmap WAL 错误 0，日志有 1 次 `db not closed`。进程映射 `/hugegraph-server/library/librocksdbjni-linux64.so`。容器已删除。证据 `evidence/a35-standalone-top-snapshot.json`。这不是 HStore 的 `snapshot_create`。笔记尚未审查或提交。
+
+2026-09-25：主机可用内存大约只剩 8.5Gi，swap 接近满。停止了 8 个已经完成测试的单机 Docker 容器，没有删除，可用内存回到约 19Gi。随后把 `hg-closure-std-a35-s3` 和 `hg-closure-top-a35-s3` 的 Server 从 1 扩到 3，Helm 都退出 0。两边都写入 `a35three` 返回 201，三台 Server 读取都是 200；旧顶点 `a35rebuilt` 也是三台 200。Server 镜像仍是 `hugegraph/server:closure-a35ebeb17`，进程没有 RocksDB JNI。PD 仍各是 1 个。证据 `evidence/a35-std-server3-read.json`、`evidence/a35-top-server3-read.json`。笔记尚未审查或提交。
+
+2026-09-25：Helm 拒绝把 `hg-closure-std-a35-s3` 的 PD 从 1 升到 3。错误写明初始 peer list 只在 Raft 首次建立时生效，已有投票配置不会跟着 Helm 变。values 已改回 1，与运行中的 StatefulSet 一致。
+
+2026-09-25：新装标准 `hg-closure-std-a35-333`，3 PD、3 Store、3 Server，镜像分别是 `hugegraph/pd:closure-std-a35ebeb17`、`hugegraph/store:closure-std-a35ebeb17`、`hugegraph/server:closure-a35ebeb17`。Helm 退出 0。三台 PD 和三台 Store 的 JNI 都是 `/tmp/librocksdbjni*.so` 的 `8b8fb2ed…6dff`，Server 没有 RocksDB JNI。PD-0 `/v1/cluster` 200，`Cluster_OK`，成员数 3，3 个 Store Up。Store `GET /v1/partitions` 合计 12 个 `STATE_LEADER` 和 24 个 `STATE_FOLLOWER`。顶点 `a35-333` 写入 201，三台 Server 读取都是 200。证据 `evidence/a35-std-333-install.json`。
+
+2026-09-25：同一 namespace 删除 PD-1 和 PD-2。新 Pod 17.4 秒 Ready，PVC 都不变，PD-0 UID `444626ea` 不变。故障中 `a35-333` 仍是 200，`a35pdloss` 超时且之后查询为空。Ready 后 `a35pdback` 的请求超时 20 秒，但顶点随后可读。复查集群为 `Cluster_OK`、成员数 3、3 个 Store Up。`a35pdback2` 为 201，耗时 0.096 秒。证据 `evidence/a35-std-333-pd-majority.json`。笔记尚未审查或提交。
+
+2026-09-25：标准 `hg-closure-std-a35-333` 同时删除 Store-1 和 Store-2。Store-2 23.795 秒 Ready，Store-1 32.948 秒 Ready。Store-0 UID 不变，三台 PVC 不变。故障中 `a35-333` 返回 200，`a35storeloss` 超时且之后查询为空。Ready 后 `a35storeback` 的请求超时 30 秒，但顶点随后可读。`a35storeback2` 为 201，耗时 0.093 秒。分区合计回到 12/24。三台 JNI 仍是 `/tmp/librocksdbjni*.so` 的 `8b8fb2ed…6dff`。证据 `evidence/a35-std-333-store-majority.json`。
+
+2026-09-25：同一集群删除一台 Server。删除期间另一台 Server 读取 `a35-333` 仍是 200。替补 Pod 11.365 秒 Ready，三台 Server 随后都读到该顶点。证据 `evidence/a35-std-333-server-loss.json`。同一镜像上的 HStore `PUT /graphspaces/DEFAULT/graphs/hugegraph/snapshot_create` 返回 500，消息是 `UnsupportedOperationException: createSnapshot`。没有做目录拷贝。
+
+2026-09-25：Topling 3+3+3 仍没有新装。`kubectl top` 后主机可用内存约 9.4Gi，再加 9 个 Pod 会压满。没有清理 `9aba`、e109 或 a35 namespace。笔记尚未审查或提交。
+
+2026-09-25：标准 `hg-closure-std-a35-333` 删除并重建默认图 `hugegraph`。drop 204，图列表变为空；create 201，backend 为 hstore。属性 202，顶点标签 201，`a35rebuilt333` 写入 201。clear 204 后，创建图的那台 Server 查询旧顶点为空。`a35cleared333` 写入 201。另外两台 Server 立即读取返回超时或 500，消息是 `Graph 'standardhugegraph[DEFAULT-hugegraph]' has been closed`。对这两台发 SIGTERM 后，同一 UID，restartCount 0 到 1，三台随后都读到 `a35cleared333`，HTTP 200。Store 分区合计仍是 12 个 `STATE_LEADER` 和 24 个 `STATE_FOLLOWER`。证据 `evidence/a35-std-333-drop-clear.json`。笔记尚未审查或提交。
+
+2026-09-25：Topling `hg-closure-top-a35-s3` 删除并重建默认图。drop 204，图列表为空；create 201。属性 202，顶点标签 201，`a35rebuilt-top` 写入 201。三台 Server 立即读取都是 200。clear 204 后，执行 clear 的 Server 查询旧顶点为空，另外两台仍返回 `20001:a35rebuilt-top`。三台都能读到新顶点 `a35cleared-top`。对仍返回旧顶点的两台发 SIGTERM，Pod UID 不变。重启后三台查询旧顶点都为空，新顶点都是 200。Store 分区合计仍是 12/24。这不是 3 个 PD。证据 `evidence/a35-top-s3-drop-clear.json`。笔记尚未审查或提交。
+
+2026-09-25：Topling `hg-closure-top-a35-s3` 删除一台 Server。删除期间另一台读取 `a35cleared-top` 返回 200。替补 Pod 11.507 秒 Ready，三台随后都读到该顶点。Server 镜像仍是 `hugegraph/server:closure-a35ebeb17`。PD 仍是 1 个。证据 `evidence/a35-top-s3-server-loss.json`。当时可用内存约 8.4Gi，没有新装 Topling 3+3+3。笔记尚未审查或提交。
+
+2026-09-25：新装 Topling `hg-closure-top-a35-111`，1 PD、1 Store、1 Server，镜像都是 `closure-a35ebeb17`。Helm 退出 0。PD 与 Store 进程映射 `/hugegraph-pd` 和 `/hugegraph-store` 下的 `library/librocksdbjni-linux64.so`，SHA-256 `c25ff6e6…dd38`。Server 没有 RocksDB JNI。mmap WAL 错误 0。PD `/v1/cluster` 200，`Cluster_OK`，成员数 1，1 个 Store Up。Store `GET /v1/partitions` 200，12 个 `STATE_LEADER`，没有 follower，因为只有一个副本。顶点 `a35-111` 写入 201、读取 200。证据 `evidence/a35-top-111-function.json`。
+
+2026-09-25：对这个唯一 Store 发 SIGTERM。UID `c0856d04` 和 PVC `store-data-hg-closure-top-a35-111-hugegraph-store-0` 不变，restartCount 0 到 1，日志显示约 77 秒后 Ready。顶点 `a35-111` 仍是 200。JNI 哈希没变。上一容器有 `closing all rocksdb` 和 `db not closed`，没有 mmap WAL 错误。证据 `evidence/a35-top-111-store-sigterm.json`。笔记尚未审查或提交。
+
+2026-09-25：Topling `hg-closure-top-a35-111` 删除并重建默认图。drop 204，图列表为空；create 201。`a35rebuilt111` 写入 201，clear 前读取 200。clear 204 后该顶点查询为空。`a35cleared111` 写入 201、读取 200。`snapshot_create` 返回 500，消息是 `UnsupportedOperationException: createSnapshot`。Store 分区仍是 HTTP 200 的 12 个 `STATE_LEADER`。证据 `evidence/a35-top-111-drop-clear.json`。
+
+2026-09-25：同一集群唯一 PD 收到 SIGTERM。UID `541bbbc4` 和 PVC `pd-data-hg-closure-top-a35-111-hugegraph-pd-0` 不变，restartCount 0 到 1，54.757 秒 Ready。顶点 `a35cleared111` 仍是 200。Ready 当下 `/v1/cluster` 是 `Cluster_Not_Ready`、1 个 Store Up；随后复查为 `Cluster_OK`、`PState_Normal`。上一日志有 `shutdown completed`，随后有 `db not closed`。证据 `evidence/a35-top-111-pd-sigterm.json`。笔记尚未审查或提交。
+
+2026-09-25：Topling `hg-closure-top-a35-111` 的唯一 Server 收到 SIGTERM。UID 不变，restartCount 0 到 1，16.427 秒 Ready。进程没有 RocksDB JNI，上一容器没有 `db not closed`。重启后图 `hugegraph` 仍在列表里，但 `a35cleared111`、`a35rebuilt111` 和 `a35-111` 查询都是空 200。Store 数据目录 `/hugegraph-store/storage` 约 1.9G，`topling-storage` 只有 4K。证据 `evidence/a35-top-111-server-sigterm.json`。
+
+2026-09-25：同一 Server 再写入 `a35persist111`，返回 201，读取 200。第二次 SIGTERM 后 24.811 秒 Ready，restartCount 1 到 2，该顶点仍在。因此第一次重启后的空结果不能写成所有 1+1+1 写入都会丢失。`a35-111` 已在更早的删图中去掉，`a35rebuilt111` 已在 clear 中去掉。只有 `a35cleared111` 是 clear 之后写入、却在第一次 Server 重启后消失。证据 `evidence/a35-top-111-server-persist.json`。笔记尚未审查或提交。
+
+2026-09-25：标准 a35 `hg-closure-std-a35-333` 导入固定子集到新图 `law_a35std_1m`。源码 `a35ebeb17`，Server `hugegraph/server:closure-a35ebeb17`，证据里的 image id 是 `sha256:b6ee25851186d078d5e141ff21f0bb273af6bb3deebfdfef0359e3b866e192ac`。建图 201，backend 为 hstore，checksums_ok 为 true。Loader 退出 0，141.323 秒；顶点插入 1000000、边插入 2098771，解析和插入失败都是 0。证据 `evidence/a35-std-333-loader.json`。没有做计数、邻接或重启复测，P6 的复核项不勾选。笔记尚未审查或提交。
+
+2026-09-25：标准 `hg-closure-std-a35-333` 图 `law_a35std_1m` 复测。Server `hg-closure-std-a35-333-hugegraph-server-54958cdd4d-ggkzf`，镜像 `hugegraph/server:closure-a35ebeb17`，import digest `sha256:b6ee25851186d078d5e141ff21f0bb273af6bb3deebfdfef0359e3b866e192ac`。重启前 Gremlin `1000000:2098771`，32 个邻接样本 0 不一致，9 个自环都在。随后只对 Store-0 的 Java 发 SIGTERM，不是 kill -9。Pod UID `79850a31-9ab6-4486-891e-b1679eb00b3e`、IP `10.244.0.60` 和 PVC 不变，restartCount 0 到 1，12.252 秒 Ready。0 字节 jemalloc curl 被终止，没有杀 Java。上一容器有 1 次 `closing all rocksdb`，`db not closed` 为 0。重启后 Gremlin 仍是 `1000000:2098771`，邻接和自环结果相同。三台 Store 重启前后都映射 `/tmp/librocksdbjni*.so`，SHA-256 `8b8fb2ed…6dff`，没有 Topling JNI。Store 镜像 import digest `sha256:4edeb22fb4de9376a0349c7d31596aa416802da562c1d5c2f301b3217cf9e8ff`。这不是 Store IP 变化，P6 不勾选。证据 `evidence/a35-std-333-loader-verify.json`。当时 available 3.9Gi，节点内存 91%，swap 7.4/8Gi，没有启动 Topling 导入。笔记尚未审查或提交。
+
+2026-09-25：主机 available 只有 3.8Gi，节点内存 91%，swap 7.4/8Gi。为了给当前 SHA 的 Topling 实测腾内存，把 `hg-closure-std-cc143-333`、`hg-closure-std-cc143-111`、`hg-closure-top-cc143-111`、`hg-closure-top-mmapfix-333`、`hg-closure-top-mmapfix-111` 的 StatefulSet 和 Deployment 缩到 0。没有删除 namespace 或 PVC，也没有动 `9aba`、e109、mix 和 a35。缩容后 available 约 40Gi，swap 仍约 7.6Gi。证据 `evidence/a35-scale-down-old-clusters.json`。
+
+2026-09-25：Topling `hg-closure-top-a35-s3` 导入新图 `law_a35top_1m`。源码 `a35ebeb17`，1 个 PD、3 个 Store、3 个 Server。Server `djgdl` 镜像 `hugegraph/server:closure-a35ebeb17`，import digest `sha256:b6ee25851186`。建图 201，backend 为 hstore，四个输入校验和匹配。Loader 退出 0，耗时 201.39 秒；脚本自身固定 `-Xmx10g`，实际 RSS 约 1.5Gi。顶点插入 1000000，边插入 2098771，失败 0。Gremlin 重启前后都是 `1000000:2098771`。32 个邻接样本 0 不一致，9 个自环通过。Store-0 Java SIGTERM 后 UID `c2f1a298-5245-496b-8d1d-5e29c6829384` 和 IP `10.244.0.16` 不变，restartCount 1 到 2，76.611 秒 Ready。0 字节 jemalloc curl 被终止。上一容器有 1 次 `closing all rocksdb` 和 1 次 `SidePluginRepo` `db not closed`，mmap WAL 错误 0。三台 Store 前后都映射 `library/librocksdbjni-linux64.so`，SHA-256 `c25ff6e6…dd38`。Store import digest `sha256:b72eedece1a8`。这不是 3 个 PD，也不是 Store IP 变化，P6 不勾选。证据 `evidence/a35-top-s3-loader.json`。随后开始新装 `hg-closure-top-a35-333`，Helm 还没结束。笔记尚未审查或提交。
+
+2026-09-25：新装 Topling `hg-closure-top-a35-333`，Helm 退出 0。三台 Store 启动时 0 字节 jemalloc curl 被终止，没有杀 Java。PD-0 `/v1/cluster` 200，`Cluster_OK`，成员数 3，3 个 Store 在线，`PState_Normal`。三台 Store 映射 `/hugegraph-store/library/librocksdbjni-linux64.so`，三台 PD 映射 `/hugegraph-pd/library/librocksdbjni-linux64.so`，SHA-256 都是 `c25ff6e6…dd38`。属性 202，顶点标签 201，顶点 `1:a35top333` 写入 201，三台 Server 读取都是 200。这只是安装后的写入一致性，不是多数派、重启或 Loader。证据 `evidence/a35-top-333-install.json`、`evidence/build/helm-topling-a35-333-install.log`。笔记尚未审查或提交。
+
+2026-09-25：Topling `hg-closure-top-a35-333` 同时删除 Store-1 和 Store-2，delete 退出 0。这是单节点 kind 的 Pod 删除，不是网络分区。故障期间 `1:a35top333` 仍是 200，`a35top333loss` 超时 12 秒且之后查询 404。Store-1 23.788 秒 Ready，Store-2 23.876 秒 Ready。PVC 不变，UID 和 IP 都变了：Store-1 从 `10.244.0.88` 到 `10.244.0.93`，Store-2 从 `10.244.0.91` 到 `10.244.0.92`。Store-0 UID `434437bd-f2fa-4ead-8eed-fc7b590968ce`、IP `10.244.0.89` 不变。0 字节 jemalloc curl 被终止。Ready 后 `a35top333back` 超时 30 秒，随后查询 404，没有留下。`a35top333back2` 为 201，耗时 0.097 秒，查询 200。分区合计 12 个 `STATE_LEADER`、24 个 `STATE_FOLLOWER`；Store-0 当时 leader 为 0。三台 JNI 仍是 `library/librocksdbjni-linux64.so` 的 `c25ff6e6…dd38`。新 Pod 没有上一容器日志，不能据此声称没有 `db not closed`。P5 不勾选。证据 `evidence/a35-top-333-store-majority.json`。笔记尚未审查或提交。
+
+2026-09-25：Topling `hg-closure-top-a35-333` 同时删除 PD-1 和 PD-2，delete 退出 0。这是单节点 kind 的 Pod 删除，不是网络分区。删除前 PD-0 `/v1/cluster` 200，`Cluster_OK`，成员数 3，3 个 Store Up，`PState_Normal`。`1:a35top333back2` 在删除前和删除后都是 200。`a35pd333loss` 在删除命令返回后 0.08 秒就得到 201，之后查询也是 200，所以这次没有证明 PD 多数派丢失会拒绝写入。PD-1 12.653 秒 Ready，PD-2 12.684 秒 Ready。PVC 不变，UID 和 IP 改变：PD-1 从 `10.244.0.84` 到 `10.244.0.95`，PD-2 从 `10.244.0.90` 到 `10.244.0.94`。PD-0 UID `10e8cf09-8a06-43e0-bbd8-199a133d40d3`、IP `10.244.0.86` 不变。Ready 当下对 PD-0 的集群查询没有返回 HTTP 码。随后 `a35pd333back` 超时 30 秒，但稍后查询为 200。`a35pd333back2` 为 201，耗时 0.069 秒。复查集群仍是 `Cluster_OK`、成员数 3、3 个 Store Up、`PState_Normal`。三台 PD JNI 都是 `/hugegraph-pd/library/librocksdbjni-linux64.so` 的 `c25ff6e6…dd38`。新 Pod 没有上一容器，不能判断 `db not closed`。P5 不勾选。证据 `evidence/a35-top-333-pd-majority.json`。笔记尚未审查或提交。
+
+2026-09-25：Topling `hg-closure-top-a35-333` 删除一台 Server `vqcvn`，delete 退出 0。保留副本 `nwjsq` 在删除期间读取 `1:a35pd333back2` 为 200，写入 `a35srv333` 为 201，耗时 0.074 秒。替补 `vv5sv` 10.706 秒 Ready，IP `10.244.0.96`。`nwjsq` UID `0c84ecdc-ddfa-4930-8266-cfe73c4f6924`、IP `10.244.0.77` 不变。替补和 `nwjsq` 随后都能读到旧顶点和 `a35srv333`。另一台未删除的 `qkpz5` 当时两次读取都超时 12 秒；Pod 仍是 Ready。稍后重试两个顶点都是 200。这是单节点 kind 的副本替换，不是网络分区。P5 不勾选。证据 `evidence/a35-top-333-server-loss.json`。笔记尚未审查或提交。
+
+2026-09-25：Topling `hg-closure-top-a35-333` 对默认图 `hugegraph` 调用一次 `PUT /graphspaces/DEFAULT/graphs/hugegraph/snapshot_create`。Server `nwjsq`，镜像 `hugegraph/server:closure-a35ebeb17`，import digest `sha256:b6ee25851186d078d5e141ff21f0bb273af6bb3deebfdfef0359e3b866e192ac`。返回 500，异常是 `UnsupportedOperationException`，消息是 `createSnapshot`，栈顶是 `BackendStore.createSnapshot`。没有做目录拷贝。调用后 `1:a35srv333` 仍是 200。这不是单机 RocksDB snapshot。P4 不勾选。证据 `evidence/a35-top-333-snapshot.json`。笔记尚未审查或提交。
+
+2026-09-25：Topling `hg-closure-top-a35-333` 新建图 `life_a35top333`，没有删除默认图 `hugegraph`。建图 201，backend 为 hstore。属性 202，顶点标签 201，`life-before` 写入 201。三台 Server 立即读取都是 200。`DELETE .../clear?confirm_message=I'm sure to delete all data` 返回 204。执行 clear 的 `nwjsq` 随后查询 `life-before` 为 404。`qkpz5` 和 `vv5sv` 仍返回 200。之后 `life-after` 写入 201，三台读取都是 200。默认图顶点 `1:a35srv333` 仍是 200。没有重启，也没有做 snapshot。P4 不勾选。证据 `evidence/a35-top-333-clear.json`。笔记尚未审查或提交。
+
+2026-09-25：Topling `hg-closure-top-a35-333` 只对 `qkpz5` 和 `vv5sv` 的 Java 发 SIGTERM，不是 kill -9，也没有动 Store 或 PD。信号前 `life-before` 在 `nwjsq` 是 404，在这两台是 200；`life-after` 三台都是 200。`qkpz5` 15.158 秒 Ready，`vv5sv` 12.052 秒 Ready。两台 UID 和 IP 不变，restartCount 0 到 1，IP 分别是 `10.244.0.79` 和 `10.244.0.96`。重启后三台查询 `life-before` 都是 404，`life-after` 都是 200。`nwjsq` 没有收到信号。P4 仍不勾选。证据 `evidence/a35-top-333-clear-sigterm.json`。笔记尚未审查或提交。
+
+2026-09-25：Topling `hg-closure-top-a35-333` 删除并重建图 `life_a35top333`，没有删除默认图 `hugegraph`。`nwjsq` 上 drop 204。三台立即查询该图都是 404，旧顶点 `1:life-after` 也都是 404。重建 201，backend 为 hstore。属性 202，顶点标签 id 是 2，`life-rebuilt` 写入 201，返回 id `2:life-rebuilt`。按错误 id `1:life-rebuilt` 查询三台都是 404，这不能当成写入丢失。按 `2:life-rebuilt` 查询三台都是 200，图也是 200。重建完成并写入新顶点之后，再次查询 `1:life-after`：`qkpz5` 和 `vv5sv` 返回 200，`nwjsq` 是 404。这是重建之后重新出现的旧 id，不是 drop 当下的 404。默认图 `1:a35srv333` 仍是 200。没有重启。P4 不勾选。证据 `evidence/a35-top-333-drop.json`。笔记尚未审查或提交。
+
+2026-09-25：Topling `hg-closure-top-a35-333` 只对 `qkpz5` 和 `vv5sv` 的 Java 再发一次 SIGTERM，不是 kill -9。信号前 `1:life-after` 在 `nwjsq` 是 404，在这两台是 200；`2:life-rebuilt` 三台都是 200。`qkpz5` 23.621 秒 Ready，`vv5sv` 24.698 秒 Ready。UID 和 IP 不变，restartCount 1 到 2，IP 分别是 `10.244.0.79` 和 `10.244.0.96`。重启后三台查询 `1:life-after` 都是 404，`2:life-rebuilt` 都是 200。没有动 Store、PD 或默认图。P4 仍不勾选。证据 `evidence/a35-top-333-drop-sigterm.json`。笔记尚未审查或提交。
+
+2026-09-25：标准 `hg-closure-std-a35-333` 只删除 Store-1。删除前 IP `10.244.0.68`，新 Pod IP `10.244.0.97`，UID 改变，PVC `store-data-hg-closure-std-a35-333-hugegraph-store-1` 不变，12.768 秒 Ready。0 字节 jemalloc curl 被终止。替换过程中有一次容器尚未就绪的 exec 错误，不作为读取结果。删除前 Gremlin 是 `1000000:2098771`，样本 `56862681` 的 compact_id、出边 `57606609` 和入边 `15767971` 匹配。新 IP Ready 后 Gremlin 仍是 `1000000:2098771`，同一样本仍匹配。JNI 是 `/tmp/librocksdbjni*.so` 的 `8b8fb2ed…6dff`，没有 Topling JNI。这只是一个邻接样本，不是 32 个样本，也不是 Topling。P6 不勾选。证据 `evidence/a35-std-333-store-ip.json`。笔记尚未审查或提交。
+
+2026-09-25：Topling `hg-closure-top-a35-s3` 只删除 Store-1。旧 IP `10.244.0.33`，新 IP `10.244.0.98`，UID 改变，PVC `store-data-hg-closure-top-a35-s3-hugegraph-store-1` 不变，12.797 秒 Ready。这是 1 个 PD，不是 3+3+3。0 字节 jemalloc curl 被终止。新 Pod 没有上一容器，不能判断 `db not closed`。删除前和 Ready 后 Gremlin 都是 `1000000:2098771`。样本 `56862681` 的 compact_id、出边和入边在新 IP 后仍匹配。JNI 是 `/hugegraph-store/library/librocksdbjni-linux64.so` 的 `c25ff6e6…dd38`。证据 `evidence/a35-top-s3-store-ip.json`。
+
+随后不再删除 Pod，只重读两个已经更换过 Store IP 的百万图。标准 `law_a35std_1m` 和 Topling `law_a35top_1m` 都是 32 个样本 0 不一致，9 个自环通过。证据 `evidence/a35-std-333-store-ip-adjacency.json`、`evidence/a35-top-s3-store-ip-adjacency.json`。导入失败数仍是 0，失败重试路径没有被触发。P6 不勾选。笔记尚未审查或提交。
