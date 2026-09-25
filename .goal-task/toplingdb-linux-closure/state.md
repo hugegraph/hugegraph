@@ -44,7 +44,7 @@
 | P3 当前 SHA 功能 | 四项已勾选。未修改 Server 现已覆盖批量、索引、Gremlin/Cypher、多图、口令认证、边更新删除和角色 403 | 不重复已通过项 |
 | P4 生命周期与 provider | 混合 provider 和错误 provider 已勾选。生命周期总项未勾选：e109 崩溃、删图和 truncate 已有证据，HStore `snapshot_create` 仍是 500 | 不新做跨分区图快照，不重复已有 kill -9 |
 | P5 当前 SHA HA | 三项都未勾选。单节点进程或 Pod 恢复不能代替网络分区。Compose 与 Helm 差异已记录且故意不改 | 不把 kind 写成物理多机，不顺手改 HA 配置 |
-| P6 Loader | 两个 a35 百万图在一台 Store 更换 IP 后，32 个样本和 9 个自环通过，计数仍是 `1000000:2098771`。失败重试路径没有触发。全量 LAW 后置 | 不重跑 IP 测试；channel refresh 不自动开第四轮 |
+| P6 Loader | Topling 3+3+3 更换 Store IP 后曾连接旧地址 `10.244.0.93:8500`。后来 `nwjsq` 和未重启的 `qkpz5` 都能返回 `1000000:2098771`，但不能写成已修复。失败重试没有触发。全量 LAW 后置 | 不重跑删除；channel refresh 不自动开第四轮 |
 | P7 Benchmark | 未开始 | 核心功能未收口前禁止性能结论 |
 
 分项计数和完成标记以 todo.md 为准。当前 SHA 测试使用新 namespace。同一时间只运行一个重任务；Maven 全量、镜像构建、Helm 变更和故障注入不叠加。
@@ -89,8 +89,8 @@ Topling 构建上下文必须包含已存在的 `hugegraph-server/hugegraph-dist
 
 ## 下一动作
 
-1. 文档提交 `1a495ad43` 已推送到 `org/toplingdb`。不要重复提交同一批笔记，也不要再删 Store 重复 IP 测试。
-2. 失败重试路径仍未触发。不要为了勾选而制造失败。HStore snapshot 保持 500，不要重试或做目录拷贝。不要自动开第四轮 WAL 或 channel refresh 审查。
+1. 旧地址 `10.244.0.93:8500` 的超时已被记录。稍后 `nwjsq` 和未再重启的 `qkpz5` 都能返回 `1000000:2098771`。不要把这次恢复写成代码已修复，也不要再删 Store。
+2. 不要自动开第四轮 channel refresh 审查，不要制造导入失败，不要重试 HStore snapshot。
 3. 网络分区仍缺多节点和 Chaos Mesh。全量 LAW 和 benchmark 仍后置。本段审查结论是 HIGH_SEVERITY=0，不要把它混进 Java 提交。
 
 ## 进展日志
@@ -401,3 +401,11 @@ Store 删除后的复测无效：脚本把仍在终止的旧 Pod 读成 0.074 �
 随后不再删除 Pod，只重读两个已经更换过 Store IP 的百万图。标准 `law_a35std_1m` 和 Topling `law_a35top_1m` 都是 32 个样本 0 不一致，9 个自环通过。证据 `evidence/a35-std-333-store-ip-adjacency.json`、`evidence/a35-top-s3-store-ip-adjacency.json`。导入失败数仍是 0，失败重试路径没有被触发。P6 不勾选。笔记尚未审查或提交。
 
 2026-09-25：文档审查 `evidence/build/doc-review-a35-notes.md` 是 HIGH_SEVERITY=3。已改掉 e109 当前绑定、数据线索和 drop 时间顺序这三处矛盾。重审 `evidence/build/doc-rereview-a35-notes.md` 是 HIGH_SEVERITY=0。随后只提交 `state.md` 和 `todo.md`，提交 `1a495ad43`，并推送到 `org/toplingdb`。没有提交 Java、WAL、channel refresh 或 evidence。
+
+2026-09-25：Topling `hg-closure-top-a35-333` 导入新图 `law_a35top333_1m`。3 个 PD、3 个 Store、3 个 Server。Server `nwjsq`，镜像 `hugegraph/server:closure-a35ebeb17`。建图 201，backend 为 hstore，四个输入校验和匹配。Loader 使用本地 `-Xmx3g` 副本，退出 0，141.109 秒。Gremlin `1000000:2098771`。32 个邻接样本 0 不一致，9 个自环通过。三台 Store 都映射 `/hugegraph-store/library/librocksdbjni-linux64.so`，SHA-256 `c25ff6e6…dd38`。没有删除 Store，所以这不覆盖 IP 变化。失败数是 0，重试路径没有触发。P6 不勾选。证据 `evidence/a35-top-333-loader.json`。笔记尚未审查或提交。
+
+2026-09-25：Topling `hg-closure-top-a35-333` 只删除 Store-1。旧 IP `10.244.0.93`，新 IP `10.244.0.99`，UID 改变，PVC `store-data-hg-closure-top-a35-333-hugegraph-store-1` 不变，12.883 秒 Ready。0 字节 jemalloc curl 被终止。Server `nwjsq` 的 DNS 把 Store-1 解析到新 IP `10.244.0.99`，不是旧地址。删除前 Gremlin 是 `1000000:2098771`。Ready 后全图计数 HTTP 500，消息是 `SocketTimeoutException: Read timed out`。32 个邻接样本里 31 个匹配，9 个自环通过；`54148543` 的 IN 扫描 curl 超时。当时的异常文本只截到主机名，所以这里曾误写成不是旧 IP 缓存。下面的复查推翻了这句话。JNI 仍是 `library/librocksdbjni-linux64.so` 的 `c25ff6e6…dd38`。P6 不勾选。证据 `evidence/a35-top-333-store-ip.json`。笔记尚未审查或提交。
+
+2026-09-25：不再删除 Store，复查 `law_a35top333_1m`。Server `nwjsq` 把 Store-1 的 DNS 解析到 `10.244.0.99`，并且到 `10.244.0.99:8500` 的新 TCP 连接成功。`54148543` IN 仍是 HTTP 500 `UNAVAILABLE: io exception`。全图计数仍是 HTTP 500，完整消息是 `ConnectTimeoutException: connection timed out: hg-closure-top-a35-333-hugegraph-store-1...svc/10.244.0.93:8500`。客户端仍在连接删除前的 IP。运行中的镜像是 `a35ebeb17`，不包含未提交的 channel refresh。P6 不勾选。证据 `evidence/a35-top-333-store-ip-settled.json`。笔记尚未审查或提交。
+
+2026-09-25：只对 `nwjsq` 的 Java 发 SIGTERM，没有删 Store。UID `0c84ecdc-ddfa-4930-8266-cfe73c4f6924` 和 IP `10.244.0.77` 不变，restartCount 0 到 1，容器结束并再次启动都在 `2026-09-25T05:39:22Z`。重启后的全图计数是 HTTP 200 `1000000:2098771`，`54148543` IN 也是 200，响应里没有 `10.244.0.93`。对照的 `qkpz5` 这次没有收到信号，restartCount 仍是 2，启动时间仍是 `2026-09-25T04:48:51Z`，同样返回 `1000000:2098771` 和 IN 200。因此不能证明必须重启 Server 才能恢复，也不能把运行中的 `a35ebeb17` 镜像写成已修复。P6 不勾选。证据 `evidence/a35-top-333-server-refresh.json`。笔记尚未审查或提交。
