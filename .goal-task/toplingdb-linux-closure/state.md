@@ -93,9 +93,9 @@ Cypher 记录在进展日志，是否可提交以当前文档审查为准。chan
 
 ## 下一动作
 
-1. Store-0 最终记录 41 次 HTTP 200，没有非 200。关闭日志先写 closed gRPC，再写 closing all rocksdb，随后仍有 Topling `db not closed`。没有 `Still waiting`。证据 JSON 没有信号名、顶点 ID、请求 URL 或发信号瞬间的计数。不要为了补这些字段而再发信号，也不要强行关库。 随后三台 Server 对 `law_a35top333_1m` 的计数响应都是 HTTP 200，data 是 `1000000:2098771`，OLDIP 都是 NO。这不勾选 P6，也不写成地址缓存已修复。 只读邻接摘要：32 个样本中 63 个方向在 4000 字节截断前解析通过，真实不一致数是 0。`54148543` 的截断 IN 已重读，三台 Server 的 IN 都是 HTTP 200、count 142、expected 142、first_ok true，OUT 都是 count 4、expected 4。9 个自环都是 HTTP 200 且存在。`old_ip_seen` 是 false。Store-0 JNI SHA-256 与证据 `jni_sha256` 相同。运行镜像 revision 仍是 `a35ebeb17`。P6 不勾选，`address_cache_fixed` 是 false。 五个 Server 的只读邻接都是 64 个方向、mismatch_count 0。9 个自环共 45 行且都存在。`failure_retry_triggered` 是 false，所以 P6 仍不勾选。
-2. 不要把地址缓存恢复写成已修复，不要再删 Store，不要自动开第四轮审查，不要制造导入失败，不要重试 HStore snapshot。
-3. 网络分区仍缺多节点和 Chaos Mesh。全量 LAW 和 benchmark 仍后置。Store-0 关闭笔记的审查结论是 HIGH_SEVERITY=0。不要把它混进 Java 提交。 本次检查没有给 kind 增加节点，也没有安装 CRD。 JNI 扫描 `row_count` 是 18，`all_no_silent_fallback` 是 true，`bad_count` 是 0。这不勾选 P4、P5、P6 或 P7。 两个 a35 3+3+3 的 PD leader `balanceLeaders` 是 HTTP 200，不是异常体。这仍不是网络分区。 随后两边新建的 person 顶点在三台 Server 上都是 HTTP 200。 两个 a35 3+3+3 里 pd-0 和 pd-1 报 `Cluster_OK`，pd-2 报 `Cluster_Not_Ready`，三台都认为 leader 是 pd-1。这仍不是网络分区。 上一容器日志里 12 个 PartitionEngine 已关闭，随后只记下 `hgstore-metadata`，原生行仍没有数据库名。 同一代标准 Store-0 的上一容器日志没有 `db not closed`。 两个 a35 3+3+3 的六台 Server 对新建 person 的原始 Cypher 都是 HTTP 200、inner_code 200。这不勾选 P4、P5、P6 或 P7。
+1. 邻接段的新审查文件 `/tmp/adj-after-sigterm-r2-review.md` 首行是 HIGH_SEVERITY=0。这不勾选 P6。审查通过后的邻接段可以提交，不要和 Java 混提。
+2. `327737f16` 的 PD leader 原地 SIGTERM 正在重跑。第一次在发信号前退出，没有改 Pod，因为状态里的镜像带 `docker.io/` 前缀。不要删 Store，不要制造导入失败，不要重试 HStore `snapshot_create`，不要实现跨分区图快照，不要把单节点写成网络分区，不要自动开 channel refresh 或 WAL 的第四轮审查。
+3. 主 checkout `/home/soc-baidu/github/hugegraph` 不要使用。
 
 ## 进展日志
 
@@ -461,3 +461,5 @@ Store 删除后的复测无效：脚本把仍在终止的旧 Pod 读成 0.074 �
 2026-09-25：对 `hg-closure-std-a35-333` 的 `mcf26` 和 `hg-closure-top-a35-333` 的 `qkpz5` 向 pid 1 发 SIGTERM。没有删 Pod，也没有给 Store 发信号。两边镜像都是 `hugegraph/server:closure-a35ebeb17`。标准 UID `ceab236b-688a-4617-adfb-861119da7f1f`，restartCount 从 1 到 2，16.426 秒后 Ready，UID 不变。`vertex_http` 前后都是 `200`，`ggkzf` 的 `during_reader_http` 是 `200`。Topling UID `b5c2d043-ce9e-4bb3-98b9-1245465f79be`，restartCount 从 2 到 3，16.386 秒后 Ready，UID 不变。`vertex_http` 前后都是 `200`，`nwjsq` 的 `during_reader_http` 是 `200`。这不勾选 P5。证据 `evidence/a35-std-333-server-sigterm-inplace.json`、`evidence/a35-top-333-server-sigterm-inplace.json`。笔记尚未审查或提交。
 
 Server 原地 SIGTERM 之后做只读 Gremlin 计数。没有删 Pod，也没有新发信号。`hg-closure-std-a35-333` 的 `ggkzf` 图 `law_a35std_1m` 是 HTTP 200，data 是 `1000000:2098771`，rc 0。`hg-closure-top-a35-333` 的 `nwjsq` 图 `law_a35top333_1m` 是 HTTP 200，data 是 `1000000:2098771`，rc 0。这不勾选 P6。证据 `evidence/a35-333-count-after-server-sigterm.json`。笔记尚未审查或提交。
+
+对两台原地重启后的 Server 做只读邻接。没有删 Pod，也没有新发信号。`hg-closure-std-a35-333` 的 `mcf26` 图 `law_a35std_1m`：samples 32，directions 64，mismatch_count 0，http_fail 0。`hg-closure-top-a35-333` 的 `qkpz5` 图 `law_a35top333_1m`：samples 32，directions 64，mismatch_count 0，http_fail 0。这不勾选 P6。证据 `evidence/a35-333-adjacency-after-server-sigterm.json`。
