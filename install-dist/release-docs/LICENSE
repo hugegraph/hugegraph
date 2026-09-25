@@ -488,12 +488,14 @@ non-Apache-2.0 license text is required for a bundled component.
     https://central.sonatype.com/artifact/org.ansj/ansj_seg/5.1.6 -> Apache 2.0
     https://central.sonatype.com/artifact/org.apache.commons/commons-collections4/4.4 -> Apache 2.0
     https://central.sonatype.com/artifact/org.apache.commons/commons-compress/1.21 -> Apache 2.0
+    https://central.sonatype.com/artifact/org.apache.commons/commons-configuration2/2.10.1 -> Apache 2.0
     https://central.sonatype.com/artifact/org.apache.commons/commons-configuration2/2.8.0 -> Apache 2.0
     https://central.sonatype.com/artifact/org.apache.commons/commons-lang3/3.12.0 -> Apache 2.0
     https://central.sonatype.com/artifact/org.apache.commons/commons-lang3/3.13.0 -> Apache 2.0
     https://central.sonatype.com/artifact/org.apache.commons/commons-lang3/3.18.0 -> Apache 2.0
     https://central.sonatype.com/artifact/org.apache.commons/commons-pool2/2.0 -> Apache 2.0
     https://central.sonatype.com/artifact/org.apache.commons/commons-text/1.10.0 -> Apache 2.0
+    https://central.sonatype.com/artifact/org.apache.commons/commons-text/1.11.0 -> Apache 2.0
     https://central.sonatype.com/artifact/org.apache.commons/commons-text/1.9 -> Apache 2.0
     https://central.sonatype.com/artifact/org.apache.fury/fury-core/0.9.0 -> Apache 2.0
     https://central.sonatype.com/artifact/org.apache.hbase/hbase-client/2.6.5 -> Apache 2.0
