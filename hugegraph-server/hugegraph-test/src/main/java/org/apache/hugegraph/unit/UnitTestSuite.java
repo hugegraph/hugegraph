@@ -28,6 +28,7 @@ import org.apache.hugegraph.backend.tx.GraphTransactionTest;
 import org.apache.hugegraph.meta.EtcdMetaDriverTest;
 import org.apache.hugegraph.meta.MetaManagerSchemaCacheClearEventTest;
 import org.apache.hugegraph.meta.managers.AuthMetaManagerTest;
+import org.apache.hugegraph.opencypher.CypherOpProcessorTest;
 import org.apache.hugegraph.store.client.OrderedScanSecurityTest;
 import org.apache.hugegraph.tinkerpop.HugeGraphTestInfrastructureTest;
 import org.apache.hugegraph.traversal.optimize.TraversalUtilOptimizeTest;
@@ -130,6 +131,7 @@ import org.junit.runners.Suite;
         GremlinQueryAPITest.class,
         CypherClientTest.class,
         CypherGremlinPredicatesTest.class,
+        CypherOpProcessorTest.class,
         WsAndHttpBasicAuthHandlerTest.class,
         GraphSpaceGroupAPITest.class,
         GraphSpaceAuthPayloadTest.class,
