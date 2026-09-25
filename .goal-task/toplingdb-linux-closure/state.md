@@ -93,7 +93,7 @@ Cypher 记录在进展日志，是否可提交以当前文档审查为准。chan
 
 ## 下一动作
 
-1. PD leader 之后的只读计数已由 `/tmp/count-after-pd-leader-review.md` 给出 HIGH_SEVERITY=0。两边 data 都是 `1000000:2098771`。这不勾选 P6 或 P7，也不是 benchmark。
+1. PD leader 之后的 32 样本邻接已由 `/tmp/adj-after-pd-leader-review.md` 给出 HIGH_SEVERITY=0。两边 mismatch_count 都是 0，self_loop_present 都是 9。这不勾选 P6。
 2. 继续单节点 `kind-kind` 上还能执行的项。不要删 Store，不要制造导入失败，不要重试 HStore `snapshot_create`，不要实现跨分区图快照，不要自动开 channel refresh 或 WAL 的第四轮审查。
 3. 主 checkout `/home/soc-baidu/github/hugegraph` 不要使用。Java 差异仍不提交。
 
@@ -469,3 +469,5 @@ Server 原地 SIGTERM 之后做只读 Gremlin 计数。没有删 Pod，也没有
 对 `hg-closure-top-a35-333` 的 `hg-closure-top-a35-333-hugegraph-pd-1` 向 pid 1 发 SIGTERM。没有删 Pod，也没有给 Store 发信号。镜像 `docker.io/hugegraph/pd:closure-327737f16`，source_revision `327737f16`。UID `ddce86f8-2583-4e99-a716-e64504ff9249`，PVC `ca20600c-9bb1-484c-86a8-5119a95b503c`，restartCount 从 0 到 1，same_uid 和 same_pvc 都是 true。信号前 ready_body 是 `{"ready":true,"state":"STATE_LEADER","isLeader":true}`，信号后是 `{"ready":true,"state":"STATE_FOLLOWER","isLeader":false}`。signal_rc 是 0，signal_stdout 是 SENT。recovery_s 是 14.978，`recovery_s_includes_during_vertex_http` 是 true。`during_vertex_http` 是 200，`during_vertex_http_is_after_ready` 是 true。顶点 `1:pd327-top` 由 `hg-closure-top-a35-333-hugegraph-server-6549c45474-nwjsq` 读取，vertex_http 前后都是 200。cluster_before 和 cluster_after 的 0、1、2 都是 HTTP 200、`Cluster_OK`。leaders_after 是 `0`。这不勾选 P5。证据 `evidence/a35-top-333-pd-leader-sigterm-327737f16.json`。
 
 对 `hg-closure-std-a35-333` 的 `ggkzf` 和 `hg-closure-top-a35-333` 的 `nwjsq` 做只读 Gremlin 计数。没有删 Pod，也没有新发信号。purpose 写了这是 `327737f16` PD leader pid 1 SIGTERM 之后，别名使用 `__g_DEFAULT-<graph>`。标准别名 `__g_DEFAULT-law_a35std_1m`，图 `law_a35std_1m`，HTTP 200，rc 0，inner_code 200，data 是 `1000000:2098771`，elapsed_s 是 0.826。Topling 别名 `__g_DEFAULT-law_a35top333_1m`，图 `law_a35top333_1m`，HTTP 200，rc 0，inner_code 200，data 是 `1000000:2098771`，elapsed_s 是 0.71。两边镜像都是 `docker.io/hugegraph/server:closure-a35ebeb17`，image_id 都是 `docker.io/library/import-2026-09-25@sha256:b6ee25851186d078d5e141ff21f0bb273af6bb3deebfdfef0359e3b866e192ac`。purpose 写了更早的 `__g_<graph>` 别名返回 HTTP 400。这不勾选 P6 或 P7。证据 `evidence/a35-333-count-after-pd-leader-alias.json`。
+
+对 `hg-closure-std-a35-333` 的 `ggkzf` 图 `law_a35std_1m` 和 `hg-closure-top-a35-333` 的 `nwjsq` 图 `law_a35top333_1m` 做只读 32 样本邻接。没有删 Pod，也没有新发信号。purpose 写了这是 `327737f16` PD leader pid 1 SIGTERM 之后。expectation_samples 是 32。两边都是 samples 32、directions 64、mismatch_count 0、http_fail 0、self_loop_ids 9、self_loop_present 9、self_loop_http_fail 0。mismatches 的 `ggkzf` 和 `nwjsq` 都是 `[]`。两边镜像都是 `docker.io/hugegraph/server:closure-a35ebeb17`，image_id 都是 `docker.io/library/import-2026-09-25@sha256:b6ee25851186d078d5e141ff21f0bb273af6bb3deebfdfef0359e3b866e192ac`。这不勾选 P6。证据 `evidence/a35-333-adjacency-after-pd-leader.json`。
