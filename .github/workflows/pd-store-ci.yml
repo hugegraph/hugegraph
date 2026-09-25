@@ -458,7 +458,22 @@ jobs:
       TRAVIS_DIR: hugegraph-server/hugegraph-dist/src/assembly/travis
       REPORT_DIR: target/site/jacoco
       BACKEND: hstore
-      RELEASE_BRANCH: ${{ startsWith(github.ref_name, 'release-') || startsWith(github.ref_name, 'test-') || startsWith(github.base_ref, 'release-') }}
+      RUN_TINKERPOP_TESTS: >-
+        ${{
+          startsWith(github.ref_name, 'release-') ||
+          startsWith(github.ref_name, 'test-') ||
+          startsWith(github.head_ref, 'release-') ||
+          startsWith(github.head_ref, 'test-') ||
+          startsWith(github.base_ref, 'release-') ||
+          startsWith(github.base_ref, 'test-') ||
+          startsWith(github.head_ref, 'task/tp381-3-') ||
+          startsWith(github.ref_name, 'task/tp381-3-') ||
+          startsWith(github.base_ref, 'task/tp381-3-') ||
+          github.base_ref == 'task/tinkerpop-3.7-upgrade' ||
+          github.head_ref == 'task/tinkerpop-3.7-upgrade' ||
+          github.base_ref == 'task/gsoc-phase2-java17' ||
+          github.head_ref == 'task/gsoc-phase2-java17'
+        }}
 
     steps:
       - name: Install JDK 17
@@ -549,11 +564,28 @@ jobs:
         run: |
           $TRAVIS_DIR/run-api-test-for-raft.sh $BACKEND $REPORT_DIR
 
-      - name: Run TinkerPop test
-        if: ${{ env.RELEASE_BRANCH == 'true' }}
+      # Include HStore in the upgrade compatibility gate. The dedicated HStore
+      # service setup above makes its structure/process suites exercise the
+      # distributed backend rather than only the memory and RocksDB paths.
+      - name: Run TinkerPop structure test
+        if: ${{ env.RUN_TINKERPOP_TESTS == 'true' }}
+        # The HStore suite needs close to one hour before global cleanup, so
+        # keep enough headroom to finish cleanup and emit Surefire results.
+        timeout-minutes: 120
         run: |
-          $TRAVIS_DIR/run-tinkerpop-test.sh $BACKEND tinkerpop
+          $TRAVIS_DIR/run-tinkerpop-test.sh $BACKEND structure
 
+      - name: Run TinkerPop process standard test
+        if: ${{ env.RUN_TINKERPOP_TESTS == 'true' }}
+        timeout-minutes: 120
+        run: |
+          $TRAVIS_DIR/run-tinkerpop-test.sh $BACKEND process-standard
+
+      - name: Run TinkerPop process feature test
+        if: ${{ env.RUN_TINKERPOP_TESTS == 'true' }}
+        timeout-minutes: 120
+        run: |
+          $TRAVIS_DIR/run-tinkerpop-test.sh $BACKEND process-feature
 
       - name: Collect HStore diagnostics on failure or timeout
         if: ${{ failure() || cancelled() }}

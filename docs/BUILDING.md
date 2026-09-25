@@ -42,7 +42,3 @@ To build without executing tests:
 To find the Java binary in your environment, run the appropriate command for your operating system:
 * Linux/macOS: `which java`
 * Windows: `for %i in (java.exe) do @echo. %~$PATH:i`
-
-The Java 17 baseline retains TinkerPop 3.5.1 and uses Groovy 2.5.23 as an
-intermediate compatibility update. Groovy 2.5.14 cannot read Java 17 class files.
-The subsequent TinkerPop upgrade replaces this compatibility pin with Groovy 4.

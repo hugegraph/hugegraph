@@ -86,9 +86,11 @@
     </scm>
 
     <properties>
-        <groovy.compat.version>2.5.23</groovy.compat.version>
         <fabric8.version>5.6.0</fabric8.version>
         <revision>1.7.0</revision>
+        <groovy.version>4.0.25</groovy.version>
+        <netty.version>4.1.137.Final</netty.version>
+        <snakeyaml.version>1.28</snakeyaml.version>
         <lombok.version>1.18.30</lombok.version>
         <release.name>hugegraph</release.name>
         <maven.compiler.release>17</maven.compiler.release>
@@ -121,38 +123,24 @@
 
     <dependencyManagement>
         <dependencies>
-            <!-- TinkerPop 3.5.1 uses Groovy 2.5.14, which cannot read Java 17
-                 classes. Keep its Groovy API line until the TinkerPop upgrade. -->
             <dependency>
-                <groupId>org.codehaus.groovy</groupId>
+                <groupId>org.apache.groovy</groupId>
                 <artifactId>groovy-bom</artifactId>
-                <version>${groovy.compat.version}</version>
+                <version>${groovy.version}</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
             <dependency>
-                <groupId>org.codehaus.groovy</groupId>
-                <artifactId>groovy</artifactId>
-                <version>${groovy.compat.version}</version>
-                <classifier>indy</classifier>
+                <groupId>io.netty</groupId>
+                <artifactId>netty-bom</artifactId>
+                <version>${netty.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
             </dependency>
             <dependency>
-                <groupId>org.codehaus.groovy</groupId>
-                <artifactId>groovy-groovysh</artifactId>
-                <version>${groovy.compat.version}</version>
-                <classifier>indy</classifier>
-            </dependency>
-            <dependency>
-                <groupId>org.codehaus.groovy</groupId>
-                <artifactId>groovy-json</artifactId>
-                <version>${groovy.compat.version}</version>
-                <classifier>indy</classifier>
-            </dependency>
-            <dependency>
-                <groupId>org.codehaus.groovy</groupId>
-                <artifactId>groovy-jsr223</artifactId>
-                <version>${groovy.compat.version}</version>
-                <classifier>indy</classifier>
+                <groupId>org.yaml</groupId>
+                <artifactId>snakeyaml</artifactId>
+                <version>${snakeyaml.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.projectlombok</groupId>
