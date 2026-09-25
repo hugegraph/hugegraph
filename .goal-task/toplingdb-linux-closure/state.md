@@ -93,9 +93,9 @@ Cypher 记录在进展日志，是否可提交以当前文档审查为准。chan
 
 ## 下一动作
 
-1. Store 关闭证据已在 `todo.md` 记为不勾选，也不是卡住 worker 的超时演练。`still_waiting` 是 0，`forced_db_close` 是 false。`/tmp/store-shutdown-disposition-review.md` 是 HIGH_SEVERITY=0。不要再给 Store 发信号，也不要强行关库。
-2. 继续单节点 `kind-kind` 上还能执行的项。不要删 Store，不要制造导入失败，不要重试 HStore `snapshot_create`，不要实现跨分区图快照，不要自动开 channel refresh 或 WAL 的第四轮审查。
-3. 主 checkout `/home/soc-baidu/github/hugegraph` 不要使用。Java 差异仍不提交。
+1. 全量 LAW 已在 `todo.md` 记为后置。`/tmp/full-law-disposition-review.md` 是 HIGH_SEVERITY=0。不要在当前 namespace 启动全量导入。
+2. 单节点上剩余的 P4、P5、P6 勾选框仍不勾选。它们把已完成的子项和失败或后置的子项放在一起。不要改写成通过。
+3. 不要删 Store，不要制造导入失败，不要重试 HStore `snapshot_create`，不要实现跨分区图快照，不要给 Store 再发信号，不要强行关库，不要自动开 channel refresh 或 WAL 的第四轮审查，也不要在图快照失败时写性能结论。主 checkout 不要使用。Java 差异仍不提交。
 
 ## 进展日志
 
