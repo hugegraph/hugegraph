@@ -93,7 +93,7 @@ Cypher 记录在进展日志，是否可提交以当前文档审查为准。chan
 
 ## 下一动作
 
-1. P7 已在 `todo.md` 记为未开始。`benchmark_name_count` 是 0。`/tmp/p7-not-started-review.md` 是 HIGH_SEVERITY=0。不勾选，也不要在 HStore `snapshot_create` 仍失败时写性能结论。
+1. HA Compose 与 Helm 的配置对齐已在 `todo.md` 记为不勾选。`/tmp/ha-align-disposition-review.md` 是 HIGH_SEVERITY=0。没有修改 Compose、Helm 或正在运行的集群。
 2. 继续单节点 `kind-kind` 上还能执行的项。不要删 Store，不要制造导入失败，不要重试 HStore `snapshot_create`，不要实现跨分区图快照，不要自动开 channel refresh 或 WAL 的第四轮审查。
 3. 主 checkout `/home/soc-baidu/github/hugegraph` 不要使用。Java 差异仍不提交。
 
