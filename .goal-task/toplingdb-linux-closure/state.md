@@ -4,7 +4,10 @@
 
 - 仓库 `hugegraph/hugegraph`；fetch/push 远端 `org`；唯一分支 `toplingdb`；PR #179。不新建分支或 PR，不 force-push，不直接合入 master。
 - 执行工作树：`/home/soc-baidu/.codex/worktrees/f29e/hugegraph`。本地分支 `codex/toplingdb-linux-validation`，推送目标 `org/toplingdb`。主 checkout `/home/soc-baidu/github/hugegraph` 停在较旧的 `f9829899c`，不要在那里继续。
-- 2026-09-25 03:29 刷新：本地 HEAD 与 `org/toplingdb` 都是 `e109012a07e2e9918f4a98d3faa23e21b93435d1`，ahead 0、behind 0。未提交的只有 `state.md`、`todo.md` 和本地证据；不要提交 `evidence/`、`.codex-handoff/`、RocksDB 数据、`tmp/` 或 `cacerts.jks`。
+- 2026-09-25 刷新：`git fetch org toplingdb` 后，推送前 fetch 发现 `org/toplingdb` 前进到 `a35ebeb17`，包含 Store 空地址重入、follower partitions GET 和 PD task/balanceLeaders 异常体修复。本地文档提交已 rebase 到其上。镜像和功能证据仍绑定源码 `e109012a07e2e9918f4a98d3faa23e21b93435d1`，不是这些新提交。
+- 工作区另有未提交的 channel refresh：`AbstractGrpcClient.java`、`KvPageScanner.java`、`KvBatchScanner.java`、`KvBatchScanner5.java`、`GrpcStoreStreamClient.java`、`query/CommonKvStreamObserver.java`、`query/QueryExecutor.java`，以及未跟踪的 `AbstractGrpcClientChannelRefreshTest.java`。3 名独立审查通过且没有未解决的高严重度问题之前，禁止提交或推送这些文件。不要把它们和文档提交混在一起。
+- 工作区另有未提交的 WAL 失败路径修复：`RocksDBStdSessions.java` 和 `RocksDBSessionsTest.java`。`RocksDBSessionsTest` 20 个通过、0 失败、0 跳过。最新差异没有新的三份审查，禁止提交或推送，也不要和 channel refresh 或文档混在同一个提交里。
+- 不要提交 `evidence/`、`.codex-handoff/`、RocksDB 数据、`tmp/` 或 `cacerts.jks`。
 - `e109012a0` 已包含 gRPC 沙箱白名单、嵌套 WAL 恢复和三份 Topling profile 的 `memtable_as_log_index: false`。`closure-top-mmapfix` 仍是旧的脏工作区镜像，不能代表这个 SHA。
 - Kubernetes 只用 `KUBECONFIG=/home/soc-baidu/.kube/config` 和 context `kind-kind`。不用 k3s，不清理无关资源。只有 snapshot/restore 或网络分区门禁需要时，才安装对应 CRD，并且不能改动两个历史 namespace。
 - 历史 namespace `hg-closure-standard-111`、`hg-closure-standard-333` 在 2026-09-24 仍为 Running，镜像是 `closure-std-9abae9dbaaa1`。它们不是当前 SHA 的通过证据，禁止原位升级。
@@ -25,18 +28,22 @@
 
 2026-09-24 用户再次确认：继续用本机 goal 做完 todo.md 的全部 Linux 实测，复用本目录和 `toplingdb`，不新开分支或 PR。状态文档在阶段边界和会话结束前推送，不为每一条笔记单独推送。可复现阻塞缺陷可以先审查、提交并推送。本机可以修改代码。
 
+2026-09-25 用户确认：继续本机 goal，复用本目录、当前工作树、`org/toplingdb` 和 PR #179。 同日再次确认不新开 goal-task 目录；本机 goal 从当前 `state.md` 与 `todo.md` 继续。本机记录并持续完成 todo.md 里全部 Linux 实测；阶段边界和会话结束前更新并推送 `state.md` 与 `todo.md`。明显且可复现的阻塞缺陷可以直接修复、补回归测试，审查通过后提交并推送。这不是只读限制，但不是授权实现新的跨分区图快照协议。
+
+2026-09-25 用户确认生成 goal 并立即复用本目录：本机持续完成 todo.md 的全部 Linux 实测，阶段边界和会话结束前更新并推送 `state.md` 与 `todo.md`。明显且可复现的阻塞缺陷可以直接修复、补回归测试，审查通过后与文档分开提交并推送。不新开分支、PR 或 goal-task 目录，不 force-push。
+
 ## 阶段
 
 | 阶段 | 状态 | 依赖 |
 | --- | --- | --- |
-| P0 合同与修复 | `e109012a0` 含沙箱白名单、WAL 嵌套恢复和 `memtable_as_log_index: false`。工作区只剩文档 | 不把 overlay 镜像写成完整 SHA 构建 |
+| P0 合同与修复 | HEAD `a7a4a6f1b` 等于 `org/toplingdb`，只在 `e109012a0` 上增加文档。channel refresh 未提交；审查前先判断另外三处 `onError` 会不会留下旧 Store channel | 3 名独立审查前不提交 Java，也不构建脏工作区完整镜像 |
 | P1 历史集群 | `9aba` 有 Pod 级证据；snapshot 失败一次；网络分区后置 | 不阻塞当前 SHA |
-| P2 当前 SHA 镜像与 JNI | 两个 provider 的 e109 单机镜像和 JNI 已证明。HStore server 两个 tag 是同一镜像。新 namespace 尚未加载 | 不升级历史或现有 namespace |
-| P3 当前 SHA 功能 | 两个 provider 的单机、1+1+1、3+3+3 都有当前 SHA 功能证据。单机 API 套件的 13 个失败都是 GraphSpace 在单机模式不支持。显式覆盖矩阵未完成 | 无套件占用 |
-| P4 生命周期与 provider | e109 标准和 Topling 单机独立 WAL 快照都已回滚。混合、kill -9 仍只绑定旧镜像。HStore snapshot 仍是 500 | 不升级历史 namespace |
-| P5 当前 SHA HA | 单节点 leader、副本和多数派已有证据。Compose 与 Helm 的差异已记录但未对齐。网络分区仍是单节点限制 | 不把 kind 写成物理多机 |
-| P6 Loader | 导入 1000000/2098771，失败 0。扫描 Panic 的白名单类已进入 `closure-e109012a0`，但完整镜像上的百万点扫描尚未复测。overlay 结果不能勾选 | 不覆盖现有功能图 |
-| P7 Benchmark | 未开始 | 核心功能未全部通过前禁止性能结论 |
+| P2 当前 SHA 镜像与 JNI | 两个 provider 的 e109 单机镜像和 JNI 已证明。HStore server 两个 tag 是同一镜像。e109 的 1+1+1 与 3+3+3 namespace 已存在 | 不升级 `9aba`、cc143 或 mmapfix namespace |
+| P3 当前 SHA 功能 | 四项已勾选。未修改 Server 现已覆盖批量、索引、Gremlin/Cypher、多图、口令认证、边更新删除和角色 403 | 不重复已通过项 |
+| P4 生命周期与 provider | 混合 provider 和错误 provider 已勾选。生命周期总项未勾选：e109 崩溃、删图和 truncate 已有证据，HStore `snapshot_create` 仍是 500 | 不新做跨分区图快照，不重复已有 kill -9 |
+| P5 当前 SHA HA | 三项都未勾选。单节点进程或 Pod 恢复不能代替网络分区。Compose 与 Helm 差异已记录且故意不改 | 不把 kind 写成物理多机，不顺手改 HA 配置 |
+| P6 Loader | 固定子集导入已勾选。完整 e109 Server 在 Store IP 变化后仍连接旧地址，邻接复测未通过。全量 LAW 后置 | 先完成 channel refresh 审查，再用该提交的完整镜像复测 |
+| P7 Benchmark | 未开始 | 核心功能未收口前禁止性能结论 |
 
 分项计数和完成标记以 todo.md 为准。当前 SHA 测试使用新 namespace。同一时间只运行一个重任务；Maven 全量、镜像构建、Helm 变更和故障注入不叠加。
 
@@ -76,13 +83,13 @@ Topling 构建上下文必须包含已存在的 `hugegraph-server/hugegraph-dist
 
 ## Initialization TODO
 
-- 动作：嵌套 data/WAL 路径改为失败关闭后再审一次，通过后才提交行为修复和合同。授权已包含。完成条件：`org/toplingdb` 含对应提交且不是 force-push。当前结果：2026-09-25 fetch 后本地 `b74befca17fa05d65a410a48572e4fd76ef3b93d` 仍比 `org/toplingdb` 的 `f9829899c3fd9e2b26b377949f2ab70ae00a2602` ahead 1、behind 0。行为修复和合同都还在工作区，不能提交。
+无未完成的一次性初始化。嵌套 WAL 修复已在 `457295ac8`，并包含于已推送的 `a7a4a6f1b`。2026-09-25 核对 `hg-closure-top-image-e109012a0` 为 `inactive/success`，不要因为旧记录重新启动它。
 
 ## 下一动作
 
-不要开始第二个重任务，也不要开始 benchmark。Topling 完整镜像构建由 systemd 用户单元 `hg-closure-top-image-e109012a0` 运行，MainPID 167352。第一次失败是上下文里的无许可证 `.source-revision` 触发 RAT；该文件已移出上下文。第二次已通过根模块 RAT（Unapproved 0），正在编译。上下文是 `/home/soc-baidu/.codex/validation-runtime/toplingdb-linux-closure/build-context-e109012a0`，源码 `e109012a07e2e9918f4a98d3faa23e21b93435d1`，tag `closure-e109012a0`，只构建 linux/amd64 的 pd、store、server-hstore、server-standalone。日志用 `journalctl --user -u hg-closure-top-image-e109012a0`。不要覆盖 `closure-std-cc14333f0` 或 `closure-top-mmapfix`。
-
-HStore 图快照仍未实现。证据 `evidence/hstore-snapshot-gap.json`。不要把 Raft `/snapshot` 写成图快照通过。
+1. 文档重审 `evidence/build/doc-rereview-1.md` 是 HIGH_SEVERITY=0。只提交 `state.md` 和 `todo.md`，不提交 Java、WAL 修复或 channel refresh。
+2. WAL 最新源码仍没有新的三份审查，不要自动开第四轮，也不要提交。进程 `1322802` 如果还在重连，让它结束，不采用它的结论。
+3. 已完成的 kill、SIGTERM、邻接、边 CRUD 和角色 403 不重跑。HStore snapshot、网络分区、全量 LAW、benchmark 和 HA 配置对齐仍后置。
 
 ## 进展日志
 
@@ -195,4 +202,96 @@ Store 删除后的复测无效：脚本把仍在终止的旧 Pod 读成 0.074 �
 
 2026-09-25 04:52：标准和 Topling 的 e109 1+1+1 上各建独立图做功能矩阵。`/versions` 无认证返回 200；图列表无认证和错误口令都是 401，正确口令是 200。二级索引创建 202，`limit=2` 返回 2 条，按 `title=beta` 只命中一个目标顶点。Gremlin 写入和 Cypher 查询都是 200。Server 是 overlay `closure-e109-channelrefresh`，PD/Store 仍是 `e109012a0` 镜像。证据 `evidence/e109-functional-matrix.json`。
 
-下一步：HStore 图快照仍未实现。重连修复还要审查后才能提交。核心功能未完成前不开始 benchmark。
+下一步以上面的“下一动作”为准。HStore 图快照仍未实现，重连修复审查前不得提交，核心功能未完成前不开始 benchmark。
+
+2026-09-25 05:08：标准和 Topling 的 e109 1+1+1 批量原子性通过。合法批次 201，三条顶点可读；混入 `missing` 返回 400，回滚顶点不在，原顶点仍在。Store JNI 分别是标准 `/tmp/librocksdbjni*.so` `8b8fb2ed…6dff` 和 Topling `/hugegraph-store/library/librocksdbjni-linux64.so` `c25ff6e6…dd38`。同名顶点不能从另一张图读到。顶点追加 `city=sg` 为 200，JSON 字符串 ID 删除为 204。无角色建图为 403，图空间和用户已删除，Kubernetes namespace 没有增加。两个 `9aba` namespace 仍是 `closure-std-9abae9dbaaa1`，P2 已勾选。证据 `evidence/e109-batch-tx.json`、`evidence/e109-multigraph-isolation.json`、`evidence/e109-crud-role.json`。
+
+2026-09-25 05:14：标准和 Topling 的 e109 1+1+1 边 `knows` 创建 201，`since` 从 1 更新到 2，删除 204 后查询为空。JNI 仍分别是 `8b8fb2ed…6dff` 和 `c25ff6e6…dd38`。证据 `evidence/e109-edge-crud.json`。e109 单机 `/graphs`：无认证、错误口令和未知用户都是 401，admin 是 200，`/versions` 无认证 200；没有创建或删除用户，也没有重启快照容器。证据 `evidence/e109-standalone-auth.json`。e109 集群删除用户后同一口令访问图列表从 200 变为 401。证据 `evidence/e109-deleted-user-auth.json`。
+
+2026-09-25 05:19：e109 1+1+1 Store Java `kill -9` 后，标准 restartCount 0 到 1，30.850 秒 Ready，PVC 不变，`standard-batch-1790283889-1` 仍可读，JNI 仍是 `/tmp` 上的 `8b8fb2ed…6dff`。Topling 同样 0 到 1，32.704 秒 Ready，`topling-batch-1790283890-1` 仍可读，JNI 仍是 `library/librocksdbjni-linux64.so` 的 `c25ff6e6…dd38`。两边启动时 0 字节 jemalloc curl 被终止后走原有跳过路径。Topling 重启后的日志里 mmap WAL 错误是 0。第一次检测误匹配了脚本自身命令行，没有杀掉 Java，结果作废。证据 `evidence/e109-store-kill9.json`。
+
+2026-09-25 05:22：标准 e109 3+3+3 只杀掉 Store-2 的 Java。杀掉前 leaderCount 是 4、2、6，目标是 Store-2。同一 Pod UID `0673df3e-232d-4857-85c8-16927a7fbad7` 和 PVC `pvc-dcdbb110-cb56-40e5-b48f-f6f6cf067a0e` 未变，restartCount 0 到 1，33.144 秒 Ready。0 字节 jemalloc 被终止。JNI 仍是 `/tmp` 上的 `8b8fb2ed…6dff`。图 `hugegraph` 顶点 `std333-e109-1790279980` 在三台 Server 上都可读。Ready 后 leader 合计仍是 12，Store-2 为 0。这是领导权转移，不是数据丢失。证据 `evidence/e109-std-333-store-kill9.json`。
+
+2026-09-25 05:24：Topling e109 3+3+3 只杀掉 Store-0 的 Java。杀掉前 leaderCount 是 9、0、3。同一 Pod UID `f9b50cb1-82bc-42ac-b5a0-d9dd7ba32f87` 和 PVC `pvc-f86f7974-a386-4a05-b161-8cf32d766780` 未变，restartCount 0 到 1，37.334 秒 Ready。0 字节 jemalloc 被终止。JNI 仍是 `library/librocksdbjni-linux64.so` 的 `c25ff6e6…dd38`，mmap WAL 错误 0。顶点 `top333-e109-1790280210` 在三台 Server 上都可读。Ready 后 leader 合计仍是 12，Store-0 为 0。随后标准和 Topling 都写入新顶点并被三台 Server 读到。证据 `evidence/e109-top-333-store-kill9.json`、`evidence/e109-333-write-after-kill9.json`。
+
+2026-09-25 05:28：标准 e109 3+3+3 只杀掉 PD-0 的 Java。杀掉前它是 leader，`Cluster_OK`，成员数 3。同一 Pod UID `ee7cfd5c-d267-462b-84e1-07a264a3b0ab` 和 PVC `pvc-bb325c48-0449-4117-8630-6b4436869cf5` 未变，restartCount 0 到 1，14.514 秒 Ready。JNI 仍是 `/tmp` 上的 `8b8fb2ed…6dff`。Ready 当下状态一度是 `Cluster_Not_Ready`，leader 转到 PD-1，成员数仍是 3。随后复查为 `Cluster_OK`、`PState_Normal`、3 个 Store 在线。旧顶点 `std333-e109-1790279980` 仍可读，恢复后新顶点写入 201 并可读。故障期间写入也返回 201。这是进程崩溃，不是 Pod 删除。证据 `evidence/e109-std-333-pd-kill9.json`。
+
+2026-09-25 05:29：Topling e109 3+3+3 只杀掉 PD-0 的 Java。杀掉前它是 leader，`Cluster_OK`，成员数 3。同一 Pod UID `781cc001-b38b-4214-8f3f-dff283e61caf` 和 PVC `pvc-70af47fe-0e10-427f-8afb-f7cd1074da67` 未变，restartCount 0 到 1，12.534 秒 Ready。JNI 是 `/hugegraph-pd/library/librocksdbjni-linux64.so` 的 `c25ff6e6…dd38`，mmap WAL 错误 0。Ready 当下是 `Cluster_Not_Ready`，leader 转到 PD-1。随后复查为 `Cluster_OK`、`PState_Normal`、3 个 Store 在线。旧顶点仍可读，恢复后新写入 201 并可读。证据 `evidence/e109-top-333-pd-kill9.json`。
+
+2026-09-25 05:31：标准 e109 3+3+3 杀掉 Server `smq6m` 的 Java。同一 Pod UID `e28ea87b-1af7-418e-be4c-860804a1eecf`，restartCount 0 到 1，12.514 秒 Ready。镜像仍是 overlay `closure-e109-channelrefresh`。保留的 Server 在故障期间读到旧顶点，故障期间和恢复后的写入都是 201。恢复后的 Server 和第三台 Server 也能读到旧顶点和新顶点。Topling 杀掉 Server `plp4x`，UID `b2ac6461-96c2-4463-8fad-d07a890125a4` 不变，9.441 秒 Ready，同样的读写结果。这是进程崩溃，不是 Pod 删除或网络分区。证据 `evidence/e109-std-333-server-kill9.json`、`evidence/e109-top-333-server-kill9.json`、`evidence/e109-333-server-kill9-third-read.json`。
+2026-09-25 05:32：复查 kind 仍只有 `kind-control-plane` 一个节点，Kubernetes v1.37.0。没有 Chaos Mesh 或 VolumeSnapshot CRD。网络分区和卷快照继续后置。
+
+2026-09-25 05:40：核对 P6。Topling 完整 Server `sha256:5b9f40a9d1fc` 导入退出 0，1000000 点、2098771 边，重启前 32 个样本和 9 个自环通过。Store Pod IP 从 `10.244.0.128` 变为 `10.244.0.129` 后，`54148543` IN 返回 500，原因是连接旧地址超时。overlay `sha256:3a129d448516` 上，标准重启 12.835 秒、Topling 14.505 秒，重试后都是 32/0/9，Gremlin `1000000:2098771`。标准导入本身也用了这张 overlay。channel refresh 仍是未提交差异。证据 `evidence/e109-loader-restart-gap.json`。
+
+另外，一次性单机容器补了已删除用户：创建 201，删除前图列表 200，删除 204，之后 401。标准 JNI `8b8fb2ed…6dff`，Topling JNI `c25ff6e6…dd38`。没有改动快照容器，容器已删除。图空间管理在单机模式仍是 400。证据 `evidence/e109-standalone-deleted-user.json`、`evidence/e109-standalone-graphspace-support.json`。
+
+2026-09-25 05:45：`AbstractGrpcClientChannelRefreshTest` 直接用 JUnit 4.13.2 跑了 2 个测试，0.404 秒，结果 OK。普通 `mvn -pl hg-store-client` 因已安装 POM 里的 `${revision}` 无法解析依赖；reactor classpath 编译后由 `JUnitCore` 执行。证据 `evidence/build/channel-refresh-junit.txt`。测试通过仍不能代替 3 名独立审查。
+
+全量 LAW 容量：原始图 41652230 节点、1468365182 条弧，压缩图约 2.6GB；固定子集 1000000 点、2098771 边。主机剩余约 1.1T。Store PVC 请求是 50Gi，但容器里的 df 看到的是主机磁盘。全量大约是子集边数的 700 倍，不放进当前 e109 namespace。证据 `evidence/full-law-capacity.json`。
+
+源码复核：`HstoreProvider` 没有覆盖 `createSnapshot`，`BackendStore` 的默认实现抛出 `UnsupportedOperationException("createSnapshot")`。这不是可在本机补的一行修复。
+
+2026-09-25 05:50：复核 HA Compose 与 Helm。Compose 的 PD 健康检查仍是 `/v1/health`，Store 等待 3 个 PD，Server 等待 3 个 Store。Helm 在 3 副本时 readiness 是 `/v1/ready`，startup/liveness 是 `/v1/health`；只有 `pd.replicas == 1` 时 liveness helper 才变成 `/v1/ready`。`values-cluster.yaml` 仍要求反亲和和 5Gi/8Gi Store 内存，并且不启用 Hubble。没有改配置，也没有改运行中的集群。P5 对齐项继续不勾选。
+
+2026-09-25 05:57：用未修改的 `hugegraph/server:closure-e109012a0`（`sha256:5b9f40a9d1fc`）分别在标准和 Topling 的 e109 1+1+1 里短时启动一个带 Server 标签的 Pod。网络策略要求 `app.kubernetes.io/component=server`，并且要显式设置 `HG_SERVER_USE_PD=true`。两边批量写入 3 个顶点都是 201，混入未定义属性返回 400，回滚顶点不在，原来的顶点仍在。图随后删除，Pod 也删除。这不是 overlay，也不证明 Store IP 变化后的重连。证据 `evidence/e109-fullserver-std-batch.json`、`evidence/e109-fullserver-top-batch.json`。
+
+2026-09-25 06:05：未修改的 `hugegraph/server:closure-e109012a0`（`sha256:5b9f40a9d1fc`）临时 Pod 上，标准和 Topling 都创建了二级索引。`limit=2` 返回 2 条。按 `title=two` 只返回 `beta` 和 `gamma`。Gremlin 写入任务成功，顶点可读。Cypher 查询 `alpha` 返回 200 且结果包含 `alpha`。测试图已删除，Pod 已删除。Store JNI 仍分别是 `/tmp` 上的 `8b8fb2ed…6dff` 和 `library/librocksdbjni-linux64.so` 的 `c25ff6e6…dd38`。证据 `evidence/e109-fullserver-index-query.json`。
+
+2026-09-25 06:12：未修改 Server 镜像的临时 Pod 上，标准和 Topling 的 `/versions` 无认证都是 200，图列表无认证和错误口令是 401，正确口令是 200。新建用户删除前访问为 200，删除后为 401。两个图互相隔离，A 图顶点在 B 图不可见，两个图都已删除，Pod 也已删除。Store JNI 仍分别是 `8b8fb2ed…6dff` 和 `c25ff6e6…dd38`。P3 因此勾选。证据 `evidence/e109-fullserver-isolation-auth.json`。
+
+2026-09-25 06:13：当前源码上跑了 `GrpcShutdownBarrierTest` 和 `ScanShutdownTest`，JUnit 4.13.1，11 个测试 OK，用时 0.938 秒。其中扫描迭代器失败会打出预期的 error 日志，测试仍通过，表示资源关闭没有被当成成功完成。证据 `evidence/build/store-shutdown-junit.txt`。没有为了让测试通过而强行关库。
+
+2026-09-25 06:16：标准和 Topling 的 e109 3+3+3 都在现有 overlay Server 上完成删图重建和 clear/truncate。删图 204 后读取 404，重建后旧顶点不在、新顶点可读；clear 204 后图仍在且数据清空，之后可以再写。`snapshot_create` 仍是 500 `createSnapshot`。另一轮写入被三台 Server 读到，从第二台删图后三台都返回 404。Store JNI 仍分别是 `8b8fb2ed…6dff` 和 `c25ff6e6…dd38`。证据 `evidence/e109-333-drop-truncate.json`。
+
+2026-09-25 06:20：未修改的 `hugegraph/server:closure-e109012a0`（`sha256:5b9f40a9d1fc`）临时 Pod 连到标准和 Topling 的 e109 3+3+3。两边删图 204 后读取 404，重建后旧顶点不在、新顶点可读；clear 204 后图仍在且数据清空，之后可以再写。`snapshot_create` 仍是 500。图和 Pod 已删除。Store JNI 仍分别是 `8b8fb2ed…6dff` 和 `c25ff6e6…dd38`。证据 `evidence/e109-333-fullserver-drop-truncate.json`。
+
+2026-09-25 06:24：历史 namespace `hg-closure-standard-333` 仍是 `closure-std-9abae9dbaaa1`，没有升级。复用该 namespace 创建 auth 图空间后，无角色用户建图返回 403 `User not authorized`。图空间和用户已删除，没有新增 Kubernetes namespace。这不是当前 SHA 证据。证据 `evidence/helm-standard-333-role-denial.json`。
+
+2026-09-25 06:28：历史 `hg-closure-standard-111` 仍是 `closure-std-9abae9dbaaa1`。对已有图 `hugegraph` 调用 `snapshot_create` 返回 500 `UnsupportedOperationException: createSnapshot`。`evidence/helm-standard-111-lifecycle.json` 里的新卷恢复是文件系统拷贝，1120 个文件一致，但恢复后已确认顶点全部 404。禁止再做这种目录拷贝。这不是当前 SHA，也没有 VolumeSnapshot CRD。证据 `evidence/helm-standard-111-snapshot-api.json`。
+
+2026-09-25 06:32：复查 4 个 e109 namespace 里全部 16 个 PD 和 Store Java 进程。8 个标准进程都映射 `/tmp/librocksdbjni*.so`，SHA-256 是 `8b8fb2ed…6dff`，没有映射 Topling 的 `library/librocksdbjni-linux64.so`。8 个 Topling 进程都映射该库，SHA-256 是 `c25ff6e6…dd38`。没有发现静默 fallback。证据 `evidence/e109-jni-after-restarts.json`。
+2026-09-25 05:39：`KvBatchScanner.KvBatchReceiver`、`KvBatchScanner5.OrderAgent` 和 `CommonKvStreamObserver` 在 `UNAVAILABLE` 时会丢掉按地址缓存的 channel。`QueryExecutor` 把查询地址交给 observer。`GrpcStoreStreamClient.doBatchScan3` 把 Store 地址交给批量扫描。JUnit 4.13.2 跑 `AbstractGrpcClientChannelRefreshTest`，6 个测试 OK，0.473 秒。日志里的 ERROR 是测试故意送入的 `INVALID_ARGUMENT` 和 `UNAVAILABLE`。这不是独立审查，不能提交，也不能用来勾选 P6。证据 `evidence/build/channel-refresh-junit.txt`。
+
+2026-09-25 06:55：标准 `hg-closure-std-e109-111` 新增临时 Pod `hg-e109-std-fullserver-load`，镜像 `hugegraph/server:closure-e109012a0`（`sha256:5b9f40a9d1fc`），不是 overlay。新图 `law_twitter_1m_std_fullsha` Loader 退出 0，57.254 秒，1000000 点、2098771 边、失败 0。32 个邻接样本 0 不一致，9 个自环都在。Store Pod 没有删除或重启，JNI 是 `/tmp/librocksdbjni4527535612841869204.so`，SHA-256 `8b8fb2ed…6dff`。临时 Pod 已删除。Store IP 变化后的复测仍未做，P6 不勾选。证据 `evidence/loader-law-twitter-1m-std-e109-fullserver.json`。
+2026-09-25 07:05：`KvBatchScanner5.refreshUnavailable` 被 `OrderAgent.onError` 调用，并用会话代理补了 3 个回归。`AbstractGrpcClientChannelRefreshTest` 现在是 9 个测试 OK，0.467 秒。证据 `evidence/build/channel-refresh-junit.txt`。三份只读审查还没结束，不能提交。
+2026-09-25 07:12：审查 1 结论 HIGH_SEVERITY=1，证据 `evidence/build/channel-refresh-review-1.md`。修复后 `closeChannelIfUnavailable` 只移除仍拥有失败 channel 的池；旧 channel 的再次 UNAVAILABLE 不会删除新池。`AbstractGrpcClientChannelRefreshTest` 12 个测试 OK，0.482 秒。第二轮审查进行中，不能提交。
+2026-09-25 07:20：`ContextClosedListenerTest` 2 个 OK，0.487 秒。关闭线程在 worker 清理完成前不会结束，gRPC 回调未结束时 disposable bean 没有关库。没有为了测试强行关库。证据 `evidence/build/context-closed-listener-junit.txt`。channel refresh 的第二轮审查仍在进行，不能提交。
+2026-09-25 07:19：`git fetch org toplingdb` 后本地 HEAD 与 `org/toplingdb` 仍是 `a7a4a6f1b`，ahead 0、behind 0。channel refresh 第二轮三份只读审查的进程仍在运行，最终结论文件还没写出，所以仍然不能提交。
+2026-09-25 07:25：第二轮审查 1 和 2 是 HIGH_SEVERITY=none，审查 3 是 HIGH_SEVERITY=1。问题是关掉旧池后的 `Channel shutdown` UNAVAILABLE 会经 `evictNode` 再删掉新池。现已不把这种状态当成节点摘除；没有 ManagedChannel 的失败也不再删除当前池。`KvPageScannerTest` 3 个通过，`AbstractGrpcClientChannelRefreshTest` 14 个通过。证据 `evidence/build/channel-refresh-rereview-1.md`、`channel-refresh-rereview-2.md`、`channel-refresh-rereview-3.md`、`channel-refresh-junit.txt`、`kv-page-scanner-junit.txt`。第三轮审查已启动，仍不能提交。
+2026-09-25 07:34：第三轮三份只读审查的进程仍在运行，约 7 分钟，最终结论文件还没写出。没有改 Java，也没有提交。
+2026-09-25 07:40：第三轮审查 3 结论 HIGH_SEVERITY=1，证据 `evidence/build/channel-refresh-round3-3.md`。`evictsOnUnavailable` 现在拒绝 `Subchannel shutdown invoked`。`shutdownChannels` 改为 `shutdownNow`。`AbstractGrpcClientChannelRefreshTest` 14 个 OK，0.46 秒，证据 `evidence/build/channel-refresh-junit.txt`。这是第 3 轮审查后的修复，按合同不再自动开始第 4 轮，Java 提交后置。
+2026-09-25 07:45：标准和 Topling 的 e109 3+3+3 各对一台未被本次 kill -9 过的 Store 发送 SIGTERM，没有再发 kill -9。标准 store-1 同一 Pod UID 和 PVC，restartCount 0 到 1，71.680 秒后 Ready，顶点仍返回 200，JNI 仍是 `/tmp` 上的 `8b8fb2ed…6dff`。上一容器日志有 `closing all rocksdb`，没有 `db not closed`。证据 `evidence/e109-std-333-store-sigterm.json`。Topling store-1 同样同一 UID 和 PVC，restartCount 0 到 1，83.606 秒后 Ready，顶点仍返回 200，JNI 是 `library/librocksdbjni-linux64.so` 的 `c25ff6e6…dd38`。上一容器在关闭末尾仍打印 `SidePluginRepo` `db not closed`。证据 `evidence/e109-top-333-store-sigterm.json`、`evidence/e109-top-333-store-sigterm-shutdown.txt`。两边的 Ready 时间都包含 0 字节 jemalloc curl 被终止后走原有跳过路径。这不是 snapshot，P4 仍不勾选。
+2026-09-25 07:50：标准和 Topling 的 e109 3+3+3 各对一台 restartCount 为 0 的 Server 发送 SIGTERM，没有 kill -9。标准 `cq2ss` 9.371 秒后 Ready，Topling `5zmlm` 14.616 秒后 Ready。Pod UID 不变，restartCount 0 到 1。另一台副本在重启前后都能读到原顶点，状态都是 200。这两台 Server 镜像是 overlay `closure-e109-channelrefresh`，不是未修改的 `sha256:5b9f40a9d1fc`，不能勾选当前 SHA。证据 `evidence/e109-std-333-server-sigterm.json`、`evidence/e109-top-333-server-sigterm.json`。
+2026-09-25 07:55：标准和 Topling 的 e109 3+3+3 各对 PD-1 发送 SIGTERM，没有 kill -9。镜像都是 `hugegraph/pd:closure-e109012a0`。标准 PD-1 同一 UID 和 PVC，restartCount 0 到 1，8.459 秒 Ready，JNI 仍是 `/tmp` 上的 `8b8fb2ed…6dff`。顶点在另一台 Server 上重启前后都是 200。信号前集群已经是 `Cluster_Not_Ready`，成员数 3、在线 Store 3、`PState_Normal`，信号后仍是 `Cluster_Not_Ready`，所以不能把 Not_Ready 归因于这次 SIGTERM，也不能写成恢复到 OK。Topling PD-1 同样同一 UID 和 PVC，60.214 秒 Ready，JNI 是 `library/librocksdbjni-linux64.so` 的 `c25ff6e6…dd38`。信号前也是 `Cluster_Not_Ready`，信号后复查为 `Cluster_OK`，成员数 3，在线 Store 3。顶点仍是 200。证据 `evidence/e109-std-333-pd-sigterm.json`、`evidence/e109-top-333-pd-sigterm.json`。这不是网络分区，P5 仍不勾选。
+2026-09-25 08:00：第三轮审查 2 结论 HIGH_SEVERITY=1，证据 `evidence/build/channel-refresh-round3-2.md`。`getChannels` 在某个创建线程失败时仍会发布含 null 的数组，然后因为不可用而无限重建。现改为创建失败时关闭本次已创建的 channel、不发布数组，并向调用方抛出异常。创建移出 `channels` 锁。`AbstractGrpcClientChannelRefreshTest` 15 个 OK，0.505 秒。证据 `evidence/build/channel-refresh-junit.txt`。这仍没有第 4 轮审查，不提交。
+2026-09-25 08:00：标准 e109 3+3+3 的 `/v1/cluster` 仍是 `Cluster_Not_Ready`，但 API message 是 OK，3 个 Store 都是 Up，在线 Store 3，`PState_Normal`。PD-0/2 最近 2000 行和 PD-1 现有 81 行都没有 `cluster is not ready`。这个状态来自缓存的 `getClusterStats()`，GET 本身不重算。不是网络分区。证据 `evidence/e109-std-333-cluster-not-ready.json`。
+2026-09-25 08:05：标准和 Topling 的 e109 1+1+1 唯一 PD 都做了 SIGTERM，没有 kill -9。镜像分别是 `hugegraph/pd:closure-std-e109012a0` 和 `hugegraph/pd:closure-e109012a0`。标准 8.433 秒、Topling 60.063 秒后 Ready，Pod UID 和 PVC 不变，restartCount 0 到 1。JNI 分别仍是 `/tmp` 上的 `8b8fb2ed…6dff` 和 `library/librocksdbjni-linux64.so` 的 `c25ff6e6…dd38`。信号前两边都是 `Cluster_OK`、成员数 1、在线 Store 1。信号后 `/v1/cluster` 都变成 `Cluster_Not_Ready`，但在线 Store 仍是 1，`PState_Normal`。脚本先查了 `hugegraph` 图，顶点 404，这是查错图，不是数据丢失。恢复后查 `batch_std_e109` 和 `batch_top_e109` 的 `1:` 前缀 ID 都是 200。证据 `evidence/e109-std-111-pd-sigterm.json`、`evidence/e109-top-111-pd-sigterm.json`。这不是当前 SHA 的 snapshot，也不证明物理分区。
+2026-09-25 08:10：按 PD 成员重查 `/v1/cluster`。标准 3+3+3 的 leader `pd-0` 是 `Cluster_OK`，follower `pd-1` 和 `pd-2` 仍报 `Cluster_Not_Ready`。Topling 3+3+3 的 leader `pd-2` 是 `Cluster_OK`，follower `pd-0` 和 `pd-1` 仍报 `Cluster_Not_Ready`。两边在线 Store 都是 3，`initial-store-count` 是 3，`PState_Normal`。1+1+1 唯一 PD 现在都是 `Cluster_OK`，`initial-store-count` 是 1，在线 Store 1。SIGTERM 刚结束时的 `Cluster_Not_Ready` 没有保持。因此 follower 的 Not_Ready 不能当成集群故障或网络分区。证据 `evidence/e109-pd-cluster-state-by-member.json`。
+
+2026-09-25：用户确认继续本机 goal，复用本目录和 PR #179。刷新下一动作。channel refresh 的重审与第 3 轮结论文件都已落盘，但 Java 在 07:54 之后又改过，JUnit 现为 15 个 OK，不能把旧审查当成最终差异通过。1+1+1 Store SIGTERM 证据仍不存在，作为下一独立实测。本次只更新合同，没有提交、推送或启动测试。
+
+2026-09-25：标准和 Topling 的 e109 1+1+1 Store 各发一次 SIGTERM，没有 kill -9。标准 store-0 同一 UID `add022ef` 和 PVC `pvc-4b0bd019`，restartCount 1 到 2，12.692 秒 Ready。JNI 是 `/tmp/librocksdbjni*.so` 的 `8b8fb2ed…6dff`。上一容器有 `closing all rocksdb`，没有 `db not closed`。Topling store-0 同一 UID `0ffd5049` 和 PVC `pvc-782709b8`，restartCount 1 到 2，60.533 秒 Ready。JNI 是 `library/librocksdbjni-linux64.so` 的 `c25ff6e6…dd38`。上一容器在 `closing all rocksdb` 后仍有 `SidePluginRepo` `db not closed`。两边信号前顶点都是 200；信号后第一次读取也是 200。PD `/v1/cluster` 前后都是 `Cluster_OK`、成员数 1、在线 Store 1、`PState_Normal`。Ready 时间包含终止 0 字节 jemalloc curl，没有再杀 Java。读取用的 Server 都是 overlay `closure-e109-channelrefresh`，不是未修改 SHA。HStore snapshot 仍是缺口，P4 不勾选。证据 `evidence/e109-std-111-store-sigterm.json`、`evidence/e109-top-111-store-sigterm.json`。
+
+2026-09-25：核对 `hugegraph/server:closure-e109012a0`。主机 Docker ID 是 `sha256:5b9f40a9d1fcfe84a3012a63b9b04f2825a5162de5f0dd9c8d317a310062ab3b`。kind 使用同 tag 启动的探针 Pod 算出 `docker-entrypoint.sh` 为 `4e416ba9…9b1d`、`bin/start-hugegraph.sh` 为 `ed274913…4fca`，与主机镜像一致。kubelet 报告 import digest `sha256:d0c5346b760fa244dc1cce3228fadcd7511a1c625c2fdda5bdf9fa2de16a4b81`，不是 Docker engine ID。证据 `evidence/e109-server-image-identity.json`。随后只把 e109 3+3+3 两个 Server Deployment 从 overlay 切回该镜像，没有改 `9aba`。标准 `dsdqd` SIGTERM 后 10.872 秒 Ready，UID `fe7d50b2` 不变，restartCount 0 到 1。保留副本 `fzf99` UID 不变，顶点 `1:std333-e109-1790279980` 在重启前、期间和之后都是 200。Topling `7zjgx` 11.971 秒，UID `69657dda` 不变，restartCount 0 到 1。保留副本 `92njw` 读 `1:top333-e109-1790280210`，三次都是 200。两边都不是 kill -9，上一容器没有 `db not closed`。P4 和 P5 仍不勾选。证据 `evidence/e109-std-333-server-sigterm-fullsha.json`、`evidence/e109-top-333-server-sigterm-fullsha.json`。
+
+2026-09-25：e109 1+1+1 两台 Server 从 overlay 切回 `hugegraph/server:closure-e109012a0`，kubelet image ID 仍是 import digest `sha256:d0c5346b760f`。切换前 overlay 和切换后的新 Pod 都读到原顶点 200。标准 `zmpkw` SIGTERM 后 15.218 秒 Ready，UID 不变，restartCount 0 到 1，图 `batch_std_e109` 顶点 `1:standard-batch-1790283889-1` 恢复后为 200。Topling `vct4k` 14.416 秒，UID 不变，restartCount 0 到 1，图 `batch_top_e109` 顶点 `1:topling-batch-1790283890-1` 恢复后为 200。不是 kill -9。证据 `evidence/e109-std-111-server-sigterm-fullsha.json`、`evidence/e109-top-111-server-sigterm-fullsha.json`。P4、P5 仍不勾选。
+
+2026-09-25：`git fetch org toplingdb` 后 HEAD 与远端仍是 `a7a4a6f1b`，ahead/behind 0/0。单节点 kind 仍没有 Chaos Mesh CRD。通过当前未修改 Helm Server 重读固定子集，没有重启 Store。标准 `law_twitter_1m_std_fullsha` 与 Topling `law_twitter_1m` 都是 32 个样本 0 不一致、9 个自环通过，Gremlin `1000000:2098771`。标准 JNI 是 `/tmp/librocksdbjni*.so` 的 `8b8fb2ed…6dff`，Topling JNI 是 `library/librocksdbjni-linux64.so` 的 `c25ff6e6…dd38`。Server 镜像是 `hugegraph/server:closure-e109012a0`，import digest `sha256:d0c5346b760f`。这不覆盖 Store IP 变化，P6 不勾选。证据 `evidence/loader-law-twitter-1m-std-e109-fullsha-helmserver.json`、`evidence/loader-law-twitter-1m-top-e109-fullsha-helmserver.json`。
+
+2026-09-25：为已提交的嵌套 WAL 修复 `457295ac8` 启动 3 个只读 `codex exec review`，沙箱 read-only，不审未提交的 channel refresh。进程是 `1223803`、`1223805`、`1223807`。最终文件尚未写出，日志里的草稿不能当结论。
+
+2026-09-25：WAL 初审结束。`wal-review-1.md` 未列高严重度，成功路径被接受。`wal-review-2.md` 和 `wal-review-3.md` 各有一个 P1，都是失败路径会在快照数据已经换入后留下或丢失 WAL tail。本地修复先退役全部活动 `*.log`，再发布 checkpoint tail；分开目录改名失败时把 tail 复制进 WAL 目录；WAL 路径是符号链接时不替换链接本身。`RocksDBSessionsTest` 17 个通过、0 失败、0 跳过，耗时 1.303 秒，新增 `testSymlinkedWalDirectoryKeepsLink`、`testNestedWalMoveFailureDoesNotReplayLaterLog`、`testSeparateWalPublishFailureStillInstallsTail`。证据 `evidence/build/rocksdb-sessions-junit.txt`。重审已启动且未完成，所以不提交。
+
+2026-09-25：第一轮 WAL 重审里，`wal-rereview-1.md` 和 `wal-rereview-2.md` 都是 HIGH_SEVERITY=2。问题是同名旧日志只按文件名被当成 checkpoint tail，以及复制中断后的短文件会在源 tail 删除前被接受。本地改为先在同一目录把旧 `*.log` 改名为 `.aside-`，再把 checkpoint 写到 `.partial-` 临时文件，核对长度后改成正式日志。失败时不删除 data 目录里的源文件。`RocksDBSessionsTest` 19 个通过、0 失败、0 跳过，耗时 1.274 秒。证据 `evidence/build/rocksdb-sessions-junit.txt`。第二轮重审已启动，尚未落盘，所以不提交。
+
+2026-09-25：第二轮重审 2 完成，HIGH_SEVERITY=1。它确认短复制不会再以正式日志名发布，但同长度、不同内容的旧 WAL 仍可能被 `matchesCheckpointLogs` 接受，随后删除 checkpoint 源文件。证据 `evidence/build/wal-round2-2.md`。重审 1 和 3 的进程 `1322802`、`1322806` 还活着，日志分别停在 09:23:12 和 09:28:14，最终文件未写出。
+
+2026-09-25：迟到的第一轮重审 3 是 HIGH_SEVERITY=3，见 `evidence/build/wal-rereview-3.md`。它和 `wal-round2-2.md` 的 HIGH_SEVERITY=1 一起说明：只比长度不够，rename 失败不能把旧 WAL 留在活动目录，WAL 目录挪走失败时也不能直接放弃安装。本地已改为比对文件字节；同目录 rename 失败时删除活动 `*.log` 再写入核对过的 tail；目录级 rename 失败时改走原地安装。`RocksDBSessionsTest` 20 个通过、0 失败、0 跳过，耗时 1.355 秒。证据 `evidence/build/rocksdb-sessions-junit.txt`。按三轮上限不再自动开审查，因此不提交。
+
+2026-09-25：第二轮重审 3 在字节比对写入后才落盘，`evidence/build/wal-round2-3.md` 仍写 HIGH_SEVERITY=1，理由是只按同名和长度接受旧 WAL。当前 `matchesCheckpointLogs` 已调用 `sameBytes`，所以这份结论对不上最新源码。重审 1 进程 `1322802` 仍可能在跑，它同样开始于这次修改之前。不把这两份当成最新差异的通过或失败结论，也不再开下一轮。
+
+2026-09-25：基线补上未提交的 WAL 文件 `RocksDBStdSessions.java` 和 `RocksDBSessionsTest.java`，避免文档把工作区写成只有 channel refresh。已启动一份只读文档审查，进程 `1358552`，最终文件尚未写出。WAL 审查 `1322802` 仍卡在重连，没有新结论。
+
+2026-09-25：文档审查 HIGH_SEVERITY=2，见 `evidence/build/doc-review-1.md`。P3 原先把边更新/删除和角色 403 算进未修改 Server，但那些证据在 overlay 或 mmapfix。已在当前未修改 Helm Server 上补做：标准和 Topling 边创建 201、更新 200、`since=2`、删除 204 后为空；无角色建图 403，没有新增 Kubernetes namespace。证据 `evidence/e109-edge-crud-fullsha.json`、`evidence/e109-role-denial-fullsha.json`。channel refresh 的 todo 时间线改为 07:40 的 14 个测试和 08:00 的 15 个测试，不再把它们写成同一份最终差异。文档重审未做，所以还不提交。
+
+2026-09-25：文档重审完成，HIGH_SEVERITY=0，证据 `evidence/build/doc-rereview-1.md`。P3 的边更新和角色 403 已改由未修改 Server 证据支持。channel refresh 的 14 个测试和 15 个测试不再写成同一份差异。图空间 `closure_role_std` 和 `closure_role_top` 复查都是 400 Cannot find graph space。随后只提交这两份合同文件。
