@@ -18,6 +18,9 @@
 package org.apache.hugegraph.store.meta;
 
 import static org.apache.hugegraph.store.constant.HugeServerTables.VERTEX_TABLE;
+import static org.apache.hugegraph.store.constant.HugeServerTables.OUT_EDGE_TABLE;
+import static org.apache.hugegraph.store.constant.HugeServerTables.IN_EDGE_TABLE;
+import static org.apache.hugegraph.store.constant.HugeServerTables.INDEX_TABLE;
 
 import java.io.File;
 import java.util.ArrayList;
@@ -200,17 +203,61 @@ public class GraphIDManagerTest extends UnitTestBase {
     }
 
     @Test
-    public void testReusePreviousGraphIdAfterRemapAndRelease() {
+    public void testKeepPreviousGraphIdReservedAfterRemap() {
         GraphIdManager manager = this.newManager();
 
         manager.updateGraphIds(Collections.singletonMap("graph-a", 3L));
         manager.updateGraphIds(Collections.singletonMap("graph-a", 4L));
-        Assert.assertEquals(4L, manager.releaseGraphId("graph-a"));
         manager.put(MetadataKeyHelper.getCidKey(GraphIdManager.GRAPH_ID_PREFIX),
                     Int64Value.of(3L));
+        manager.flush();
 
-        Assert.assertEquals(3L,
-                            this.newManager().getGraphIdOrCreate("graph-b"));
+        Assert.assertNotEquals(3L,
+                               this.newManager().getGraphIdOrCreate("graph-b"));
+    }
+
+    @Test
+    public void testReservePreviousGraphIdWhenLegacySlotIsMissing() {
+        this.persistGraphId("graph-a", 3L);
+        GraphIdManager manager = this.newManager();
+        manager.updateGraphIds(Collections.singletonMap("graph-a", 4L));
+        manager.put(MetadataKeyHelper.getCidKey(GraphIdManager.GRAPH_ID_PREFIX),
+                    Int64Value.of(3L));
+        manager.flush();
+
+        this.reopenDatabase();
+        Assert.assertNotEquals(3L,
+                               this.newManager().getGraphIdOrCreate("graph-b"));
+    }
+
+    @Test
+    public void testKeepOutEdgeResidueWhenVertexTableMissing() {
+        this.assertRepairKeepsOldIdReserved(OUT_EDGE_TABLE, false, false);
+    }
+
+    @Test
+    public void testKeepInEdgeResidueWhenVertexTableMissing() {
+        this.assertRepairKeepsOldIdReserved(IN_EDGE_TABLE, false, false);
+    }
+
+    @Test
+    public void testKeepIndexResidueWhenVertexTableMissing() {
+        this.assertRepairKeepsOldIdReserved(INDEX_TABLE, false, false);
+    }
+
+    @Test
+    public void testKeepOutEdgeResidueWhenVertexTableEmpty() {
+        this.assertRepairKeepsOldIdReserved(OUT_EDGE_TABLE, true, false);
+    }
+
+    @Test
+    public void testKeepInEdgeResidueWhenVertexTableEmpty() {
+        this.assertRepairKeepsOldIdReserved(IN_EDGE_TABLE, true, false);
+    }
+
+    @Test
+    public void testKeepIndexResidueWhenVertexTableEmptyAfterReopen() {
+        this.assertRepairKeepsOldIdReserved(INDEX_TABLE, true, true);
     }
 
     @Test
@@ -310,6 +357,45 @@ public class GraphIDManagerTest extends UnitTestBase {
 
     private GraphIdManager newManager() {
         return new GraphIdManager(this.sessionBuilder, PARTITION_ID);
+    }
+
+    private void assertRepairKeepsOldIdReserved(String residualTable,
+                                                boolean vertexTableExists,
+                                                boolean reopen) {
+        GraphIdManager manager = this.newManager();
+        manager.updateGraphIds(Collections.singletonMap("graph-a", 3L));
+        if (vertexTableExists) {
+            this.session.createTables(VERTEX_TABLE);
+        } else {
+            Assert.assertFalse(this.session.tableIsExist(VERTEX_TABLE));
+        }
+        this.session.createTables(residualTable);
+        byte[] key = new byte[5];
+        Bits.putShort(key, 0, 3);
+        key[2] = 1;
+        Bits.putShort(key, 3, 0);
+        SessionOperator operator = this.session.sessionOp();
+        try {
+            operator.prepare();
+            operator.put(residualTable, key, new byte[]{42});
+            operator.commit();
+        } catch (RuntimeException e) {
+            operator.rollback();
+            throw e;
+        }
+
+        manager.updateGraphIds(Collections.singletonMap("graph-a", 4L));
+        manager.put(MetadataKeyHelper.getCidKey(GraphIdManager.GRAPH_ID_PREFIX),
+                    Int64Value.of(3L));
+        manager.flush();
+        if (reopen) {
+            this.reopenDatabase();
+        }
+
+        Assert.assertArrayEquals(new byte[]{42},
+                                 this.session.sessionOp().get(residualTable, key));
+        Assert.assertNotEquals("Residual data must keep the old graph ID reserved",
+                               3L, this.newManager().getGraphIdOrCreate("graph-b"));
     }
 
     private void persistGraphId(String graphName, long graphId) {

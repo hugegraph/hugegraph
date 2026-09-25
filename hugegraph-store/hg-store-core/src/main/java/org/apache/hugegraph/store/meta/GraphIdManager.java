@@ -162,14 +162,15 @@ public class GraphIdManager extends PartitionMetaStore {
         checkGraphIds(updates, this.partitionId);
         synchronized (graphIdLock) {
             Map<String, Long> finalGraphIds = this.graphIds();
-            Set<Long> graphIdsToRelease = updates.keySet().stream()
-                                                 .map(finalGraphIds::get)
-                                                 .filter(graphId -> graphId != null)
-                                                 .collect(Collectors.toSet());
+            Set<Long> previousGraphIds = updates.keySet().stream()
+                                                .map(finalGraphIds::get)
+                                                .filter(graphId -> graphId != null &&
+                                                                   graphId >= 0L &&
+                                                                   graphId < maxGraphID)
+                                                .collect(Collectors.toSet());
             finalGraphIds.putAll(updates);
             this.checkUniqueGraphIds(finalGraphIds);
-            graphIdsToRelease.removeAll(finalGraphIds.values());
-            this.writeGraphIds(updates, graphIdsToRelease);
+            this.writeGraphIds(updates, previousGraphIds);
             this.graphIdCache.putAll(updates);
         }
     }
@@ -210,15 +211,18 @@ public class GraphIdManager extends PartitionMetaStore {
     }
 
     private void writeGraphIds(Map<String, Long> graphIds,
-                               Set<Long> graphIdsToRelease) {
+                               Set<Long> previousGraphIds) {
         try (RocksDBSession dbSession = getRocksDBSession()) {
             SessionOperator operator = dbSession.sessionOp();
             try {
                 operator.prepare();
-                // Release only previous slots no longer referenced after this repair.
-                for (Long graphId : graphIdsToRelease) {
+                // A repaired mapping does not prove that the old graph's data
+                // prefix is empty. Keep its ID reserved even if the slot was
+                // absent in legacy metadata.
+                for (Long graphId : previousGraphIds) {
                     byte[] slotKey = genCIDSlotKey(GRAPH_ID_PREFIX, graphId);
-                    operator.delete(getCFName(), slotKey);
+                    operator.put(getCFName(), slotKey,
+                                 Int64Value.of(graphId).toByteArray());
                 }
                 // Publish mappings only after all IDs are reserved in the same batch.
                 for (Map.Entry<String, Long> entry : graphIds.entrySet()) {
