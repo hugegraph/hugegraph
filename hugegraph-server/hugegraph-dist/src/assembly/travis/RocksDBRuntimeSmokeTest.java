@@ -38,23 +38,54 @@ public final class RocksDBRuntimeSmokeTest {
     private static final byte[] RECREATED_VALUE = bytes("value-after-recreate");
 
     public static void main(String[] args) throws Exception {
-        if (args.length != 3) {
+        if (args.length != 4) {
             throw new IllegalArgumentException(
-                    "Usage: <rocksdb|topling> <db-path> <expected-native-path|none>");
+                    "Usage: <rocksdb|topling> <db-path> <expected-native-path|none> <probe|lifecycle>");
         }
 
         String provider = args[0];
         String dbPath = args[1];
         String expectedNativePath = args[2];
+        String mode = args[3];
+        if (!"probe".equals(mode) && !"lifecycle".equals(mode)) {
+            throw new IllegalArgumentException("Unsupported mode: " + mode);
+        }
+        phase("runtime-check");
         verifyProvider(provider);
         verifyEasyMigrateConfig(provider);
         RocksDB.loadLibrary();
         verifyNativeLibrary(expectedNativePath);
 
-        createAndWrite(dbPath);
-        reopenDropAndRecreate(dbPath);
+        if ("probe".equals(mode)) {
+            probeReadWrite(dbPath);
+        } else {
+            createAndWrite(dbPath);
+            reopenDropAndRecreate(dbPath);
+        }
+        phase("complete");
         System.out.printf("Runtime smoke test passed: provider=%s, version=%s%n",
                           provider, RocksDB.rocksdbVersion());
+    }
+
+    private static void phase(String phase) {
+        System.out.println("Topling diagnostic phase: " + phase);
+        System.out.flush();
+    }
+
+    private static void probeReadWrite(String dbPath) throws Exception {
+        try (Options options = new Options().setCreateIfMissing(true);
+             RocksDB db = RocksDB.open(options, dbPath)) {
+            db.put(KEY, VALUE);
+            assertBytes(VALUE, db.get(KEY), "probe read");
+            try (RocksIterator iterator = db.newIterator()) {
+                iterator.seekToFirst();
+                if (!iterator.isValid()) {
+                    throw new AssertionError("probe iterator returned no data");
+                }
+                assertBytes(KEY, iterator.key(), "probe iterator key");
+                assertBytes(VALUE, iterator.value(), "probe iterator value");
+            }
+        }
     }
 
     private static void verifyProvider(String provider) {
@@ -122,25 +153,34 @@ public final class RocksDBRuntimeSmokeTest {
     }
 
     private static void createAndWrite(String dbPath) throws Exception {
-        try (Options options = new Options().setCreateIfMissing(true);
-             RocksDB db = RocksDB.open(options, dbPath);
-             ColumnFamilyOptions cfOptions = new ColumnFamilyOptions();
-             ColumnFamilyHandle handle = db.createColumnFamily(
-                     new ColumnFamilyDescriptor(CF, cfOptions))) {
-            db.put(handle, KEY, VALUE);
-            assertBytes(VALUE, db.get(handle, KEY), "initial read");
-            try (RocksIterator iterator = db.newIterator(handle)) {
-                iterator.seekToFirst();
-                if (!iterator.isValid()) {
-                    throw new AssertionError("iterator returned no data");
+        try (DiagnosticResources resources = new DiagnosticResources()) {
+            try {
+                Options options = resources.add(new Options().setCreateIfMissing(true));
+                RocksDB db = resources.add(RocksDB.open(options, dbPath));
+                ColumnFamilyOptions cfOptions = resources.add(new ColumnFamilyOptions());
+                ColumnFamilyHandle handle = resources.add(db.createColumnFamily(
+                        new ColumnFamilyDescriptor(CF, cfOptions)));
+                db.put(handle, KEY, VALUE);
+                assertBytes(VALUE, db.get(handle, KEY), "initial read");
+                try (RocksIterator iterator = db.newIterator(handle)) {
+                    iterator.seekToFirst();
+                    if (!iterator.isValid()) {
+                        throw new AssertionError("iterator returned no data");
+                    }
+                    assertBytes(KEY, iterator.key(), "iterator key");
+                    assertBytes(VALUE, iterator.value(), "iterator value");
                 }
-                assertBytes(KEY, iterator.key(), "iterator key");
-                assertBytes(VALUE, iterator.value(), "iterator value");
+                phase("cf-lifecycle");
+            } catch (Exception | Error failure) {
+                // Record before native cleanup can abort and hide the Java error.
+                failed(failure);
+                throw failure;
             }
         }
     }
 
     private static void reopenDropAndRecreate(String dbPath) throws Exception {
+        phase("runtime-check");
         List<ColumnFamilyDescriptor> descriptors = new ArrayList<>();
         try (Options options = new Options()) {
             for (byte[] name : RocksDB.listColumnFamilies(options, dbPath)) {
@@ -148,29 +188,83 @@ public final class RocksDBRuntimeSmokeTest {
             }
         }
 
-        List<ColumnFamilyHandle> handles = new ArrayList<>();
-        RocksDB db = null;
-        try (DBOptions options = new DBOptions().setCreateIfMissing(false)) {
-            db = RocksDB.open(options, dbPath, descriptors, handles);
-            ColumnFamilyHandle smoke = findHandle(descriptors, handles, CF);
-            assertBytes(VALUE, db.get(smoke, KEY), "read after reopen");
-            db.dropColumnFamily(smoke);
-            handles.remove(smoke);
-            smoke.close();
+        try (DiagnosticResources resources = new DiagnosticResources()) {
+            try {
+                DBOptions options = resources.add(new DBOptions().setCreateIfMissing(false));
+                List<ColumnFamilyHandle> handles = new ArrayList<>();
+                RocksDB db = resources.add(RocksDB.open(options, dbPath, descriptors, handles));
+                for (ColumnFamilyHandle handle : handles) {
+                    resources.add(handle);
+                }
+                ColumnFamilyHandle smoke = findHandle(descriptors, handles, CF);
+                assertBytes(VALUE, db.get(smoke, KEY), "read after reopen");
+                phase("cf-lifecycle");
+                db.dropColumnFamily(smoke);
+                smoke.close();
+                resources.remove(smoke);
 
-            try (ColumnFamilyOptions cfOptions = new ColumnFamilyOptions();
-                 ColumnFamilyHandle recreated = db.createColumnFamily(
-                         new ColumnFamilyDescriptor(CF, cfOptions))) {
+                ColumnFamilyOptions cfOptions = resources.add(new ColumnFamilyOptions());
+                ColumnFamilyHandle recreated = resources.add(db.createColumnFamily(
+                        new ColumnFamilyDescriptor(CF, cfOptions)));
+                phase("runtime-check");
                 db.put(recreated, KEY, RECREATED_VALUE);
                 assertBytes(RECREATED_VALUE, db.get(recreated, KEY),
                             "read after CF recreation");
+                phase("cf-lifecycle");
+            } catch (Exception | Error failure) {
+                failed(failure);
+                throw failure;
             }
-        } finally {
-            for (ColumnFamilyHandle handle : handles) {
-                handle.close();
+        }
+    }
+
+    private static void failed(Throwable failure) {
+        phase("failed");
+        failure.printStackTrace(System.err);
+        System.err.flush();
+    }
+
+    // Mark a thrown close failure before closing the next resource: otherwise a
+    // secondary native abort could hide it and look like the known CF assertion.
+    static final class DiagnosticResources implements AutoCloseable {
+
+        private final List<AutoCloseable> resources = new ArrayList<>();
+
+        <T extends AutoCloseable> T add(T resource) {
+            this.resources.add(resource);
+            return resource;
+        }
+
+        void remove(AutoCloseable resource) {
+            // Native-backed equals() may dereference a handle after close().
+            for (int i = 0; i < this.resources.size(); i++) {
+                if (this.resources.get(i) == resource) {
+                    this.resources.remove(i);
+                    return;
+                }
             }
-            if (db != null) {
-                db.close();
+        }
+
+        @Override
+        public void close() throws Exception {
+            Throwable failure = null;
+            for (int i = this.resources.size() - 1; i >= 0; i--) {
+                try {
+                    this.resources.get(i).close();
+                } catch (Exception | Error current) {
+                    failed(current);
+                    if (failure == null) {
+                        failure = current;
+                    } else {
+                        failure.addSuppressed(current);
+                    }
+                }
+            }
+            if (failure instanceof Exception) {
+                throw (Exception) failure;
+            }
+            if (failure != null) {
+                throw (Error) failure;
             }
         }
     }

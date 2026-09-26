@@ -92,26 +92,19 @@ jobs:
               rocksdb "$SERVER_DIR"
 
       - name: Run Topling native lifecycle diagnostic
-        id: topling-native-diagnostic
         if: matrix.provider == 'topling'
-        continue-on-error: true
         run: |
-          source "$SERVER_DIR/bin/preload-topling.sh"
-          "$TRAVIS_DIR/test-rocksdb-runtime.sh" \
-              topling "$SERVER_DIR"
+          "$TRAVIS_DIR/run-topling-native-diagnostic.sh" \
+            "$RUNNER_TEMP/topling-native-diagnostic" \
+            "$TRAVIS_DIR/test-rocksdb-runtime.sh" topling "$SERVER_DIR"
 
-      - name: Report Topling native lifecycle diagnostic
-        if: >-
-          matrix.provider == 'topling' &&
-          steps.topling-native-diagnostic.outcome == 'failure'
-        run: |
-          {
-            echo "### Topling native lifecycle diagnostic"
-            echo
-            echo "The synthetic CF lifecycle reproducer hit the known native"
-            echo "assertion tracked by hugegraph/hugegraph#212."
-            echo "Image-backed service lifecycle tests remain required."
-          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload Topling native diagnostic evidence
+        if: always() && matrix.provider == 'topling'
+        uses: actions/upload-artifact@v4
+        with:
+          name: topling-native-server-${{ matrix.os }}
+          path: ${{ runner.temp }}/topling-native-diagnostic/
+          if-no-files-found: warn
 
   topling-runtime-shell-test:
     runs-on: ubuntu-24.04
@@ -121,8 +114,11 @@ jobs:
 
       - name: Test strict component-local runtime selection
         run: |
+          hugegraph-server/hugegraph-dist/src/assembly/travis/test-topling-native-diagnostic.sh
           hugegraph-server/hugegraph-dist/src/assembly/travis/test-topling-runtime-selection.sh
           hugegraph-server/hugegraph-dist/src/assembly/travis/test-topling-docker-entrypoints.sh
+          hugegraph-server/hugegraph-dist/src/assembly/travis/test-topling-server-entrypoint-roots.sh
+          hugegraph-server/hugegraph-dist/src/assembly/travis/test-topling-provider-ownership.sh
 
   wait-storage-shell-test:
     permissions:

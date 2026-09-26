@@ -152,25 +152,19 @@ jobs:
               rocksdb "$COMPONENT_DIR"
 
       - name: Run Topling native lifecycle diagnostic
-        id: topling-native-diagnostic
         if: matrix.provider == 'topling'
-        continue-on-error: true
         run: |
-          "$TRAVIS_DIR/test-rocksdb-runtime.sh" \
-              topling "$COMPONENT_DIR"
+          "$TRAVIS_DIR/run-topling-native-diagnostic.sh" \
+            "$RUNNER_TEMP/topling-native-diagnostic" \
+            "$TRAVIS_DIR/test-rocksdb-runtime.sh" topling "$COMPONENT_DIR"
 
-      - name: Report Topling native lifecycle diagnostic
-        if: >-
-          matrix.provider == 'topling' &&
-          steps.topling-native-diagnostic.outcome == 'failure'
-        run: |
-          {
-            echo "### Topling native lifecycle diagnostic"
-            echo
-            echo "The synthetic CF lifecycle reproducer hit the known native"
-            echo "assertion tracked by hugegraph/hugegraph#212."
-            echo "Image-backed service lifecycle tests remain required."
-          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload Topling native diagnostic evidence
+        if: always() && matrix.provider == 'topling'
+        uses: actions/upload-artifact@v4
+        with:
+          name: topling-native-${{ matrix.component }}-${{ matrix.os }}
+          path: ${{ runner.temp }}/topling-native-diagnostic/
+          if-no-files-found: warn
 
       - name: Verify standard runtime packaging
         if: matrix.component == 'pd' && matrix.provider == 'rocksdb'

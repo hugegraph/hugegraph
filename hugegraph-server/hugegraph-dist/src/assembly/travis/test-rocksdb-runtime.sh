@@ -18,9 +18,15 @@
 
 set -Eeuo pipefail
 
-PROVIDER="${1:?Usage: $0 <provider> <component-dir>}"
-COMPONENT_DIR="${2:?Usage: $0 <provider> <component-dir>}"
+PROVIDER="${1:?Usage: $0 <provider> <component-dir> [probe|lifecycle]}"
+COMPONENT_DIR="${2:?Usage: $0 <provider> <component-dir> [probe|lifecycle]}"
+MODE="${3:-lifecycle}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+if [ "$PROVIDER" = topling ] && [ -f "$COMPONENT_DIR/bin/preload-topling.sh" ]; then
+    # shellcheck source=/dev/null
+    source "$COMPONENT_DIR/bin/preload-topling.sh"
+fi
 
 TEST_ROOT=$(mktemp -d /tmp/hugegraph-rocksdb-runtime.XXXXXX)
 cleanup() {
@@ -92,6 +98,10 @@ if [ "$PROVIDER" = "topling" ]; then
         exit 1
     fi
 
+    echo "Selected JNI JAR: $JAR"
+    echo "Selected JNI native library: $EXPECTED_NATIVE_PATH"
+    sha256sum "$JAR" "$EXPECTED_NATIVE_PATH"
+
     NATIVE_DIR="$(dirname "$EXPECTED_NATIVE_PATH")"
     TEST_LD_LIBRARY_PATH="$NATIVE_DIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
     TEST_LD_PRELOAD="${LD_PRELOAD:-}"
@@ -104,9 +114,9 @@ if [ "$PROVIDER" = "topling" ]; then
         LD_LIBRARY_PATH="$TEST_LD_LIBRARY_PATH" \
         LD_PRELOAD="$TEST_LD_PRELOAD" \
         java -cp "$JAR" "$SCRIPT_DIR/RocksDBRuntimeSmokeTest.java" \
-        "$PROVIDER" "$TEST_ROOT/db" "$EXPECTED_NATIVE_PATH"
+        "$PROVIDER" "$TEST_ROOT/db" "$EXPECTED_NATIVE_PATH" "$MODE"
 else
     env -u TOPLINGDB_EASY_MIGRATE_CONF \
         java -cp "$JAR" "$SCRIPT_DIR/RocksDBRuntimeSmokeTest.java" \
-        "$PROVIDER" "$TEST_ROOT/db" "$EXPECTED_NATIVE_PATH"
+        "$PROVIDER" "$TEST_ROOT/db" "$EXPECTED_NATIVE_PATH" "$MODE"
 fi
