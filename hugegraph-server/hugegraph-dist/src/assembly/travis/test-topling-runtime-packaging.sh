@@ -86,8 +86,12 @@ for component_dir in "${COMPONENT_DIRS[@]}"; do
             > "$fixture/preload.out" 2>&1; then
         fail "standard artifact accepted Topling without a local runtime: $component_dir"
     fi
-    if ! grep -Fq "no prepared ToplingDB JAR found in $fixture/lib/topling/" \
-            "$fixture/preload.out"; then
+    expected_error="no prepared ToplingDB JAR found in $fixture/lib/topling/"
+    if [ -f "$fixture/conf/rest-server.properties" ]; then
+        [ -r "$fixture/bin/rocksdb-server-config.sh" ] || fail "missing Server config helper"
+        expected_error="conflicts with configured rocksdb.provider"
+    fi
+    if ! grep -Fq "$expected_error" "$fixture/preload.out"; then
         sed -n '1,120p' "$fixture/preload.out" >&2
         fail "missing component-local runtime error: $component_dir"
     fi

@@ -67,6 +67,13 @@ for helper in common-topling.sh prepare-topling.sh preload-topling.sh \
         fail "Topling distribution is missing helper: $helper"
 done
 
+if [ "$COMPONENT" = server ]; then
+    for distribution in "$STANDARD_DIR" "$TOPLING_DIR"; do
+        [ -r "$distribution/bin/rocksdb-server-config.sh" ] ||
+            fail "Server distribution is missing rocksdb-server-config.sh"
+    done
+fi
+
 if find "$STANDARD_DIR/lib" -path '*/topling/*' -print -quit | grep -q .; then
     fail "standard distribution contains a Topling JAR"
 fi
@@ -106,6 +113,12 @@ if ldd "$NATIVE_LIBRARY" 2>/dev/null | grep -q 'not found'; then
     fail "Topling native library has unresolved dependencies"
 fi
 
+# Provision the clean package default paths only after checking that neither
+# the directory nor archive contains runtime data. The selector seeds markers
+# before a subsequent JVM can open these deployment-owned roots.
+if [ "$COMPONENT" = server ]; then
+    mkdir -p "$TOPLING_DIR/rocksdb-data/data" "$TOPLING_DIR/rocksdb-data/wal"
+fi
 source "$TOPLING_DIR/bin/preload-topling.sh"
 [ "$TOPLING_RUNTIME_CLASSPATH" = "$TOPLING_JAR" ] ||
     fail "Topling classpath does not use the component-local JAR"

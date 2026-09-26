@@ -91,6 +91,8 @@ export CLASSPATH="${CLASSPATH:-}:$CP"
 # Change to $BIN's parent
 cd "${TOP}" || exit 1
 
+source "$BIN/preload-topling.sh"
+
 # Find java & enable server option
 if [ "$JAVA_HOME" = "" ]; then
     JAVA="java -server"
@@ -262,11 +264,11 @@ if [[ "${STDOUT_MODE:-false}" == "true" ]]; then
     exec ${JAVA} -Dname="HugeGraphServer" ${JVM_OPTIONS} ${JAVA_OPTIONS} \
         ${SECURITY_MANAGER_OPTION} -cp "${CLASSPATH}:" \
         org.apache.hugegraph.bootstrap.HugeGraphServerBootstrap \
-        ${OPEN_SECURITY_CHECK} ${GREMLIN_SERVER_CONF} ${REST_SERVER_CONF}
+        "${OPEN_SECURITY_CHECK}" "${GREMLIN_SERVER_CONF}" "${REST_SERVER_CONF}"
 else
     exec ${JAVA} -Dname="HugeGraphServer" ${JVM_OPTIONS} ${JAVA_OPTIONS} \
         ${SECURITY_MANAGER_OPTION} -cp "${CLASSPATH}:" \
         org.apache.hugegraph.bootstrap.HugeGraphServerBootstrap \
-        ${OPEN_SECURITY_CHECK} ${GREMLIN_SERVER_CONF} ${REST_SERVER_CONF} \
+        "${OPEN_SECURITY_CHECK}" "${GREMLIN_SERVER_CONF}" "${REST_SERVER_CONF}" \
         >> ${LOGS}/hugegraph-server-stdout.log 2>&1
 fi

@@ -19,8 +19,15 @@ set -euo pipefail
 
 DOCKER_FOLDER="./docker"
 INIT_FLAG_FILE="init_complete"
-GRAPH_CONF="./conf/graphs/hugegraph.properties"
 REST_SERVER_CONF="./conf/rest-server.properties"
+source ./bin/rocksdb-server-config.sh
+SERVER_TOP="$(pwd -P)"
+SERVER_GRAPHS_DIR=$(server_graphs_directory "$SERVER_TOP" "$REST_SERVER_CONF")
+GRAPH_CONF="$SERVER_GRAPHS_DIR/hugegraph.properties"
+[ -f "$GRAPH_CONF" ] || {
+    echo "Error: Docker requires hugegraph.properties in $SERVER_GRAPHS_DIR" >&2
+    exit 1
+}
 
 mkdir -p "${DOCKER_FOLDER}"
 
@@ -115,6 +122,7 @@ case "${ROCKSDB_PROVIDER}" in
 esac
 
 REQUESTED_BACKEND="${HG_SERVER_BACKEND:-$(get_prop_encoded "backend" "${GRAPH_CONF}")}"
+REQUESTED_BACKEND=$(printf '%s' "$REQUESTED_BACKEND" | tr '[:upper:]' '[:lower:]')
 if [[ "${REQUESTED_BACKEND}" == "hstore" ]]; then
     TOPLING_JAR=$(find ./lib -path '*/topling/rocksdbjni*.jar' \
                        -print -quit 2>/dev/null || true)
@@ -143,9 +151,11 @@ case "${ENFORCE_PROVIDER_MARKER}" in
     *) log "ERROR: HG_SERVER_ENFORCE_PROVIDER_MARKER must be true or false"
        exit 1 ;;
 esac
-if [[ "${REQUESTED_BACKEND}" == "rocksdb" ]]; then
+VERIFIED_ROCKSDB_ROOT=""
+if [[ "${REQUESTED_BACKEND}" == "rocksdb" || "${REQUESTED_BACKEND}" == "rocksdbsst" ]]; then
     ./bin/verify-rocksdb-provider.sh server "${ROCKSDB_PROVIDER}" \
         "${ROCKSDB_DATA_ROOT}" "${ENFORCE_PROVIDER_MARKER}"
+    VERIFIED_ROCKSDB_ROOT="${ROCKSDB_DATA_ROOT}"
     LEGACY_INIT_MARKER="${DOCKER_FOLDER}/${INIT_FLAG_FILE}"
     DOCKER_FOLDER="${ROCKSDB_DATA_ROOT}/.hugegraph-state"
     mkdir -p "${DOCKER_FOLDER}"
@@ -215,7 +225,7 @@ fi
 # ── Map env → properties file ─────────────────────────────────────────
 [[ -n "${HG_SERVER_BACKEND:-}"  ]] && set_prop "backend"  "${HG_SERVER_BACKEND}"  "${GRAPH_CONF}"
 set_prop "rocksdb.provider" "${ROCKSDB_PROVIDER}" "${GRAPH_CONF}"
-if [[ "${REQUESTED_BACKEND}" == "rocksdb" ]]; then
+if [[ "${REQUESTED_BACKEND}" == "rocksdb" || "${REQUESTED_BACKEND}" == "rocksdbsst" ]]; then
     set_prop "rocksdb.data_path" "${ROCKSDB_DATA_ROOT}/data" "${GRAPH_CONF}"
     set_prop "rocksdb.wal_path" "${ROCKSDB_DATA_ROOT}/wal" "${GRAPH_CONF}"
 fi
@@ -263,6 +273,12 @@ case "${INIT_STORE_ENABLED}" in
 esac
 [[ -n "${INIT_STORE_ENABLED}" ]] && \
     set_prop "init_store.enabled" "${INIT_STORE_ENABLED}" "${REST_SERVER_CONF}"
+
+# Validate the final generated graph configuration before any database opens.
+EFFECTIVE_PROVIDER=$(server_rocksdb_provider "$SERVER_GRAPHS_DIR")
+server_check_provider_override "$EFFECTIVE_PROVIDER"
+server_verify_graph_roots "$SERVER_TOP" "$SERVER_GRAPHS_DIR" \
+    "$EFFECTIVE_PROVIDER" "$ENFORCE_PROVIDER_MARKER" "$VERIFIED_ROCKSDB_ROOT"
 
 # ── Build wait-storage env ─────────────────────────────────────────────
 WAIT_ENV=()

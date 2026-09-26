@@ -88,6 +88,14 @@ verify_marker() {
     temporary_marker=$(mktemp "$pinned_path/.provider-marker.XXXXXX")
     chmod 600 "$temporary_marker"
     printf '%s\n' "$EXPECTED_MARKER" > "$temporary_marker"
+    # A bare launcher may claim a configured child while this deployment root
+    # was still empty. Once our temporary marker is visible it blocks new child
+    # claims; recheck after publishing it so an earlier child cannot be missed.
+    if find -H "$pinned_path" -mindepth 1 -maxdepth 1 ! -name lost+found \
+            ! -name "$(basename "$temporary_marker")" ! -name "$MARKER_NAME" -print -quit | grep -q .; then
+        rm -f "$temporary_marker"
+        fail "data path changed while initializing provider marker: $data_path"
+    fi
     if ! mv -n "$temporary_marker" "$marker"; then
         rm -f "$temporary_marker"
         fail "could not create provider marker: $marker"

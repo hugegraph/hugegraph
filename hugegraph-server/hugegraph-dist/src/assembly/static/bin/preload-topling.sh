@@ -90,18 +90,31 @@ detect_rocksdb_provider() {
     esac
 }
 
-PROVIDER="${TOPLINGDB_ROCKSDB_PROVIDER:-}"
-if [ -n "$PROVIDER" ]; then
-    case "$PROVIDER" in
-        rocksdb | topling) ;;
-        *)
-            echo "Error: invalid TOPLINGDB_ROCKSDB_PROVIDER '$PROVIDER';" \
-                 "expected rocksdb or topling" >&2
-            exit 1
-            ;;
-    esac
+SERVER_CONFIG_ACTIVE=false
+if [ -f "$RUNTIME_BIN/rocksdb-server-config.sh" ] ||
+   [ -f "${REST_SERVER_CONF:-$COMPONENT_TOP/conf/rest-server.properties}" ] ||
+   [ -d "$COMPONENT_TOP/conf/graphs" ]; then
+    SERVER_CONFIG_ACTIVE=true
+    source "$RUNTIME_BIN/rocksdb-server-config.sh"
+    SERVER_REST_CONFIG="${REST_SERVER_CONF:-$COMPONENT_TOP/conf/rest-server.properties}"
+    [[ "$SERVER_REST_CONFIG" = /* ]] || SERVER_REST_CONFIG="$COMPONENT_TOP/$SERVER_REST_CONFIG"
+    SERVER_GRAPHS_DIR=$(server_graphs_directory "$COMPONENT_TOP" "$SERVER_REST_CONFIG") || exit 1
+    PROVIDER=$(server_rocksdb_provider "$SERVER_GRAPHS_DIR") || exit 1
+    server_check_provider_override "$PROVIDER" || exit 1
 else
-    PROVIDER=$(detect_rocksdb_provider "$COMPONENT_TOP/conf") || exit 1
+    PROVIDER="${TOPLINGDB_ROCKSDB_PROVIDER:-}"
+    if [ -n "$PROVIDER" ]; then
+        case "$PROVIDER" in
+            rocksdb | topling) ;;
+            *)
+                echo "Error: invalid TOPLINGDB_ROCKSDB_PROVIDER '$PROVIDER';" \
+                     "expected rocksdb or topling" >&2
+                exit 1
+                ;;
+        esac
+    else
+        PROVIDER=$(detect_rocksdb_provider "$COMPONENT_TOP/conf") || exit 1
+    fi
 fi
 
 remove_path_entry() {
@@ -133,10 +146,14 @@ fi
 unset TOPLING_ACTIVE_NATIVE TOPLING_ACTIVE_JAR TOPLING_RUNTIME_CLASSPATH
 
 if [ "$PROVIDER" = "topling" ]; then
-    # Runtime selection is read-only. Installation prepares all files beforehand.
+    # Runtime binaries are read-only; installation prepares them beforehand.
     if [ "$(uname -s)" != "Linux" ] || [ "$(uname -m)" != "x86_64" ]; then
         echo "Error: ToplingDB runtime supports Linux x86_64 only" >&2
         exit 1
+    fi
+    if [ "$SERVER_CONFIG_ACTIVE" = true ]; then
+        server_verify_graph_roots "$COMPONENT_TOP" "$SERVER_GRAPHS_DIR" "$PROVIDER" \
+            "${HG_SERVER_ENFORCE_PROVIDER_MARKER:-false}" || exit 1
     fi
     TOPLING_JAR=$(ls -1 "$COMPONENT_LIB"/topling/rocksdbjni*.jar 2>/dev/null |
                   sort -V | tail -1 || true)
@@ -185,6 +202,10 @@ if [ "$PROVIDER" = "topling" ]; then
     export CLASSPATH="$TOPLING_JAR${CLASSPATH:+:$CLASSPATH}"
     export TOPLING_ACTIVE_JAR="$TOPLING_JAR"
 else
+    if [ "$SERVER_CONFIG_ACTIVE" = true ]; then
+        server_verify_graph_roots "$COMPONENT_TOP" "$SERVER_GRAPHS_DIR" "$PROVIDER" \
+            "${HG_SERVER_ENFORCE_PROVIDER_MARKER:-false}" || exit 1
+    fi
     unset TOPLINGDB_EASY_MIGRATE_CONF
     echo "[preload-topling] Component uses rocksdb provider"
 fi
