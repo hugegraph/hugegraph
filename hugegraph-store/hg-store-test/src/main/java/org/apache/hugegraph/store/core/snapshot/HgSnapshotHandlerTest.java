@@ -333,8 +333,8 @@ public class HgSnapshotHandlerTest extends StoreEngineTestBase {
      * logs), skipping unlock(path) - so every later compaction for that partition would block
      * until the 6-hour path-lock timeout. Interrupts a real compactionPool worker thread while
      * it is parked in tryLock() (identified by stack trace, since the pool is shared), then
-     * confirms a second dbCompaction() call is able to complete instead of hanging behind the
-     * still-held path lock.
+     * confirms the path lock returns to its available state while the snapshot range lock
+     * remains owned by this test. Then verifies that another compaction can publish a snapshot.
      */
     @Test
     public void testDbCompactionReleasesPathLockWhenInterruptedWaitingForRangeLock()
@@ -378,13 +378,16 @@ public class HgSnapshotHandlerTest extends StoreEngineTestBase {
                          BusinessHandler.doing, pathLockBeforeInterrupt.get());
 
             other.interrupt();
-            // Give the interrupted task time to run its InterruptedException handling and
-            // return.
-            Thread.sleep(500);
+            // Wait for the interrupted task to release the path lock. No second compaction
+            // has started yet, so the available state remains stable during this wait.
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+            while (pathLockBeforeInterrupt.get() != BusinessHandler.compactionCanStart &&
+                   System.nanoTime() < deadline) {
+                Thread.sleep(10);
+            }
 
             // The path lock must have been released by the interrupted task's
-            // InterruptedException handler, directly confirming the fix rather than relying
-            // solely on the second dbCompaction() call below to prove it indirectly.
+            // InterruptedException handler, directly confirming the fix.
             String path = businessHandler.getLockPath(partitionId);
             AtomicInteger pathLockState = businessHandler.getPathLockState(path);
             assertNotNull("path lock must have been initialized by the interrupted task",
@@ -417,9 +420,9 @@ public class HgSnapshotHandlerTest extends StoreEngineTestBase {
             // A newly published snapshot proves the second task passed both locks
             // and compacted the DB; the released path lock proves its callback finished.
             // Allow for doSnapshotSync's bounded 5-second wait before saving.
-            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(15);
+            long snapshotDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(15);
             boolean completed = false;
-            while (System.nanoTime() < deadline) {
+            while (System.nanoTime() < snapshotDeadline) {
                 File[] snapshots = snapshotDirectory.listFiles((dir, name) ->
                         name.startsWith("snapshot_") &&
                         new File(new File(dir, name), "__raft_snapshot_meta").isFile());
