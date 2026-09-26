@@ -25,6 +25,7 @@ import java.util.List;
 import org.apache.hugegraph.pd.TaskScheduleService;
 import org.apache.hugegraph.pd.common.PDException;
 import org.apache.hugegraph.pd.grpc.Metapb;
+import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -35,6 +36,14 @@ public class TaskScheduleServiceTest extends PDCoreTestBase {
     @Before
     public void init() {
         this.service = getTaskService();
+    }
+
+    @After
+    public void tearDown() {
+        if (this.service != null) {
+            this.service.shutDown();
+        }
+        getStoreNodeService().getStoreInfoMeta().removeAll();
     }
 
     // TODO
@@ -72,7 +81,6 @@ public class TaskScheduleServiceTest extends PDCoreTestBase {
         assertFalse(rst.isEmpty());
         // recover
         getPdConfig().getPartition().setShardCount(1);
-        getStoreNodeService().getStoreInfoMeta().removeAll();
     }
 
     // TODO
