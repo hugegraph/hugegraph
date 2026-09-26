@@ -1,8 +1,46 @@
-# 本机实测分项
+# ToplingDB 当前范围与历史实测
 
-状态标记只放本文件。未勾选表示当前 SHA 尚无完成证据。`9aba` 历史结果仅是线索。
+## 状态规则
 
-## 执行顺序
+2026-09-26 按用户确认收窄范围。当前工作只看本节、TP 主线和 `ignore` 表；父汇总为 [#240](https://github.com/hugegraph/hugegraph/issues/240)。
+`ignore` 是范围排除，不是通过；保留已有证据及独立跟进链接，不计入 TP 未完成项。
+下方历史 P1–P7 的复合清单混合了通用问题和 TP 验证，不再整项阻塞 TP，历史勾选不改成新 SHA 的通过。
+TP 主线的未勾选项表示尚未按新范围收口，不代表历史实验全部未做，也不自动等同合入阻塞。
+
+## TP 主线
+
+- [ ] 适配与 native 生命周期：核对标准 RocksDB API + Easy Migrate 边界、DB/CF open/create/drop/close 和批量写入兼容；复用已有 `memtable_as_log_index: false` 实测。CF 断言沿 [#212](https://github.com/hugegraph/hugegraph/issues/212) 跟进：已有修复与旧 SHA 三轮真实生命周期通过，近期残余 native 关闭告警仍待归因，按当前证据判断风险。
+- [ ] 架构与切换（[#250](https://github.com/hugegraph/hugegraph/issues/250)、[#251](https://github.com/hugegraph/hugegraph/issues/251)）：明确 provider 唯一有效配置来源，默认 RocksDB，TP 显式启用；缺依赖或配置冲突及时失败，不静默 fallback，不引入 Java 侧 SidePluginRepo 管理或平行存储 API。
+- [ ] 数据安全与回归（[#253](https://github.com/hugegraph/hugegraph/issues/253)）：验证 provider marker、数据目录隔离和切换失败不破坏原数据；标准 RocksDB 行为不回归，不把切换解释为原数据卷原地格式转换。
+- [ ] 本分支新增代码（[#249](https://github.com/hugegraph/hugegraph/issues/249)）：核对 `457295ac8` WAL 恢复补丁的失败安全及与 TP 的必要关系。共用模块内由本 PR 引入的回归仍需收口；不得借 `ignore` 留下新增损坏风险。Linux 未提交修复保留，不自动提交。
+- [ ] 功能与易用性：检查 Server/PD/Store 配置示例、启动诊断、镜像选择、启用/停用步骤、支持平台和恢复说明；复用已通过的 CRUD、重启、持久化、truncate 与固定子集证据。
+- [ ] 可维护性：复用公共启动脚本和通用 Compose 拓扑，避免 provider 专用逻辑复制；检查版本、配置默认值、依赖清单、打包和组件独立 JNI 的一致性。
+- [ ] JNI 交付：沿 [#213](https://github.com/hugegraph/hugegraph/issues/213) 核对不可变坐标、源码/工具链、平台与 CPU 基线、校验和及许可元数据。这是正式发布要求，不与核心适配合入混为一谈。
+- [ ] Linux 专项验收（[#252](https://github.com/hugegraph/hugegraph/issues/252)）：绑定源码 SHA、镜像 digest 和实际 JNI，保留相同条件的标准/TP 对照。通用问题影响某项实验时记录边界，继续独立项；性能实验不在 macOS 执行，也不以通用图快照未实现为统一前置条件。
+
+- [ ] 测试覆盖与 CI：补 [#254](https://github.com/hugegraph/hugegraph/issues/254) 多 key TP truncate 分支回归，修 [#255](https://github.com/hugegraph/hugegraph/issues/255) 把所有 native 诊断失败都归为已知断言的问题；保留既有外部发布生命周期验证。
+- [ ] 待归因线索：[#248](https://github.com/hugegraph/hugegraph/issues/248) 跟踪 clear 后一次已确认写入在首次 Server 重启后不可见，不能直接认定 TP native bug，也不能由第二次成功覆盖。
+
+总跟踪为 [#240](https://github.com/hugegraph/hugegraph/issues/240)；[#214](https://github.com/hugegraph/hugegraph/issues/214) 保留历史里程碑。架构检查及验收均沿用现有设计，不因此创建新的 provider 抽象。
+
+## ignore：非 TP 专属，独立跟进
+
+| 状态 | 问题 | 已有跟进与边界 |
+| --- | --- | --- |
+| `ignore` | 跨 Server schema cache 一致性 | [Apache #3235](https://github.com/apache/hugegraph/issues/3235)、[PR #3237](https://github.com/apache/hugegraph/pull/3237) / [组织 PR #236](https://github.com/hugegraph/hugegraph/pull/236)，复用现有方案，不另做一套 |
+| `ignore` | graph clear 顶点/边缓存、truncate 吞异常、同名图重建 | 分别沿 [#242](https://github.com/hugegraph/hugegraph/issues/242)、[#243](https://github.com/hugegraph/hugegraph/issues/243)、[#244](https://github.com/hugegraph/hugegraph/issues/244) 跟进；schema PR 不覆盖全部这些行为；[#3151](https://github.com/apache/hugegraph/issues/3151) 仅相关。保留标准 provider 复现与待归因边界 |
+| `ignore` | Store 指标 session 泄漏 | [#241](https://github.com/hugegraph/hugegraph/issues/241)； [Apache PR #3081](https://github.com/apache/hugegraph/pull/3081) 已有相同生产修复；本地补丁和 3 项通过的回归保留，不随 TP 文档提交 |
+| `ignore` | 通用 Store 停机后 JVM 不退出 | [组织 #211](https://github.com/hugegraph/hugegraph/issues/211)，标准 provider 也复现；不等同已证明全部 TP native 关闭告警的根因 |
+| `ignore` | Store 地址变化后的旧连接、通用 Loader 重试 | [#245](https://github.com/hugegraph/hugegraph/issues/245)； [Apache #3124](https://github.com/apache/hugegraph/issues/3124)、[已合并 PR #3130](https://github.com/apache/hugegraph/pull/3130)；当前分支已含修复，残余扫描场景另行回归，Linux 未提交 channel refresh 不混入 TP 主线 |
+| `ignore` | HStore 图级快照协议 | [#246](https://github.com/hugegraph/hugegraph/issues/246)； 通用能力缺口，本次不新增跨分区协议；[组织 PR #235](https://github.com/hugegraph/hugegraph/pull/235) 是单机 RocksDB 备份，不能冒充 HStore 图快照支持 |
+| `ignore` | 完整 HA 网络分区矩阵、Compose/Helm 通用配置对齐 | [#247](https://github.com/hugegraph/hugegraph/issues/247)； 部署沿 [Apache #3131](https://github.com/apache/hugegraph/issues/3131) / [组织 PR #221](https://github.com/hugegraph/hugegraph/pull/221) 跟进；TP provider 注入、数据隔离和 JNI 选择仍在主线 |
+| `ignore` | mini-cluster 临时端口竞争 | 复用 [#216](https://github.com/hugegraph/hugegraph/issues/216)，不在 TP 里做局部端口补丁 |
+| `ignore` | HStore 联合索引 | 复用 [#217](https://github.com/hugegraph/hugegraph/issues/217)，已并入 committed-path 历史验证进展，no-commit 覆盖单独确认 |
+
+以上归属基于本轮核对，不声称关联 issue/PR 已解决所有残余现象。后续发现由 TP 改动独有触发时重新归类并记录依据。
+
+## 历史执行顺序（只读证据，旧门禁已被上文替代）
+
 
 2026-09-25 标准 `a35ebeb17` Store 镜像已证明 follower `GET /v1/partitions`：三台都是 HTTP 200，合计 12 个 `STATE_LEADER`、24 个 `STATE_FOLLOWER`，JNI `8b8fb2ed…6dff`。这不勾选 P4、P5 或 P6，也不覆盖 Topling。证据 `evidence/a35-std-follower-partitions.json`。
 Topling 同一检查也已通过：`hugegraph/store:closure-a35ebeb17`，HTTP 200，12 个 `STATE_LEADER`、24 个 `STATE_FOLLOWER`，JNI `c25ff6e6…dd38`，mmap WAL 错误 0。证据 `evidence/a35-top-follower-partitions.json`。两个最小集群还各有一次顶点写入 201 和读取 200，证据 `evidence/a35-vertex-write-read.json`。这些都不勾选 P3、P4、P5 或 P6。
@@ -91,7 +129,7 @@ Topling 同一检查也已通过：`hugegraph/store:closure-a35ebeb17`，HTTP 20
 - [ ] 核心功能通过后，按同 SHA 和固定资源完成标准/Topling 至少 3 轮对照。
 - [ ] 保存原始结果和统计，不把未跑项目写成性能收益。
 
-## 阻塞修复
+## 历史阻塞修复（当前归属以上方范围表为准）
 
 - [ ] 测试暴露的可复现缺陷在 `toplingdb` 分支修复并附回归测试。channel refresh 仍未提交。07:40 第三轮审查 3 是 HIGH_SEVERITY=1：`Subchannel shutdown invoked`。当时改为拒绝该描述并使用 `shutdownNow`，JUnit 14 个通过。08:00 第三轮审查 2 另有 HIGH_SEVERITY=1：`getChannels` 会发布含 null 的数组。随后改为失败时不发布数组，JUnit 15 个通过。这些结论都早于 07:54 之后的最终差异，没有第 4 轮审查，所以不勾选、不提交，也不自动再开审查。证据 `evidence/build/channel-refresh-round3-3.md`、`evidence/build/channel-refresh-round3-2.md`、`evidence/build/channel-refresh-junit.txt`。
 - [ ] 行为修复完成 3 名独立审查和必要重审后再勾选。嵌套 WAL 修复已在 `457295ac8` 提交，e109 Topling 单机完整镜像已证明独立 WAL 回滚；审查结论尚未按当前 SHA 收口。 2026-09-25 三份只读审查里，审查 1 认为成功路径符合提交说明，审查 2 和 3 各有 1 个 P1：嵌套恢复在移动失败时会把快照后的 WAL 留在活动目录，分开的 WAL 目录发布失败时会丢掉 checkpoint tail。本地已先退役全部活动日志再发布 tail，目录改名失败时改为复制 tail，符号链接 WAL 不再被替换成普通目录。`RocksDBSessionsTest` 17 个通过、0 失败、0 跳过，其中新增 3 个回归。证据 `evidence/build/wal-review-1.md`、`wal-review-2.md`、`wal-review-3.md`、`rocksdb-sessions-junit.txt`。重审还没结束，不勾选、不提交。 第一轮重审的审查 1 和 2 都是 HIGH_SEVERITY=2：同名旧 WAL 会被当成 tail，短复制也会在删除源文件前被接受。审查 3 当时还在重连。随后改为同目录改名隔离旧日志，并用长度核对后的临时文件发布 tail；失败时保留 data 目录里的 checkpoint 源文件。第二次 `RocksDBSessionsTest` 19 个通过、0 失败、0 跳过，耗时 1.274 秒。第二轮重审未完成，仍不勾选、不提交。 随后按重审 2 和迟到的第一轮重审 3，补上字节比对、rename 失败时删除活动日志，以及 WAL 目录无法挪走时改为原地安装。`RocksDBSessionsTest` 20 个通过、0 失败、0 跳过，耗时 1.355 秒。这已超过三轮修复上限，最新差异没有新的三份审查，所以仍不勾选、不提交。

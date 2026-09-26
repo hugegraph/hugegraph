@@ -8,6 +8,48 @@ macOS (Docker Desktop or OrbStack). Native macOS execution, including Intel,
 is deliberately outside the ToplingDB matrix; do not treat that CI job as a
 Topling image or container failure.
 
+## Scope and Design Priorities
+
+The integration focuses on Topling-specific adaptation, bug fixes, feature
+compatibility, usability, and maintainable engine selection. Keep HugeGraph
+on the standard RocksDB API with Easy Migrate owning native integration;
+do not add Java-side SidePluginRepo management or a parallel storage API.
+Reuse shared launch helpers and deployment topologies instead of maintaining
+separate copies per provider.
+
+Track provider-independent Server, PD, Store, schema/cache, client reconnect,
+and deployment defects in their own issues or PRs. Mark them `ignore` in the
+Topling task: this excludes them from its backlog and completion denominator,
+not from product ownership, and does not mean they passed. Preserve reproduction
+and dependency links. Such defects may limit an individual experiment; record
+that limit and continue independent Topling checks rather than making all
+pre-existing platform gaps prerequisites for this integration.
+
+Regressions introduced by this PR remain in scope even in shared code.
+Unattributed native or WAL failures need a minimal diagnosis before exclusion.
+Provider selection, native ownership, runtime packaging, data-directory safety,
+and standard RocksDB compatibility remain integration requirements.
+
+Review engine switching for explicit configuration, actionable startup errors,
+component-local JNI isolation, consistent defaults and versions, and recoverable
+configuration changes. Do not imply live hot switching or automatic conversion
+of an existing data directory. Use focused local tests and source/image/JNI-bound
+Linux acceptance; performance experiments belong on the Linux test host.
+
+Track native CF lifecycle in [#212](https://github.com/hugegraph/hugegraph/issues/212),
+release-grade JNI delivery in [#213](https://github.com/hugegraph/hugegraph/issues/213),
+and current coordination in [#240](https://github.com/hugegraph/hugegraph/issues/240).
+Issue [#214](https://github.com/hugegraph/hugegraph/issues/214) retains historical
+integration and publication milestones.
+Keep feature-merge criteria distinct from official-release requirements.
+Current configuration-source and multi-graph isolation gaps are tracked in
+[#250](https://github.com/hugegraph/hugegraph/issues/250),
+[#251](https://github.com/hugegraph/hugegraph/issues/251), and
+[#253](https://github.com/hugegraph/hugegraph/issues/253); adapter regression
+coverage and diagnostic classification are tracked in
+[#254](https://github.com/hugegraph/hugegraph/issues/254) and
+[#255](https://github.com/hugegraph/hugegraph/issues/255).
+
 ## Runtime Contract
 
 HugeGraph keeps the RocksDB Java API. Topling Easy Migrate supplies the native

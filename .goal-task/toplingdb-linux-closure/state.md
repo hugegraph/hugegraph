@@ -1,6 +1,43 @@
-# ToplingDB Linux 实测执行合同
+# ToplingDB 适配执行合同
 
-## 基线与环境
+## 当前范围：聚焦 TP 适配
+
+2026-09-26 用户明确：非 TP 专属问题在本任务标记为 `ignore`，由独立 PR/issue 跟进，
+不阻塞 TP 主线，不为了完成历史大清单而持续扩展通用 Server/PD/Store 修复。
+本节和 `todo.md` 的当前范围表覆盖下方历史合同、阶段表及日志中的旧门禁。
+
+主线是 TP 自身适配与 bugfix、已有能力在 TP 上的正确性、功能与易用性，
+以及引擎切换的架构边界、实现简洁性和长期可维护性。
+当前父汇总为 [#240](https://github.com/hugegraph/hugegraph/issues/240)，已关联 21 个原生子 issue（15 个新增、6 个复用）。
+具体检查项、`ignore` 归属及已有 PR/issue 在 [todo.md](todo.md) 维护；
+通用设计准则见 [开发指南](../../docs/toplingdb/toplingdb-development.md)。
+
+`ignore` 表示退出本任务范围，不表示修好、通过或删除证据，也不计入 TP 未完成项。
+已按用户后续授权建立缺失的子 issue，已有问题优先复用，不自动创建修复 PR。
+#211/#212/#213 已从旧父 #214 迁入 #240；#214 保留历史里程碑。
+若本 PR 新增或改动的代码引入回归，即使位于共用模块，也仍由本分支收口；
+归因不明的 native/WAL 问题先做最小定位，不能仅凭两种 provider 都受影响就忽略。
+标准 RocksDB 保持行为与数据安全，是 TP 切换的回归基线。
+
+不引入 Java 侧 `SidePluginRepo` 生命周期管理或第二套存储 API。
+保留 Easy Migrate 与标准 RocksDB API 的边界，显式选择 provider，失败可诊断，
+不静默 fallback，不混用不兼容的数据卷；源码、产物、配置和实际 JNI 可对应。
+
+## 2026-09-26 开发与实测分工
+
+用户在本轮明确：macOS 负责代码开发、问题定位与修复、冲突处理、重构和讨论；
+高性能 Linux 负责测试与实验。下文的“本机 Linux”保留其历史含义，不适用于 macOS。
+macOS 只做最小验证，不跑性能测试、重资源测试或完整 K8S 模拟。
+
+macOS 接手基线为远端 `6790d53bf`，工作树为
+`/Users/zhu/.codex/worktrees/topling-followup/hugegraph-server`（detached HEAD）。
+已推送 master 同步提交 `4a852e2ea`，包含 master `2f827d6e8`；编译和 18 项 Raft 定向测试通过，
+推送后核对 GitHub 冲突状态为 `MERGEABLE`；当时 CI 尚在运行，不能作为当前 CI 结论。恢复后的本地指标补丁另有 3 项定向回归通过，尚未提交。
+两端仍服务同一 `toplingdb` 分支和 PR #179；Linux 未提交内容暂不等待，也不覆盖。
+本轮开发说明与复测条件见 [development-handoff.md](development-handoff.md)。
+历史实测勾选保持原样，新的本地修复不能替代 Linux 验收证据。
+
+## Linux 历史基线与环境
 
 - 仓库 `hugegraph/hugegraph`；fetch/push 远端 `org`；唯一分支 `toplingdb`；PR #179。不新建分支或 PR，不 force-push，不直接合入 master。
 - 执行工作树：`/home/soc-baidu/.codex/worktrees/f29e/hugegraph`。本地分支 `codex/toplingdb-linux-validation`，推送目标 `org/toplingdb`。主 checkout `/home/soc-baidu/github/hugegraph` 停在较旧的 `f9829899c`，不要在那里继续。
@@ -23,7 +60,7 @@
 - 不创建 `design.md`。只有出现可复用证据时才更新 `lessons.md`。
 - 原始证据留在本地 `evidence/`。不得提交 `evidence/`、`.codex-handoff/`、RocksDB 数据、`tmp/`、`cacerts.jks`、镜像或 benchmark 原始大文件。
 
-## 用户确认的本机范围
+## 历史用户确认的 Linux 范围（已由当前范围收窄）
 
 本机持续完成 todo.md 的全部 Linux 实测。每项最终只能是绑定证据的通过、失败，或写明解除条件的后置。允许修复可复现的阻塞缺陷并推送；行为修复必须有回归测试。另一台机器可以在同一分支提交代码。每次提交或推送前先 `git fetch org toplingdb`；远端前进时整合双方改动，禁止 force-push 或丢弃另一侧提交。`state.md` 与 `todo.md` 冲突时保留双方证据，再按本地证据改写当前状态。
 
@@ -36,7 +73,7 @@
 
 2026-09-25 用户回来后再次确认：继续本机 goal，只复用本目录、工作树 `/home/soc-baidu/.codex/worktrees/f29e/hugegraph`、`org/toplingdb` 和 PR #179。主 checkout `/home/soc-baidu/github/hugegraph` 仍停在较旧的 `f9829899c`，不要在那里继续。本机把 todo.md 里还能在单节点 kind 上执行的 Linux 实测做完；每项最终只能是绑定证据的通过、失败，或写明解除条件的后置。阶段边界和会话结束前更新并推送 `state.md` 与 `todo.md`。明显且可复现的阻塞缺陷可以直接修复并补回归测试，审查通过后与文档分开提交、再非强制推送。不新开分支、PR 或 goal-task 目录，不 force-push，不实现新的跨分区图快照协议。
 
-## 阶段
+## 历史阶段（仅保留证据，不作为当前全量门禁）
 
 | 阶段 | 状态 | 依赖 |
 | --- | --- | --- |
@@ -49,7 +86,7 @@
 | P6 Loader | Topling 3+3+3 更换 Store IP 后曾连接旧地址 `10.244.0.93:8500`。后来 `nwjsq` 和未重启的 `qkpz5` 都能返回 `1000000:2098771`，但不能写成已修复。失败重试没有触发。全量 LAW 后置 | 不重跑删除；channel refresh 不自动开第四轮 |
 | P7 Benchmark | 未开始 | 核心功能未收口前禁止性能结论 |
 
-分项计数和完成标记以 todo.md 为准。当前 SHA 测试使用新 namespace。同一时间只运行一个重任务；Maven 全量、镜像构建、Helm 变更和故障注入不叠加。
+当前范围和计数以 todo.md 顶部为准，历史 P1–P7 不再整体作为 TP 合入条件。Linux 验证继续绑定实际 SHA。同一时间只运行一个重任务；Maven 全量、镜像构建、Helm 变更和故障注入不叠加。
 
 ## 已核实的镜像事实
 
@@ -81,25 +118,24 @@ Topling 构建上下文必须包含已存在的 `hugegraph-server/hugegraph-dist
 ## 已知边界
 
 - 单节点 kind 只能证明逻辑恢复、Pod 恢复和持久化，不能证明物理多机或真实网络分区容错。
-- 2026-09-24 检查时没有 Chaos Mesh 与 VolumeSnapshot CRD。Pod 级 HA 先做。snapshot/restore 和网络分区仍是完成门禁；单节点 kind 不能被写成物理多机容错。
+- 2026-09-24 检查时没有 Chaos Mesh 与 VolumeSnapshot CRD。Pod 级 HA 先做。通用 HStore 图快照和完整网络分区矩阵不再是 TP 合入门禁；单节点 kind 仍不能被写成物理多机容错。
 - macOS ARM/Intel Cypher、发行审批和公共仓库发布不由本机完成。
 - Loader 输入目录是 `/home/soc-baidu/.codex/validation-data/toplingdb-linux-closure/derived/twitter-prefix-1000000`。导入前核对 manifest 与 checksum；文件缺失时后置，不把全量 LAW 下载当作默认补救。
 
-## Initialization TODO
-
-无需要另建文件的初始化。嵌套 WAL 修复已在 `457295ac8`，并包含于已推送的 `a7a4a6f1b`。2026-09-25 核对 `hg-closure-top-image-e109012a0` 为 `inactive/success`，不要因为旧记录重新启动它。
-
-Cypher 记录在进展日志，是否可提交以当前文档审查为准。channel refresh 和 WAL 的未提交 Java 差异仍禁止提交。
-
 ## 下一动作
 
-1. 全量 LAW 已在 `todo.md` 记为后置。`/tmp/full-law-disposition-review.md` 是 HIGH_SEVERITY=0。不要在当前 namespace 启动全量导入。
-2. 单节点上剩余的 P4、P5、P6 勾选框仍不勾选。它们把已完成的子项和失败或后置的子项放在一起。不要改写成通过。
-3. 不要删 Store，不要制造导入失败，不要重试 HStore `snapshot_create`，不要实现跨分区图快照，不要给 Store 再发信号，不要强行关库，不要自动开 channel refresh 或 WAL 的第四轮审查，也不要在图快照失败时写性能结论。主 checkout 不要使用。Java 差异仍不提交。
+1. 优先沿 #250/#251/#253 收敛 provider 唯一来源、实际图配置目录与所有图的数据标记校验；
+   再沿 #254/#255 补多 key truncate 回归和 native diagnostic 分类门禁。
+2. 对 Easy Migrate CF 断言和 WAL 恢复补丁做最小归因，保留已有证据与未提交改动。
+   Linux 旧工作树的 channel refresh、WAL 不自动提交、不重启超过轮数的审查。
+3. macOS 只做最小验证；Linux 按确定源码、镜像与 JNI 补 TP 专项实验。
+   通用缺陷阻断某条路径时，记录外部依赖或测试跳过原因，继续独立的 TP 项。
+4. 不因 `ignore` 的 HStore 图快照、schema/cache 或部署差异阻止无关 TP 验证。
+   性能实验仍仅在 Linux、相关 TP 正确性与资源条件满足后开展；不编造未覆盖的性能结论。
 
 ## 进展日志
 
-本节按时间保留旧记录，后文覆盖前文。当前状态以阶段表和 todo.md 为准。
+本节按时间保留原始历史记录，其中旧执行指令已由顶部当前范围覆盖；当前状态以 todo.md 顶部为准。
 
 PD 标准镜像已按校验和接受。Topling 构建单元 `hg-closure-top-image-cc14333f0` 已成功退出。PD `3bce8e03d227`、Store `195cad38c8a7`、standalone `52be45a93334` 的 runtime 标签是 topling，并且包含 Topling JNI；标准 PD/Store/standalone 不含该 `.so`。`hugegraph/server:closure-top-cc14333f0` 与标准 HStore server `14eb8067b416` 是同一镜像，因为 `Dockerfile-hstore` 没有 Topling 阶段，镜像内也没有 Topling `.so`。运行中的 JNI 映射尚未证明。标准 1+1+1 已部署在 `hg-closure-std-cc143-111`，Helm 退出 0，三个 Pod Ready。PD 与 Store 映射的 JNI 都是 `8b8fb2ed3ab69581cf1897bd116d484f073e66e9a5b6d61effc7b4c783d66dff`，不等于 Topling 镜像内 `.so` 的 `c25ff6e676290db6db47df0954640aa609c391450ec90e1a8eec1f87e174dd38`。Server 没有映射 RocksDB/Topling。Store 启动时 GitHub jemalloc 下载停在 0 字节，终止 curl 后走了脚本原有的跳过路径。证据 `evidence/helm-standard-cc143-111-runtime.json`。标准 1+1+1 API 套件已通过：155 通过、0 失败、50 跳过，日志 `evidence/build/helm-standard-cc143-111-api-r4.log`。Topling 1+1+1 已 Ready。PD 与 Store 都映射 `/library/librocksdbjni-linux64.so`，SHA-256 `c25ff6e676290db6db47df0954640aa609c391450ec90e1a8eec1f87e174dd38`，与标准进程的 `8b8fb2ed…` 不同。证据 `evidence/helm-topling-cc143-111-jni.json`。Topling 1+1+1 API 套件被停掉。删 schema 任务 182 已失败，测试却无休眠地等待 success。Store 批量写入报错 `memtable_as_log_index is true but WriteBatch has no mmap wal`，共 216 次。三个 Topling profile 已改为 false，单测 `ToplingProfileConfigTest` 通过。`waitTaskSuccess` 现在遇到 failed 或 cancelled 会立刻失败，避免无休眠空转。Store `6581fdf5fdbb` 与 PD `8dbbc94de64d` 已导出，runtime 都是 topling，revision `cc14333f0-memtable-as-log-index-false`，包内 `memtable_as_log_index: false`。standalone `5178c8b35c20` 也已导出且配置为 false。三张镜像构建成功。`hg-closure-top-mmapfix-111` Helm 退出 0，三个 Pod Ready。Store JNI `c25ff6e6…dd38`，provider=topling，API 前后 mmap WAL 错误 0。API 套件 155/0/0/50 通过，日志 `evidence/build/helm-topling-mmapfix-111-api.log`。跟随单元 `hg-closure-top-mmapfix-follow` 会在构建成功后安装新 namespace，构建失败则不安装。tag `closure-top-mmapfix`。1+1+1 修复验证已完成。Topling 3+3+3 `hg-closure-top-mmapfix-333` 已 9/9 Ready，Helm 退出 0。三台 Store JNI 都是 `c25ff6e6…dd38`，mmap WAL 错误 0。API 155/0/0/50。三台 Server 读到同一顶点。随后删除 leader Store-2，51.084 秒恢复，旧数据和新写入保持可读。这是单节点 kind 的 Pod 删除，不是物理分区。Server 副本删除期间保留副本继续读写，10.7 秒恢复。多数派删除 Store-0/2 后已提交数据仍可读，故障中新写入超时；Ready 不等于写恢复，稍后合计 12 个 leader 才能写入。证据 `evidence/helm-topling-mmapfix-333-store-majority.json`。仍不复用 `hg-closure-top-cc143-111` 的数据卷。证据 `evidence/topling-mmap-wal-batch-failure.json`。
 
