@@ -1,8 +1,10 @@
-# 本地证据索引
+# Linux 历史证据索引
 
-本文件只记录本地证据的逻辑位置和用途，不提交原始日志、大 JSON、镜像或数据集。原始证据位于忽略的 `.goal-task/toplingdb-linux-closure/evidence/`，仅本机可读；PR 中只保留本索引。
+本文件只记录本地证据的逻辑位置和用途，不提交原始日志、大 JSON、镜像或数据集。原始证据保存在原 Linux 主机忽略的 `.goal-task/toplingdb-linux-closure/evidence/`，Mac 本次未读取原始文件；PR 中只保留本索引。
 
-| 逻辑证据 | 用途 | 当前结论 |
+当前验收入口为 [linux.md](linux.md)。下表均为历史结果，未绑定完整 SHA 的项必须先复核来源。
+
+| 逻辑证据 | 用途 | 历史结论 |
 | --- | --- | --- |
 | `repaired-full-core-summary.json` | standalone 标准 RocksDB CoreTestSuite | 818 tests，0 failures/errors，42 skips |
 | `repaired-full-api-summary.json` | standalone 标准 RocksDB API suite | 161 tests，0 failures/errors，14 skips |
