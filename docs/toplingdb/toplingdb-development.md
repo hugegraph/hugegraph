@@ -130,7 +130,19 @@ consumer verification.
 
 ## Provider Configuration
 
-Server reads `rocksdb.provider` from graph `.properties` files:
+Server reads `rocksdb.provider` from local RocksDB graph `.properties` files
+in the `graphs` directory selected by the effective REST configuration.
+Relative graph directories resolve from the Server distribution root, as in
+the Java launchers. All local RocksDB graphs in one JVM must agree; a missing
+provider selects standard RocksDB. Remote and in-memory graphs do not select JNI.
+
+For Server, `TOPLINGDB_ROCKSDB_PROVIDER` checks that selection; it cannot override
+a different graph provider. A conflict stops startup before Java runs.
+Docker still generates `hugegraph.properties` in that directory from
+`HG_SERVER_ROCKSDB_PROVIDER`; the file must exist. Additional graphs must use
+the same effective value. Direct launch does not require that primary filename.
+
+Example graph property:
 
 ```properties
 rocksdb.provider=topling
@@ -146,6 +158,13 @@ rocksdb:
 Keep only one effective value for a component. The loader rejects unknown or
 conflicting values. The default is standard RocksDB when no provider is set.
 
+Server startup accepts plain properties and supported escaped path characters.
+It rejects includes, continuations, escaped keys, duplicate relevant properties,
+and interpolated/list values that cannot be safely matched to Java configuration.
+Server startup also rejects non-empty `rocksdb.data_disks` until those optimized
+roots can be enumerated safely. These errors name the affected property/file;
+they do not select a fallback runtime.
+
 Every Topling functional test must use a readable Easy Migrate YAML. Removing
 `TOPLINGDB_EASY_MIGRATE_CONF` reduces a test to Java ABI coverage and does not
 exercise the Topling runtime.
@@ -158,6 +177,7 @@ Run the platform-independent selection and packaging tests first:
 TRAVIS_DIR=hugegraph-server/hugegraph-dist/src/assembly/travis
 
 "$TRAVIS_DIR/test-topling-runtime-selection.sh"
+"$TRAVIS_DIR/test-topling-native-diagnostic.sh"
 "$TRAVIS_DIR/test-topling-docker-entrypoints.sh"
 "$TRAVIS_DIR/test-topling-runtime-packaging.sh" \
   "hugegraph-server/apache-hugegraph-server-$VERSION" \
@@ -182,8 +202,14 @@ Repeat the distribution and runtime checks for PD and Store. The CI jobs
 `server-rocksdb-runtime` and `distributed-rocksdb-runtime` build a matrix across
 standard RocksDB and ToplingDB. Standard runtime checks and both distribution
 contracts are required. The synthetic Topling column-family lifecycle check is
-reported as a non-blocking diagnostic for issue #212; image-backed service
-lifecycle tests remain required. The jobs also contaminate the standard build
+allowed a non-blocking exception only after a separate runtime mapping/read/write/close
+probe passes and the synthetic CF phase exits with SIGABRT and the exact known
+assertion for issue #212. Missing configuration, class loading, mapping, IO and
+unknown failures fail the job. Probe/lifecycle logs and JAR/native SHA-256
+identities are uploaded even on failure. Only the exact producer warning for an
+unavailable optional DirectByteBuffer constructor is excluded from the error
+scan; successful probe status and phase remain mandatory. Image-backed service lifecycle tests
+remain required. The jobs also contaminate the standard build
 with known runtime-state fixtures and verify that the Topling directory and
 tarball remain clean.
 
@@ -238,12 +264,17 @@ intended. Keep the provider-specific volume names and data roots explicit.
 The repository deliberately maintains one Compose topology per deployment
 shape rather than separate Topling files.
 
-Every local RocksDB owner uses a provider-specific data root. The entrypoint
-validates `.hugegraph-rocksdb-provider` before it mutates configuration or
-starts Java. Topling rejects unmarked non-empty data. Standard RocksDB accepts
-legacy unmarked data, but rejects a Topling marker. The helper rejects symlinked
-path components and serializes marker initialization on a pinned directory
-inode.
+Every local RocksDB owner uses a provider-specific data root. The Server entrypoint
+validates `.hugegraph-rocksdb-provider` for the default root and every effective
+local graph data/WAL path before initialization or Java startup. Marked ancestors
+and configured paths are checked so a nested path cannot bypass isolation.
+Primary configuration generation precedes enumeration; no database is opened
+until validation succeeds. PD and Store validate their component data roots. Topling rejects unmarked non-empty data. Standard RocksDB accepts existing
+non-empty legacy data without a marker; new or empty configured roots are
+claimed atomically, including bare Server startup on macOS. Both reject
+conflicting markers and storage symlinks. Topling/forced validation uses a
+pinned-directory lock and rechecks emptiness after creating its temporary marker
+so a competing child owner cannot be overwritten by a deployment-root marker.
 
 ## Native Runtime Changes
 

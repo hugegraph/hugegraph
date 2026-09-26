@@ -185,13 +185,19 @@ The generator selects `provider=topling` and prepares the native runtime. Run
 ## Provider Data Markers
 
 Docker entrypoints validate `.hugegraph-rocksdb-provider` before starting a
-JVM. The marker records the component and provider. A mismatched marker always
-stops startup. Topling also rejects an unmarked, non-empty data directory.
+JVM. Server checks the primary root plus data and WAL paths of all local
+RocksDB graphs in the directory selected by `graphs` in REST configuration.
+Additional graph storage roots must be mounted or created before startup;
+matching marked ancestors can own their descendant paths. All local graph
+providers must agree. The marker records the component and provider. A mismatched
+marker always stops startup. Topling also rejects an unmarked, non-empty data directory.
 The configured data root must already exist as a real directory; mount or
 create it before startup. Symlinked path components are rejected.
 
-Standard RocksDB accepts an existing unmarked directory for backward
-compatibility. New deployments should still use the image defaults:
+Standard RocksDB accepts existing non-empty unmarked data for backward
+compatibility. New or empty configured directories receive a standard marker
+through an atomic claim; bare standard startup can create missing directories.
+New deployments should still use the image defaults:
 
 | Component | Standard data root | Topling data root |
 |---|---|---|
@@ -211,7 +217,10 @@ cd "hugegraph-server/apache-hugegraph-server-$VERSION-topling"
 ```
 
 Confirm the provider and assign a data directory that no standard RocksDB
-process uses:
+process uses. For Server, `TOPLINGDB_ROCKSDB_PROVIDER` must agree with graph
+configuration; change `rocksdb.provider` explicitly rather than using that
+variable to override it. Custom graph directories use the REST `graphs`
+property and resolve relative to the Server distribution root:
 
 ```properties
 # conf/graphs/hugegraph.properties

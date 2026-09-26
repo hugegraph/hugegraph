@@ -1,8 +1,10 @@
-# Linux 历史证据索引
+# ToplingDB 证据索引
 
 本文件只记录本地证据的逻辑位置和用途，不提交原始日志、大 JSON、镜像或数据集。原始证据保存在原 Linux 主机忽略的 `.goal-task/toplingdb-linux-closure/evidence/`，Mac 本次未读取原始文件；PR 中只保留本索引。
 
-当前验收入口为 [linux.md](linux.md)。下表均为历史结果，未绑定完整 SHA 的项必须先复核来源。
+本轮 Mac 与本机容器证据在 [mac.md](mac.md#最小验证与审查)，原日志位于
+`/tmp/topling-local-20260927`；源码提交及 JNI 身份见对应交付记录。
+服务器验收入口为 [linux.md](linux.md)。下表均为历史结果，未绑定完整 SHA 的项必须先复核来源。
 
 | 逻辑证据 | 用途 | 历史结论 |
 | --- | --- | --- |

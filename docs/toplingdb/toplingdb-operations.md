@@ -67,3 +67,36 @@ A provider switch is not a data rollback. If the upgraded Topling runtime has
 written data and rollback is required, stop all writers and restore the full
 pre-upgrade snapshot into an empty data directory with the matching previous
 runtime.
+
+## Interrupted Standalone Snapshot Restore
+
+Standalone RocksDB snapshot restore keeps its checkpoint until the replacement
+has been installed and reopened. A sibling `<data-path>.resume-pending` file
+records the source checkpoint and WAL location before data changes. Every new
+HugeGraph open checks it before native recovery; if installation was interrupted,
+it retries that checkpoint and replaces live WAL with verified checkpoint logs.
+Missing sources, incomplete metadata or a changed WAL configuration stop opening.
+
+Preserve the checkpoint, pending marker and configured paths when diagnosing a
+failure. Restore access/space and retry normal startup with the same runtime and
+configuration. Do not delete the pending marker to bypass the guard: that can
+allow stale or partial logs to replay. A successful native reopen clears the
+pending marker and then attempts source cleanup, retaining historical
+consume-on-success behavior.
+
+A sibling `<data-path>.resume-lock` file serializes cooperating HugeGraph opens
+and restores. The OS lock is held until the database closes; the lock file is
+retained to avoid racing another opener. Its presence alone does not indicate
+an active owner. Mount the parent data root (for example `rocksdb-data`),
+not an individual store directory such as `data/g`. Opens reject a store directory
+that is a separate volume mount; Linux also detects same-filesystem bind mounts
+using the current process mount table. Aliases would hide the sibling guards,
+and the existing directory-replacement restore cannot remove
+a mount point. Do not run older binaries or unrelated writers concurrently on the
+same directories; they do not honor this recovery protocol.
+
+Independent WAL, WAL inside data, and data inside a WAL root use in-place log
+replacement. Preserve WAL symlink configuration across retries. The local IO
+fault tests cover interrupted operations and reopening; they do not establish
+power-cut durability. This protocol is for standalone RocksDB adapter restore,
+not HStore graph-level or multi-partition snapshots.

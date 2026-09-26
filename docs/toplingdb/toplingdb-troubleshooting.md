@@ -87,3 +87,18 @@ For a functional test, keep a readable component configuration in the
 environment and exercise create, write, close, reopen, drop, and recreate
 operations. Reserve no-configuration checks for ABI diagnostics that do not
 open a database.
+
+## Server Provider or Graph Directory Conflict
+
+For Server, graph configuration selects the runtime. A conflicting
+`TOPLINGDB_ROCKSDB_PROVIDER` stops startup; change the graph provider explicitly
+or remove the conflicting variable. All local RocksDB graphs in the effective
+REST `graphs` directory must agree, including graphs without an explicit
+provider (which default to standard RocksDB).
+
+Use an existing graph directory and pre-created data roots. The launcher fails
+on configuration syntax it cannot safely match to Java, rather than guessing a
+provider or directory. Server startup marker validation rejects storage symlinks,
+conflicting marked ancestors and unsupported optimized-disk layouts. Check the
+reported file, property and path before retrying; do not delete a conflicting
+provider marker to make startup pass.
