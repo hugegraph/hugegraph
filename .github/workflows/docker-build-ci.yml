@@ -330,6 +330,11 @@ jobs:
             if grep -q "not found" <<<"$LDD_OUTPUT"; then
               exit 1
             fi
+            # This ABI probe bypasses the entrypoint. Provision the clean
+            # Server package defaults so the real pre-open guards can run.
+            if [ -f conf/rest-server.properties ]; then
+              mkdir -p rocksdb-data/data rocksdb-data/wal
+            fi
             TOPLINGDB_ROCKSDB_PROVIDER=topling source bin/preload-topling.sh
             test "$TOPLING_ACTIVE_NATIVE" = \
               "$PWD/library/librocksdbjni-linux64.so"
