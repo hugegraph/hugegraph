@@ -16,6 +16,8 @@ Start with one of these paths:
   component, and return to standard RocksDB safely.
 - [Developer guide](toplingdb-development.md) covers the source layout,
   distribution contract, tests, CI, Docker status, and native runtime work.
+- [Issue illustrations](images/issues/v1/README.md) explains the scope and
+  core issues tracked by [Summary #240](https://github.com/hugegraph/hugegraph/issues/240).
 
 Use the reference guides when you need more detail:
 
