@@ -18,13 +18,56 @@
 package org.apache.hugegraph.backend.store.rocksdb;
 
 import java.io.File;
+import java.util.ArrayList;
+import java.util.List;
 
 import org.apache.hugegraph.backend.store.AbstractBackendStoreProvider;
 import org.apache.hugegraph.backend.store.BackendStore;
+import org.apache.hugegraph.backend.store.BackendStoreProvider;
+import org.apache.hugegraph.backend.store.rocksdb.backup.RocksDbGraphBackupService;
+import org.apache.hugegraph.backup.GraphBackupService;
 import org.apache.hugegraph.config.HugeConfig;
 import org.apache.hugegraph.util.ConfigUtil;
 
 public class RocksDBStoreProvider extends AbstractBackendStoreProvider {
+
+    @Override
+    public GraphBackupService backupService(HugeConfig config, String graphName) {
+        return new RocksDbGraphBackupService(this, config, graphName);
+    }
+
+    public List<RocksDBStore> backupStores() {
+        List<RocksDBStore> result = new ArrayList<>();
+        BackendStore schema = this.stores.get(BackendStoreProvider.SCHEMA_STORE);
+        BackendStore graph = this.stores.get(BackendStoreProvider.GRAPH_STORE);
+        if (schema instanceof RocksDBStore) {
+            result.add((RocksDBStore) schema);
+        }
+        if (graph instanceof RocksDBStore) {
+            result.add((RocksDBStore) graph);
+        }
+        return result;
+    }
+
+    public void reopen(HugeConfig config) {
+        for (BackendStore store : this.stores.values()) {
+            store.open(config);
+        }
+        this.notifyAndWaitEvent(org.apache.hugegraph.util.Events.STORE_INIT);
+    }
+
+    public void forceCloseSessions() {
+        for (BackendStore store : this.stores.values()) {
+            if (store instanceof RocksDBStore) {
+                ((RocksDBStore) store).forceCloseSessions();
+            }
+        }
+    }
+
+    public void closeAndForceCloseSessions() {
+        this.notifyAndWaitEvent(org.apache.hugegraph.util.Events.STORE_CLOSE);
+        this.forceCloseSessions();
+    }
 
     protected String database() {
         return this.graph().toLowerCase();

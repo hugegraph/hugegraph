@@ -55,11 +55,14 @@ public abstract class BackendSessionPool {
 
     public final BackendSession getOrNewSession() {
         BackendSession session = this.threadLocalSession.get();
-        if (session == null) {
+        if (session == null || session.closed()) {
+            if (session != null) {
+                this.threadLocalSession.remove();
+                this.sessions.remove(Thread.currentThread().getId());
+            }
             session = this.newSession();
             assert session != null;
             this.threadLocalSession.set(session);
-            assert !this.sessions.containsKey(Thread.currentThread().getId());
             this.sessions.put(Thread.currentThread().getId(), session);
             int sessionCount = this.sessionCount.incrementAndGet();
             LOG.debug("Now(after connect({})) session count is: {}",
@@ -144,6 +147,27 @@ public abstract class BackendSessionPool {
                   "current session reference is: {}",
                   this, result.getLeft(), result.getRight());
         return result.getLeft() == 0;
+    }
+
+    /**
+     * Close every session and the underlying native resource immediately.
+     * This is used when a store directory must be moved while other request
+     * threads still have a session in their thread-local storage.
+     */
+    public void forceClose() {
+        if (this.sessionCount.get() == 0) {
+            return;
+        }
+        for (BackendSession session : this.sessions.values()) {
+            while (session.detach() > 0) {
+                // Drain references held by the session's request thread.
+            }
+            session.close();
+        }
+        this.sessions.clear();
+        this.threadLocalSession.remove();
+        this.sessionCount.set(0);
+        this.doClose();
     }
 
     public boolean closed() {
