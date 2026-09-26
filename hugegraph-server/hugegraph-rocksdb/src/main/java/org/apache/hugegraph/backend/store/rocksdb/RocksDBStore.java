@@ -743,8 +743,8 @@ public abstract class RocksDBStore extends AbstractBackendStore<RocksDBSessions.
 
     @Override
     public void resumeSnapshot(String snapshotPrefix, boolean deleteSnapshot) {
-        Lock readLock = this.storeLock.readLock();
-        readLock.lock();
+        Lock writeLock = this.storeLock.writeLock();
+        writeLock.lock();
         try {
             if (!this.opened()) {
                 return;
@@ -779,7 +779,7 @@ public abstract class RocksDBStore extends AbstractBackendStore<RocksDBSessions.
         } catch (RocksDBException | IOException e) {
             throw new BackendException("Failed to resume snapshot", e);
         } finally {
-            readLock.unlock();
+            writeLock.unlock();
         }
     }
 
