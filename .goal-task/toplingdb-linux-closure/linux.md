@@ -54,6 +54,10 @@
   相同，但这是字节身份，不是签名证明。该 [workflow](https://github.com/hugegraph/toplingdb/blob/31afa28f3d31606c1d5769a42a96ecd93420e8bc/.github/workflows/topling-jni.yml)
   的 `make clean` 会自动取得其他 SidePlugin，HugeGraph 本地没有此 JAR 的完整源码/运行清单；
   workflow 也未固定 CPU `-march`，故源码闭包及通用 CPU 下限未收口。
+  对同 SHA-256 native 追加 `readelf --version-info`/`-d`/`-n` 检查（`159-*`）后，
+  实际 ELF 最高需求为 `GLIBC_2.38`、`GLIBCXX_3.4.32`、`CXXABI_1.3.13`，
+  动态依赖清单已保留；note 只有 build-id/gold version，没有可作为 CPU 下限的 ISA 声明。
+  这些是符号检查结果，不是已声明或在低配 CPU/发行版实测的支持基线。
   上游 [POM template](https://github.com/hugegraph/toplingdb/blob/31afa28f3d31606c1d5769a42a96ecd93420e8bc/java/pom.xml.template)
   列 Apache-2.0 与 GPLv2，包页标 GPLv2，而本地 [release LICENSE](../../install-dist/release-docs/LICENSE)
   将该包列为 Apache 2.0；JAR 内未发现 LICENSE/NOTICE。许可证选择需发布/法务审查，
@@ -103,6 +107,19 @@ sessionCount 为 1、当前线程引用归零。完整 CRUD 对照中两者最�
 时调用 `doClose()`，随后才由 `RocksDBStdSessions` 关闭 DB；因此本轮确认共用 Java
 会话未收尽，TP native 析构对此给出可见断言。不能据此排除 producer 的独立
 CF bookkeeping 问题，也不能在 worker 未停时强行 close DB 制造通过。
+对 `73-*`、`75-*` 逐线程配对 `connect` 与引用归零的 `close` 后，`156-*` 显示
+标准和 TP 各有 15 次新建、12 次归零关闭；唯一未配对的是发出顶点 GET 的
+`grizzly-http-server-*` 线程在 g/m/s 的三个 session。日志支持 HTTP 请求线程会话
+未收尽这一具体线索，但无法仅凭日志证明其负责全部 native CF 引用；下一步应在
+独立复现中核对请求结束事务清理与线程退出顺序，再做最小修复和三人复审。
+只读源码追踪 `157-*` 进一步显示：`VertexAPI.list()` 仅调用 `g.tx().close()`，
+TinkerPop `doClose()` 重置自身状态；关闭 schema/system/graph 后端事务并删除
+thread-local 的 `destroyTransaction()` 在 `StandardHugeGraph.closeTx()` 中，
+而服务图关闭是在另一条停机线程执行。这与 HTTP 线程残留相符；尚未实测修复，
+也不能直接把每次 `g.tx().close()` 改成强制清库而不验证 REST/Gremlin 行为。
+同样的逐线程解析用于完整 CRUD 日志 `68-*`/`70-*`，结果 `158-*` 为标准与 TP
+各 42 次新建、15 次归零关闭，未配对的 27 个 session 分布在九个 HTTP 线程的
+g/m/s，与最终每库 sessionCount 9 一致；非 HTTP 线程无未配对项。
 
 #250/#251/#253 反向数据根冲突：标准镜像指向已停机 TP 根、TP 镜像指向已停机标准根，
 两次 Docker 启动均 exit 1，报对应 `provider marker mismatch`，未进入 Java 数据库打开。
