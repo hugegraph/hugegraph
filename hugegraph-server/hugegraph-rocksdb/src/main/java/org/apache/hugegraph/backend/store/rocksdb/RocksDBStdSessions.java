@@ -20,6 +20,7 @@ package org.apache.hugegraph.backend.store.rocksdb;
 import java.io.File;
 import java.io.IOException;
 import java.nio.channels.FileChannel;
+import java.nio.channels.OverlappingFileLockException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
@@ -66,6 +67,7 @@ import org.rocksdb.RocksDB;
 import org.rocksdb.RocksDBException;
 import org.rocksdb.RocksIterator;
 import org.rocksdb.SstFileManager;
+import org.rocksdb.Status;
 import org.rocksdb.TableFormatConfig;
 import org.rocksdb.WriteBatch;
 import org.rocksdb.WriteOptions;
@@ -270,7 +272,7 @@ public class RocksDBStdSessions extends RocksDBSessions {
             // sibling lock throughout marker creation, installation and reopen.
             recoveryLock = this.rocksdb.closeForRestore();
             if (recoveryLock == null) {
-                recoveryLock = RocksDBSnapshotRestore.lock(this.dataPath);
+                recoveryLock = lockForOpen(this.dataPath);
             }
             RocksDBSnapshotRestore.start(this.dataPath, this.walPath, snapshotPath);
             this.rocksdb = RocksDBStdSessions.openRocksDB(this.config, ImmutableList.of(),
@@ -389,7 +391,7 @@ public class RocksDBStdSessions extends RocksDBSessions {
     private static OpenedRocksDB openRocksDB(HugeConfig config, String dataPath,
                                              String walPath) throws
                                                              RocksDBException {
-        FileChannel recoveryLock = RocksDBSnapshotRestore.lock(dataPath);
+        FileChannel recoveryLock = lockForOpen(dataPath);
         try {
             RocksDBSnapshotRestore restore = RocksDBSnapshotRestore.prepareOpen(dataPath, walPath);
             // Init options
@@ -421,7 +423,7 @@ public class RocksDBStdSessions extends RocksDBSessions {
     private static OpenedRocksDB openRocksDB(HugeConfig config, List<String> cfNames,
                                              String dataPath, String walPath,
                                              FileChannel heldLock) throws RocksDBException {
-        FileChannel recoveryLock = heldLock != null ? heldLock : RocksDBSnapshotRestore.lock(dataPath);
+        FileChannel recoveryLock = heldLock != null ? heldLock : lockForOpen(dataPath);
         try {
             RocksDBSnapshotRestore restore = RocksDBSnapshotRestore.prepareOpen(dataPath, walPath);
             // Old CFs should always be opened
@@ -464,6 +466,49 @@ public class RocksDBStdSessions extends RocksDBSessions {
         } catch (RuntimeException | RocksDBException | Error e) {
             RocksDBSnapshotRestore.unlock(recoveryLock);
             throw e;
+        }
+    }
+
+    private static FileChannel lockForOpen(String dataPath) throws RocksDBException {
+        try {
+            return RocksDBSnapshotRestore.lock(dataPath);
+        } catch (BackendException e) {
+            // Opening a session must retain the checked RocksDB failure contract,
+            // including the contention classification used by Store's shared-CF path.
+            Throwable cause = e.getCause();
+            String message;
+            boolean contention = false;
+            if (cause instanceof OverlappingFileLockException) {
+                contention = true;
+                message = "IO error: lock hold by current process: " +
+                          dataPath + ".resume-lock: No locks available " +
+                          "(database open/recovery lock)";
+            } else if (cause instanceof IOException && cause.getMessage() != null &&
+                       cause.getMessage().startsWith("Database is already open or recovering:")) {
+                contention = true;
+                message = "IO error: database open/recovery lock held: " +
+                          dataPath + ": No locks available";
+            } else {
+                String reason = cause == null ? "" : ": " + cause;
+                message = e.getMessage() + reason;
+            }
+            throw new RecoveryLockException(message, contention);
+        }
+    }
+
+    static final class RecoveryLockException extends RocksDBException {
+
+        private static final long serialVersionUID = 1L;
+
+        private final boolean contention;
+
+        RecoveryLockException(String message, boolean contention) {
+            super(message, new Status(Status.Code.IOError, Status.SubCode.None, message));
+            this.contention = contention;
+        }
+
+        boolean isContention() {
+            return this.contention;
         }
     }
 

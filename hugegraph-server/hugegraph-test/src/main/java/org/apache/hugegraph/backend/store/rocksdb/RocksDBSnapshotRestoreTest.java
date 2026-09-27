@@ -32,10 +32,13 @@ import java.util.Map;
 import org.apache.commons.io.FileUtils;
 import org.apache.hugegraph.backend.BackendException;
 import org.apache.hugegraph.config.HugeConfig;
+import org.apache.hugegraph.exception.ConnectionException;
 import org.apache.hugegraph.unit.FakeObjects;
 import org.apache.hugegraph.testutil.Whitebox;
 import org.junit.Rule;
 import org.junit.Test;
+import org.rocksdb.RocksDBException;
+import org.rocksdb.Status;
 import org.junit.rules.TemporaryFolder;
 
 import static org.junit.Assert.assertArrayEquals;
@@ -267,11 +270,22 @@ public class RocksDBSnapshotRestoreTest {
             AtomicReference<Throwable> failure = new AtomicReference<>();
             Thread contender = new Thread(() -> {
                 try {
-                    new RocksDBStdSessions(FakeObjects.newConfig(), "db", "store",
-                                           data.toString(), data.toString());
-                    failure.set(new AssertionError("Competing open acquired recovery lock"));
-                } catch (BackendException expected) {
-                    // Fail before data/WAL or native DB is touched.
+                    for (boolean withTables : new boolean[]{false, true}) {
+                        try {
+                            if (withTables) {
+                                new RocksDBStdSessions(FakeObjects.newConfig(), "db", "store",
+                                                       data.toString(), data.toString(),
+                                                       Collections.emptyList());
+                            } else {
+                                new RocksDBStdSessions(FakeObjects.newConfig(), "db", "store",
+                                                       data.toString(), data.toString());
+                            }
+                            fail("Competing open acquired recovery lock");
+                        } catch (RocksDBException expected) {
+                            assertTrue(expected.getMessage().contains("No locks available"));
+                            assertEquals(Status.Code.IOError, expected.getStatus().getCode());
+                        }
+                    }
                 } catch (Throwable e) {
                     failure.set(e);
                 } finally {
@@ -287,6 +301,52 @@ public class RocksDBSnapshotRestoreTest {
         }
         try (FileChannel retry = RocksDBSnapshotRestore.lock(data.toString())) {
             assertTrue(retry.isOpen());
+        }
+    }
+
+    @Test
+    public void testGuardErrorTextCannotReuseCachedNativeOwner() throws Exception {
+        File data = this.temporary.newFolder("No locks available Column family not found");
+        HugeConfig config = FakeObjects.newConfig();
+        RocksDBSessions owner = new RocksDBStdSessions(config, "db", "store",
+                                                       data.toString(), data.toString());
+        RocksDBStore store = new RocksDBStore.RocksDBGraphStore(new RocksDBStoreProvider(), "db", "store");
+        Map<String, RocksDBSessions> databases = Whitebox.getInternalState(store, "dbs");
+        databases.put(data.toString(), owner);
+        Path guard = new File(data + ".resume-lock").toPath();
+        Path held = new File(data + ".owned-lock").toPath();
+        try {
+            owner.createTable("test");
+            owner.session().put("test", new byte[]{1}, new byte[]{2});
+            owner.session().commit();
+            // Genuine contention can share the live owner's CFs.
+            RocksDBSessions copy = store.open(config, data.toString(), data.toString(),
+                                               Collections.singletonList("test"));
+            assertArrayEquals(new byte[]{2}, copy.session().get("test", new byte[]{1}));
+            copy.close();
+            databases.put(data.toString(), owner);
+
+            // Inject an IO failure, retaining the locked inode and live native owner.
+            Files.move(guard, held);
+            Files.createDirectory(guard);
+            try {
+                store.open(config, data.toString(), data.toString(), Collections.singletonList("test"));
+                fail("Path text must not classify a guard IO failure as contention or missing CF");
+            } catch (ConnectionException expected) {
+                assertTrue(expected.getCause() instanceof RocksDBStdSessions.RecoveryLockException);
+                assertFalse(((RocksDBStdSessions.RecoveryLockException) expected.getCause()).isContention());
+                assertTrue(expected.getCause().getMessage().contains("No locks available"));
+                assertTrue(expected.getCause().getMessage().contains("Column family not found"));
+                assertTrue(owner.databaseOpened());
+                assertArrayEquals(new byte[]{2}, owner.session().get("test", new byte[]{1}));
+                assertFalse(new File(data + ".resume-pending").exists());
+            }
+        } finally {
+            if (Files.exists(held)) {
+                Files.delete(guard);
+                Files.move(held, guard);
+            }
+            owner.forceCloseRocksDB();
         }
     }
 
@@ -307,7 +367,9 @@ public class RocksDBSnapshotRestoreTest {
                 new RocksDBStdSessions(FakeObjects.newConfig(), "db", "store",
                                        data.toString(), data.toString());
                 fail("Must not restore under an open native owner");
-            } catch (BackendException expected) {
+            } catch (RocksDBException expected) {
+                assertTrue(expected.getMessage().contains("No locks available"));
+                assertEquals(Status.Code.IOError, expected.getStatus().getCode());
                 assertArrayEquals(manifest, Files.readAllBytes(new File(data, "CURRENT").toPath()));
                 assertTrue(owner.databaseOpened());
                 assertTrue(snapshot.isDirectory());
@@ -404,13 +466,140 @@ public class RocksDBSnapshotRestoreTest {
         }
     }
 
+    @Test
+    public void testExternalOwnerRejectsBothPublicOpenPaths() throws Exception {
+        File data = this.temporary.newFolder("external-owner");
+        File ready = new File(this.temporary.getRoot(), "owner-ready");
+        String classpath = System.getProperty("surefire.test.class.path", System.getProperty("java.class.path"));
+        Process child = new ProcessBuilder(new File(System.getProperty("java.home"), "bin/java").toString(),
+                                           "-cp", classpath, getClass().getName(), data.toString(),
+                                           ready.toString()).redirectErrorStream(true).start();
+        try {
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+            while (!ready.exists() && child.isAlive() && System.nanoTime() < deadline) {
+                Thread.sleep(10);
+            }
+            assertTrue("External owner did not acquire lock", ready.exists());
+            for (boolean withTables : new boolean[]{false, true}) {
+                try {
+                    if (withTables) {
+                        new RocksDBStdSessions(FakeObjects.newConfig(), "db", "store",
+                                               data.toString(), data.toString(), Collections.emptyList());
+                    } else {
+                        new RocksDBStdSessions(FakeObjects.newConfig(), "db", "store",
+                                               data.toString(), data.toString());
+                    }
+                    fail("Public open must reject a competing process before native recovery");
+                } catch (RocksDBException expected) {
+                    assertTrue(expected instanceof RocksDBStdSessions.RecoveryLockException);
+                    assertTrue(((RocksDBStdSessions.RecoveryLockException) expected).isContention());
+                    assertEquals(Status.Code.IOError, expected.getStatus().getCode());
+                    assertTrue(expected.getMessage().contains("No locks available"));
+                    assertEquals(0, data.list().length);
+                }
+            }
+            child.getOutputStream().write('\n');
+            child.getOutputStream().flush();
+            assertTrue("External owner did not close", child.waitFor(10, TimeUnit.SECONDS));
+            assertEquals(0, child.exitValue());
+        } finally {
+            child.destroyForcibly();
+        }
+        try (FileChannel retry = RocksDBSnapshotRestore.lock(data.toString())) {
+            assertTrue(retry.isOpen());
+        }
+    }
+
     public static void main(String[] args) {
         try (FileChannel channel = RocksDBSnapshotRestore.lock(args[0])) {
-            System.out.println("acquired");
+            if (args.length == 2) {
+                Files.write(new File(args[1]).toPath(), new byte[]{1});
+                System.in.read();
+            } else {
+                System.out.println("acquired");
+            }
         } catch (BackendException expected) {
             System.exit(23);
         } catch (IOException e) {
             throw new AssertionError(e);
+        }
+    }
+
+    @Test
+    public void testCachedOwnerCopyCannotOverlapNativeReload() throws Exception {
+        File data = this.temporary.newFolder("copy-reload");
+        CountDownLatch checked = new CountDownLatch(1);
+        CountDownLatch allowCopy = new CountDownLatch(1);
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        AtomicReference<RocksDBSessions> copied = new AtomicReference<>();
+        RocksDBStdSessions owner = new RocksDBStdSessions(FakeObjects.newConfig(), "db", "store",
+                                                         data.toString(), data.toString()) {
+            @Override
+            public boolean databaseOpened() {
+                boolean opened = super.databaseOpened();
+                checked.countDown();
+                try {
+                    assertTrue("Copy check was not released", allowCopy.await(10, TimeUnit.SECONDS));
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new AssertionError(e);
+                }
+                return opened;
+            }
+
+            @Override
+            public RocksDBSessions copy(HugeConfig config, String database, String store) {
+                assertTrue("Native owner closed between its open check and copy", super.databaseOpened());
+                return super.copy(config, database, store);
+            }
+        };
+        RocksDBStore store = new RocksDBStore.RocksDBGraphStore(new RocksDBStoreProvider(), "db", "store");
+        Map<String, RocksDBSessions> databases = Whitebox.getInternalState(store, "dbs");
+        databases.put(data.toString(), owner);
+        Thread open = new Thread(() -> {
+            try {
+                copied.set(store.open(FakeObjects.newConfig(), data.toString(), data.toString(),
+                                      Collections.singletonList("test")));
+            } catch (Throwable e) {
+                failure.compareAndSet(null, e);
+            }
+        }, "cached-owner-copy");
+        Thread reload = new Thread(() -> {
+            try {
+                owner.reloadRocksDB();
+            } catch (Throwable e) {
+                failure.compareAndSet(null, e);
+            }
+        }, "cached-owner-reload");
+        try {
+            owner.createTable("test");
+            owner.session().put("test", new byte[]{1}, new byte[]{2});
+            owner.session().commit();
+            open.start();
+            assertTrue("Open did not reach the cached owner check", checked.await(10, TimeUnit.SECONDS));
+            reload.start();
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+            while (reload.getState() != Thread.State.BLOCKED && reload.isAlive() &&
+                   System.nanoTime() < deadline) {
+                Thread.sleep(10);
+            }
+            assertEquals("Native reload must wait for the owner check and copy", Thread.State.BLOCKED,
+                         reload.getState());
+            allowCopy.countDown();
+            open.join(10000);
+            reload.join(10000);
+            assertFalse(open.isAlive());
+            assertFalse(reload.isAlive());
+            if (failure.get() != null) {
+                throw new AssertionError(failure.get());
+            }
+            assertNotNull(copied.get());
+            assertArrayEquals(new byte[]{2}, owner.session().get("test", new byte[]{1}));
+        } finally {
+            allowCopy.countDown();
+            open.join(10000);
+            reload.join(10000);
+            owner.forceCloseRocksDB();
         }
     }
 
@@ -429,12 +618,25 @@ public class RocksDBSnapshotRestoreTest {
             FileChannel held = old.closeForRestore();
             assertFalse(old.isOwningHandle());
             assertTrue(held.isOpen());
+            RocksDBStore store = new RocksDBStore.RocksDBGraphStore(new RocksDBStoreProvider(), "db", "store");
+            Map<String, RocksDBSessions> databases = Whitebox.getInternalState(store, "dbs");
+            databases.put(data.toString(), sessions);
+            try {
+                store.open(FakeObjects.newConfig(), data.toString(), data.toString(),
+                           Collections.singletonList("test"));
+                fail("Cached owner must not be copied while native close/restore is in progress");
+            } catch (ConnectionException expected) {
+                assertFalse(sessions.databaseOpened());
+                assertTrue(held.isOpen());
+            }
             // Deterministic observation of the exact native-closed/marker-not-yet-created window.
             try {
                 new RocksDBStdSessions(FakeObjects.newConfig(), "db", "store",
                                        data.toString(), data.toString());
                 fail("Native close must not release recovery ownership");
-            } catch (BackendException expected) {
+            } catch (RocksDBException expected) {
+                assertTrue(expected.getMessage().contains("No locks available"));
+                assertEquals(Status.Code.IOError, expected.getStatus().getCode());
                 assertFalse(new File(data + ".resume-pending").exists());
             }
             RocksDBSnapshotRestore.start(data.toString(), data.toString(), snapshot.toString());
