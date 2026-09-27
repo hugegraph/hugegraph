@@ -93,8 +93,13 @@ mvn clean install -DskipTests
 ```
 
 **Output**:
-- JARs in each module's `target/` directory
-- Distribution package: `hg-pd-dist/target/hugegraph-pd-<version>.tar.gz`
+- JARs in each module's `target/` directory. `hg-pd-service-<version>.jar`
+  is the regular dependency JAR used by `hg-pd-test`;
+  `hg-pd-service-<version>-exec.jar` is the Spring Boot executable JAR.
+- Distribution directory: `apache-hugegraph-pd-<version>/`, containing only the
+  executable service JAR in `lib/`. The startup script continues to use `java -jar`;
+  the ToplingDB startup path uses the same executable JAR with `JarLauncher`.
+- Distribution archive on Linux: `apache-hugegraph-pd-<version>.tar.gz`.
 
 **Build Time**: 2-5 minutes (first build may take longer for dependency download)
 
