@@ -386,6 +386,22 @@ CodeSource、本轮 TP JAR SHA-256 与实际 native 映射/SHA-256；`161-*` 定
 均保留。此 fixture 的 `FakeObjects.newConfig()` 未设置 `rocksdb.provider`，默认仍是
 `rocksdb`：结果只证明真实 TP JNI 二进制下的 journal 测试路径，不独立证明 Java
 `topling` provider 分支或真实 TP 服务恢复。上述在线门禁、完整回归和三人复审仍未通过。
+再从同一候选源码 clean 构建 Server 标准/TP 发行包和独立测试镜像（`163-*`）；TP tar
+SHA-256 为 `90f6ca2ddf4ca27be9ff05b2d3eceb4ed40ab55c6ba06c0ff61796b661ad152c`，
+镜像 manifest digest/实际 imageID 同为
+`sha256:5c920aa8bb8e1c289ff700b0b70fb173b7b15ad35efe8550e734bf95184317da`。
+镜像 label 的 revision 是冻结 SHA，另以 `71580a3e…dd52a` 标记九个未提交候选源码路径；
+包内 TP JAR/native 哈希与本轮固定值一致。此镜像仅供隔离测试，不是正式产物。
+首次真实 TP 单服务 `162-*`：新挂载根上 CRUD、`snapshot_create` HTTP 200、快照后
+新增顶点 POST 201/GET 200；`snapshot_resume` HTTP 400，明确为
+`Close active graph transactions before snapshot restore`，脚本 exit 1。候选的
+`tx.closed()` 预检在正常 REST 访问后仍拒绝服务级恢复；三库 live `CURRENT` 与 checkpoint
+`CURRENT` 均保留，未产生 pending/journal，不能把前述 JUnit 9/0 计作服务通过。
+不删除文件，另用同一数据根正常重开 `164-*`，快照前两点与快照后点首次 GET 均 200、
+ID 匹配，脚本 exit 0；三个 checkpoint 仍在、pending 仍无，证明该预检拒绝未改变
+已确认数据。此容器 SIGTERM 后仍报 `SidePluginRepo ... db not closed`，45 秒 exit 137，
+#212 仍失败。控制容器均已移除，原始日志与数据留在专属目录；生产并发安全、实际整组
+恢复、即时缓存可见性及后续首次重启断言均未由此测试通过。
 
 收尾资源复核（`131-resource-final.txt`，此前阶段见 `117-resource-final.txt`）：
 所有本轮验收服务容器已移除，仅 kind 控制面与 BuildKit 容器运行；集群内只有

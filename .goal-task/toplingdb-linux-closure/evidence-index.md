@@ -8,7 +8,9 @@
 本轮冻结 SHA `9d797c7608e244f03436ce11294d9bd72aba4d2d` 的原始 Linux 证据位于
 `/home/soc-baidu/.codex/validation-runtime/toplingdb-linux-closure/accept-9d797c7-20260928/evidence/`；
 `140-*` 至 `153-*` 是尚未提交的 #249 图级 journal 候选日志/状态，`154-*` 保存历史容器
-inspect 和压缩原始日志，`155-*` 是清理后的资源状态。结果与安全边界以 [linux.md](linux.md) 为准。
+inspect 和压缩原始日志，`155-*` 是清理后的资源状态；`156-*` 至 `160-*` 为 #212
+会话追踪及被审查否决的候选，`161-*` 至 `164-*` 为 #249 真实 TP JNI 单测、候选镜像、
+服务预检拒绝和重开证据。结果与安全边界以 [linux.md](linux.md) 为准。
 
 | 逻辑证据 | 用途 | 历史结论 |
 | --- | --- | --- |
