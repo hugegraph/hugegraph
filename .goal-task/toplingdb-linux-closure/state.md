@@ -13,8 +13,10 @@ snapshot resume 同进程缓存可见性异常；单 DB mount 拒绝时并行 m/
 #248 在本轮两个拓扑未复现，#252 依正确性门禁后置。
 该单 DB mount 缺陷已在冻结 SHA 的隔离子分支提交修复候选 `b4905385124a1c7fbd2668526510ac438f53398d`，
 三名只读审查者复审及新镜像真实 bind mount 负例、CRUD/首次重启正例通过；#212 关闭仍失败。
-冻结镜像另以 TP 和标准 provider 完成 checkpoint 校验失败、原文件恢复及重启后正确回滚；服务级复制/发布
-故障、同进程缓存和正式发布链仍待验。这不改变冻结 SHA 的单 DB mount 失败结论，
+冻结镜像以 TP 和标准 provider 完成 checkpoint 校验拒绝；真实服务 WAL staging 复制故障
+保留 pending/source，并在移除测试故障源后恢复 s 库。g/m checkpoint 仍在，全图恢复
+尚未收口；同进程缓存、数据树复制/发布故障和正式发布链仍待验。这不改变冻结 SHA
+的单 DB mount 失败结论，
 详见 [Linux 验收](linux.md)。
 
 ## 此前 Mac 阶段与加载规则

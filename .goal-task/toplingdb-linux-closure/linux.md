@@ -272,8 +272,40 @@ verify exit 0、第三点 HTTP 404。此对照证明双 runtime 冻结镜像在�
 标准 JAR classpath 下的服务故障路径；长驻服务 native 映射未独立取证，
 也不等于使用独立标准镜像进行此服务故障注入。
 
-收尾资源核对（`117-resource-final.txt`）：所有本轮验收服务容器已移除，仅原有 kind
-控制面与 BuildKit 运行；可用内存约 116 GiB、根盘空余约 1.1 TiB。先前两项任务匿名卷
+#249 继续在**冻结 SHA** 做真实服务 WAL staging 复制故障：TP 与标准 provider 分别
+使用专属父数据根 bind mount，checkpoint 与数据保持同一宿主文件系统；标准 provider
+使用上文的双 runtime TP 镜像并选择标准 JAR，非独立标准镜像，长驻 native 映射仍未取证。仅配置的 WAL
+根挂 64 MiB tmpfs。两次 `snapshot_create` HTTP 200，原 checkpoint 中数字 `.log`
+合计均为 0 字节；向 `snapshot_data/{m,g,s}` 各加入一份 96 MiB 的测试用
+`999999999.log`。首次 `snapshot_resume` 两者均 HTTP 400，`data/s.resume-pending`
+和三个 checkpoint 均保留；测试流程未删除 pending marker，lock 状态未逐文件取证
+（`123-*`、`127-*`）。
+两次 REST 错误响应只显示上层 BackendException，首次脚本因误从响应/stdout 查找
+ENOSPC 而 exit 1，原始响应和日志保留。保持故障源再启动的容器内部日志分别在
+`124-internal-logs/hugegraph-server.log` 与 `128-internal-logs/hugegraph-server.log`
+明确指向 `data/s/999999999.log` 向 `wal/s/.resume-staging-*/999999999.log`
+复制时的 `FileSystemException: No space left on device`；pending/source 再次保留。
+TP 重新打开失败时 `/versions` HTTP 200、图 API HTTP 404，不能以容器 healthy
+替代图后端成功；手动停机 exit 0 使 `124` 的错误退出码断言失败。标准重试进程
+在查询时关闭连接，使 `128` 脚本 exit 56；底层堆栈证据仍完整，不能将脚本失败
+写成恢复通过。
+
+停掉故障进程后，只移除三份人工加入的 checkpoint 日志；移除前 SHA-256 与加入时
+一致，`s.resume-pending` 在此操作前后字节相同；本次未取证 `.resume-lock` 的逐文件状态。
+以相同 WAL 路径/64 MiB 容量启动新进程：TP `125-*`、标准 provider `129-*`
+的基线两顶点一边完整 verify 均 exit 0，`s.resume-pending` 消失；TP 停机仍
+exit 137/#212，标准停机 exit 0。**这证明 s 库的 WAL staging 复制失败可重试，
+不能证明全图 snapshot_resume 完成**：两种 provider 在 s 恢复后都仍留有
+`snapshot_data/g` 和 `snapshot_data/m`，而 s checkpoint 已被消费（`130-*`）。
+源码按 store 顺序调用恢复，首个错误中断后续 store；启动时只自动处理该 DB 的
+pending。此次没有快照后写入，因此基线可读不能当作 g/m 已回滚的断言。
+服务级 WAL **复制**故障已补测；主数据树复制失败、WAL 发布失败、嵌套 WAL 的服务
+故障路径仍仅有真实 JNI helper 覆盖，全图失败原子性和恢复协调仍是 #249 门禁。
+
+收尾资源复核（`131-resource-final.txt`，此前阶段见 `117-resource-final.txt`）：
+所有本轮验收服务容器已移除，仅 kind 控制面与 BuildKit 容器运行；集群内只有
+`kube-system` 和 `local-path-storage` 基础 Pod，无旧 HugeGraph 服务批次。
+可用内存约 117 GiB、根盘空余约 1.1 TiB。先前两项任务匿名卷
 仍在，定向删除被自动审批拒绝；未清理非任务资源。
 
 下一步：推送本轮证据文档并更新关联 issue（当前 GitHub 认证失效）；后续收口 #212 停机断言、
@@ -306,7 +338,7 @@ Mac 上的 Linux 容器核心实测身份与结果见 [mac.md](mac.md#本机核�
 | #250/#251/#253 | 直接及容器启动，默认/自定义目录和额外图；实际 JNI 与 Java provider 一致；冲突在数据库打开前失败，原数据不变 | 冻结 SHA 单 DB mount 全图失败；隔离修复候选通过，待推送/集成；PD/Store 长驻映射待证 |
 | #254 | 用真实 TP JNI 经 adapter 执行多 key truncate，旧数据全空、CF 保留、可重新读写并关闭；标准 provider 对照自身预期分支 | 本轮通过：TP 1/0/0，标准对照通过 |
 | #255 | 真正运行 runtime diagnostic，检查前置探测、错误分类、原始日志和 JNI 身份；仅已知断言得到例外，其他错误阻塞 | probe 通过；合成 CF 精确断言例外，真实关闭失败 |
-| #249 | 标准/TP 确定提交分别验证 snapshot 成功与故障恢复，包含独立/嵌套 WAL、失败后重启及源文件校验 | helper、持久回滚及 TP/标准 provider 服务校验失败/修复后重开通过；同进程缓存失败，服务复制/发布故障注入待验 |
+| #249 | 标准/TP 确定提交分别验证 snapshot 成功与故障恢复，包含独立/嵌套 WAL、失败后重启及源文件校验 | helper、持久回滚、服务校验拒绝与 s 库 WAL 复制失败重试通过；全图恢复未完成，同进程缓存失败，数据树复制/发布服务故障待验 |
 | #212 | 核对真实 DB/CF 和服务生命周期的残余关闭告警，区分已知合成断言、正常关库和卡住 worker | TP standalone 真实复现，归因待继续 |
 | #248 | 复查 clear 后首次 Server 重启丢可见性的单次线索，固定确认写入及查询证据；第二次成功不覆盖第一次异常 | 两种拓扑各一次未复现，旧线索未关闭 |
 | #213 | 核实不可变 JNI 坐标、源码/工具链、CPU 基线、校验和及许可/发布链 | ABI/CPU 已核，正式发布链未完成 |

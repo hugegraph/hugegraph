@@ -13,5 +13,6 @@
 | Topling memtable 稀疏文件使全量哈希异常缓慢 | 同时记录逻辑长度与已分配块；失败前后先比文件清单、大小、块数、mtime，内容哈希限定合理逻辑大小，并明确大稀疏文件未逐字节覆盖 | [本轮验收](linux.md#2026-09-28-固定源码验收进度)，`24-*` / `25-*` |
 | Docker 随机发布端口在 `docker start` 后变化 | 每次重启后重新读取 `docker port`；自定义 REST 配置若仍绑定容器内 127.0.0.1，宿主机映射端口不可访问 | [本轮自定义图](linux.md#2026-09-28-固定源码验收进度)，`29-*` / `32-*` |
 | 服务 snapshot 的 checkpoint 缺失 MANIFEST | 校验在 pending marker/数据安装前拒绝，本轮标准/TP REST 均返回 400；失败的当前进程可能已关 native handle，不在其中重试。停机后按哈希恢复源文件并重启，先证原数据仍可见，再 resume、再重启验证快照后数据消失；通用 smoke 若默认计数固定，两次数据断言不能混用 | [本轮服务失败恢复](linux.md#2026-09-28-固定源码验收进度)，`108-*` 至 `111-*`、`116-*` |
-| provider marker 已存在或 Pod Ready | 继续由 init-store 和真实数据/CF 文件确认 backend 初始化；预认领空父根只解决目录安全门禁，不算图打开成功 | [本轮自定义图](linux.md#2026-09-28-固定源码验收进度)，`28-*` 至 `30-*` |
+| 服务 WAL staging 复制遇 ENOSPC | 数据与 checkpoint 留在同一专属磁盘根，仅给 WAL 根有限 tmpfs；加入数字 `.log` 后内层堆栈定位 staging copy。失败后确认 pending/checkpoint，再只移除测试加的日志，保留 marker/锁并由新进程恢复。按 m/g/s 分别核对：单库 pending 消失和基线 CRUD 通过不证明全图 resume，剩余 checkpoint 必须记作门禁 | [本轮服务 WAL 复制故障](linux.md#2026-09-28-固定源码验收进度)，`123-*` 至 `130-*` |
+| provider marker 已存在、Pod Ready 或 `/versions` HTTP 200 | 继续由 init-store 和真实数据/CF 文件、图 API 确认 backend 初始化；预认领空父根只解决目录安全门禁，不算图打开成功。故障重开时本轮 `/versions` 200、图 API 404 | [本轮自定义图](linux.md#2026-09-28-固定源码验收进度)，`28-*` 至 `30-*`；[WAL 故障重开](linux.md#2026-09-28-固定源码验收进度)，`124-*` |
 | 标准 JNI 停机 exit 0，但 TP 报 `db not closed` | 同负载打开 BackendSessionPool DEBUG，对照最后的 sessionCount 和 DB close 路径；标准无断言不证明所有 Java session 已释放，也不据此强制关库 | [本轮最小对照](linux.md#2026-09-28-固定源码验收进度)，`71-*` / `76-*` |
