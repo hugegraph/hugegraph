@@ -175,7 +175,10 @@ HTTP 500、gRPC `UNAVAILABLE`；恢复 store0 后首次 verify exit 0（`49-*`�
 
 #248 在此拓扑再次单次复现：`clear` HTTP 204，重新写入并确认重启前 GET HTTP 200；
 首次 Server 重启后的第一笔 GET 为 200、值正确，完整 verify exit 0（`51-*`、`52-*`）。
-旧线索仍未定位。停掉原 PD leader pd0 后，第一次边查询 HTTP 500、`InterruptedException`，
+旧线索仍未定位。计划第三次加入第二台 Server 的交叉读取，但专属 bind staging 的
+`docker run --rm --mount` 被自动审批拒绝，命令未执行、未创建容器或数据卷；
+此项不计作第三次未复现（`133-248-third-preflight.txt`）。停掉原 PD leader pd0 后，
+第一次边查询 HTTP 500、`InterruptedException`，
 约 25 秒后的 verify exit 0，pd2 日志记录成为 leader；恢复 pd0 后 verify exit 0
 （`53-*`、`54-*`）。这证明有恢复和一个失败窗口，不能写成零中断或物理多机 HA。
 七个容器及网络已清理，原始日志和专属数据仍保留（`55-*`）。
@@ -307,6 +310,11 @@ g/m 无 `.resume-pending`，仅凭残留 checkpoint 无法在重启时判定是�
 所有 DB 安装及重开成功后先持久记录提交状态，再清理成员 checkpoint。还需覆盖首库失败后
 立即崩溃、重启重放、独立/嵌套 WAL 与最终清理的确定性回归。此为修复方案方向，
 尚未实现或通过三名独立只读审查及真实服务复测。
+上述 REST 路径的持久化协议、崩溃点及测试切面详见专属 evidence 中的
+`132-graph-resume-protocol-design.md`；它排除了仅用于 Raft snapshot 的
+`StoreSnapshotFile`。冻结 SHA 的新隔离 checkout 位于
+`/home/soc-baidu/.codex/worktrees/topling-snapshot-recovery/hugegraph`，分支
+`codex/toplingdb-graph-snapshot-recovery`，目前只做只读设计，无代码改动。
 
 收尾资源复核（`131-resource-final.txt`，此前阶段见 `117-resource-final.txt`）：
 所有本轮验收服务容器已移除，仅 kind 控制面与 BuildKit 容器运行；集群内只有
