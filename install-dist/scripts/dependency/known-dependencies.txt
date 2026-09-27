@@ -484,7 +484,6 @@ slf4j-api-1.7.21.jar
 slf4j-api-1.7.25.jar
 slf4j-api-1.7.31.jar
 slf4j-api-1.7.32.jar
-slf4j-api-2.0.9.jar
 snakeyaml-1.18.jar
 snakeyaml-1.26.jar
 snakeyaml-1.27.jar

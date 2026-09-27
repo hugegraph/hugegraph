@@ -74,6 +74,11 @@ fi
 
 TEMP_DIR=$(mktemp -d)
 SECURITY_PROPERTIES_BACKUP="${TEMP_DIR}/java-security.properties"
+# The provider selector reads REST configuration before invoking the JVM.
+# Keep it valid while a missing Gremlin file stops the real server before bind.
+FIXTURE_REST_PROPERTIES="${TEMP_DIR}/rest-server.properties"
+mkdir "${TEMP_DIR}/graphs"
+printf 'graphs=%s\n' "${TEMP_DIR}/graphs" > "$FIXTURE_REST_PROPERTIES"
 
 cleanup() {
     if [[ -d "$SECURITY_PROPERTIES" ]]; then
@@ -127,11 +132,12 @@ assert_invalid_security_properties() {
 assert_reached_server_startup() {
     local error_file="$1"
     local message="$2"
-    grep -Fq "Failed to load yaml config file" "$error_file" || fail "$message"
-    grep -Fq "org.apache.hugegraph.bootstrap.HugeGraphServerBootstrap.main" \
-             "$error_file" || fail "$message"
-    grep -Fq "org.apache.hugegraph.dist.HugeGraphServer.main" \
-             "$error_file" || fail "$message"
+    if ! grep -Fq "Failed to load yaml config file" "$error_file" ||
+       ! grep -Fq "org.apache.hugegraph.bootstrap.HugeGraphServerBootstrap.main" "$error_file" ||
+       ! grep -Fq "org.apache.hugegraph.dist.HugeGraphServer.main" "$error_file"; then
+        cat "$error_file" >&2
+        fail "$message"
+    fi
 }
 
 assert_clean_bootstrap_error() {
@@ -229,7 +235,7 @@ assert_launcher_accepts_security_properties() {
     local error_file="${TEMP_DIR}/launcher-valid.err"
     if JAVA_OPTIONS="" STDOUT_MODE=true "$SERVER_SCRIPT" \
        "${TEMP_DIR}/missing-gremlin.yaml" \
-       "${TEMP_DIR}/missing-rest.properties" true \
+       "$FIXTURE_REST_PROPERTIES" true \
        "-Djava.security.properties=${properties_path}" \
        >/dev/null 2>"$error_file"; then
         fail "server unexpectedly started with missing configuration"
@@ -248,7 +254,7 @@ assert_launcher_skips_security_validation() {
                       -Djava.security.properties=${INFINITE_PROPERTIES}" \
        JAVA_OPTIONS="" STDOUT_MODE=true "$SERVER_SCRIPT" \
        "${TEMP_DIR}/missing-gremlin.yaml" \
-       "${TEMP_DIR}/missing-rest.properties" false \
+       "$FIXTURE_REST_PROPERTIES" false \
        >/dev/null 2>"$error_file"; then
         fail "server unexpectedly started with missing configuration"
     fi
