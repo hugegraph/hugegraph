@@ -402,6 +402,16 @@ ID 匹配，脚本 exit 0；三个 checkpoint 仍在、pending 仍无，证明�
 已确认数据。此容器 SIGTERM 后仍报 `SidePluginRepo ... db not closed`，45 秒 exit 137，
 #212 仍失败。控制容器均已移除，原始日志与数据留在专属目录；生产并发安全、实际整组
 恢复、即时缓存可见性及后续首次重启断言均未由此测试通过。
+为区分 CRUD 残留与启动期事务，再在另一专属根执行最小服务对照（`165-*`）：
+无 CRUD、顶点读取或 Gremlin 请求，仅 `/versions` 后 `snapshot_create` 200，紧接
+`snapshot_resume` 仍 HTTP 400、同一活跃事务拒绝；脚本 exit 1，停机 exit 0。
+在保持三库 checkpoint/锁文件原状下正常重开，待 `/versions` 后空闲 60 秒再试（`166-*`），
+仍 HTTP 400、脚本 exit 1、停机 exit 0。第二次尝试前采集的十份 checkpoint 文件
+在失败后 `sha256sum -c` 全部匹配、exit 0；live/checkpoint 的三库 `CURRENT` 仍在，
+没有 pending/journal。命令、时间、响应、退出码和数据边界见 `167-*`。
+因此当前 `tx.closed()` 门禁在普通服务序列里无法进入实际整组恢复，不能仅因
+“拒绝发生在写入前”判 #249 通过；需要可验证的图级排空/维护流程，并保留 schema、
+惰性迭代器和缓存的在线安全检查。
 
 收尾资源复核（`131-resource-final.txt`，此前阶段见 `117-resource-final.txt`）：
 所有本轮验收服务容器已移除，仅 kind 控制面与 BuildKit 容器运行；集群内只有

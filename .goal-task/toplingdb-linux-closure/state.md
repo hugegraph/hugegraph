@@ -23,7 +23,8 @@ snapshot resume 同进程缓存可见性异常；单 DB mount 拒绝时并行 m/
 另一个干净隔离分支从预检/持久状态骨架推进到标准 JNI 三库启动重放，定向 52/0/0；
 真实 TP JNI 定向 journal 9/0/0 也通过，但 fixture 默认标准 provider；
 独立候选镜像的真实 TP 服务恢复被活跃事务预检以 HTTP 400 拒绝，数据重开可读，
-停机仍 exit 137；安全复审还有 schema/iterator 在线门禁，代码未提交、完整回归未过。
+最小无 CRUD 及空闲 60 秒的恢复对照仍被 400 拒绝；完整 CRUD 停机仍 exit 137，
+安全复审还有 schema/iterator 在线门禁，代码未提交、完整回归未过。
 
 ## 此前 Mac 阶段与加载规则
 
