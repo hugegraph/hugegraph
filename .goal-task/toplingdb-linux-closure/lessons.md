@@ -14,3 +14,4 @@
 | Surefire 使用 fork JVM 与自定义 temp 目录 | 临时路径同时传 Maven property 和 argLine，避免 fork 仍共享旧测试目录与 pending marker；只设 MAVEN_OPTS 不够 | [定向命令](mac.md#最小验证与审查)，java-tests-delivery.log |
 | Maven compile 通过、package/install 下游找不到同模块类 | 用 clean 重现 artifact 布局；Boot 主 JAR 的 BOOT-INF/classes 不能作普通编译依赖，保留薄主 JAR并单独附 exec，发行包只选 exec | [CI 补救](mac.md#ci-补救与完成状态更正)，clean package 失败/修复及 root clean install |
 | 定向测试通过但完整 CI 未结束 | 只记录已交付、待 CI；本 PR 早期新增代码的失败仍由本分支收口，不以是否在最后一次 diff 内判断归属 | [18 个失败 job 的归因](mac.md#ci-补救与完成状态更正) |
+| runtime 依赖已移除或换版本 | 同步原 CI generator 的 known 清单，先确认实际 runtime 集合唯一差异；CI 对新增与删除都失败，不为匹配旧清单加入已移除库 | [第二轮 CI 补救](mac.md#第二轮-ci-补救安全启动-fixture-与依赖清单)，inventory-before-sorted.diff |

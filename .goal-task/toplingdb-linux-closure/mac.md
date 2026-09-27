@@ -13,8 +13,9 @@
 
 2026-09-27 更正：上一轮已交付本机定向验证，但整体 CI 门禁未收口。
 完整 CI 随后发现恢复锁相关的标准多盘回归，以及本 PR 新增 PD 测试的 package/install 编译失败。
-本机补救代码已验证并提交，远端 CI 待复验；不能把前轮 goal 的 complete 标记当作当前代码已具备合入条件。
-当前下一动作是核对补救提交的推送结果及新 head 的相关远端 CI；
+第一轮补救已交付；其 CI 有 36 成功、2 失败，第二轮安全 fixture 与依赖清单已修复并完成本机回归。
+不能把前轮 goal 的 complete 标记当作当前代码已具备合入条件。
+当前下一动作是核对第二轮 CI 补救提交 `218f52309a7109d19d76b3161674d24c86c2c4c3` 的推送结果及新 head 的相关远端 CI；
 Linux 可先按已交付 SHA 验证独立项目，但须在新提交后复验受影响场景。不自动合并 PR。
 
 ## 开发清单与验收
@@ -115,11 +116,48 @@ Docker Server 的 ABI CI 探测绕过 entrypoint，新增根校验使未准备�
 三名只读审查者复查本次最终 diff；发现的异常消息误判与检查/复制/初始化竞态已修复，最终均无阻塞发现。
 此次保证同一 owner 的初始化与恢复互斥；不同副本后续独立恢复的引用重绑定属于既有共享生命周期边界，
 未扩展为支持任意副本并发恢复。真实服务验收应沿实际 Store 生命周期执行，不能泛化单个并发用例。
-本机补救验证完成，代码 head 为 `dfd4ce07e98e5846a2a093750f4b59a3061ab393`，PD 打包提交 `5401221996d7af71a0ea9a4243b5f0d1529237cc`。
+第一轮本机补救验证完成，当时代码 head 为 `dfd4ce07e98e5846a2a093750f4b59a3061ab393`，PD 打包提交 `5401221996d7af71a0ea9a4243b5f0d1529237cc`。
 最终格式、完整 clean compile 与 git diff --check 通过。71 个相对链接/锚点与 Linux bash 命令语法通过，
 四份历史档案保持逐字节一致；一名文档审查者指出的临时目录隔离问题已修正。
 当前整体收口仍待相关远端 CI，不能仅凭本机验证、推送或旧 goal complete 再标记完成。
 Linux 接收新源码后复跑多盘/恢复锁、PD 打包与实际服务场景；服务器结果仍只在 linux.md 维护。
+
+## 第二轮 CI 补救：安全启动 fixture 与依赖清单
+
+2026-09-27 再核对 `e4fef4b95c82b561d5abac021acccd974ab11a24`：38 项检查中 36 成功、2 失败。
+第一轮修复的 PD 编译和 Mac 多盘任务已通过；剩余失败另有根因，不能仍称全 CI 已收口。
+
+- [Server RocksDB job](https://github.com/hugegraph/hugegraph/actions/runs/36295349099/job/108559275720)
+  在 package 的 `BUILD SUCCESS` 后，被安全配置测试的
+  `FAIL: valid Java security properties did not reach server startup` 中断。
+  本机同样复现；实际 stderr 为 `unreadable configuration: .../missing-rest.properties`。
+  新 provider selector 在 JVM 前读取 REST，旧 positive/disabled 用例却故意传缺失 REST。
+  修正 fixture：专属临时 REST + 存在的空 graphs 目录，继续传缺失 Gremlin YAML。
+  仍同时断言 YAML 加载失败、bootstrap main、Server main，未修改生产校验或安全规则；
+  失败时打印捕获 stderr，避免 CI 只留泛化错误。
+- [dependency-check](https://github.com/hugegraph/hugegraph/actions/runs/36295348928/job/108553061001)
+  同样在 Maven 成功后因清单 diff 退出 1，仅少 `slf4j-api-2.0.9.jar`。
+  本 PR 的 `0d2d334c5` 已把 minicluster 的 SLF4J 改为 1.7.25，遗漏同步 known 清单。
+  全 reactor 的 runtime copy-dependencies 复现唯一删除，无其他漂移；删除这一过期项。
+  与 PD thin/exec 无关，没有通过加入不需要的库消除 diff。
+
+截图中的 assembly 父 POM 告警仍可观察：调试日志确认模型解析请求了字面 `${revision}` 的根 POM；
+同次实际打包退出 0，Server 发行包/tar 成功生成。它们未触发上述两个 job 的退出，
+此轮没有为消除告警改造共有 POM/assembly 布局，也不将打包成功推导为完整服务验收。
+
+| 验证 | 结果 | 证据（/tmp/topling-local-20260927） |
+| --- | --- | --- |
+| 原安全 fixture | 同 CI 稳定失败，stderr 指向缺失 REST；诊断临时副本保留失败文件 | security-fixture-before.log / security-fixture-before-debug.log |
+| Mac JDK11 完整安全配置脚本 | 退出 0，PASS Java security properties and startup wiring | security-fixture-mac-after.log |
+| Linux amd64/JDK11 同脚本 | Mac OrbStack 模拟 amd64、2 CPU/2 GiB/禁网，真实发行包复制进独立容器；退出 0，完整脚本 PASS | security-fixture-linux-after.log |
+| runtime 依赖对照 | 原 CI generator 成功，清单唯一删除；check_dependencies.sh 退出 0 | inventory-copy.log / inventory-before-sorted.diff / inventory-check.log |
+| Bash 与 shellcheck | bash -n 通过，无新增 shellcheck 发现 | security-shellcheck-before.json / security-shellcheck-after.json |
+| 独立只读审查 | 两文件 diff 无阻塞，保留全部安全断言、有效配置隔离和库版本归属 | security_fixture_review |
+
+本轮代码提交 `218f52309a7109d19d76b3161674d24c86c2c4c3`，生产行为未改。Mac/Linux 完整安全脚本、实际依赖对照、
+独立只读审查均通过；格式、完整 clean compile、bash -n 与 diff --check 通过，
+73 个相对链接/锚点及四份历史档案一致性通过。
+当前下一动作是核对这次提交及文档的推送结果、新 head CI；远端门禁通过前不标整体完成。
 
 ## 本机核心实测身份
 

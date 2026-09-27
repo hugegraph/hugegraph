@@ -37,9 +37,18 @@ Mac 上的 Linux 容器核心实测身份与结果见 [mac.md](mac.md#本机核�
 
 ## 本轮交接与复跑
 
-2026-09-27 CI 补救已通过本机验证与审查，相关远端 CI 尚待复验：旧 `cf25a438a` 有 18 个失败 job，
+第二轮 CI 补救已完成本机回归与审查，确定源码提交 `218f52309a7109d19d76b3161674d24c86c2c4c3`。
+其基线 `e4fef4b95` 已有 36 项成功、2 项失败，分别为安全启动 fixture
+使用缺失 REST 被 provider selector 在 JVM 前拒绝，以及 SLF4J 旧版本的 known inventory 未同步删除。
+生产恢复/隔离代码仍沿下方第一轮代码 SHA；当前接收须包含本次 fixture/清单修复提交及最新文档，
+fetch 后核对该提交已在原分支，保留服务器旧未提交内容。新 head CI 尚待验，不继承基线的 36 项成功。
+安全启动回归使用构建后的 Server 发行包执行，要求脚本输出 PASS，不把单次 Maven 成功当整个 CI 成功。
+
+### 第一轮生产代码与复跑命令
+
+第一轮 CI 补救已通过本机验证与审查；其远端结果见上方 36 成功/2 失败记录。旧 `cf25a438a` 有 18 个失败 job，
 其中 16 个是本 PR 新增 PD 测试在打包后的 classpath 问题，2 个是新恢复锁导致的标准多盘契约回归。
-不得沿用旧 complete 标记作为合入依据。当前确定代码 head 为 `dfd4ce07e98e5846a2a093750f4b59a3061ab393`，
+不得沿用旧 complete 标记作为合入依据。该轮确定代码 head 为 `dfd4ce07e98e5846a2a093750f4b59a3061ab393`，
 其中 PD 打包提交 `5401221996d7af71a0ea9a4243b5f0d1529237cc`；fetch 后核对它们已在原 `toplingdb` 分支，
 再在保留本地旧补丁的前提下整合、构建和验收。
 除原清单外须复跑完整标准 CoreTestSuite、多盘/shared CF、恢复锁并发、PD clean package/install
