@@ -379,6 +379,13 @@ SchemaManager 可绕过失败拒读、长寿命 iterator 可在 native 关闭后
 因此此候选仍不得提交/推送；需要统一图级停流与 epoch、确定性并发故障测试、
 三名独立只读审查者复审和真实标准/TP 服务复测。命令、退出码、审查与未覆盖边界见
 `153-group-replay-candidate-status.md`。此前单 DB mount 的隔离修复候选与本分支分开保留。
+随后对同一未提交候选做 clean 编译并重建 classpath，在测试 JVM 中核验候选各类的
+CodeSource、本轮 TP JAR SHA-256 与实际 native 映射/SHA-256；`161-*` 定向 journal
+9 项/0 失败/0 ignored、exit 0。首次执行的 classpath 来源预检因测试模块自身
+`target/classes` 未显式列入而 exit 1，**未运行 JNI/JUnit**；修正后 clean 运行及完整原日志
+均保留。此 fixture 的 `FakeObjects.newConfig()` 未设置 `rocksdb.provider`，默认仍是
+`rocksdb`：结果只证明真实 TP JNI 二进制下的 journal 测试路径，不独立证明 Java
+`topling` provider 分支或真实 TP 服务恢复。上述在线门禁、完整回归和三人复审仍未通过。
 
 收尾资源复核（`131-resource-final.txt`，此前阶段见 `117-resource-final.txt`）：
 所有本轮验收服务容器已移除，仅 kind 控制面与 BuildKit 容器运行；集群内只有
