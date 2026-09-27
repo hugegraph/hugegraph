@@ -120,6 +120,13 @@ thread-local 的 `destroyTransaction()` 在 `StandardHugeGraph.closeTx()` 中，
 同样的逐线程解析用于完整 CRUD 日志 `68-*`/`70-*`，结果 `158-*` 为标准与 TP
 各 42 次新建、15 次归零关闭，未配对的 27 个 session 分布在九个 HTTP 线程的
 g/m/s，与最终每库 sessionCount 9 一致；非 HTTP 线程无未配对项。
+隔离分支 `codex/toplingdb-lifecycle-212` 曾试作“每个 REST 响应后清理当前线程事务”
+最小候选；三名独立只读审查者发现其清理异常可覆盖已提交写入的成功响应，且最后一个
+session 归零与 native `doClose()` 之间允许另一请求取得新 session，造成活跃请求持有
+已关闭 DB。响应过滤器还早于实体序列化；现有停机回调只在自身线程清理，不能收尽其他
+HTTP 工作线程的 thread-local。候选源码和审查结论留 `160-*`，已从 worktree 移除、
+没有构建/测试/提交。安全修复需要独立 DB 所有权、停止新 session 的关停阶段和
+活跃操作排空屏障；#212 仍为真实服务失败，不用强制关闭规避。
 
 #250/#251/#253 反向数据根冲突：标准镜像指向已停机 TP 根、TP 镜像指向已停机标准根，
 两次 Docker 启动均 exit 1，报对应 `provider marker mismatch`，未进入 Java 数据库打开。
