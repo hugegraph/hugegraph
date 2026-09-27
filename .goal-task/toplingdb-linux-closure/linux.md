@@ -314,7 +314,19 @@ g/m 无 `.resume-pending`，仅凭残留 checkpoint 无法在重启时判定是�
 `132-graph-resume-protocol-design.md`；它排除了仅用于 Raft snapshot 的
 `StoreSnapshotFile`。冻结 SHA 的新隔离 checkout 位于
 `/home/soc-baidu/.codex/worktrees/topling-snapshot-recovery/hugegraph`，分支
-`codex/toplingdb-graph-snapshot-recovery`，目前只做只读设计，无代码改动。
+`codex/toplingdb-graph-snapshot-recovery`；建立时只做只读设计，未改动冻结源码。
+
+随后该隔离分支新增真实标准 RocksDB 图级同进程回归及缓存清理实验（未提交）：
+冻结源码加测试先在快照后顶点首读断言失败，exit 1、1 项/1 失败（`134-*`）；
+实验性 graph/schema 缓存通知后，顶点/schema 回归 exit 0、1/0/0（`135-*`），
+加入边断言的版本也 exit 0、1/0/0（`136-*`）。红灯与含边绿灯的测试源码版本不同，
+不能写成逐字节同一测试；这些均为标准 JNI，本轮未以真实 TP 服务复测。
+三名独立只读审查者指出并发旧读可在清理后回填缓存、后续 DB 恢复失败仍可能对外
+暴露部分图、`EventHub.NotifyResult.success()` 不检查监听器返回 false 三项门禁。
+故候选不提交/推送，不作为同进程可见性修复通过。完整 Core 套件在阻塞审查结论后
+主动终止，session 返回 exit 143、无完整计数，不能写为通过（`137-*`，退出状态见
+`137-exit-code.txt`）；测试数据已移入专属 data
+目录。审查与红绿证据的准确边界见 `138-cache-candidate-review.md`。
 
 收尾资源复核（`131-resource-final.txt`，此前阶段见 `117-resource-final.txt`）：
 所有本轮验收服务容器已移除，仅 kind 控制面与 BuildKit 容器运行；集群内只有
