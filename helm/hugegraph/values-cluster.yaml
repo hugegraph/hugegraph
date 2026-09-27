@@ -43,6 +43,13 @@ pd:
 
 store:
   replicas: 3
+  # Store readiness is listener-only (/v1/health), so an automatic rolling
+  # update can replace the next Store while the previous one is still
+  # restoring its partitions. OnDelete stops automatic advancement; it is
+  # not by itself a safety proof: the manual one-at-a-time procedure with
+  # its per-group database checks (README, Upgrading) still applies.
+  updateStrategy:
+    type: OnDelete
   javaOpts: >-
     -Xms512m -Xmx1024m
     -XX:MaxMetaspaceSize=256m

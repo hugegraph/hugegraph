@@ -28,12 +28,12 @@ tests:
             value: "150"
       - equal:
           path: spec.template.spec.containers[0].startupProbe.failureThreshold
-          value: 90
+          value: 91
       - equal:
           path: spec.template.spec.containers[0].startupProbe.periodSeconds
           value: 5
 
-  - it: follows a raised startup probe budget
+  - it: follows a raised startup probe budget on the guaranteed timeline
     set:
       server.probes.startup.failureThreshold: 200
       server.probes.startup.periodSeconds: 10
@@ -42,13 +42,79 @@ tests:
           path: spec.template.spec.containers[0].env
           content:
             name: HG_SERVER_STARTUP_TIMEOUT_S
-            value: "1700"
+            value: "1690"
+      - equal:
+          path: spec.template.spec.containers[0].startupProbe.failureThreshold
+          value: 200
 
   - it: follows the 450 second probe floor when a lower failureThreshold is configured
     set:
       server.probes.startup.failureThreshold: 1
       server.probes.startup.periodSeconds: 5
     asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: HG_SERVER_STARTUP_TIMEOUT_S
+            value: "150"
+      - equal:
+          path: spec.template.spec.containers[0].startupProbe.failureThreshold
+          value: 91
+
+  - it: holds the floor when the period is large and the threshold low
+    set:
+      server.probes.startup.failureThreshold: 1
+      server.probes.startup.periodSeconds: 300
+    asserts:
+      # First probe can fail at t=0, so 3 failures guarantee (3-1)*300=600s
+      # alive; the image gets 600-300=300s, inside the guaranteed window.
+      - equal:
+          path: spec.template.spec.containers[0].startupProbe.failureThreshold
+          value: 3
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: HG_SERVER_STARTUP_TIMEOUT_S
+            value: "300"
+
+  - it: needs two failures even when one period covers the whole floor
+    set:
+      server.probes.startup.failureThreshold: 1
+      server.probes.startup.periodSeconds: 450
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].startupProbe.failureThreshold
+          value: 2
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: HG_SERVER_STARTUP_TIMEOUT_S
+            value: "150"
+
+  - it: rounds the floor up when the period does not divide it
+    set:
+      server.probes.startup.failureThreshold: 1
+      server.probes.startup.periodSeconds: 449
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].startupProbe.failureThreshold
+          value: 3
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: HG_SERVER_STARTUP_TIMEOUT_S
+            value: "598"
+
+  - it: leaves an initialDelay to lengthen the timeline without shrinking budgets
+    set:
+      server.probes.startup.initialDelaySeconds: 600
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].startupProbe.initialDelaySeconds
+          value: 600
+      - equal:
+          path: spec.template.spec.containers[0].startupProbe.failureThreshold
+          value: 91
       - contains:
           path: spec.template.spec.containers[0].env
           content:

@@ -60,13 +60,15 @@ so operators do not have to:
   to the Server storage wait as `PD_AUTH_PASSWORD`, and to Hubble as
   `operations.pd.password`; a `checksum/pd-auth` annotation rolls all three
   when the Secret changes.
-- **The Server startup probe allows at least 450 seconds, and the image
-  gets the same budget.** The chart sets `HG_SERVER_STARTUP_TIMEOUT_S` to
-  the startup probe's budget (`failureThreshold` * `periodSeconds`, 450 s
-  by default), so the image's 120-second default cannot self-kill a Server
-  that is still starting; a lower probe budget is raised to the floor, and
-  raising the probe raises the timeout. The variable is chart-managed;
-  change the probe, not `server.extraEnv`.
+- **The Server startup probe guarantees at least 450 seconds, and the
+  image start command fits inside it.** The guaranteed budget is
+  `(failureThreshold - 1) * periodSeconds`, because kubelet may run the
+  first probe immediately; the chart raises a lower configured threshold to
+  that floor, and sets `HG_SERVER_STARTUP_TIMEOUT_S` to the guaranteed
+  budget minus the 300-second storage wait the entrypoint runs first, so
+  the image's 120-second default cannot self-kill a Server that is still
+  starting and the start command never outlives the probe. The variable is
+  chart-managed; change the probe, not `server.extraEnv`.
 - **The wrapper writes `auth.admin_pa` from the auth Secret.** With
   `init_store.enabled=false` the admin credential is created on the PD startup
   path from `auth.admin_pa`, which applies only when the admin is first
@@ -177,6 +179,14 @@ Verify the release:
 helm test hugegraph --namespace hugegraph
 ```
 
+Besides the Service checks, the test resolves a headless Server Service and
+requires an authenticated, graph-bound Gremlin answer from every Server Pod
+(at least the replica floor), because a Server that started during a PD roll
+can pass readiness and serve REST while every Gremlin call on it fails (see
+Troubleshooting, "Could not rebind"). Transient failures are retried for
+150 seconds before the test fails and names the failing Pod IPs. Large HPA
+fleets may need `helm test --timeout` above the default.
+
 ### Values Presets
 
 | File | Purpose |
@@ -250,9 +260,12 @@ Two cases are worth knowing about in advance:
   `pd.updateStrategy.type=OnDelete` and restart the pods yourself.
 - **Store** rolling updates advance on `/v1/health`, which reports the
   listener, not shard recovery: the controller can replace the next Store
-  while the previous one is still rejoining its shard groups. For a
-  production image roll, set `store.updateStrategy.type=OnDelete` and delete
-  Store Pods one at a time, checking between deletions.
+  while the previous one is still rejoining its shard groups.
+  `values-cluster.yaml` therefore sets `store.updateStrategy.type=OnDelete`
+  (set it yourself on any other production values), and Store Pods are
+  deleted one at a time, checking between deletions. OnDelete only stops
+  automatic advancement; it is not by itself a safety proof, and manual
+  deletion without the checks below carries the same risk.
 
   `Up` in PD is not that check: PD marks a Store `Up` at registration,
   before anything is restored, and a stopped Store stays `Up` in every
@@ -421,7 +434,7 @@ default values.
 | `store.resources` | Store container resources. Set these for production | `{}` |
 | `store.podSecurityContext` | Pod-level securityContext, rendered only when set | `{}` |
 | `store.securityContext` | Container-level securityContext; also applied to the PD wait init container. Hardened by default; `runAsNonRoot` is not set because the published images run as root | `allowPrivilegeEscalation: false`, `capabilities.drop: [ALL]`, `seccompProfile: RuntimeDefault` |
-| `store.waitPath` | Path the init container polls on each PD peer; a majority must answer 2xx. `/v1/ready` counts quorum members, not merely live listeners | `/v1/ready` |
+| `store.waitPath` | Path the init container polls on each PD peer; a majority must answer 2xx. `/v1/ready` counts quorum members, not merely live listeners. Use one of PD's unauthenticated paths (`/v1/ready`, `/v1/health`); the init container sends no credential | `/v1/ready` |
 | `store.waitTimeoutSeconds` | Bound on the PD wait before the init container fails | `900` |
 | `store.antiAffinity` | One of `required`, `preferred`, `disabled`. `preferred` schedules on clusters with fewer nodes than replicas; production should use `required` so one node failure cannot co-locate shard replicas | `preferred` |
 | `store.nodeSelector` | Node selector for store Pods | `{}` |
@@ -500,7 +513,7 @@ default values.
 | `server.hpa.minReplicas` | HPA minimum replicas | `3` |
 | `server.hpa.maxReplicas` | HPA maximum replicas | `10` |
 | `server.hpa.targetCPUUtilizationPercentage` | HPA CPU utilization target | `70` |
-| `server.probes.startup.failureThreshold` | Raised automatically so the budget is at least 450s | `90` |
+| `server.probes.startup.failureThreshold` | Raised automatically so the guaranteed budget, `(failureThreshold - 1) * periodSeconds` (the first probe can fail immediately), is at least 450s | `91` |
 | `server.probes.startup.periodSeconds` | Startup probe interval | `5` |
 | `server.probes.*` | Same optional probe keys as PD | see `values.yaml` |
 
@@ -681,6 +694,18 @@ before anything reaches the cluster:
 - `updateStrategy.rollingUpdate` options are rejected together with
   `updateStrategy.type: OnDelete` for PD and Store: Kubernetes refuses such
   a StatefulSet at apply time, which would otherwise surface mid-upgrade.
+- `updateStrategy.rollingUpdate.maxUnavailable` accepts only the integer
+  `1`: a larger value or a percentage lets the controller disrupt two
+  members of a three-member raft group or shard at once, and a
+  PodDisruptionBudget does not constrain controller rollouts.
+- With `networkPolicy.enabled`, an in-cluster Hubble in `pd` mode combined
+  with `server.advertiseUrl` requires `networkPolicy.hubble.extraEgress`:
+  PD hands Hubble the advertised external URL, which Hubble's egress
+  policy would otherwise block.
+- In `pd` mode the Hubble wrapper refuses a PD REST secret that is not
+  printable ASCII, contains backslashes, or starts or ends with
+  whitespace, the same constraint the schema puts on inline values; an
+  `existingSecret` is only seen at container start.
 - A non-ClusterIP `pd.service.type` requires
   `pd.service.allowInsecureExposure=true`.
 - With `networkPolicy.enabled`, exposing PD, Server or Hubble (a NodePort
@@ -902,7 +927,10 @@ curl -s --compressed -u "admin:${PASSWORD}" -H 'Content-Type: application/json' 
 
 A healthy Pod answers with `result.data`; delete a Pod that answers
 `Could not rebind`, and its replacement binds normally once PD is stable.
-The measurements behind both causes are on the
+`helm test` runs this same graph-bound query against every Server Pod
+through the headless Service, so a stuck replica now fails the release
+check instead of hiding behind the load balancer. The measurements behind
+both causes are on the
 [operations page](https://hugegraph.apache.org/docs/quickstart/hugegraph/hugegraph-helm-operations/#10-when-gremlin-fails-with-could-not-rebind).
 
 ### Pods OOM Killed or Restarting

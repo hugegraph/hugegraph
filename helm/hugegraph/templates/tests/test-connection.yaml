@@ -66,16 +66,31 @@ spec:
         - |
           set -eu
           SVC="{{ include "hugegraph.server.name" . }}"
+          HEADLESS="{{ include "hugegraph.server.headlessName" . }}"
           PORT="{{ .Values.server.port }}"
+          FLOOR="{{ include "hugegraph.server.replicaFloor" . }}"
+          DEADLINE_S="${HG_TEST_DEADLINE_S:-150}"
+          BODY='{"gremlin":"graph.traversal().V().limit(1).count()","aliases":{"graph":"DEFAULT-hugegraph"}}'
           {{- if .Values.server.auth.enabled }}
           AUTH_HEADER=$(printf 'admin:%s' "${PASSWORD}" | base64 | tr -d '\r\n')
           request() {
             printf 'header = "Authorization: Basic %s"\n' "${AUTH_HEADER}" |
-              curl --config - -fsS "$1"
+              curl --config - -fsS --connect-timeout 3 --max-time 20 "$1"
+          }
+          gremlin() {
+            printf 'header = "Authorization: Basic %s"\n' "${AUTH_HEADER}" |
+              curl --config - -sS --compressed --connect-timeout 3 --max-time 20 \
+                -H 'Content-Type: application/json' -X POST -d "${BODY}" \
+                -w '\n%{http_code}\n' "$1" 2>&1
           }
           {{- else }}
           request() {
-            curl -fsS "$1"
+            curl -fsS --connect-timeout 3 --max-time 20 "$1"
+          }
+          gremlin() {
+            curl -sS --compressed --connect-timeout 3 --max-time 20 \
+              -H 'Content-Type: application/json' -X POST -d "${BODY}" \
+              -w '\n%{http_code}\n' "$1" 2>&1
           }
           {{- end }}
           echo "helm test: GET http://${SVC}:${PORT}/versions"
@@ -84,4 +99,41 @@ spec:
           echo "helm test: GET http://${SVC}:${PORT}/graphs"
           request "http://${SVC}:${PORT}/graphs"
           echo
-          echo "helm test: OK"
+          # A Server that started while PD was rolling can pass readiness and
+          # serve REST while every Gremlin call on it fails, so the Service
+          # checks above cannot see a bad replica. Resolve the headless
+          # Service to the individual Ready Pods and require a graph-bound
+          # Gremlin answer from every one of them, and from at least FLOOR
+          # Pods, retrying until the deadline so a transient PD election is
+          # not misread as a broken Pod.
+          echo "helm test: Gremlin on every Server Pod via ${HEADLESS} (floor ${FLOOR})"
+          START=$(date +%s)
+          PASSED=" "
+          while :; do
+            IPS=$(getent ahosts "${HEADLESS}" 2>/dev/null | awk '{print $1}' | sort -u) || IPS=""
+            COUNT=$(printf '%s\n' ${IPS} | grep -c . || true)
+            FAILED=""
+            for IP in ${IPS}; do
+              case "${PASSED}" in *" ${IP} "*) continue ;; esac
+              case "${IP}" in *:*) TARGET="[${IP}]" ;; *) TARGET="${IP}" ;; esac
+              OUT=$(gremlin "http://${TARGET}:${PORT}/gremlin") || true
+              CODE=$(printf '%s\n' "${OUT}" | grep -E '^[0-9][0-9][0-9]$' | tail -1) || CODE=""
+              if [ "${CODE}" = "200" ]; then
+                PASSED="${PASSED}${IP} "
+                echo "helm test: Gremlin OK on ${IP}"
+              else
+                FAILED="${FAILED}${IP}(${CODE:-no-response}) "
+                printf 'helm test: Gremlin failed on %s code=%s body: %.400s\n' \
+                  "${IP}" "${CODE:-no-response}" "${OUT}"
+              fi
+            done
+            if [ -z "${FAILED}" ] && [ "${COUNT}" -ge "${FLOOR}" ]; then
+              echo "helm test: OK (${COUNT} Server Pods, all Gremlin-bound)"
+              exit 0
+            fi
+            if [ $(( $(date +%s) - START )) -ge "${DEADLINE_S}" ]; then
+              echo "helm test: FAILED after ${DEADLINE_S}s: pods=${COUNT} floor=${FLOOR} failing=${FAILED:-none}" >&2
+              exit 1
+            fi
+            sleep 5
+          done

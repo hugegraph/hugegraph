@@ -183,6 +183,19 @@ jobs:
             helm template ci helm/hugegraph \
               --set "${component}.updateStrategy.type=OnDelete" > /dev/null
           done
+          # maxUnavailable above 1 lets the controller disrupt two members
+          # of a three-member raft group or shard at once, and PDBs do not
+          # constrain controller rollouts; the schema accepts integer 1 only.
+          for component in pd store; do
+            must_fail --set "${component}.updateStrategy.rollingUpdate.maxUnavailable=2"
+            must_fail --set "${component}.updateStrategy.rollingUpdate.maxUnavailable=0"
+            must_fail --set "${component}.updateStrategy.rollingUpdate.maxUnavailable=-1"
+            must_fail --set-string "${component}.updateStrategy.rollingUpdate.maxUnavailable=67%"
+            must_fail --set-string "${component}.updateStrategy.rollingUpdate.maxUnavailable=foo"
+            must_fail --set-string "${component}.updateStrategy.rollingUpdate.maxUnavailable=1"
+            helm template ci helm/hugegraph \
+              --set "${component}.updateStrategy.rollingUpdate.maxUnavailable=1" > /dev/null
+          done
           # PD PDB must keep the Raft majority: floor(replicas/2)+1
           must_fail --set pd.replicas=5 --set pd.pdb.minAvailable=2
           must_fail --set pd.replicas=4 --set pd.pdb.minAvailable=2
@@ -209,6 +222,78 @@ jobs:
           # skip auto heap sizing and drop the chart's JAVA_OPTS entirely
           must_fail --set 'pd.extraEnv[0].name=JAVA_OPTIONS' \
             --set 'pd.extraEnv[0].value=-Xmx1g'
+
+      - name: helm test hook behaviour
+        shell: bash
+        run: |
+          # The hook must fail when any one Server Pod cannot answer a
+          # graph-bound Gremlin query, even while /versions and /graphs
+          # answer 200 through the Service: a Server that started during a
+          # PD roll stays in exactly that state for its whole life. Run the
+          # rendered hook script against loopback fixtures.
+          set -euo pipefail
+          sudo sh -c 'echo "127.0.0.1 ci-hugegraph-server ci-hugegraph-server-headless" >> /etc/hosts'
+          helm template ci helm/hugegraph -s templates/tests/test-connection.yaml > /tmp/hook.yaml
+          python3 - <<'PY'
+          import yaml
+          d = yaml.safe_load(open('/tmp/hook.yaml'))
+          open('/tmp/hook.sh', 'w').write(d['spec']['containers'][0]['command'][2])
+          PY
+          grep -q 'DEFAULT-hugegraph' /tmp/hook.sh
+          # getent stub: the headless lookup answers with the fixture IPs.
+          mkdir -p /tmp/stub
+          printf '#!/bin/sh\nfor ip in ${STUB_IPS}; do printf "%%s STREAM host\\n" "$ip"; done\n' > /tmp/stub/getent
+          chmod +x /tmp/stub/getent
+          cat > /tmp/fixture.py <<'PY'
+          import http.server, os, sys, threading, time
+          class H(http.server.BaseHTTPRequestHandler):
+              def _send(self, code, body):
+                  self.send_response(code)
+                  self.send_header('Content-Type', 'application/json')
+                  self.send_header('Content-Length', str(len(body)))
+                  self.end_headers()
+                  self.wfile.write(body)
+              def do_GET(self):
+                  self._send(200, b'{"versions":{}}')
+              def do_POST(self):
+                  self.rfile.read(int(self.headers.get('Content-Length', 0)))
+                  if os.path.exists('/tmp/broken-' + self.server.server_address[0]):
+                      self._send(400, b'{"exception":"Could not rebind [graph]"}')
+                  else:
+                      self._send(200, b'{"result":{"data":[0]}}')
+              def log_message(self, *a):
+                  pass
+          for ip in sys.argv[1:]:
+              s = http.server.HTTPServer((ip, 8080), H)
+              threading.Thread(target=s.serve_forever, daemon=True).start()
+          time.sleep(3600)
+          PY
+          python3 /tmp/fixture.py 127.0.0.1 127.0.0.2 127.0.0.3 &
+          sleep 1
+          run_hook() {
+            PATH="/tmp/stub:${PATH}" PASSWORD=ci-password HG_TEST_DEADLINE_S=8 \
+              STUB_IPS="$1" sh /tmp/hook.sh
+          }
+          # Healthy: three Pods, all Gremlin-bound.
+          run_hook "127.0.0.1 127.0.0.2 127.0.0.3"
+          # One Pod answers REST but not Gremlin: the hook must fail.
+          touch /tmp/broken-127.0.0.3
+          if run_hook "127.0.0.1 127.0.0.2 127.0.0.3"; then
+            echo "expected the hook to fail on a broken-binding Pod" >&2
+            exit 1
+          fi
+          rm /tmp/broken-127.0.0.3
+          # Fewer Pods than the replica floor: the hook must fail.
+          if run_hook "127.0.0.1"; then
+            echo "expected the hook to fail below the replica floor" >&2
+            exit 1
+          fi
+          # The auth-off render must carry no credentials.
+          if helm template ci helm/hugegraph -s templates/tests/test-connection.yaml \
+              --set server.auth.enabled=false | grep -q 'Authorization'; then
+            echo "the auth-off hook render must not carry credentials" >&2
+            exit 1
+          fi
 
       - name: kubeconform
         shell: bash

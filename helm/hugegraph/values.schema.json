@@ -210,10 +210,8 @@
               "minimum": 0
             },
             "maxUnavailable": {
-              "type": [
-                "integer",
-                "string"
-              ]
+              "type": "integer",
+              "const": 1
             }
           }
         }

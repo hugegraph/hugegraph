@@ -604,6 +604,12 @@ tests:
         - from:
             - ipBlock:
                 cidr: 10.0.0.0/8
+      # advertiseUrl hands the external URL to the in-cluster Hubble too,
+      # so its egress must name that destination.
+      networkPolicy.hubble.extraEgress:
+        - to:
+            - ipBlock:
+                cidr: 10.0.0.0/8
     asserts:
       - hasDocuments:
           count: 4

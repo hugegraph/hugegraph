@@ -70,6 +70,10 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- printf "%s-server" (include "hugegraph.fullname" . | trunc 56 | trimSuffix "-") }}
 {{- end }}
 
+{{- define "hugegraph.server.headlessName" -}}
+{{- printf "%s-server-headless" (include "hugegraph.fullname" . | trunc 47 | trimSuffix "-") }}
+{{- end }}
+
 {{- define "hugegraph.hubble.name" -}}
 {{- printf "%s-hubble" (include "hugegraph.fullname" . | trunc 56 | trimSuffix "-") }}
 {{- end }}
@@ -538,13 +542,16 @@ leader election waits on; empty preserves the image default.
 
 {{/*
 Keep the startup probe alive for the 300-second storage wait, the Server's
-120-second start timeout, and 30 seconds of process overhead. Older stored
-values remain accepted, but their rendered threshold is raised to this floor.
+start command, and process overhead, on a conservative timeline: kubelet may
+run the first probe immediately, so the guaranteed alive time is
+(failureThreshold - 1) * periodSeconds, not the full product. The minimum
+below keeps that guaranteed time at 450 seconds or more. Older stored values
+remain accepted, but their rendered threshold is raised to this floor.
 */}}
 {{- define "hugegraph.server.startupFailureThreshold" -}}
 {{- $period := int .Values.server.probes.startup.periodSeconds -}}
 {{- $configured := int .Values.server.probes.startup.failureThreshold -}}
-{{- $minimum := div (add 449 $period) $period -}}
+{{- $minimum := add (div (add 449 $period) $period) 1 -}}
 {{- max $configured $minimum -}}
 {{- end }}
 
@@ -553,8 +560,9 @@ Seconds the chart gives the Server image to finish starting, passed as
 HG_SERVER_STARTUP_TIMEOUT_S. The image defaults that to 120 seconds, which is
 shorter than the storage wait alone, so a Server still coming up kills itself
 before Kubernetes has given up on it. The value therefore tracks the startup
-probe: the effective budget above (floored at 450 seconds) minus the
-300-second storage wait the entrypoint runs first, so the start command and
+probe's guaranteed alive time, (failureThreshold - 1) * periodSeconds,
+because the first probe can fail immediately, minus the 300-second storage
+wait the entrypoint runs before the start command, so the start command and
 kubelet give up together instead of the image outliving the probe. Floored
 at the image's own 120-second default, and capped at the entrypoint's 86400
 maximum rather than rendered into a Pod that refuses to start.
@@ -562,7 +570,7 @@ maximum rather than rendered into a Pod that refuses to start.
 {{- define "hugegraph.server.startupTimeoutSeconds" -}}
 {{- $period := int .Values.server.probes.startup.periodSeconds -}}
 {{- $threshold := include "hugegraph.server.startupFailureThreshold" . | int -}}
-{{- min 86400 (max 120 (sub (mul $threshold $period) 300)) -}}
+{{- min 86400 (max 120 (sub (mul (sub $threshold 1) $period) 300)) -}}
 {{- end }}
 
 {{/*
@@ -827,6 +835,13 @@ start-hugegraph-pd.sh, start-hugegraph-store.sh, and hugegraph-server.sh).
 {{- if and (get $exposed $comp) (empty (get (get $networkPolicy $comp | default dict) "extraIngress")) -}}
 {{- fail (printf "networkPolicy.enabled admits nothing from outside the release, so the %s exposure (NodePort/LoadBalancer Service, Ingress%s) is unreachable; list its callers in networkPolicy.%s.extraIngress, for example the Ingress controller's namespace or a client CIDR" $comp (ternary ", server.advertiseUrl" "" (eq $comp "server")) $comp) -}}
 {{- end -}}
+{{- end -}}
+{{/* An in-cluster Hubble in pd mode receives whatever Server URL PD hands
+     out. With server.advertiseUrl set, that is the advertised external URL,
+     and Hubble's egress policy only admits traffic to Server Pods, so the
+     discovered URL would be unreachable from Hubble. */}}
+{{- if and (get $hubble "enabled" | default false) (eq (get $hubble "mode" | default "pd") "pd") (ne $advertiseUrl "") (empty (get (get $networkPolicy "hubble" | default dict) "extraEgress")) -}}
+{{- fail "networkPolicy.enabled restricts Hubble egress to the release's own Pods, but server.advertiseUrl makes PD hand Hubble that external URL for discovery; allow Hubble to reach it in networkPolicy.hubble.extraEgress, or leave server.advertiseUrl empty for in-cluster discovery" -}}
 {{- end -}}
 {{- end -}}
 {{- end }}

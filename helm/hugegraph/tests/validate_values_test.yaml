@@ -250,3 +250,32 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "pd.podAnnotations must not set checksum/pd-auth"
+
+  - it: rejects an advertised Server URL that Hubble's egress policy would block
+    set:
+      networkPolicy.enabled: true
+      hubble.enabled: true
+      server.advertiseUrl: https://hg.example.com
+      networkPolicy.server.extraIngress:
+        - from:
+            - ipBlock:
+                cidr: 10.0.0.0/8
+    asserts:
+      - failedTemplate:
+          errorPattern: "networkPolicy.hubble.extraEgress"
+
+  - it: accepts an advertised Server URL once Hubble egress names it
+    set:
+      networkPolicy.enabled: true
+      hubble.enabled: true
+      server.advertiseUrl: https://hg.example.com
+      networkPolicy.server.extraIngress:
+        - from:
+            - ipBlock:
+                cidr: 10.0.0.0/8
+      networkPolicy.hubble.extraEgress:
+        - to:
+            - ipBlock:
+                cidr: 10.0.0.0/8
+    asserts:
+      - notFailedTemplate: {}

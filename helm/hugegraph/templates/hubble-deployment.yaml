@@ -110,6 +110,22 @@ spec:
                 echo "missing or unreadable ${CONF}; refusing to write a stub config" >&2
                 exit 1
               fi
+              {{- if $pdMode }}
+              : "${HG_HUBBLE_PD_PASSWORD:?PD REST secret must not be empty}"
+              # The value is written into a Java properties file, whose
+              # parser unescapes backslashes and trims whitespace, so these
+              # shapes would silently store a credential that differs from
+              # the Secret. Inline pd.auth values are schema-checked; an
+              # external existingSecret is only seen here.
+              case "${HG_HUBBLE_PD_PASSWORD}" in
+                *$'\n'* | *$'\r'* | *$'\t'* | *\\* | *[![:print:]]* | ' '* | *' ')
+                  echo "the PD REST secret must be printable ASCII with no" \
+                       "backslashes and no leading or trailing whitespace;" \
+                       "fix the pd.auth Secret value" >&2
+                  exit 1
+                  ;;
+              esac
+              {{- end }}
               TMP=$(mktemp)
               FOUND_PD_ENABLED=false
               {{- if $pdMode }}

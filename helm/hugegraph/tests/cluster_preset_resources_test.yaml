@@ -38,3 +38,17 @@ tests:
       - matchRegex:
           path: spec.template.spec.containers[0].env[?(@.name=="JAVA_OPTS")].value
           pattern: -XX:MaxDirectMemorySize=512m
+
+  - it: holds Store rollouts on OnDelete because readiness is listener-only
+    template: store-statefulset.yaml
+    asserts:
+      - equal:
+          path: spec.updateStrategy.type
+          value: OnDelete
+
+  - it: keeps the PD raft rolling restart automatic
+    template: pd-statefulset.yaml
+    asserts:
+      - equal:
+          path: spec.updateStrategy.type
+          value: RollingUpdate
