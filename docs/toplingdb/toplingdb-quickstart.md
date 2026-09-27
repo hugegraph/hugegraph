@@ -145,6 +145,8 @@ revision, and runtime labels during acceptance.
 ## Build Distributions from Source
 
 Build on Linux x86_64 with Java 11+, Maven 3.5+, `rsync`, `unzip`, and `tar`.
+Running a Linux Server distribution with local RocksDB also requires
+util-linux 2.37+ `mountpoint` on `PATH` for the database mount preflight.
 
 ```bash
 git clone https://github.com/hugegraph/hugegraph.git

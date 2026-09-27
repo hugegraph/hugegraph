@@ -153,17 +153,24 @@ case "${ENFORCE_PROVIDER_MARKER}" in
 esac
 VERIFIED_ROCKSDB_ROOT=""
 if [[ "${REQUESTED_BACKEND}" == "rocksdb" || "${REQUESTED_BACKEND}" == "rocksdbsst" ]]; then
-    ./bin/verify-rocksdb-provider.sh server "${ROCKSDB_PROVIDER}" \
-        "${ROCKSDB_DATA_ROOT}" "${ENFORCE_PROVIDER_MARKER}"
-    VERIFIED_ROCKSDB_ROOT="${ROCKSDB_DATA_ROOT}"
-    LEGACY_INIT_MARKER="${DOCKER_FOLDER}/${INIT_FLAG_FILE}"
-    DOCKER_FOLDER="${ROCKSDB_DATA_ROOT}/.hugegraph-state"
-    mkdir -p "${DOCKER_FOLDER}"
-    if [[ "${ROCKSDB_PROVIDER}" == "rocksdb" &&
-          -f "${LEGACY_INIT_MARKER}" &&
-          ! -e "${DOCKER_FOLDER}/${INIT_FLAG_FILE}" ]]; then
-        cp "${LEGACY_INIT_MARKER}" "${DOCKER_FOLDER}/${INIT_FLAG_FILE}"
-        log "migrated the legacy RocksDB initialization marker"
+    [[ "${ROCKSDB_DATA_ROOT}" == /* ]] || {
+        log "ERROR: RocksDB data path must be absolute: ${ROCKSDB_DATA_ROOT}"
+        exit 1
+    }
+    ROCKSDB_DATA_ROOT=$(server_storage_path "$SERVER_TOP" "$ROCKSDB_DATA_ROOT")
+    [ -d "${ROCKSDB_DATA_ROOT}" ] || {
+        log "ERROR: RocksDB data path must be an existing directory: ${ROCKSDB_DATA_ROOT}"
+        exit 1
+    }
+    # Keep the old root rejection points ahead of config rewrites. The locked
+    # provider claim follows the final graph mount preflight.
+    server_check_existing_markers "${ROCKSDB_DATA_ROOT}" "${ROCKSDB_PROVIDER}"
+    if [[ "${ROCKSDB_PROVIDER}" == topling || "${ENFORCE_PROVIDER_MARKER}" == true ]] &&
+       [[ ! -f "${ROCKSDB_DATA_ROOT}/.hugegraph-rocksdb-provider" ]] &&
+       find -H "${ROCKSDB_DATA_ROOT}" -mindepth 1 -maxdepth 1 \
+            ! -name lost+found -print -quit | grep -q .; then
+        log "ERROR: refusing unmarked non-empty data path: ${ROCKSDB_DATA_ROOT}"
+        exit 1
     fi
 fi
 
@@ -277,6 +284,21 @@ esac
 # Validate the final generated graph configuration before any database opens.
 EFFECTIVE_PROVIDER=$(server_rocksdb_provider "$SERVER_GRAPHS_DIR")
 server_check_provider_override "$EFFECTIVE_PROVIDER"
+server_verify_db_mounts "$SERVER_TOP" "$SERVER_GRAPHS_DIR"
+if [[ "${REQUESTED_BACKEND}" == "rocksdb" || "${REQUESTED_BACKEND}" == "rocksdbsst" ]]; then
+    ./bin/verify-rocksdb-provider.sh server "${ROCKSDB_PROVIDER}" \
+        "${ROCKSDB_DATA_ROOT}" "${ENFORCE_PROVIDER_MARKER}"
+    VERIFIED_ROCKSDB_ROOT="${ROCKSDB_DATA_ROOT}"
+    LEGACY_INIT_MARKER="${DOCKER_FOLDER}/${INIT_FLAG_FILE}"
+    DOCKER_FOLDER="${ROCKSDB_DATA_ROOT}/.hugegraph-state"
+    mkdir -p "${DOCKER_FOLDER}"
+    if [[ "${ROCKSDB_PROVIDER}" == "rocksdb" &&
+          -f "${LEGACY_INIT_MARKER}" &&
+          ! -e "${DOCKER_FOLDER}/${INIT_FLAG_FILE}" ]]; then
+        cp "${LEGACY_INIT_MARKER}" "${DOCKER_FOLDER}/${INIT_FLAG_FILE}"
+        log "migrated the legacy RocksDB initialization marker"
+    fi
+fi
 server_verify_graph_roots "$SERVER_TOP" "$SERVER_GRAPHS_DIR" \
     "$EFFECTIVE_PROVIDER" "$ENFORCE_PROVIDER_MARKER" "$VERIFIED_ROCKSDB_ROOT"
 

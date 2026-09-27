@@ -92,6 +92,12 @@ cmp "$TEST_ROOT/before-marker" "$FIXTURE/extra root/.hugegraph-rocksdb-provider"
 grep -qx existing-data "$FIXTURE/extra root/data/SENTINEL"
 
 reset_fixture
+marker "$FIXTURE/topling-data" rocksdb
+cp "$FIXTURE/conf/graphs/hugegraph.properties" "$TEST_ROOT/original-graph"
+expect_rejected "primary root conflict before config rewrite" "provider marker mismatch"
+cmp "$TEST_ROOT/original-graph" "$FIXTURE/conf/graphs/hugegraph.properties"
+
+reset_fixture
 marker "$FIXTURE/extra root/data" topling
 marker "$FIXTURE/extra root/wal" rocksdb
 expect_rejected "separate WAL provider mismatch" "provider marker mismatch"
@@ -133,6 +139,59 @@ reset_fixture
 marker "$FIXTURE/extra root" topling
 expect_init
 echo "PASS: matching deployment ancestor accepts configured data/WAL children"
+
+# A single DB bind mount must fail before validation claims any other graph
+# path. The real mount is exercised separately in a Linux container.
+reset_fixture
+marker "$FIXTURE/topling-data" topling
+mkdir -p "$FIXTURE/topling-data/data/g" "$TEST_ROOT/fake-bin"
+cat > "$TEST_ROOT/fake-bin/mountpoint" <<'SH'
+#!/bin/bash
+[ "$1" = --version ] && { echo 'mountpoint from util-linux 2.41.3'; exit 0; }
+[ "$1" = -q ] && [ "$2" = -- ] || exit 1
+[ "$3" = "$MOCK_MOUNTPOINT" ] && exit 0
+exit 32
+SH
+chmod +x "$TEST_ROOT/fake-bin/mountpoint"
+export MOCK_MOUNTPOINT="$FIXTURE/topling-data/data/g"
+TEST_SAVED_PATH="$PATH"
+export PATH="$TEST_ROOT/fake-bin:$PATH"
+expect_rejected "single DB mount before graph claims" \
+                "RocksDB directory cannot itself be a mount point"
+[ ! -e "$FIXTURE/extra root/data/.hugegraph-rocksdb-provider" ] ||
+    fail "mount rejection claimed another graph data path"
+[ ! -e "$FIXTURE/topling-data/data/.hugegraph-rocksdb-provider" ] ||
+    fail "mount rejection claimed the primary data path"
+
+reset_fixture
+mkdir -p "$FIXTURE/extra root/data/g"
+export MOCK_MOUNTPOINT="$FIXTURE/extra root/data/g"
+expect_rejected "extra graph DB mount before primary root claim" \
+                "RocksDB directory cannot itself be a mount point"
+[ ! -e "$FIXTURE/topling-data/.hugegraph-rocksdb-provider" ] ||
+    fail "mount rejection claimed the primary root"
+[ ! -e "$FIXTURE/topling-data/.hugegraph-state" ] ||
+    fail "mount rejection created primary state"
+cat > "$TEST_ROOT/fake-bin/mountpoint" <<'SH'
+#!/bin/bash
+[ "$1" = --version ] && { echo 'BusyBox v1.37.0'; exit 0; }
+exit 32
+SH
+reset_fixture
+expect_rejected "non util-linux mountpoint before root claim" \
+                "util-linux mountpoint is required"
+    [ ! -e "$FIXTURE/topling-data/.hugegraph-rocksdb-provider" ] ||
+    fail "non util-linux mountpoint claimed the primary root"
+cat > "$TEST_ROOT/fake-bin/mountpoint" <<'SH'
+#!/bin/bash
+[ "$1" = --version ] && { echo 'mountpoint from util-linux 2.36.1'; exit 0; }
+exit 1
+SH
+reset_fixture
+expect_rejected "old util-linux mountpoint before root claim" \
+                "util-linux mountpoint 2.37+ is required"
+export PATH="$TEST_SAVED_PATH"
+unset MOCK_MOUNTPOINT
 
 # Direct launch and init-store run the real marker verifier before Java/native.
 prepare_direct() {
@@ -183,4 +242,20 @@ for launcher in hugegraph-server init-store; do
     grep -qx original-data "$FIXTURE/extra root/data/SENTINEL"
     [ ! -e "$FIXTURE/extra root/data/.hugegraph-rocksdb-provider" ] || fail "rejected data was marked"
 
+    prepare_direct
+    mkdir -p "$FIXTURE/extra root/data/g"
+    cat > "$FIXTURE/fake-bin/mountpoint" <<'SH'
+#!/bin/bash
+[ "$1" = --version ] && { echo 'mountpoint from util-linux 2.41.3'; exit 0; }
+[ "$1" = -q ] && [ "$2" = -- ] || exit 1
+[ "$3" = "$MOCK_MOUNTPOINT" ] && exit 0
+exit 32
+SH
+    chmod +x "$FIXTURE/fake-bin/mountpoint"
+    export MOCK_MOUNTPOINT="$FIXTURE/extra root/data/g"
+    expect_direct_rejected "$launcher" "$launcher rejects mounted DB before Java" \
+                           "RocksDB directory cannot itself be a mount point"
+    unset MOCK_MOUNTPOINT
+    [ ! -e "$FIXTURE/extra root/data/.hugegraph-rocksdb-provider" ] ||
+        fail "mount rejection claimed direct launcher data path"
 done

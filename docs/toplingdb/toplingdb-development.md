@@ -275,6 +275,9 @@ claimed atomically, including bare Server startup on macOS. Both reject
 conflicting markers and storage symlinks. Topling/forced validation uses a
 pinned-directory lock and rechecks emptiness after creating its temporary marker
 so a competing child owner cannot be overwritten by a deployment-root marker.
+On Linux, Server launchers also check each configured local graph's `m`, `g`,
+and `s` database mount points before claiming graph roots or starting Java.
+The Java recovery lock still guards direct database opens.
 
 ## Native Runtime Changes
 

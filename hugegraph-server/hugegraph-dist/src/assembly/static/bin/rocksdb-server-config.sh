@@ -268,6 +268,63 @@ server_verify_storage_path() {
     fi
 }
 
+# Check every local DB before any graph root is claimed or a JVM starts. The
+# native recovery lock rejects a bind-mounted DB, but g/m/s open concurrently:
+# discovering the bad mount there lets the other stores initialize first.
+server_verify_db_mounts() {
+    local top="$1" graphs="$2" file backend path db_path store status system
+    local version major minor
+    local checked=false
+    system=$(uname -s) || return 1
+    [ "$system" = Linux ] || return 0
+    for file in "$graphs"/*.properties; do
+        [ -f "$file" ] || continue
+        backend=$(server_property "$file" backend memory) || return 1
+        backend=$(printf '%s' "$backend" | tr '[:upper:]' '[:lower:]')
+        case "$backend" in rocksdb | rocksdbsst) ;; *) continue ;; esac
+        if [ "$checked" = false ]; then
+            [ -r /proc/self/mountinfo ] || {
+                echo "Error: Linux mount table is required to validate RocksDB directories" >&2
+                return 1
+            }
+            command -v mountpoint >/dev/null 2>&1 || {
+                echo "Error: util-linux mountpoint is required to validate RocksDB directories" >&2
+                return 1
+            }
+            version=$(LC_ALL=C mountpoint --version 2>/dev/null) || return 1
+            if [[ ! "$version" =~ ^mountpoint[[:space:]]from[[:space:]]util-linux[[:space:]]([0-9]+)\.([0-9]+) ]]; then
+                echo "Error: util-linux mountpoint is required to validate RocksDB directories" >&2
+                return 1
+            fi
+            major="${BASH_REMATCH[1]}"
+            minor="${BASH_REMATCH[2]}"
+            if (( major < 2 || (major == 2 && minor < 37) )); then
+                echo "Error: util-linux mountpoint 2.37+ is required to validate RocksDB directories" >&2
+                return 1
+            fi
+            checked=true
+        fi
+        path=$(server_property "$file" rocksdb.data_path 'rocksdb-data/data') || return 1
+        [ -n "$path" ] || { echo "Error: empty rocksdb.data_path in $file" >&2; return 1; }
+        path=$(server_storage_path "$top" "$path") || return 1
+        for store in m g s; do
+            db_path="$path/$store"
+            [ -d "$db_path" ] || continue
+            if mountpoint -q -- "$db_path"; then
+                echo "Error: RocksDB directory cannot itself be a mount point;" \
+                     "mount its parent data root instead: $db_path" >&2
+                return 1
+            else
+                status=$?
+                [ "$status" -eq 32 ] || {
+                    echo "Error: failed to inspect RocksDB mount point: $db_path" >&2
+                    return 1
+                }
+            fi
+        done
+    done
+}
+
 server_verify_graph_roots() {
     local top="$1" graphs="$2" provider="$3" enforce="$4"
     local file backend disks path key verified_root="${5:-}"
@@ -275,6 +332,7 @@ server_verify_graph_roots() {
         true | false) ;;
         *) echo "Error: provider marker enforcement must be true or false" >&2; return 1 ;;
     esac
+    server_verify_db_mounts "$top" "$graphs" || return 1
     for file in "$graphs"/*.properties; do
         [ -f "$file" ] || continue
         backend=$(server_property "$file" backend memory) || return 1

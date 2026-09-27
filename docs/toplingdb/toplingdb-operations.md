@@ -92,7 +92,10 @@ not an individual store directory such as `data/g`. Opens reject a store directo
 that is a separate volume mount; Linux also detects same-filesystem bind mounts
 using the current process mount table. Aliases would hide the sibling guards,
 and the existing directory-replacement restore cannot remove
-a mount point. Do not run older binaries or unrelated writers concurrently on the
+a mount point. Server launchers preflight all local graph store directories
+before Java starts. Mounts present during that check are rejected before sibling
+stores initialize; keep the mount layout stable throughout startup.
+Do not run older binaries or unrelated writers concurrently on the
 same directories; they do not honor this recovery protocol.
 
 Independent WAL, WAL inside data, and data inside a WAL root use in-place log
