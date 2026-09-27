@@ -16,3 +16,4 @@
 | 定向测试通过但完整 CI 未结束 | 只记录已交付、待 CI；本 PR 早期新增代码的失败仍由本分支收口，不以是否在最后一次 diff 内判断归属 | [18 个失败 job 的归因](mac.md#ci-补救与完成状态更正) |
 | runtime 依赖已移除或换版本 | 同步原 CI generator 的 known 清单，先确认实际 runtime 集合唯一差异；CI 对新增与删除都失败，不为匹配旧清单加入已移除库 | [第二轮 CI 补救](mac.md#第二轮-ci-补救安全启动-fixture-与依赖清单)，inventory-before-sorted.diff |
 | provider admission 已创建根目录或 marker | 目录认领与 backend 初始化分开判断；初始化走既有表/CF 检查，不能用目录或 CURRENT 存在跳过。信号测试先验证真实活进程，看门狗超时不能当退出码传播成功 | [完整真实启动回归](mac.md#第三轮-ci-补救真实启动与-backend-初始化) |
+| 二进制 JNI 与包仓库校验和相同 | 只证明字节身份；发布前仍核源码及 SidePlugin 固定提交、构建参数/CPU 基线、不可变坐标和许可证。上游 POM、包页与本地 LICENSE 不一致时保留法务/发布门禁 | [本轮 #213 核查](linux.md#2026-09-28-固定源码验收进度)，`118-*` |

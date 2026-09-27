@@ -8,13 +8,16 @@
 
 - 主机 `soc-baidu-System-Product-Name`，Linux x86_64，i9-13900KS、32 逻辑 CPU、123 GiB 内存，
   根盘约 1 TiB 可用；`/tmp` 为 tmpfs。Java 11.0.32.1、Maven 3.9.12、Docker 29.1.3。
-- 主 checkout `/home/soc-baidu/github/hugegraph` 为干净的 `toplingdb` 分支，HEAD 即冻结 SHA。
+- 接收时主 checkout `/home/soc-baidu/github/hugegraph` 为干净的 `toplingdb` 分支，HEAD 即冻结 SHA。
   `org` 为 `https://github.com/hugegraph/hugegraph.git`；`git fetch org toplingdb --prune` 后
-  `FETCH_HEAD` 为同一 SHA，ahead/behind `0/0`。历史 `f29e` 工作区在 `6790d53bf` 且含
+  `FETCH_HEAD` 为同一 SHA，ahead/behind `0/0`。证据文档随后在原分支本地提交
+  `bfeb756bed18bd25efabb183973d436b4bb02008`，因 GitHub 凭据失效尚未推送。
+  历史 `f29e` 工作区在 `6790d53bf` 且含
   WAL/channel 等未提交内容，本轮未改动或夹带。
 - TP JAR SHA-256 `86eb1bd3d9f84ef0dddd3fe95c640a6f145ca2d5a26a5ba628f1f298a2031fae`；
   解包 native SHA-256 `c25ff6e676290db6db47df0954640aa609c391450ec90e1a8eec1f87e174dd38`。
-  native 为 ELF64 x86_64，`ldd` 无缺失库；运行时映射和 CPU 指令兼容仍待实际 probe。
+  native 为 ELF64 x86_64，`ldd` 无缺失库；运行时映射和本机指令兼容见下方真实 probe，
+  通用 x86_64 CPU 下限仍按 #213 保留发布前门禁。
 - 从零个 `target` 的干净源码运行 `mvn clean install -DskipTests -Dmaven.javadoc.skip=true -ntp`，
   exit 0，三组件标准 tar 已生成；原始日志 `01-clean-install.log`。此命令跳过测试，不能计作回归通过。
 - 主机曾有 18 个历史 `hg-closure-*` namespace、77 个 Pod、69 个 PVC。用户授权清理历史
@@ -41,11 +44,20 @@
   `known-cf-assertion`，不是服务关闭通过。原始 `probe.log`、`lifecycle.log`、SHA 和报告位于
   `13-tp-diagnostic-{server,pd,store}/`。真实服务生命周期仍需独立验证。
 - #213 发行链核查：本机 glibc 2.43，系统 libstdc++ 提供 `GLIBCXX_3.4.32`、
-  `CXXABI_1.3.13`，CPU 含 AVX2、BMI1、BMI2，满足已记录的此 native 最低 ABI/Haswell 指令要求。
-  [#213](https://github.com/hugegraph/hugegraph/issues/213) 仍为 open；当前上游
-  [JNI workflow](https://github.com/hugegraph/toplingdb/blob/memtable_as_log_index/.github/workflows/topling-jni.yml)
-  使用 Ubuntu 24.04/GCC 13 并可发布到 GitHub Packages，尚未由本轮证明源码/子模块锁定、
-  不可变坐标、签名、许可证选择和正式 HugeGraph 发行链。此项保持发布前门禁，不自行发布。
+  `CXXABI_1.3.13`，CPU 含 AVX2、BMI1、BMI2；本轮真实 native probe 成功。
+  解包 ELF64 x86_64 native 的最高 glibc 需求为 `GLIBC_2.38`（`118-*`）；这证明本机兼容，
+  不等于可移植的 x86_64 CPU 最低基线已确定。
+  [#213](https://github.com/hugegraph/hugegraph/issues/213) 仍为 open；上游
+  [成功的 JNI workflow run](https://github.com/hugegraph/toplingdb/actions/runs/30160609061)
+  使用提交 `31afa28f3d31606c1d5769a42a96ecd93420e8bc`、Ubuntu 24.04/GCC 13。
+  本地 JAR 的 SHA-1 与对应时间戳的 [GitHub Packages 资产侧文件](https://github.com/hugegraph/toplingdb/packages/3151853)
+  相同，但这是字节身份，不是签名证明。该 [workflow](https://github.com/hugegraph/toplingdb/blob/31afa28f3d31606c1d5769a42a96ecd93420e8bc/.github/workflows/topling-jni.yml)
+  的 `make clean` 会自动取得其他 SidePlugin，HugeGraph 本地没有此 JAR 的完整源码/运行清单；
+  workflow 也未固定 CPU `-march`，故源码闭包及通用 CPU 下限未收口。
+  上游 [POM template](https://github.com/hugegraph/toplingdb/blob/31afa28f3d31606c1d5769a42a96ecd93420e8bc/java/pom.xml.template)
+  列 Apache-2.0 与 GPLv2，包页标 GPLv2，而本地 [release LICENSE](../../install-dist/release-docs/LICENSE)
+  将该包列为 Apache 2.0；JAR 内未发现 LICENSE/NOTICE。许可证选择需发布/法务审查，
+  不将本轮含 SNAPSHOT JNI 的 `-topling` 发行包视为正式发行，也不自行发布。
 
 镜像均从独立干净 checkout `/home/soc-baidu/.codex/worktrees/topling-linux-image/hugegraph`
 构建，HEAD 为冻结 SHA。Bake 参数为 `SOURCE_REVISION=9d797c7...`、
@@ -184,8 +196,88 @@ TP 重启前停机再现 #212 `db not closed` 且 exit 137；标准停机 exit 0
 TP JAR 来源及其 `/proc/self/maps` 中的 native 路径，见 `66-image-runtime-*.log`。
 它证明镜像中可真实装入并使用 TP JNI，仍不等于此前 PD/Store 长驻服务 PID 的 maps 已读到。
 
+固定 SHA 的单 DB 挂载缺陷在隔离工作树
+`/home/soc-baidu/.codex/worktrees/topling-linux-image/hugegraph` 的
+`codex/toplingdb-linux-mount-preflight` 分支修复，提交
+`b4905385124a1c7fbd2668526510ac438f53398d` 的父提交正是本轮冻结 SHA。
+Docker entrypoint 在认领 provider/建立 `.hugegraph-state` 前检查最终所有本地图的
+`m/g/s`，直接启动和 init-store 走同一预检；保留 Docker 主根在改写配置前对冲突 marker、
+符号链接和未认领非空目录的只读拒绝。Linux 仅对实际本地 RocksDB 图要求
+util-linux `mountpoint` 2.37+ 与可读 `/proc/self/mountinfo`；非本地图不引入此依赖。
+预检后外部特权进程再更改挂载的竞态不在此保证内，Java 原有逐 DB guard 仍在。
+三名独立只读审查者分别检查数据安全、兼容性、测试/文档；初审指出 Docker 早期认领、
+Linux mountinfo fail-open、纯 HStore 误需 mountpoint、旧 util-linux 退出码和文档覆盖边界，
+修正后复审均无剩余阻塞。此分支不含旧 `f29e` WAL/channel 改动，未切换或重排原活动分支。
+
+修复验收：`bash -n`、`shellcheck` 均 exit 0（`106-*`），入口 fixture exit 0、23 PASS
+（`99-*`）；`mvn editorconfig:format` exit 0、格式化 0 个文件（`107-*`），
+`mvn clean compile` 最终 exit 0（`97-*`），
+`mvn clean package -pl hugegraph-server/hugegraph-dist -am -Dmaven.test.skip=true` exit 0（`101-*`）。
+首次完整编译 `96-*` 因先前生成的 TP 发行目录中的第三方网页被 Apache RAT 扫入而失败；
+将该生成目录移到专属 data 目录后原命令成功，未修改源码规避检查。
+标准与 TP Server 发行包重新生成；TP 包合同通过（`102-*`），helper 字节比对与
+包内 TP JAR/native SHA-256 核对通过（`106-*`），后两者仍分别为
+`86eb1bd3...`、`c25ff6e6...`。
+`98-*` 为真实 Docker 的额外图 `data/g` 同文件系统 bind mount：进程 exit 1、
+主数据根前后文件列表完全相同、目标挂载源哨兵不变；`100-*` 为父数据根挂载的真实 TP
+CRUD 和首次重启后完整 verify 均 exit 0，但重启停机仍报 #212 `db not closed`，
+不能计作生命周期通过。两项在提交前以同工作树脚本只读覆盖到冻结 SHA 镜像，
+验证修复逻辑的真实挂载效果；未在当时保存覆盖脚本哈希，故不冒充新提交镜像的
+产物身份或精确提交字节测试。`93-*` 至 `95-*`
+另有标准 provider 单 DB 负例及父根正例。测试容器均已移除；两项 Docker 测试留下的
+匿名 `rocksdb-data` 卷见 `98-container-inspect.txt`、`100-container-inspect.txt`，
+尝试定向删除时自动审批要求授权而当前策略不允许，因此未清理或扩大到其他卷。
+
+已提交源码的新镜像重新完整构建：`103-candidate-image-build.log` 中 Maven 27 个 reactor
+项目成功，TP standalone 镜像 manifest digest 与实际 imageID 均为
+`sha256:3ffb619f7fa7cfcaa704d189c0fd425e1b2b8ebd56f757b7aa4d2f3fc476b45a`；
+`112-*` 标准 standalone 镜像 digest/imageID 均为
+`sha256:ecdf8aa88b43293c78e298732ecf401d2e658e7c5cf9f117d0659bfc9af46111`。
+两镜像 revision 标签均为完整 `b490538...`。TP 镜像内 JAR/native 哈希仍为本轮预期，
+helper 与 Docker entrypoint 哈希和源码一致，util-linux `mountpoint` 为 2.39.3，
+`ldd` 无缺库（`103-candidate-image-identity.txt`、`103-candidate-image-files.txt`）。
+直接使用该 TP 新镜像（无脚本覆盖）的额外图单 DB bind mount 负例 exit 1，主根前后
+均为空（`104-*`）；父根正例完整 CRUD create/首次重启 verify 均 exit 0（`105-*`），
+但停机仍出现 #212 native 断言。宿主用户读长驻服务 PID maps 被拒；`docker top`
+记录 TP JAR 在 Java classpath 首位，独立 `ImageRuntimeIdentity` probe 在镜像内打印
+TP JAR CodeSource/native 映射并完成读写关闭（`105-candidate-image-runtime-probe-corrected.log`）。
+第一次 probe 未带启动链所设的库路径而触发双加载崩溃，原始
+`105-candidate-image-runtime-probe.log` 保留，不作为服务失败或通过证据。
+同一双 runtime TP 镜像选择**标准** provider 时，真实额外图挂载负例 exit 1 且主根不变，
+CRUD create 和两次 reopen verify 均 exit 0；Java classpath 含标准 JAR、无 TP JAR，
+停机 exit 0（`113-*`、`114-*`）。`113` 首次脚本因误以为标准 JAR 必在 classpath
+首位而 exit 1，实际 CRUD 已成功，后由 `114` 独立完成重启断言。单独的标准候选镜像
+已构建并核对身份，但未启动其服务；该标准 provider 实测使用双 runtime TP 镜像，
+不可混称为标准镜像服务实测。新测试对镜像声明的两个根均使用任务专属 bind mount，
+没有继续创建匿名卷；容器已清理。
+
+#249 冻结 SHA 的真实 TP 服务补充了 checkpoint 校验失败和重新打开：在独立父数据根
+CRUD 基线、`snapshot_create` HTTP 200 后写入并读到第三顶点；将
+`snapshot_data/{m,g,s}` 的 MANIFEST 移到专属备份，`snapshot_resume` 首次 HTTP 400，
+响应为 checkpoint MANIFEST 缺失，未产生 `.resume-pending`（校验发生在 begin 前），
+数据目录未进入安装阶段。首次脚本错误预期 500 而 exit 1，原始 `108-*` 不覆盖；
+停机后将三个 MANIFEST 原样恢复且 SHA-256 均匹配（`109-manifest-restore-hashes.log`）。
+重新打开时快照前数据和快照后第三顶点均可读；通用 smoke 的 Gremlin“恰好两点”
+断言因刻意添加第三点而 exit 1，原始 `109-*` 保留。改用逐顶点断言后
+`snapshot_resume` HTTP 200；重启后基线完整 verify exit 0，独立新容器再次读取
+快照前顶点 HTTP 200/200、快照后顶点 HTTP 404（`110-*`、`111-*`）。
+恢复期间 TP 停机 exit 137/#212 仍在。此服务测试只覆盖**校验前拒绝**，故 pending
+应为空；复制/发布失败、独立/嵌套 WAL 和精确锁竞态仍仅有本轮真实 JNI helper
+测试，发行包没有选择这些测试故障模式的服务配置，不能称服务级失败注入已通过。
+`116-*` 以同一冻结 SHA 的双 runtime TP 镜像显式选择**标准** provider 作服务对照，
+`docker top` 有标准 JAR、无 TP JAR：snapshot_create HTTP 200，移走三份 MANIFEST 后
+resume HTTP 400 且无 pending；两次停机均 exit 0。原 MANIFEST 哈希恢复后重新打开，
+快照前两点和快照后第三点均 HTTP 200，重新 resume HTTP 200，首次重启完整基线
+verify exit 0、第三点 HTTP 404。此对照证明双 runtime 冻结镜像在标准 provider、
+标准 JAR classpath 下的服务故障路径；长驻服务 native 映射未独立取证，
+也不等于使用独立标准镜像进行此服务故障注入。
+
+收尾资源核对（`117-resource-final.txt`）：所有本轮验收服务容器已移除，仅原有 kind
+控制面与 BuildKit 运行；可用内存约 116 GiB、根盘空余约 1.1 TiB。先前两项任务匿名卷
+仍在，定向删除被自动审批拒绝；未清理非任务资源。
+
 下一步：推送本轮证据文档并更新关联 issue（当前 GitHub 认证失效）；后续收口 #212 停机断言、
-单 Store 查询连续性、snapshot resume 即时可见性、单 DB mount 全图预检边界，以及 PD/Store
+单 Store 查询连续性、snapshot resume 即时可见性、隔离候选修复的推送/集成，以及 PD/Store
 长驻服务 native 映射门禁后，再决定 #252 固定 workload 的至少三轮对照。
 性能仍依赖相关正确性与资源门禁。每项按本轮实际命令、计数和数据断言继续更新。
 
@@ -211,10 +303,10 @@ Mac 上的 Linux 容器核心实测身份与结果见 [mac.md](mac.md#本机核�
 
 | 项目 | 验收场景与预期 | 状态 |
 | --- | --- | --- |
-| #250/#251/#253 | 直接及容器启动，默认/自定义目录和额外图；实际 JNI 与 Java provider 一致；冲突在数据库打开前失败，原数据不变 | 实测局部通过；单 DB mount 全图预检与 PD/Store 长驻映射待证 |
+| #250/#251/#253 | 直接及容器启动，默认/自定义目录和额外图；实际 JNI 与 Java provider 一致；冲突在数据库打开前失败，原数据不变 | 冻结 SHA 单 DB mount 全图失败；隔离修复候选通过，待推送/集成；PD/Store 长驻映射待证 |
 | #254 | 用真实 TP JNI 经 adapter 执行多 key truncate，旧数据全空、CF 保留、可重新读写并关闭；标准 provider 对照自身预期分支 | 本轮通过：TP 1/0/0，标准对照通过 |
 | #255 | 真正运行 runtime diagnostic，检查前置探测、错误分类、原始日志和 JNI 身份；仅已知断言得到例外，其他错误阻塞 | probe 通过；合成 CF 精确断言例外，真实关闭失败 |
-| #249 | 标准/TP 确定提交分别验证 snapshot 成功与故障恢复，包含独立/嵌套 WAL、失败后重启及源文件校验 | helper 与重启后持久回滚通过；同进程缓存失败，服务故障注入待验 |
+| #249 | 标准/TP 确定提交分别验证 snapshot 成功与故障恢复，包含独立/嵌套 WAL、失败后重启及源文件校验 | helper、持久回滚及 TP/标准 provider 服务校验失败/修复后重开通过；同进程缓存失败，服务复制/发布故障注入待验 |
 | #212 | 核对真实 DB/CF 和服务生命周期的残余关闭告警，区分已知合成断言、正常关库和卡住 worker | TP standalone 真实复现，归因待继续 |
 | #248 | 复查 clear 后首次 Server 重启丢可见性的单次线索，固定确认写入及查询证据；第二次成功不覆盖第一次异常 | 两种拓扑各一次未复现，旧线索未关闭 |
 | #213 | 核实不可变 JNI 坐标、源码/工具链、CPU 基线、校验和及许可/发布链 | ABI/CPU 已核，正式发布链未完成 |
