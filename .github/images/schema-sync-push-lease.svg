@@ -1,0 +1,87 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1300" height="860" viewBox="0 0 1300 860" font-family="Helvetica Neue, Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="blue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#0969da"/>
+    </marker>
+    <marker id="purple" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#8250df"/>
+    </marker>
+    <marker id="grey" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#57606a"/>
+    </marker>
+  </defs>
+  <rect x="0" y="0" width="1300" height="860" fill="#ffffff"/>
+
+  <text x="650" y="40" text-anchor="middle" font-size="26" font-weight="bold" fill="#1f2328">Schema sync: push from the commit, lease renewed only after a flush</text>
+
+  <!-- lane headers -->
+  <rect x="70" y="65" width="200" height="44" rx="6" fill="#ddf4ff" stroke="#54aeff"/>
+  <text x="170" y="94" text-anchor="middle" font-size="20" font-weight="bold" fill="#1f2328">Server A (writer)</text>
+  <rect x="550" y="65" width="200" height="44" rx="6" fill="#fff8c5" stroke="#d4a72c"/>
+  <text x="650" y="94" text-anchor="middle" font-size="20" font-weight="bold" fill="#1f2328">PD leader</text>
+  <rect x="1030" y="65" width="200" height="44" rx="6" fill="#ddf4ff" stroke="#54aeff"/>
+  <text x="1130" y="94" text-anchor="middle" font-size="20" font-weight="bold" fill="#1f2328">Server B</text>
+
+  <!-- lifelines -->
+  <line x1="170" y1="109" x2="170" y2="740" stroke="#d0d7de" stroke-width="2" stroke-dasharray="6,6"/>
+  <line x1="650" y1="109" x2="650" y2="740" stroke="#d0d7de" stroke-width="2" stroke-dasharray="6,6"/>
+  <line x1="1130" y1="109" x2="1130" y2="740" stroke="#d0d7de" stroke-width="2" stroke-dasharray="6,6"/>
+
+  <!-- part 1: DDL -->
+  <text x="20" y="150" font-size="18" font-weight="bold" fill="#0969da">DDL</text>
+  <line x1="172" y1="160" x2="438" y2="160" stroke="#0969da" stroke-width="3" marker-end="url(#blue)"/>
+  <text x="305" y="150" text-anchor="middle" font-size="18" fill="#1f2328">txn: keys + record(g), compares</text>
+
+  <rect x="440" y="172" width="420" height="96" rx="6" fill="#f6f8fa" stroke="#d0d7de"/>
+  <text x="650" y="198" text-anchor="middle" font-size="18" fill="#1f2328">one raft entry, applied at index r</text>
+  <text x="650" y="224" text-anchor="middle" font-size="18" fill="#1f2328">record g = {rev r, incarnation, LIVE}</text>
+  <text x="650" y="250" text-anchor="middle" font-size="18" fill="#1f2328">apply thread appends (g, r, keys) to ring</text>
+
+  <line x1="438" y1="290" x2="174" y2="290" stroke="#57606a" stroke-width="2" stroke-dasharray="8,5" marker-end="url(#grey)"/>
+  <text x="305" y="282" text-anchor="middle" font-size="18" fill="#57606a">reply (after commit)</text>
+
+  <line x1="652" y1="330" x2="174" y2="330" stroke="#0969da" stroke-width="3" marker-end="url(#blue)"/>
+  <line x1="648" y1="330" x2="1126" y2="330" stroke="#0969da" stroke-width="3" marker-end="url(#blue)"/>
+  <text x="410" y="322" text-anchor="middle" font-size="18" fill="#1f2328">Changes{g: r, keys}</text>
+  <text x="890" y="322" text-anchor="middle" font-size="18" fill="#1f2328">Changes{g: r, keys}</text>
+
+  <rect x="1000" y="345" width="260" height="58" rx="6" fill="#f6f8fa" stroke="#d0d7de"/>
+  <text x="1130" y="369" text-anchor="middle" font-size="17" fill="#1f2328">invalidate g, then</text>
+  <text x="1130" y="393" text-anchor="middle" font-size="17" fill="#1f2328">cleared_through = r</text>
+  <rect x="40" y="345" width="260" height="58" rx="6" fill="#f6f8fa" stroke="#d0d7de"/>
+  <text x="170" y="369" text-anchor="middle" font-size="17" fill="#1f2328">the writer handles its</text>
+  <text x="170" y="393" text-anchor="middle" font-size="17" fill="#1f2328">own frame like any Server</text>
+  <text x="650" y="372" text-anchor="middle" font-size="16" fill="#57606a">sent at once when idle, then at most</text>
+  <text x="650" y="394" text-anchor="middle" font-size="16" fill="#57606a">1 frame per graph per 200 ms</text>
+
+  <!-- part 2: lease -->
+  <line x1="20" y1="428" x2="1280" y2="428" stroke="#eaeef2" stroke-width="2"/>
+  <text x="20" y="462" font-size="18" font-weight="bold" fill="#8250df">Every 1 s</text>
+  <rect x="1000" y="448" width="260" height="34" rx="6" fill="#fbefff" stroke="#c297ff"/>
+  <text x="1130" y="471" text-anchor="middle" font-size="17" fill="#1f2328">t0 = own monotonic clock</text>
+
+  <line x1="1128" y1="510" x2="862" y2="510" stroke="#8250df" stroke-width="3" marker-end="url(#purple)"/>
+  <text x="1005" y="498" text-anchor="middle" font-size="18" fill="#1f2328">Echo{t0, cleared_through}</text>
+
+  <rect x="440" y="486" width="420" height="104" rx="6" fill="#f6f8fa" stroke="#d0d7de"/>
+  <text x="460" y="512" font-size="18" fill="#1f2328">1. ReadIndex: a quorum confirms the leader</text>
+  <text x="460" y="542" font-size="18" fill="#1f2328">2. same term as at registration</text>
+  <text x="460" y="572" font-size="18" fill="#1f2328">3. flush every earlier frame first</text>
+
+  <line x1="862" y1="620" x2="1126" y2="620" stroke="#8250df" stroke-width="3" marker-end="url(#purple)"/>
+  <text x="995" y="610" text-anchor="middle" font-size="18" fill="#1f2328">Alive{t0}</text>
+
+  <rect x="960" y="636" width="310" height="84" rx="6" fill="#fbefff" stroke="#c297ff"/>
+  <text x="1115" y="662" text-anchor="middle" font-size="17" fill="#1f2328">serve until t0 + 12 s</text>
+  <text x="1115" y="688" text-anchor="middle" font-size="17" fill="#1f2328">no renewal by then:</text>
+  <text x="1115" y="712" text-anchor="middle" font-size="17" fill="#1f2328">503 + Retry-After</text>
+
+  <text x="190" y="662" font-size="17" fill="#57606a">Idle cost per Server: 1 Echo + 1 Alive per second,</text>
+  <text x="190" y="686" font-size="17" fill="#57606a">no per-graph reads, no raft writes.</text>
+
+  <!-- bound -->
+  <rect x="20" y="752" width="1260" height="92" rx="8" fill="#dafbe1" stroke="#4ac26b"/>
+  <text x="650" y="782" text-anchor="middle" font-size="19" fill="#1f2328">Processing Alive proves every change committed before t0 was invalidated (same ordered stream).</text>
+  <text x="650" y="808" text-anchor="middle" font-size="19" fill="#1f2328">So a DDL acknowledged at T is served by every Server, or refused, from T + 12 s on.</text>
+  <text x="650" y="834" text-anchor="middle" font-size="19" fill="#1f2328">A stalled Server or a half-open link cannot renew; its lease runs out on its own clock.</text>
+</svg>
