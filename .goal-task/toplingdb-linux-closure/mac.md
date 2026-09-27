@@ -11,8 +11,11 @@
 主 checkout 的无关文件及 Linux 历史未提交补丁未搬入本轮。
 恢复时重新核对 HEAD、工作区和远端；本轮最终提交见下方交付记录。
 
-2026-09-27：六项代码、核心实测、三人复审和四批代码远端核对已完成。文档核查已通过。
-交付后下一动作是由 Linux 接收确定代码 head，执行待验场景；不自动合并 PR，不启动性能或完整部署矩阵。
+2026-09-27 更正：上一轮已交付本机定向验证，但整体 CI 门禁未收口。
+完整 CI 随后发现恢复锁相关的标准多盘回归，以及本 PR 新增 PD 测试的 package/install 编译失败。
+本机补救代码已验证并提交，远端 CI 待复验；不能把前轮 goal 的 complete 标记当作当前代码已具备合入条件。
+当前下一动作是核对补救提交的推送结果及新 head 的相关远端 CI；
+Linux 可先按已交付 SHA 验证独立项目，但须在新提交后复验受影响场景。不自动合并 PR。
 
 ## 开发清单与验收
 
@@ -32,8 +35,8 @@
 
 ## 最小验证与审查
 
-证据目录为 `/tmp/topling-local-20260927`，原日志不提交；以下均退出 0，失败尝试保留以便追溯。
-证据针对本轮实际工作树，交付后用确定源码提交复跑，不能继承为未来 SHA 已通过。
+以下为上一轮 `cf25a438a50f93f96efce74b9e4b0cacce4fac91` 所包含代码的历史定向证据，
+不代表完整 CI 已通过，也不继承为本次补救代码已通过。证据目录 `/tmp/topling-local-20260927`，原日志不提交。
 
 | 验证 | 结果与边界 | 日志 |
 | --- | --- | --- |
@@ -53,8 +56,9 @@ entrypoints-linux-final.log 保存 Linux entrypoint 最新结果。
 GitHub 本次代码 head 的 Commons/dependency-check 等失败日志指出 TP 图片索引三文件缺末尾 LF；
 文档批次补 LF，`mvn -o editorconfig:check -ntp` 通过（editorconfig-check-delivery.log）。
 741c 的 Commons 检查仍失败，此时 LF 修复尚未推送；须核对本次文档批次的新 head，不能继承旧 run。
-cluster-test 与 Server HBase job 在 hg-pd-test 编译因既有 IndexAPIClusterStateTest 缺 PDService/IndexAPI 失败；
-该测试及依赖 POM 不在本轮 diff，保留 CI 门禁并独立跟进，不将本机通过写成全 CI 通过。
+旧交付将 hg-pd-test 编译失败当作本轮 diff 外的独立门禁，这个归属判断不完整：
+IndexAPIClusterStateTest 由本 PR 的 `327737f16` 引入，虽早于上轮 goal，仍由本分支负责。
+本次归因和修复见下方 CI 补救，不能将“定向测试已交付”写成“本机代码收口完成”。
 没有完整打包三类正式镜像，没有做性能压测、多节点拓扑、断电或进程强杀恢复实验。
 
 Java 命令在仓库根目录执行，临时路径同时传给 Maven 与 Surefire fork：
@@ -75,6 +79,47 @@ mvn -o test -pl hugegraph-server/hugegraph-test -am -P unit-test,rocksdb \
 Docker Server 的 ABI CI 探测绕过 entrypoint，新增根校验使未准备默认路径的旧 fixture 失败。
 补齐临时 probe 的 data/WAL 空目录后，真实 selector/marker/native probe 通过，
 未关闭校验或改写用户图配置；日志 docker-ci-server-probe-final.log。
+
+## CI 补救与完成状态更正
+
+2026-09-27 核对 `cf25a438a50f93f96efce74b9e4b0cacce4fac91` 的全部 18 个失败 job，
+实际只有两条根因，不是 18 个互不相关的故障：
+
+- 16 个 job 在 package/install 后编译新增 PD 测试失败。Spring Boot repackage 把主 artifact
+  改成 BOOT-INF/classes 布局，compile 阶段的 target/classes 能解析，打包后的依赖 JAR 不能解析。
+  修复为薄主 JAR + exec 可执行 JAR；发行包只带 exec，启动脚本保持匹配唯一 Boot JAR。
+- 2 个 Mac job 在 `MultiGraphsTest.testCreateGraphsWithMultiDisksForRocksDB` 失败。
+  新恢复 guard 把既有 checked RocksDBException 契约改成 BackendException，破坏锁争用/shared CF 分支。
+  公共 open 现保留 checked IOError，并用结构化 contention 分类，拒绝目录名里的错误子串绕过。
+  只有活 native owner 可复用，检查、复制、session 初始化与缓存登记对同一 owner 的恢复互斥。
+
+失败 run：[Server](https://github.com/hugegraph/hugegraph/actions/runs/36270918750)、
+[PD/Store](https://github.com/hugegraph/hugegraph/actions/runs/36270918555)、
+[Commons](https://github.com/hugegraph/hugegraph/actions/runs/36270918548)、
+[cluster](https://github.com/hugegraph/hugegraph/actions/runs/36270918538)、
+[CodeQL](https://github.com/hugegraph/hugegraph/actions/runs/36270918537)、
+[dependency-check](https://github.com/hugegraph/hugegraph/actions/runs/36270918547)。
+
+| 补救验证 | 当前结果 | 证据文件（同一 /tmp 目录） |
+| --- | --- | --- |
+| clean PD package 最小复现 | 修复前缺两个符号，修复后 BUILD SUCCESS；未 clean 的旧 classes 曾掩盖失败 | repair-pd-clean-package-before.log / repair-pd-clean-package-after.log |
+| 完整 root clean install | 所有模块成功；首次离线缺未缓存 shade plugin，联网补齐后实跑成功 | repair-root-clean-install-online.log |
+| PD artifact / distribution | 主 JAR 有普通 classes，exec 有 BOOT-INF；发行包唯一 exec，manifest JarLauncher/HugePDServer 正确 | root install 后 zip、manifest 和 dist 核对 |
+| PD 新增 mock 回归 | IndexAPIClusterStateTest 2/0/0/0 | repair-pd-index-tests.log |
+| PD 实际发行包启动 | Mac JDK 11，独立临时端口/data，java -jar 后 actuator health UP；仅终止本次进程 | repair-pd-boot/server.log / result.json |
+| 标准多盘最小复现 | 修复前 1 个失败；首次契约修复后通过，最终版本纳入完整核心套件 | repair-multidisks-before.log / repair-multidisks-after.log |
+| 标准 CoreTestSuite | 最终源码 suite 818/0/0/42；合并执行命令整体失败因 session 单测用了旧共享 temp，不能声称该命令退出 0 | repair-core-and-unit-final.log 及 CoreTestSuite XML |
+| 标准 session/helper | 最终版本用新专属 temp 43/0/0/0，命令 BUILD SUCCESS；合并命令的旧 pending/缺 checkpoint 失败日志保留，未删除旧 marker 绕过保护 | repair-unit-tests-complete.log / repair-core-and-unit-final.log |
+| 真实 TP helper / adapter | 最终版本 27/0/0 与 1/0/0；首个仅锁复制的补丁被真实 TP 并发用例证伪，扩展至初始化后通过 | repair-tp-helper-final.log（失败）/ repair-tp-helper-complete.log / repair-tp-adapter-final.log |
+
+三名只读审查者复查本次最终 diff；发现的异常消息误判与检查/复制/初始化竞态已修复，最终均无阻塞发现。
+此次保证同一 owner 的初始化与恢复互斥；不同副本后续独立恢复的引用重绑定属于既有共享生命周期边界，
+未扩展为支持任意副本并发恢复。真实服务验收应沿实际 Store 生命周期执行，不能泛化单个并发用例。
+本机补救验证完成，代码 head 为 `dfd4ce07e98e5846a2a093750f4b59a3061ab393`，PD 打包提交 `5401221996d7af71a0ea9a4243b5f0d1529237cc`。
+最终格式、完整 clean compile 与 git diff --check 通过。71 个相对链接/锚点与 Linux bash 命令语法通过，
+四份历史档案保持逐字节一致；一名文档审查者指出的临时目录隔离问题已修正。
+当前整体收口仍待相关远端 CI，不能仅凭本机验证、推送或旧 goal complete 再标记完成。
+Linux 接收新源码后复跑多盘/恢复锁、PD 打包与实际服务场景；服务器结果仍只在 linux.md 维护。
 
 ## 本机核心实测身份
 

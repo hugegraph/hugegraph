@@ -37,6 +37,39 @@ Mac 上的 Linux 容器核心实测身份与结果见 [mac.md](mac.md#本机核�
 
 ## 本轮交接与复跑
 
+2026-09-27 CI 补救已通过本机验证与审查，相关远端 CI 尚待复验：旧 `cf25a438a` 有 18 个失败 job，
+其中 16 个是本 PR 新增 PD 测试在打包后的 classpath 问题，2 个是新恢复锁导致的标准多盘契约回归。
+不得沿用旧 complete 标记作为合入依据。当前确定代码 head 为 `dfd4ce07e98e5846a2a093750f4b59a3061ab393`，
+其中 PD 打包提交 `5401221996d7af71a0ea9a4243b5f0d1529237cc`；fetch 后核对它们已在原 `toplingdb` 分支，
+再在保留本地旧补丁的前提下整合、构建和验收。
+除原清单外须复跑完整标准 CoreTestSuite、多盘/shared CF、恢复锁并发、PD clean package/install
+及实际 Boot 发行包/TP launcher。helper 最终版本预期 27/0/0，旧 24 项通过仍只归属旧 SHA。
+同一 owner 的初始化与恢复互斥已覆盖；未声明任意共享副本独立恢复后都可重绑定 native 引用。
+新增构建/核心门禁从干净源码按顺序执行，不以旧 target/classes 代替打包依赖验证：
+
+```bash
+CI_TEST_TEMP=$(mktemp -d /tmp/topling-ci-closure.XXXXXX)
+mvn clean install -DskipTests -Dmaven.javadoc.skip=true -ntp
+mvn test -pl hugegraph-server/hugegraph-test -am -P core-test,rocksdb \
+  "-DargLine=-Xms512m -Xmx2g -Djava.io.tmpdir=$CI_TEST_TEMP" \
+  "-Djava.io.tmpdir=$CI_TEST_TEMP" -Dmaven.javadoc.skip=true -ntp
+mvn test -pl hugegraph-server/hugegraph-test -am -P unit-test,rocksdb \
+  -Dtest=RocksDBSessionsTest,RocksDBSnapshotRestoreTest \
+  -Dsurefire.failIfNoSpecifiedTests=false -DfailIfNoTests=false \
+  "-DargLine=-Xmx512m -Djava.io.tmpdir=$CI_TEST_TEMP" \
+  "-Djava.io.tmpdir=$CI_TEST_TEMP" -Dmaven.javadoc.skip=true -ntp
+mvn test -pl hugegraph-pd/hg-pd-test -am -P pd-rest-test \
+  -Dtest=IndexAPIClusterStateTest \
+  -Dsurefire.failIfNoSpecifiedTests=false -DfailIfNoTests=false \
+  "-DargLine=-Xmx512m -Djava.io.tmpdir=$CI_TEST_TEMP" \
+  "-Djava.io.tmpdir=$CI_TEST_TEMP" -Dmaven.javadoc.skip=true -ntp
+```
+
+预期 Core 818 项、0 失败/错误、42 个原有 skip；session/helper 43 项无失败/错误/skip；PD mock 2 项无失败/错误/skip。
+发行包只含一个 `lib/hg-pd-service-*-exec.jar`，实际 standard java -jar 与 TP JarLauncher 都须验证。
+
+以下为上一轮代码交付，保留来源，不作为补救后的当前默认验收提交：
+
 确定代码交付 head 为 `741c64a5c3858d7d3489d209acec0935b0a8af58`：
 配置组 `8054b6552e67b872e601d3d3a8cb6021bab4f1aa`，WAL/adapter
 `4bf7612e2acaef4d230b9b581a2afd31591332fe`，CI/诊断为
@@ -139,7 +172,7 @@ done
 ```
 
 检查 ldd 不得含 not found；实际 JAR/native hash 必须匹配交付身份，不满足时先修环境。
-预期 helper 24/0/0、adapter 1/0/0。服务器需再记录自身产物和结果。
+新补救代码预期 helper 27/0/0、adapter 1/0/0；旧交付 helper 为 24/0/0。服务器需再记录自身产物和结果。
 
 对已构建的 Topling component（Server、PD、Store 分别执行），运行仓库 wrapper：
 
@@ -158,7 +191,9 @@ exit 134 则报告 known-cf-assertion。任何前置、其他错误或混合失�
 Server ABI probe 的默认空目录 fixture 已补齐、本机复现验证并推送 `741c64a5c`；
 文档交付前的 `741c64a5c` 检查仍有 Commons 失败及相关 job 待定；图片 LF 修复在本次
 文档批次发布后才进入远端，需按包含修复的 SHA 再核对，不能把本机核心实测当作矩阵已通过。
-其余 hg-pd-test 缺 PDService/IndexAPI 编译失败保留独立门禁，未在 TP 范围修改通用依赖。
+hg-pd-test 缺 PDService/IndexAPI 的新增测试属于本 PR，正在以薄 JAR + exec 发行包修复；
+PD 修复已有完整 clean install、mock 2 项与实际 Boot health UP；
+新 head 的三组件打包/运行与完整 CI 仍需核对，见上方补救接收说明。
 
 ## 每次验收的证据
 
