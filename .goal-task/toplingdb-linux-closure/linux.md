@@ -37,6 +37,16 @@ Mac 上的 Linux 容器核心实测身份与结果见 [mac.md](mac.md#本机核�
 
 ## 本轮交接与复跑
 
+第三轮启动集成修正已完成本机真实回归：`89979877b` CI 为 37 成功/1 失败，
+唯一失败根因为 startup fixture 在前序安全校验认领 data 目录后误跳过 backend 初始化。
+修正后安全脚本→完整启动套件→同一 backend 再运行均通过，两轮 startup 各 16/0。
+接收后须包含 startup fixture 修正 `8d92909b78f05e762e3e741a0949d6d33dac9374` 及最新文档；
+fetch 后核对提交已在原分支，保留既有未提交改动。
+脚本 cleanup 会操作进程、默认端口和 cron，仅在专用隔离测试容器/工作区运行，不在既有服务主机直接执行。
+当前新 head CI 和远端服务器验收仍待结果，旧目录/marker 不能证明 backend 已初始化。
+
+### 第二轮修正与源码基线
+
 第二轮 CI 补救已完成本机回归与审查，确定源码提交 `218f52309a7109d19d76b3161674d24c86c2c4c3`。
 其基线 `e4fef4b95` 已有 36 项成功、2 项失败，分别为安全启动 fixture
 使用缺失 REST 被 provider selector 在 JVM 前拒绝，以及 SLF4J 旧版本的 known inventory 未同步删除。

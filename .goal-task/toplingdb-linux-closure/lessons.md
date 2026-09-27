@@ -15,3 +15,4 @@
 | Maven compile 通过、package/install 下游找不到同模块类 | 用 clean 重现 artifact 布局；Boot 主 JAR 的 BOOT-INF/classes 不能作普通编译依赖，保留薄主 JAR并单独附 exec，发行包只选 exec | [CI 补救](mac.md#ci-补救与完成状态更正)，clean package 失败/修复及 root clean install |
 | 定向测试通过但完整 CI 未结束 | 只记录已交付、待 CI；本 PR 早期新增代码的失败仍由本分支收口，不以是否在最后一次 diff 内判断归属 | [18 个失败 job 的归因](mac.md#ci-补救与完成状态更正) |
 | runtime 依赖已移除或换版本 | 同步原 CI generator 的 known 清单，先确认实际 runtime 集合唯一差异；CI 对新增与删除都失败，不为匹配旧清单加入已移除库 | [第二轮 CI 补救](mac.md#第二轮-ci-补救安全启动-fixture-与依赖清单)，inventory-before-sorted.diff |
+| provider admission 已创建根目录或 marker | 目录认领与 backend 初始化分开判断；初始化走既有表/CF 检查，不能用目录或 CURRENT 存在跳过。信号测试先验证真实活进程，看门狗超时不能当退出码传播成功 | [完整真实启动回归](mac.md#第三轮-ci-补救真实启动与-backend-初始化) |

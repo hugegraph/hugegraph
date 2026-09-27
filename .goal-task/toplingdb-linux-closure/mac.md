@@ -13,9 +13,10 @@
 
 2026-09-27 更正：上一轮已交付本机定向验证，但整体 CI 门禁未收口。
 完整 CI 随后发现恢复锁相关的标准多盘回归，以及本 PR 新增 PD 测试的 package/install 编译失败。
-第一轮补救已交付；其 CI 有 36 成功、2 失败，第二轮安全 fixture 与依赖清单已修复并完成本机回归。
+第一、二轮补救已交付；第二轮 head `89979877b` 的 CI 有 37 成功、1 失败。
+第三轮已修复真实启动 fixture 的 backend 初始化误判，并完成完整启动顺序与同 backend 复跑。
 不能把前轮 goal 的 complete 标记当作当前代码已具备合入条件。
-当前下一动作是核对第二轮 CI 补救提交 `218f52309a7109d19d76b3161674d24c86c2c4c3` 的推送结果及新 head 的相关远端 CI；
+当前下一动作是核对第三轮提交 `8d92909b78f05e762e3e741a0949d6d33dac9374` 的推送结果及新 head 的完整相关远端 CI；
 Linux 可先按已交付 SHA 验证独立项目，但须在新提交后复验受影响场景。不自动合并 PR。
 
 ## 开发清单与验收
@@ -157,7 +158,46 @@ Linux 接收新源码后复跑多盘/恢复锁、PD 打包与实际服务场景�
 本轮代码提交 `218f52309a7109d19d76b3161674d24c86c2c4c3`，生产行为未改。Mac/Linux 完整安全脚本、实际依赖对照、
 独立只读审查均通过；格式、完整 clean compile、bash -n 与 diff --check 通过，
 73 个相对链接/锚点及四份历史档案一致性通过。
-当前下一动作是核对这次提交及文档的推送结果、新 head CI；远端门禁通过前不标整体完成。
+第二轮当时的下一动作是核对提交及文档的推送结果、新 head CI；其结果与后续修正见下方第三轮。
+
+## 第三轮 CI 补救：真实启动与 backend 初始化
+
+`89979877b839ebcf415608e4eb601fa5bf3f7970` 的 CI 最终 37 成功、1 失败。
+[唯一失败 job](https://github.com/hugegraph/hugegraph/actions/runs/36301842353/job/108581358948)
+已通过第二轮安全配置测试和清单门禁，随后真实启动套件 6 通过/7 失败。
+此前本机验证没有覆盖这条完整启动链，不能从安全脚本通过推导为真实 Server 启动通过。
+
+根因已在隔离发行包稳定复现：安全启动的 provider admission 会先创建 data/WAL 根与 marker，
+此时没有 backend CF；startup fixture 却凭 `rocksdb-data` 目录存在跳过 `init-store`。
+后续真实错误为 `The backend store of 'DEFAULT-hugegraph' has not been initialized`，
+daemon、前台、HTTP 和 cron 失败由此连带触发。
+
+修正仅在 `test-start-hugegraph.sh`：先 cleanup，再始终执行既有 `init-store.sh`；
+实际 backend 是否初始化由原生表/CF 检查决定，不给目录/marker 赋初始化完成语义。
+初始化失败打印日志，每个失败 section 首次打印启动日志。
+信号用例要求真实 Server Java PID 尚存活，HTTP 未就绪计失败；
+watchdog 超时单独判失败，不能把它杀死 wrapper 的非零退出误作传播成功。
+未改变生产 provider/root/security 校验，也未扩展 InitStore 的版本不匹配处理。
+后续 API、install 和 native smoke 脚本已核查均会初始化，没有其他同类目录跳过路径。
+
+| 验证 | 结果与范围 | /tmp/topling-local-20260927 证据 |
+| --- | --- | --- |
+| 未初始化根的实际启动 | invalid security 启动先认领 roots，CURRENT 为 0；daemon 启动失败，日志为 backend 未初始化 | startup-before-container.log / startup-before-server-logs |
+| 初始化后的对照 | 同样先认领 roots，再 init-store；实际 daemon 成功，/versions 返回 200 及版本 JSON | startup-after-container.log / startup-http-after.json |
+| 完整 CI 启动顺序 | 实际完整安全脚本 PASS；确认 roots 已存在但无 CURRENT；完整 startup suite 16/0 | startup-chain-security.log / startup-suite-after.log |
+| 已初始化 backend 重复执行 | 同一 backend 再执行完整 suite，16/0；真实 daemon/前台、HTTP、cron、SIGKILL 137、SIGTERM 143 全过 | startup-suite-repeat.log / startup-suite-repeat-server-logs |
+| timeout 反例 | 自然退出 7 保留原码且非 timeout；挂住子进程被 watchdog 终止时 timeout=true，不当成功 | startup-wait-probe.log |
+| 静态及独立审查 | bash -n、shellcheck 增量无新发现；只读复审修复 timeout 误判后无阻塞 | startup-shellcheck-final.json / startup_review |
+
+完整套件只在专属 Linux arm64/JDK11 容器执行，真实 crontab/fuser/curl/ps；2 CPU/2 GiB，运行时禁网。
+镜像 `local/hg-startup-check:20260927` manifest 为
+`77a468132b9e43192b6a8a3b4dae8e980934f31a90b320873acd62ee3e404541`。
+发行包只读挂载后复制到容器临时目录，进程、端口和 cron 清理只作用于该容器，未运行会清理全局资源的脚本于宿主。
+这是本机核心正确性证据，不能推导远端 Linux 或性能通过。
+
+本轮修复提交 `8d92909b78f05e762e3e741a0949d6d33dac9374`，本机完整真实回归、独立复审、
+格式/完整 clean compile 与静态检查已通过。当前待核对提交推送和新 head 的远端 CI。
+不再次提前标记整体代码收口完成。
 
 ## 本机核心实测身份
 
