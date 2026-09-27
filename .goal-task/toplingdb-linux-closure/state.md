@@ -1,18 +1,30 @@
 # ToplingDB 双环境任务入口
 
-## 当前目标与加载规则
+## 2026-09-28 Linux 阶段摘要
+
+本轮固定验收源码 `9d797c7608e244f03436ce11294d9bd72aba4d2d`。用户确认该提交的
+38 项 CI 检查全部成功；原文中的“新 CI 待验”是提交时记录，不再代表当前 CI 状态。
+CI 成功不等于 Linux 服务器验收完成。当前主机接收、构建、测试和部署的实际结果只在
+[Linux 验收](linux.md) 维护。原 `toplingdb` 分支和 PR #179 保持活动状态，PR 拆分另行推进。
+本轮干净构建、标准 Core 及定向回归、真实 TP helper、三组件发行包/镜像、单组件与
+1+1+1/1+3+3 服务实验已推进；#212 最小只读对照发现共用会话残余，TP 停机仍失败；
+单 Store 故障下边扫描中断，
+snapshot resume 同进程缓存可见性异常；单 DB mount 拒绝时并行 m/s 有部分初始化。
+#248 在本轮两个拓扑未复现，#252 依正确性门禁后置。
+
+## 此前 Mac 阶段与加载规则
 
 2026-09-27 用户确认：复用本目录、`hugegraph/hugegraph` 的 `toplingdb` 分支与
-[PR #179](https://github.com/hugegraph/hugegraph/pull/179)。当前 goal 是本机代码收口并交接 Linux，
+[PR #179](https://github.com/hugegraph/hugegraph/pull/179)。此前 Mac goal 是本机代码收口并交接 Linux，
 不以 Linux native、性能、多节点或正式发布完成作为本机 goal 的完成条件。
 文档初始化已在 7c7519b79 完成交付；2026-09-27 用户启动本机 goal。
 六项实现的本机定向验证与交付已完成，但完整 CI 随后发现未收口的代码/构建门禁。
 第二轮交付 head `89979877b` 的 CI 已完成，37 项通过、1 项失败；
 第三轮已修复真实启动 fixture 把目录认领误当 backend 初始化的问题，
 完整安全→启动顺序及同 backend 再运行均通过（startup 各 16/0）。
-本轮修正提交 `8d92909b78f05e762e3e741a0949d6d33dac9374`，当前待核对发布结果与新 head CI。
+当时修正提交 `8d92909b78f05e762e3e741a0949d6d33dac9374`，当时待核对发布结果与新 head CI。
 详细状态和证据见 mac.md；不将旧 complete 标记等同 PR 可合入。
-远端服务器验收、性能与部署实验仍由后续阶段执行。
+Linux 服务器验收现按上方 2026-09-28 阶段执行。
 
 - Mac 默认只读本文件和 [Mac 开发](mac.md)。
 - Linux 默认只读本文件和 [Linux 验收](linux.md)。
