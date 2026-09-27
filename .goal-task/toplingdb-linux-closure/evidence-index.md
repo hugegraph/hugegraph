@@ -5,6 +5,10 @@
 本轮 Mac 与本机容器证据在 [mac.md](mac.md#最小验证与审查)，原日志位于
 `/tmp/topling-local-20260927`；源码提交及 JNI 身份见对应交付记录。
 服务器验收入口为 [linux.md](linux.md)。下表均为历史结果，未绑定完整 SHA 的项必须先复核来源。
+本轮冻结 SHA `9d797c7608e244f03436ce11294d9bd72aba4d2d` 的原始 Linux 证据位于
+`/home/soc-baidu/.codex/validation-runtime/toplingdb-linux-closure/accept-9d797c7-20260928/evidence/`；
+`140-*` 至 `153-*` 是尚未提交的 #249 图级 journal 候选日志/状态，`154-*` 保存历史容器
+inspect 和压缩原始日志，`155-*` 是清理后的资源状态。结果与安全边界以 [linux.md](linux.md) 为准。
 
 | 逻辑证据 | 用途 | 历史结论 |
 | --- | --- | --- |

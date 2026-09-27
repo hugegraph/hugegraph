@@ -328,13 +328,50 @@ g/m 无 `.resume-pending`，仅凭残留 checkpoint 无法在重启时判定是�
 `137-exit-code.txt`）；测试数据已移入专属 data
 目录。审查与红绿证据的准确边界见 `138-cache-candidate-review.md`。
 
+#249 图级 journal 骨架另在冻结 SHA 的干净隔离分支
+`codex/toplingdb-graph-journal`（`/home/soc-baidu/.codex/worktrees/topling-graph-journal/hugegraph`）
+推进，**尚未提交或接入真实恢复**。它已实现持久 `PREPARED/COMMITTED` 记录、组进程锁、
+成员路径重叠拒绝及启动前发现 marker 时 fail-closed 的框架；没有安装/重开全部 DB、
+延后单 DB checkpoint 消费、启动自动重放或在线流量隔离，不能判 #249 通过。
+纯 journal 定向回归先 3/0/0/0，fixture 编译和 DATA_DISKS 类型各失败一次后 4/0/0/0，
+加入交叉路径与 provider pre-open 后 6/0/0/0。现有 MultiGraphsTest 首轮因
+过早解析无 marker 的无效 `/g` 配置而 11 项中 1 失败/2 skip，改为持组锁检查 marker、
+存在时直接 fail-closed 后 11 项 0 失败/0 错误/2 skip。所有失败原始日志和恢复见 `140-*` 至
+`147-journal-scaffold-status.md`；两次测试数据库已移出 worktree。首名独立只读
+审查者发现跨成员数据/源覆盖与无锁检查竞态两个 P1，修正后复审这两个直接路径无阻塞；
+完整三人审查、发行包和真实标准/TP 服务故障回归仍待完成。
+源码又确认 `snapshot_create` 逐 DB 建 checkpoint，不保证并发写入下同一逻辑时刻；
+后续必须明确停写/流量隔离条件并验证，不能用 journal 本身代替一致性快照。
+
+上述为 `147-*` 时的骨架阶段；随后同一**未提交**候选加入单 DB 延后消费、provider
+整组 m/g/s 恢复与启动前重放。真实标准 JNI 定向测试：成员 native 重开仍保留源
+`148-*` 7/0/0，COMMITTED 后消费 `149-*` 7/0/0，provider 三库成功路径
+`150-*` 8/0/0，首库已安装后由新 provider 重放三库并验证快照前值 `151-*`
+9/0/0；现有 helper 27 + session 16 + 新 journal 9 的定向合计 `152-*`
+52/0/0/0。均为宿主标准 JNI，**非真实 TP 服务**，不覆盖全量 Core/发行包。
+独立只读安全复审指出在线门禁仍不完整：初版已打开 TinkerPop tx 可跨恢复提交；
+新 `snapshotGate` 关闭这一路径后，schema 自动提交不增加 tx refs、预先保存的
+SchemaManager 可绕过失败拒读、长寿命 iterator 可在 native 关闭后继续遍历。
+因此此候选仍不得提交/推送；需要统一图级停流与 epoch、确定性并发故障测试、
+三名独立只读审查者复审和真实标准/TP 服务复测。命令、退出码、审查与未覆盖边界见
+`153-group-replay-candidate-status.md`。此前单 DB mount 的隔离修复候选与本分支分开保留。
+
 收尾资源复核（`131-resource-final.txt`，此前阶段见 `117-resource-final.txt`）：
 所有本轮验收服务容器已移除，仅 kind 控制面与 BuildKit 容器运行；集群内只有
 `kube-system` 和 `local-path-storage` 基础 Pod，无旧 HugeGraph 服务批次。
-可用内存约 117 GiB、根盘空余约 1.1 TiB。先前两项任务匿名卷
-仍在，定向删除被自动审批拒绝；未清理非任务资源。
+随后按用户要求再次清理历史服务占用：清理前 Docker 有 15 个已退出的 HugeGraph/原生构建容器，
+`docker system df` 报告容器层 90.96 GB、其中 90.95 GB 可回收；先将各容器完整
+`docker inspect`、`docker logs`（gzip）和日志 SHA-256 留在专属 `154-*` evidence 目录，
+再用 `docker rm` 移除这 15 个已退出容器（exit 0），未删除其挂载卷和验证数据。
+清理后 `155-resource-after-container-cleanup.txt` 显示 Docker 仅运行 kind 控制面和
+BuildKit 两个容器，容器层 3.981 MB；根分区可用从 1.1 TB 增至 1.2 TB，约回收
+84 GiB 实际磁盘空间。kind 仍只有五个基础命名空间，无 HugeGraph Pod；内存可用 116 GiB。
+Docker 报告 80 个卷共 7.58 TB 属于逻辑计数，包含验证数据，未据此批量 prune；
+后续仍按一次一批服务启动，并在每轮结束时回收容器、保留任务证据。
+先前两项任务匿名卷仍在，定向删除被自动审批拒绝；未清理非任务资源。
 
-下一步：推送本轮证据文档并更新关联 issue（当前 GitHub 认证失效）；后续收口 #212 停机断言、
+下一步：本地提交本轮证据文档；远端推送受自动审批拒绝且 GitHub 认证失效，关联 issue 更新待恢复。
+后续收口 #212 停机断言、
 单 Store 查询连续性、snapshot resume 即时可见性、隔离候选修复的推送/集成，以及 PD/Store
 长驻服务 native 映射门禁后，再决定 #252 固定 workload 的至少三轮对照。
 性能仍依赖相关正确性与资源门禁。每项按本轮实际命令、计数和数据断言继续更新。
