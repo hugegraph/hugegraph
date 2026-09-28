@@ -201,6 +201,14 @@ Maven 与 Surefire JVM 均使用专属临时目录，`mvn clean test -P api-test
 定向 Schema 1、Edge 5、Vertex 4，合计 10/0 failure/0 error/0 skip、exit 0；
 服务停机 exit 0，无 REST 清理异常或 native 关闭断言。该定向回归覆盖多种同步
 REST 读写路径，不替代完整 API suite、异步请求或 #212 全部 CF 生命周期。
+当前本地 HEAD `862b78bdf640687a58228e9271443eb4ac6f60f2` 又从干净源码
+执行 `mvn clean test -pl hugegraph-server/hugegraph-test -am -P core-test,rocksdb`
+（`258-*`），Maven/Surefire 的 `java.io.tmpdir` 与 `config_path` 显式指向专属
+目录，RocksDB data/WAL/index 也在任务数据根。`CoreTestSuite` 实际
+819/0 failure/0 error/42 skip、Maven exit 0，耗时 7:25。
+suite 另创建两个相对 `rocksdb-index*` 目录，已原样移入专属 data 目录并记
+`258-standard-core/relative-index-relocation.txt`，原工作树恢复干净。
+此为整合后**标准 JNI** Core 全量回归，不替代真实 TP JNI 或 #249 在线安全。
 
 #249 在同一精确整合 TP 镜像 `sha256:7379d24f...02ac42` 上增加数据树故障实验。
 新专属根 `data/datatree-fault-tp-243` 的基线 CRUD 和 `snapshot_create` HTTP 200；
