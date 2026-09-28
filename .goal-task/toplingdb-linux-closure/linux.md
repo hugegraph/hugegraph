@@ -181,6 +181,28 @@ verify 均通过，脚本 exit 0；首次、第二次 SIGTERM 进程都 exit 0�
 可复现关闭失败；#212 更广的异步/关停接纳排空、所有 native DB/CF 生命周期
 及 #255 合成 CF 断言仍需独立核查，不自动关闭 issue，也不把该结果外推为 HA。
 
+#249 在同一精确整合 TP 镜像 `sha256:7379d24f...02ac42` 上增加数据树故障实验。
+新专属根 `data/datatree-fault-tp-243` 的基线 CRUD 和 `snapshot_create` HTTP 200；
+为让宿主注入测试链接预设 ACL，但容器创建的 checkpoint 子目录将有效权限收紧为
+只读，首次 `ln` 报 Permission denied，`243-*` 脚本 exit 1，尚未调用 resume。
+原 checkpoint 文件 SHA-256 清单先保存并复查全部匹配。只使用任务专属 bind 根的
+一次性辅助容器加入 m/g/s 三条指向不存在目标的 `copy_fault.link`，有效文件未变。
+`244-*` 新服务在故障前完整 verify 通过；首次 `snapshot_resume` HTTP 400，
+响应指出 `s` 库 pending 恢复失败，`data/s.resume-pending` 与三库 checkpoint
+和测试链接均保留，原文件哈希仍匹配，TP JAR CodeSource/native JVM maps 与本轮
+身份一致，停机 exit 0。脚本要求在响应/容器日志中直接找到链接名，因只返回包装
+错误而 exit 1；内层复制还是 `verifyTree` 拒绝未取到栈，不能精确归到其中之一。
+故障未修复时的 `245-*` 重启停在 init-store，10 秒窗口内 `/versions` 与图请求
+连接重置，脚本 exit 0 但人为停止的进程 exit 143；marker 内容、链接和源文件
+哈希仍不变，不把这次 10 秒取样当作完整 fail-closed 门禁。
+随后 `246-*` 只移除三条人工链接，移除前后原 checkpoint 文件 SHA-256 匹配，
+`s.resume-pending` 字节未变；不删除 marker/锁。相同数据根启动后基线两顶点一边
+完整 verify exit 0，`s` pending 自行消失，容器 SIGTERM exit 0；
+`snapshot_data/s` 被消费，`g/m` checkpoint 仍在。故本实验只证明先遇到故障的
+`s` 库在数据树复制/校验失败后可重试，**没有证明全图恢复、WAL 发布故障或
+在线恢复安全**；这些仍是 #249 的阻塞项。所有原始日志和数据保留 `243-*` 至
+`246-*`，测试容器已清理。
+
 #250/#251/#253 反向数据根冲突：标准镜像指向已停机 TP 根、TP 镜像指向已停机标准根，
 两次 Docker 启动均 exit 1，报对应 `provider marker mismatch`，未进入 Java 数据库打开。
 只读容器在失败前后比较全目录文件相对路径、逻辑大小、已分配块数、mtime，及所有逻辑大小
