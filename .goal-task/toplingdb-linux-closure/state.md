@@ -36,6 +36,8 @@ snapshot create/resume 200/200、停机 0；带 CRUD 的恢复也返回 200，�
 详细身份与原始证据见 [Linux 验收](linux.md)。
 窄任务查询修复已在隔离分支提交 `8b09df2b7`，原 `toplingdb` 分支尚未集成；
 journal 联合候选仍未提交，#249、#212 保持未完成。
+冻结 TP 镜像另经单次只读 Gremlin 请求后正常停机（exit 0）；REST CRUD 后的
+native 停机失败仍保留，两个场景不互相替代。
 
 ## 此前 Mac 阶段与加载规则
 

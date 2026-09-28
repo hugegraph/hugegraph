@@ -498,6 +498,15 @@ POST 201/GET 200，`snapshot_resume` HTTP 200。测试专用 agent 在服务 JVM
 `187-*` 涵盖 REST CRUD 与服务内 Gremlin Server 的正常停机流程，没有独立
 Gremlin 查询负载后关闭的断言；该模式仍待复测，不能把服务日志中的
 “Gremlin Server - shutdown complete”当作其业务会话关闭通过。
+随后用**冻结 SHA 的原 TP 镜像** `sha256:29874890b97578ba6cd786bb04b6de313f08f4cb1625726b7f13d868fe0678cc`
+及新专属数据根补独立 Gremlin 只读查询/停机。首次 `197-*` 返回 HTTP 200，
+响应是 gzip；脚本未解压便交给 `jq`，故脚本 exit 5，原压缩响应保留，
+事后解压可见 `.result.data=[0]`，该容器停机 exit 0。另用全新根与
+`curl --compressed` 的 `198-*` 重跑，`g.V().count()` HTTP 200、数据 `[0]`、
+脚本 exit 0、SIGTERM 后容器 exit 0，未见 native 断言。测试 agent 的
+`RUNTIME_JAR` 和 `RUNTIME_NATIVE` 再次确认实际 TP JAR 来源与 native 映射；
+镜像内两个文件的本轮哈希已在固定镜像验收记录。此通过仅涵盖该只读 Gremlin
+请求，不能覆盖 REST CRUD 后的 #212 exit 137 或更复杂 Gremlin 写入/会话关闭。
 窄任务查询修复经三名独立只读审查者最终复核未发现该 diff 的 P0/P1，原有关闭期间
 `call()` 接纳竞态未在本修复中解决；逐人结论抄录于
 `194-three-reviewer-transcript.md`。`mvn editorconfig:format` 与
@@ -525,6 +534,8 @@ Docker 报告 80 个卷共 7.58 TB 属于逻辑计数，包含验证数据，未
 根盘可用 1.2 TB，运行容器仍只有 kind 控制面与 BuildKit；kind 只有五个基础
 namespace、无 HugeGraph Pod。Docker 的 80 个卷包含验证数据，继续保留，
 不按“可回收”逻辑计数批量清理。
+`199-resource-after-gremlin.txt` 表明后续两轮 Gremlin 容器也均已移除，仍只有
+上述两个常驻容器；内存 available 117 GiB，根盘可用 1.2 TB。
 
 下一步：本地提交本轮证据文档；远端推送受自动审批拒绝且 GitHub 认证失效，关联 issue 更新待恢复。
 后续收口 #212 停机断言、
