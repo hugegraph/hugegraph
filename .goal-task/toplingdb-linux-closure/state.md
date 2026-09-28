@@ -30,8 +30,10 @@ pending 保留与修复故障源后的同根重开已获真实证据；`g/m` che
 图级 journal 候选未提交，在线缓存/schema/iterator 安全、全图原子恢复和
 WAL 发布故障仍未通过。标准/TP 的同时开库锁保护通过，但第二进程可
 `/versions` 200/healthy 而图 API 404；通用健康语义独立跟进，pending 恢复
-并发仍待验。#248 在冻结源码的三次有效实验（含第二 Server 交叉读）
-未复现旧首次重启不可见线索，issue 不关闭。#213 公开 issue 仍 Open，
+并发仍待验。#248 在冻结源码的三次有效 TP 实验（含第二 Server 交叉读）
+未复现旧首次重启不可见线索；标准 PD/Store 对照的新根实验中，clear 后
+第二 Server 和主 Server 首次重启读取也通过。旧失败仍保留，issue 不关闭。
+#213 公开 issue 仍 Open，
 较新 producer workflow 与旧 JAR 构建时逐字节相同；正式 JNI 来源/许可/CPU
 支持下限未收口。#252 待相关正确性与资源门禁后置。
 

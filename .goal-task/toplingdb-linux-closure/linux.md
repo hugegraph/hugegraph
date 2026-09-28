@@ -325,6 +325,27 @@ native maps，沿用同 imageID 在 `216-*` 的先前映射证据，不能称新
 此前被自动审批拒绝，本轮不换命令规避，卷名与尺寸留原始 `249-*` 资源记录。
 具体见 `249-task-anonymous-volumes.txt` 和 `249-resource-after-*.txt`。
 
+#248 增补冻结 SHA 的**标准 PD/Store 对照**，仍使用 HStore Server，独立新根
+`data/clear-first-restart-std-265/`；按原场景执行
+`bash evidence/265-std-clear-first-restart/run.sh`，exit 0。PD imageID
+`sha256:3e7ae669...8db282`、Store `sha256:79197a51...8031d` 均为
+`9d797c7...` 的标准包；两个 HStore Server 使用同一固定 imageID
+`sha256:51953abb...d17722e`。PD/Store 配置 provider=`rocksdb`，
+实际标准挂载根出现 PD metadata/raft 及 Store metadata、分区 DB 的
+`CURRENT`/`IDENTITY`，未用的 TP 根没有文件；本次未重新采集 JVM JAR/native
+maps，故不把标签和变量单独当作运行时映射证明。
+新根先 create 两顶点一边，`DELETE .../clear` HTTP 204，再 create 新 ID
+`riscv-smoke-v1-clearstd265`；主 Server 重启前和第二 Server 的按 ID GET
+均 HTTP 200，第二 Server 读到属性 `first`，自身停机 exit 0。仅重启主 Server，
+首次外部图数据 GET curl exit 0、HTTP 200、ID/属性匹配，随后完整 smoke verify
+exit 0（两顶点、一边、Gremlin count=2），主 Server 第一次停机 exit 0。
+脚本清理四个容器和专属网络，原始请求/日志/镜像与数据证据留 `265-*`。
+这是第四个有效时序样本、首个本轮标准 PD/Store 对照，仍未复现旧线索；
+不能否定 `a35ebeb17` 的首次失败或关闭 issue，也不是物理多机测试。
+镜像声明根 `VOLUME` 另产生四个匿名卷，共约 1.46 GB、零引用；ID/大小留
+`265-*/task-anonymous-volume{,-sizes}.txt`。此前定向卷删除已被自动审批拒绝，
+本轮不重试或绕过；当前运行容器为零，kind/BuildKit 继续停止。
+
 #250/#251/#253 反向数据根冲突：标准镜像指向已停机 TP 根、TP 镜像指向已停机标准根，
 两次 Docker 启动均 exit 1，报对应 `provider marker mismatch`，未进入 Java 数据库打开。
 只读容器在失败前后比较全目录文件相对路径、逻辑大小、已分配块数、mtime，及所有逻辑大小
