@@ -40,6 +40,8 @@ snapshot create/resume 200/200、停机 0；带 CRUD 的恢复也返回 200，�
 两修复合并后的标准 Core 819/0/0/42 skip、入口 fixture 23 PASS、clean compile
 均通过；精确合并镜像的真实 TP 额外图挂载负例、CRUD 与首次重启数据断言通过，
 但首次/最终停机均 exit 137，#212 仍失败。
+冻结 SHA 的 PD/Store 长驻服务 TP JAR/native 实际映射已在独立 1+1 批次验证，
+两者健康 200；停机 exit 143 与映射门禁分开记录，容器/网络已清理。
 冻结 TP 镜像另经单次只读 Gremlin 请求后正常停机（exit 0）；REST CRUD 后的
 native 停机失败仍保留，两个场景不互相替代。
 

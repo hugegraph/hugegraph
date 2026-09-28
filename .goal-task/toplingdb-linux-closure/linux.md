@@ -184,7 +184,8 @@ PD 停机日志含 gRPC `CANCELLED`，保留原日志，不据后续成功删除
 PD/Store 运行命令由 `docker top` 确认外部 TP JAR 在 Boot JAR 前，容器镜像文件哈希及
 独立 runtime probe 均匹配；但对服务 PID 的 `/proc/maps`，宿主机权限拒绝，
 `docker exec`、提权与共享 PID 容器命令被自动审批拦截。因此 PD/Store **服务进程** native
-映射本轮尚未独立证实，保留门禁；不把 classpath、环境变量、镜像标签当作映射证据。
+映射在该批测试时尚未独立证实；后续 `216-*` 已在长驻 JVM 内补证。
+不把 classpath、环境变量、镜像标签当作映射证据。
 
 单机 Docker 1+3+3 扩展验收：三个 PD、三个 Store 与一个 HStore Server 使用同一冻结 SHA，
 PD/Store 各有独立父数据根，七个容器实际 imageID 见 `48-333-component-identities.txt`；
@@ -221,7 +222,8 @@ TP 重启前停机再现 #212 `db not closed` 且 exit 137；标准停机 exit 0
 `ImageRuntimeIdentity.java` 作为只读 probe 装入 Server/PD/Store 三个本轮镜像，
 分别实际 open、put、get、close；三个进程均 exit 0，打印 `RocksDB.class` 组件本地
 TP JAR 来源及其 `/proc/self/maps` 中的 native 路径，见 `66-image-runtime-*.log`。
-它证明镜像中可真实装入并使用 TP JNI，仍不等于此前 PD/Store 长驻服务 PID 的 maps 已读到。
+它证明镜像中可真实装入并使用 TP JNI，当时仍不等于 PD/Store 长驻服务 PID 的
+maps 已读到；后续 `216-*` 独立完成了服务内映射验证。
 
 固定 SHA 的单 DB 挂载缺陷在隔离工作树
 `/home/soc-baidu/.codex/worktrees/topling-linux-image/hugegraph` 的
@@ -549,6 +551,35 @@ revision label 为完整整合 HEAD，镜像内 TP JAR/native SHA-256 仍分别�
 已移除，运行中的仍仅 kind 控制面和 BuildKit，内存 available 117 GiB、根盘可用
 1.2 TB。该精确整合镜像的真实 #212 仍失败，#249 journal/即时缓存门禁亦未解除。
 
+补 PD/Store **长驻服务 JVM** 的真实 native 身份门禁：使用冻结 SHA 的 TP PD 镜像
+`sha256:31fa84ca7629405aff5cd2f3c5d70f859b503e094fdd5c53c1fa913b16cbb596`
+与 TP Store 镜像
+`sha256:a0df11c186ecf8351a247ed660bb3c20cba1b603362747a45097603a70afc17e`，
+均再核对 revision label 为冻结 SHA。测试专用只读 Java agent（`214-*`）挂载到两个
+实际服务 JVM；它等到 `/proc/self/maps` 出现 native 后，输出 `RocksDB.class`
+CodeSource、映射行、两个文件的 SHA-256 和 PID，不触发额外 DB open。独立 Docker
+桥接网络只运行 1 PD + 1 Store，REST 只发布到 `127.0.0.1`，不同的空 bind 根分别
+存放 PD/Store 数据；一次性 PD 密钥由脚本生成并经环境注入容器，运行期间也在
+Docker 容器元数据中，证据写入时替换其值，测试后容器已移除。
+首次 `215-*` 在 PD 启动早期健康请求连接重置时由 Python 未捕获异常导致脚本
+exit 1，Store 尚未启动，没有 native 身份结论；PD 容器/网络已清理，PD 数据根
+与原日志保留。修复健康轮询的连接重置处理后，用**新**数据根和网络执行 `216-*`：
+PD、Store 的 `/v1/health` 均 HTTP 200；两者仍运行时，服务 JVM 分别打印
+`/hugegraph-pd/lib/topling/...jar`、`/hugegraph-store/lib/topling/...jar` 的实际
+CodeSource，JAR SHA-256 均为 `86eb1bd3…2031fae`；各自映射
+`library/librocksdbjni-linux64.so`，native SHA-256 均为 `c25ff6e6…174dd38`。
+`216-pdstore-live-run.exit` 为 0，脚本保存健康响应、imageID/labels、运行中
+inspect、服务日志和清理结果。事后 `219-*` 在任务 bind 根确认 PD 的
+metadata/raft 和 Store 的 metadata 均有 `CURRENT`、`MANIFEST`、`IDENTITY`，
+没有只凭 provider marker 判定 backend 初始化。PD/Store SIGTERM 后进程均 exit 143，未见
+`db not closed` 断言；这是映射验收通过，**不代表优雅关闭门禁通过**。
+两容器与网络均已移除；`217-*` 复核仍仅 kind 控制面和 BuildKit 常驻、
+available 内存 117 GiB、根盘可用 1.2 TB。镜像默认 `VOLUME` 在两次测试中
+另建三个匿名卷，ID/创建时间见 `218-task-anonymous-volumes.txt`；任务 bind 根
+分别保留。`218-task-volume-sizes.txt` 的 `docker system df -v` 对这三个卷
+各报 0B、0 引用；旧的定向卷删除
+曾被自动审批拒绝，本轮未绕过或批量 prune。
+
 收尾资源复核（`131-resource-final.txt`，此前阶段见 `117-resource-final.txt`）：
 所有本轮验收服务容器已移除，仅 kind 控制面与 BuildKit 容器运行；集群内只有
 `kube-system` 和 `local-path-storage` 基础 Pod，无旧 HugeGraph 服务批次。
@@ -597,7 +628,7 @@ Mac 上的 Linux 容器核心实测身份与结果见 [mac.md](mac.md#本机核�
 
 | 项目 | 验收场景与预期 | 状态 |
 | --- | --- | --- |
-| #250/#251/#253 | 直接及容器启动，默认/自定义目录和额外图；实际 JNI 与 Java provider 一致；冲突在数据库打开前失败，原数据不变 | 冻结 SHA 单 DB mount 全图失败；隔离修复候选通过且本地整合 `388ec8970`，待推送；PD/Store 长驻映射待证 |
+| #250/#251/#253 | 直接及容器启动，默认/自定义目录和额外图；实际 JNI 与 Java provider 一致；冲突在数据库打开前失败，原数据不变 | 冻结 SHA 单 DB mount 全图失败；隔离修复候选通过且本地整合 `388ec8970`，待推送；PD/Store 长驻 TP 映射已通过 `216-*` |
 | #254 | 用真实 TP JNI 经 adapter 执行多 key truncate，旧数据全空、CF 保留、可重新读写并关闭；标准 provider 对照自身预期分支 | 本轮通过：TP 1/0/0，标准对照通过 |
 | #255 | 真正运行 runtime diagnostic，检查前置探测、错误分类、原始日志和 JNI 身份；仅已知断言得到例外，其他错误阻塞 | probe 通过；合成 CF 精确断言例外，真实关闭失败 |
 | #249 | 标准/TP 确定提交分别验证 snapshot 成功与故障恢复，包含独立/嵌套 WAL、失败后重启及源文件校验 | helper、持久回滚、服务校验拒绝与 s 库 WAL 复制失败重试通过；全图恢复未完成，同进程缓存失败，数据树复制/发布服务故障待验 |
