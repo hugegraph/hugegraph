@@ -144,7 +144,42 @@ JUnit 未返回计数（`231-pool-tp/rocksdb-sessions.log`）；同一临时数�
 多 key adapter truncate 1/0/0、进程 exit 0，JAR CodeSource 与 native maps
 均匹配本轮 SHA-256（`231-pool-tp/adapter-fresh.log`）。这只验证池竞态修复及
 定向 JNI 兼容性；REST worker 会话残余、服务停机 exit 137、关停接纳/排空
-仍未解决。该候选尚未并入原 `toplingdb`，也未推送；不能据此改判 #212 通过。
+仍未解决。该候选在上述测试时尚未并入原 `toplingdb`；后续整合实测见下段。
+
+#212 REST 请求完成清理另在隔离分支提交 `1786c8422f75d20de09b7544c22fe66972fb6deb`：
+Jersey `FINISHED` 后执行现有当前线程事务清理，异常记日志而不覆盖已发送响应。
+三名独立只读审查者对该最终 diff 未发现 P0/P1；本仓库当前 REST 路径为同步处理，
+未发现异步/流式接口，后续若引入异步须重新验证回调线程。`232-*` 定向编译及
+`233-*` 格式、全仓 clean compile 均 exit 0。隔离 TP 镜像 `234-*` 从该提交无缓存
+构建，实际 imageID/digest `sha256:22b1adb2c26c6f87c8563591c6ca5024598839fa611858b3efdc71a4b9f44e80`，
+JAR/native 哈希匹配。`235-*` 真实 TP CRUD、预期 404、首次重启 verify、两次
+SIGTERM 均通过，容器 exit 0；运行时探针证实 TP JAR CodeSource/native maps，
+服务日志中 tx refs 降为 0，无 `db not closed`。同源码标准镜像 `236-*` 使用
+该次精确源码构建层，imageID/digest
+`sha256:fc077cad510df01a4828df1a5f5e69fff3c712de828fec2899a882f13e773c4b`；
+标准 JAR SHA-256 `a59c02c628dd3bec82de027c7e6edb5b11c1c09c251a85325c7f5ff081948133`，
+未混入 TP JAR/native。首次标准对照 `237-*` 把 provider 误写为 `java`，
+entrypoint 在开库前 exit 1；该次日志保留，测试等待进程定向终止 exit 143。
+修正为 `rocksdb` 并使用新数据根后，`238-*` 标准 CRUD/404/首次重启及两次
+SIGTERM 都通过、exit 0。专属标准服务容器的 `VertexApiTest` 定向回归
+`239-*` 为 4/0/0/0、Maven exit 0，容器停机 exit 0。
+
+上述两项代码分别 cherry-pick 到原 `toplingdb` 为 `6d5893fd624d54ae1991c822543d96e151ace39b`、
+`e17f1b6d8a7afa9fd46f2ccf9ee3c31f208889bd`。fetch 后 `org/toplingdb` 仍为
+冻结 SHA；整合前 ahead/behind 为 21/0，整合后为 23/0，均未推送。
+精确整合 HEAD `e17f1b6d8` 从干净工作树无缓存构建 TP Server 镜像 `241-*`，
+实际 imageID/digest 为
+`sha256:7379d24f6231eba72762593ee5d47964014e31f3b0d4ef5ec2e68ed24402ac42`；
+revision/source 标签分别为完整 HEAD 和 `https://github.com/hugegraph/hugegraph`，
+JAR/native 文件 SHA-256 仍与本轮输入一致。独立新数据根的 `242-*` 服务
+CRUD create、预期 404、20 个并发顶点 GET（20/20 HTTP 200）、首次重启
+verify 均通过，脚本 exit 0；首次、第二次 SIGTERM 进程都 exit 0。
+两次 JVM 日志均记录 TP JAR CodeSource 和 native `/proc/self/maps`，并在停机前
+显示 tx refs 从 1 降至 0；无 `db not closed` 或清理异常。任务容器已移除，
+数据与原始日志保留；余下运行容器仅 kind 控制面和本任务 BuildKit，内存可用
+约 116 GiB，根盘空余约 1.2 TB。该结果解决本轮 REST CRUD/并发读场景下的
+可复现关闭失败；#212 更广的异步/关停接纳排空、所有 native DB/CF 生命周期
+及 #255 合成 CF 断言仍需独立核查，不自动关闭 issue，也不把该结果外推为 HA。
 
 #250/#251/#253 反向数据根冲突：标准镜像指向已停机 TP 根、TP 镜像指向已停机标准根，
 两次 Docker 启动均 exit 1，报对应 `provider marker mismatch`，未进入 Java 数据库打开。
@@ -623,7 +658,7 @@ namespace、无 HugeGraph Pod。Docker 的 80 个卷包含验证数据，继续�
 `org/toplingdb` 仍为冻结 SHA，该取样的 ahead/behind 为 `19/0`。
 代码与证据文档已分别提交，远端推送此前被自动审批拒绝且 GitHub 认证失效，
 关联 issue 仅保留本地进展草稿，尚未更新远端；不绕过拒绝或强推。
-下一步独立收口 #212 REST CRUD 后停机断言、#249 恢复后即时缓存与
+后续独立复核 #212 更广的关闭并发/DB-CF 生命周期、#249 恢复后即时缓存与
 schema/iterator 在线安全、服务级复制/发布故障及全图失败重放，再复核单 Store
 查询连续性和 #248 原始时序；#249 恢复并发要求是在线业务还是维护排空的澄清
 仍待用户答复，不据此假定在线安全已通过。#213 正式 JNI 来源/许可仍需上游发布审查。
