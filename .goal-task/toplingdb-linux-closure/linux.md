@@ -258,6 +258,12 @@ SHA-256 检查 exit 0、三个 `.resume-lock` 文件清单不变，两个容器�
 两种 provider 的跨进程同时打开**锁保护通过**；健康检查未反映 backend 打开失败
 属于通用启动链独立问题，不能以 `/versions` 或容器健康证明第二库已初始化。
 本测试没有让两个进程同时恢复同一 pending，#249 恢复并发门禁仍未通过。
+为选择可控的恢复持锁窗口，`257-*` 用仓库实际 Commons IO 2.7 在专属目录
+试验含 FIFO 的 `FileUtils.copyDirectory`，5 秒 timeout exit 124，证明**本地
+文件复制探针**会等待 FIFO。随后用于核对辅助容器 Java/mkfifo 环境的任务专属
+只读 `docker run --rm` 命令在执行前被自动审批拒绝：“approval required by
+policy, but AskForApproval is set to Never”。未创建容器或更改 checkpoint、
+marker、锁；不换 Docker 命令规避。该探针不能替代真实服务并发恢复，门禁保持未覆盖。
 
 #248 冻结 SHA 的第三次**有效**时序实验使用固定 imageID：PD
 `sha256:31fa84ca...cbb596`、Store `sha256:a0df11c1...afc17e`、
