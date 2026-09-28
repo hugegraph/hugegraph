@@ -62,6 +62,18 @@
   列 Apache-2.0 与 GPLv2，包页标 GPLv2，而本地 [release LICENSE](../../install-dist/release-docs/LICENSE)
   将该包列为 Apache 2.0；JAR 内未发现 LICENSE/NOTICE。许可证选择需发布/法务审查，
   不将本轮含 SNAPSHOT JNI 的 `-topling` 发行包视为正式发行，也不自行发布。
+  2026-09-28 再查公开 [#213](https://github.com/hugegraph/hugegraph/issues/213)：
+  issue 仍为 Open，其 2026-09-26 状态明确正式发行链未完成。将本轮 JAR
+  构建提交 `31afa28f...` 与 issue 引用的较新 producer 提交
+  `e819a6dfecd54f0c1c3a0ddb33623af816131a79` 的
+  （本次 `git ls-remote` 的 producer HEAD 也为该提交）
+  [JNI workflow](https://github.com/hugegraph/toplingdb/blob/e819a6dfecd54f0c1c3a0ddb33623af816131a79/.github/workflows/topling-jni.yml)
+  按字节比较，两份 SHA-256 同为
+  `2ff2f379da8639d5931d6b8409cf3e61f463e8f13ea2f5b3e19c377c56e658f8`、
+  `diff` exit 0；浅 checkout、动态 SidePlugin 获取、`deploy-file` 仍在，
+  未增加本轮 JAR 的完整 provenance/attestation 或明示 CPU 下限。
+  原始 workflow、哈希和比对见 `252-producer-release-recheck/`；较新 producer
+  提交不改变旧 JAR 的来源证明或许可门禁。
 
 镜像均从独立干净 checkout `/home/soc-baidu/.codex/worktrees/topling-linux-image/hugegraph`
 构建，HEAD 为冻结 SHA。Bake 参数为 `SOURCE_REVISION=9d797c7...`、

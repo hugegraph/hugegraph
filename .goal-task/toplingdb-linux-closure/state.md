@@ -20,8 +20,9 @@
 pending 保留与修复故障源后的同根重开已获真实证据；`g/m` checkpoint 仍在，
 图级 journal 候选未提交，在线缓存/schema/iterator 安全、全图原子恢复和
 WAL 发布故障仍未通过。#248 在冻结源码的三次有效实验（含第二 Server 交叉读）
-未复现旧首次重启不可见线索，issue 不关闭。#213 正式 JNI 来源/许可/CPU
-支持下限未收口；#252 待相关正确性与资源门禁后置。
+未复现旧首次重启不可见线索，issue 不关闭。#213 公开 issue 仍 Open，
+较新 producer workflow 与旧 JAR 构建时逐字节相同；正式 JNI 来源/许可/CPU
+支持下限未收口。#252 待相关正确性与资源门禁后置。
 
 证据只在 [Linux 验收](linux.md) 详列，任务数据和原始日志不入 Git。
 代码和文档已分别本地提交；远端 `org/toplingdb` 仍为冻结 SHA，因先前推送
