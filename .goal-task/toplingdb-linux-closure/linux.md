@@ -230,6 +230,11 @@ shutdown 窗口，**不证明所有长响应、异步请求或任意接纳/排�
 tx refs 降至 0、无 native `db not closed`；同根重启完整 verify exit 0，
 最终 SIGTERM exit 0，脚本 exit 0。该样本证明 native 关闭与持久数据可重开，
 也保留了**长 Gremlin 在途请求停机时失败**的边界；不宣称请求排空或业务连续性通过。
+源码 `HugeGraphServer.stop()` 先等待 Gremlin stop，再等待 REST stop，
+与本次 REST 代理访问已关闭的 `8182` 所得异常吻合；这是基于源码与日志的
+停机顺序归因，未做独立修复实验。若调整顺序，必须先解决 REST 销毁事件会
+关闭共享图的时机，不能直接交换两行 stop 调用。按通用启动/停机问题在 todo.md
+另列跟进，保留 TP native 关闭通过和在途业务失败两个分开的结论。
 
 #249 在同一精确整合 TP 镜像 `sha256:7379d24f...02ac42` 上增加数据树故障实验。
 新专属根 `data/datatree-fault-tp-243` 的基线 CRUD 和 `snapshot_create` HTTP 200；

@@ -28,6 +28,7 @@
 | `ignore` | Store 指标 session 泄漏 | [#241](https://github.com/hugegraph/hugegraph/issues/241)； [Apache PR #3081](https://github.com/apache/hugegraph/pull/3081) 已有相同生产修复；旧工作区补丁与回归见 Mac 历史证据，不随 TP 提交 |
 | `ignore` | 通用 Store 停机后 JVM 不退出 | [组织 #211](https://github.com/hugegraph/hugegraph/issues/211)，标准 provider 也复现；不等同已证明全部 TP native 关闭告警的根因 |
 | `ignore` | 同根开库锁拒绝后 `/versions` 仍 200/healthy | [Linux 进程锁实测](linux.md#2026-09-28-固定源码验收进度) 的标准/TP 第二进程都无法打开图而健康检查通过；归通用启动/健康语义独立跟进，不把该状态算 backend 初始化成功 |
+| `ignore` | SIGTERM 时在途 Gremlin 代理请求失败 | [Linux 长请求实测](linux.md#2026-09-28-固定源码验收进度) 的 REST 代理返回 HTTP 500/`NoHttpResponseException`；源码先停 Gremlin 后停 REST，归通用停机排空独立跟进。不可直接交换顺序，REST 销毁事件还会关闭共享图 |
 | `ignore` | Store 地址变化后的旧连接、通用 Loader 重试 | [#245](https://github.com/hugegraph/hugegraph/issues/245)； [Apache #3124](https://github.com/apache/hugegraph/issues/3124)、[已合并 PR #3130](https://github.com/apache/hugegraph/pull/3130)；当前分支已含修复，残余扫描场景另行回归，Linux 未提交 channel refresh 不混入 TP 主线 |
 | `ignore` | HStore 图级快照协议 | [#246](https://github.com/hugegraph/hugegraph/issues/246)； 通用能力缺口，本次不新增跨分区协议；[组织 PR #235](https://github.com/hugegraph/hugegraph/pull/235) 是单机 RocksDB 备份，不能冒充 HStore 图快照支持 |
 | `ignore` | 完整 HA 网络分区矩阵、Compose/Helm 通用配置对齐 | [#247](https://github.com/hugegraph/hugegraph/issues/247)； 部署沿 [Apache #3131](https://github.com/apache/hugegraph/issues/3131) / [组织 PR #221](https://github.com/hugegraph/hugegraph/pull/221) 跟进；TP provider 注入、数据隔离和 JNI 选择仍在主线 |
