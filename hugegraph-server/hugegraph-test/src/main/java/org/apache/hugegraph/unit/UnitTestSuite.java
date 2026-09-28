@@ -48,6 +48,7 @@ import org.apache.hugegraph.unit.cache.CachedSchemaTransactionTest;
 import org.apache.hugegraph.unit.cache.RamTableTest;
 import org.apache.hugegraph.unit.cmd.InitStoreConfigTest;
 import org.apache.hugegraph.unit.core.AnalyzerTest;
+import org.apache.hugegraph.unit.core.BackendSessionPoolTest;
 import org.apache.hugegraph.unit.core.BackendMutationTest;
 import org.apache.hugegraph.unit.core.BackendStoreInfoTest;
 import org.apache.hugegraph.unit.core.ConditionQueryFlattenTest;
@@ -164,6 +165,7 @@ import org.junit.runners.Suite;
         RowLockTest.class,
         AnalyzerTest.class,
         BackendMutationTest.class,
+        BackendSessionPoolTest.class,
         ConditionTest.class,
         StandardHugeGraphClearBackendTest.class,
         ConditionQueryFlattenTest.class,
