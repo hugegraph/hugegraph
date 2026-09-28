@@ -597,7 +597,7 @@ public class StandardTaskScheduler implements TaskScheduler {
                                                 boolean withResult) {
         return this.call(() -> {
             ConditionQuery query;
-            if (this.graph.backendStoreFeatures().supportsTaskAndServerVertex()) {
+            if (this.tx().storeFeatures().supportsTaskAndServerVertex()) {
                 query = new ConditionQuery(HugeType.TASK);
             } else {
                 query = new ConditionQuery(HugeType.VERTEX);
