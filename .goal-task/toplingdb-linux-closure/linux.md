@@ -775,6 +775,37 @@ POST 201/GET 200，`snapshot_resume` HTTP 200。测试专用 agent 在服务 JVM
 身份与首次停机码见 `187-*`；测试专用 agent 源码/JAR/hash 在 `188-runtime-agent/`。
 该 journal 联合候选仍因 schema、迭代器和缓存的在线安全门禁保持未提交；#249、#212
 均未通过最终验收。两轮测试容器已移除，kind 基础组件和 BuildKit 之外无本轮服务。
+
+#249 候选补真实 Java TP provider 定向覆盖（`271-journal-tp-provider-test/`）。
+前述 `161-*` 的 9 项默认配置为 `rocksdb`；本次只在隔离 journal worktree
+新增由 `-Dhugegraph.test.topling.journal=true` 显式启用的**测试用例**，
+配置 `rocksdb.provider=topling`，并在三份已打开 Store 上反射检查
+`toplingProvider=true`。test 从 clean 源码编译，Maven 与直接 JUnit JVM
+均使用任务专属 tmp；初次 RAT 因 worktree 上轮生成的发行目录内两份网页
+而 exit 1，该旧目录原样移至专属 data 根，重跑 RAT/clean compile 全部 exit 0。
+新 classpath 移除唯一标准 rocksdbjni，只载本轮 TP JAR；重新解包 native，
+JAR SHA-256 `86eb1bd3…2031fae`、native `c25ff6e6…174dd38`，
+测试 JVM 逐类打印隔离候选 CodeSource、JAR 来源和 `/proc/self/maps` 映射。
+`testToplingProviderGroupResumeAndTruncate` 在 m/g/s 三库先写值 2、快照、
+写值 3、组恢复后读回 2，再分别 TP truncate；清空断言为 null、
+`initialized()` 为 true，重新写读值 4。JUnit **1/0 failures/0 ignored**、
+Java exit 0；原始 `maven-build-final.log`、`tp-provider-test.log`、
+classpath/JNI hash 与首轮 RAT 失败日志均保留。相对 `185-*` 源码清单，
+十个生产候选路径 SHA-256 全部不变，仅测试文件变化，父 HEAD 仍为冻结 SHA。
+这是后端定向场景，**不解决**同进程 REST 缓存陈旧、在线 schema/iterator
+安全或完整图级失败重放；候选仍不提交/整合，#249 保持未通过。
+同一隔离候选再用新专属根 `272-journal-tp-startup-replay/` 对**启动重放**
+单独 clean 编译并重建 classpath；测试在显式 `topling` 配置下检查已打开
+Store 的 `toplingProvider=true`。真实 TP JAR/native SHA-256 与本轮身份一致，
+JVM CodeSource 和 `/proc/self/maps` 均指向新 classpath 与解包 native。
+`testStartupReplaysAllMembersAfterFirstMemberRestored` 先在三库写值 2、
+建快照、写值 3，仅将第一库装回并保留 PREPARED intent；新 provider
+启动时重放全部 m/g/s，三库重新读值均为 2，清理 marker/checkpoint。
+JUnit **1/0 failures/0 ignored**、JVM exit 0；命令输出、classpaths、
+Maven clean build exit 0 与原始日志均保留。十个生产候选路径对 `185-*`
+逐文件 SHA-256 仍一致，仅隔离测试文件变化。此测试不覆盖真实 REST 服务
+恢复后的即时缓存、在线并发、SchemaManager/iterator 或失败时的全图
+原子可见性；#249 仍未通过，候选不提交。
 `187-*` 涵盖 REST CRUD 与服务内 Gremlin Server 的正常停机流程，没有独立
 Gremlin 查询负载后关闭的断言；该模式仍待复测，不能把服务日志中的
 “Gremlin Server - shutdown complete”当作其业务会话关闭通过。
