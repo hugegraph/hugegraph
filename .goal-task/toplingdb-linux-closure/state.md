@@ -38,7 +38,8 @@ snapshot create/resume 200/200、停机 0；带 CRUD 的恢复也返回 200，�
 `388ec8970`、`54e5bebae`，尚未推送远端；journal 联合候选仍未提交，
 #249、#212 保持未完成。
 两修复合并后的标准 Core 819/0/0/42 skip、入口 fixture 23 PASS、clean compile
-均通过；精确合并镜像的真实 TP 服务仍待验。
+均通过；精确合并镜像的真实 TP 额外图挂载负例、CRUD 与首次重启数据断言通过，
+但首次/最终停机均 exit 137，#212 仍失败。
 冻结 TP 镜像另经单次只读 Gremlin 请求后正常停机（exit 0）；REST CRUD 后的
 native 停机失败仍保留，两个场景不互相替代。
 

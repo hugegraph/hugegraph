@@ -8,10 +8,10 @@
 
 | Issue | 开发责任 | 验收责任与依赖 |
 | --- | --- | --- |
-| #250 / #251 / #253 | [Mac 配置与数据隔离](mac.md#开发清单与验收)，同一配置来源问题组 | [Linux 启动验收](linux.md#验收清单)，依赖隔离的单 DB mount 修复集成与 PD/Store 长驻服务映射核验 |
+| #250 / #251 / #253 | [Mac 配置与数据隔离](mac.md#开发清单与验收)，同一配置来源问题组 | [Linux 启动验收](linux.md#验收清单)，单 DB mount 修复已本地整合，仍依赖远端推送与 PD/Store 长驻服务映射核验 |
 | #254 | [Mac adapter 回归](mac.md#开发清单与验收) | [Linux TP JNI](linux.md#验收清单)，依赖 fixture 及 provider 修复 |
 | #255 | [Mac CI 分类门禁](mac.md#开发清单与验收) | [Linux native diagnostic](linux.md#验收清单)，依赖分类实现 |
-| #249 | [Mac WAL 失败安全](mac.md#开发清单与验收)，保留恢复能力 | [Linux 标准/TP 恢复](linux.md#验收清单)；依赖全图失败恢复协调，数据树复制/发布服务故障注入仍需测试钩子或外部文件系统故障源 |
+| #249 | [Mac WAL 失败安全](mac.md#开发清单与验收)，保留恢复能力 | [Linux 标准/TP 恢复](linux.md#验收清单)；依赖全图失败恢复协调、schema/iterator/cache 在线安全；数据树复制/发布服务故障注入仍需测试钩子或外部文件系统故障源 |
 | #212 / #248 | 必要源码线索交给 Mac，不能直接认定 native 根因 | [Linux 生命周期调查](linux.md#验收清单)，不作为本机 goal 完成条件 |
 | #213 | 不在本机 goal 实现正式发布链 | [Linux 与 producer 发布核查](linux.md#验收清单)，正式发行要求 |
 | #252 | 不在 Mac 执行性能测试 | [Linux 对照实验](linux.md#验收清单)，依赖相关正确性和资源条件 |

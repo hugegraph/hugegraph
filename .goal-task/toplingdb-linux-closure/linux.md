@@ -529,9 +529,25 @@ fetch 核对 `org/toplingdb` 仍为冻结 SHA、与隔离分支提交前 `0/0`
 使用新的数据根及同时传给 Maven/Surefire JVM 的专属临时目录，标准 RocksDB
 `CoreTestSuite` `207-*` 为 819 tests、0 failures、0 errors、42 skipped，Maven exit 0。
 测试生成的两个非跟踪索引目录已移到专属数据证据区，原分支 `git status` 仅余证据文档。
-上述是本地两修复整合后的**标准**回归；真实 TP 服务分别在挂载修复候选镜像和
-task/journal 联合测试镜像上验证过，尚未构建/运行这两个整合提交的同一精确镜像，
-不冒充其端到端服务验收。
+上述是本地两修复整合后的**标准**回归；此前真实 TP 服务分别在挂载修复候选镜像和
+task/journal 联合测试镜像上验证，不能直接继承为精确整合镜像的结果。
+随后以干净 `e5df44f9d3ed92ce4d8fee2b2ba523e19d8d37ec` 整合 HEAD
+从零 Docker 构建 TP Server 测试镜像（`209-integrated-image/`）：构建 exit 0，
+Maven 27 模块成功；镜像 manifest digest/实际 imageID 同为
+`sha256:bec31d598635e5814d0a56e39f7b5eccea0f117c8c1323619a1bab383f7d3dc9`，
+revision label 为完整整合 HEAD，镜像内 TP JAR/native SHA-256 仍分别为
+`86eb1bd3…2031fae`、`c25ff6e6…174dd38`。此镜像仅供本轮隔离验证。
+新镜像的额外图 `data/g` 单 DB bind mount 负例（`210-*`）中，容器 exit 1、
+脚本 exit 0；日志精确报“DB 目录本身不得为挂载点”，主根前后文件列表均为空，
+挂载源哨兵不变，证明该分支合并后仍在 Java DB 打开前拒绝且未部分认领主根。
+另在专属新数据根用同镜像运行 TP CRUD/首次重启（`211-*`）：smoke create、verify
+各 exit 0；服务 JVM agent 输出 TP JAR `CodeSource` 与本轮 native 的实际
+`/proc/self/maps` 映射。首次 SIGTERM 日志出现 `SidePluginRepo ... db not closed`，
+容器 exit 137；同根首次重启 verify 成功，最终 SIGTERM 再次 exit 137。
+脚本因此 exit 1，不能把 CRUD/重启通过误写成生命周期通过。事后检查 m/g/s
+三个 live `CURRENT` 均在；`212-integrated-postrun-resource.txt` 显示测试容器
+已移除，运行中的仍仅 kind 控制面和 BuildKit，内存 available 117 GiB、根盘可用
+1.2 TB。该精确整合镜像的真实 #212 仍失败，#249 journal/即时缓存门禁亦未解除。
 
 收尾资源复核（`131-resource-final.txt`，此前阶段见 `117-resource-final.txt`）：
 所有本轮验收服务容器已移除，仅 kind 控制面与 BuildKit 容器运行；集群内只有
