@@ -346,6 +346,37 @@ exit 0（两顶点、一边、Gremlin count=2），主 Server 第一次停机 ex
 `265-*/task-anonymous-volume{,-sizes}.txt`。此前定向卷删除已被自动审批拒绝，
 本轮不重试或绕过；当前运行容器为零，kind/BuildKit 继续停止。
 
+再对照 [#248 原始记录](https://github.com/hugegraph/hugegraph/issues/248) 与历史
+`f29e` 工作区的 `a35-top-111-{drop-clear,server-sigterm}.json`：旧失败使用
+`person`/`name` 主键顶点，HTTP 200 的 `vertices` 列表查询在首次 Server
+重启后变空；原 ID 形如 `2:a35cleared111`。上方三次固定 SHA 复现主要用
+自定义字符串 ID 的按 ID GET，不能覆盖该属性查询路径。旧 Store 数据主要落在
+`/hugegraph-store/storage`，TP 根仅约 4 KiB；旧场景实际 provider 身份也不能
+只凭镜像或 native 文件 SHA 推定。
+为补查询路径，在**先后执行、没有重叠服务**的两批独立根按旧顺序做 HStore
+drop→重建图→建立 `name`/`person` 主键 schema→写入→属性过滤读→clear→
+写入新顶点→第二 Server 属性读→仅重启主 Server→首次属性读：
+
+- 标准 PD/Store `267-std-legacy-clear/run.sh`：drop/clear 分别 HTTP 204，
+  重建图 201，schema 202/201，第二 Server 属性读 200 且目标命中，
+  主 Server 重启后**首次属性请求** HTTP 200、目标命中；两个 Server 首次停机
+  exit 0。后续额外按 ID GET 因脚本未给主键字符串 ID 加 API 所需引号返回
+  HTTP 400，故整个脚本 exit 1；`first-property-after-restart.*` 与该 400
+  分别保留，不能把脚本整体记为通过。
+- TP PD/Store `268-tp-legacy-clear/run.sh`：同样的 drop/clear、schema、
+  第二 Server 和主 Server 首次属性读均通过；修正额外 ID GET 编码后
+  按 ID 读 200，脚本 exit 0，两个 Server 首次停机 exit 0。
+
+两批 PD/Store/Server imageID 均逐组件保留在 `image-identities.txt`，源修订
+为冻结 SHA；标准与 TP 挂载根各有 PD metadata/raft 和 Store metadata/
+分区 DB 的 `CURRENT`，无并行旧服务。当前新进程未单独采集 JAR/native maps，
+TP 相同 imageID 的服务映射另见 `216-*`；本测试仅按实际根及已有产物身份限定结论。
+新 schema 的 `person` ID 是 `1`，旧失败为 `2`，且旧 Store 根选择不同；
+这两轮仍**未完全重建**旧状态，不能否定首次失败或关闭 #248。
+两批容器/网络已清理、数据和原始日志保留；镜像自动创建标准四个、TP 两个
+零引用匿名卷，合计约 2.30 GB，ID/大小见各自 `task-anonymous-volume*.txt`。
+此前定向删卷被自动审批拒绝，不绕过；当前无运行容器。
+
 #250/#251/#253 反向数据根冲突：标准镜像指向已停机 TP 根、TP 镜像指向已停机标准根，
 两次 Docker 启动均 exit 1，报对应 `provider marker mismatch`，未进入 Java 数据库打开。
 只读容器在失败前后比较全目录文件相对路径、逻辑大小、已分配块数、mtime，及所有逻辑大小
