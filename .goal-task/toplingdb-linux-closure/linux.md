@@ -413,6 +413,101 @@ ID 匹配，脚本 exit 0；三个 checkpoint 仍在、pending 仍无，证明�
 “拒绝发生在写入前”判 #249 通过；需要可验证的图级排空/维护流程，并保留 schema、
 惰性迭代器和缓存的在线安全检查。
 
+为定位这次普通服务序列的活跃事务，用测试专用 Java 11 agent（`168-txrefs-agent/`）
+只读输出 TinkerPop 事务引用和所属线程，挂载到上述独立候选容器；未更改镜像或业务数据。
+`169-txrefs-service-run.sh` 中 `snapshot_resume` 仍 HTTP 400，诊断脚本 exit 0、容器
+停机 exit 0，三库 checkpoint 文件前后 SHA-256 校验 exit 0。同一 Server JVM
+最初 `refs=1 threads=[main]`，随后持续为 `refs=1 threads=[task-db-worker-1]`，
+见原始日志和 `170-txrefs-owner.md`。源码追踪表明 `restoreTasks()` 的状态扫描
+在 task DB worker 中调用 `queryTask(Map...)`，该路径的
+`graph.backendStoreFeatures()` 会经 `StandardHugeGraph.graphTransaction()` 打开
+上层事务；按 ID 查询的 `GraphTransaction.queryTaskInfos(Object...)` 有相同入口。
+启动收尾只关闭主线程事务，不能释放 worker 上的引用。这解释当前预检拒绝，
+但单独的 refs 证据不证明全部 native CF 引用也来自此处。
+
+在冻结 SHA 的另一个隔离分支 `codex/toplingdb-lifecycle-212` 试过对任意
+`StandardTaskScheduler.call()` 在 `finally` 回滚当前图事务：冻结代码红测
+`171-*` 2/2 失败，候选绿测 `172-*` 2/0，现有任务定向 `173-*` 19/0。
+三名独立只读审查者发现该通用回滚会丢弃调用者有意保留的未提交写入，且有关闭竞态；
+代码已移除，原 patch、测试和 SHA 留在 `174-*`，不提交该方案。
+目前更窄的**未提交**候选只把 task 状态和按 ID 查询的 feature 来源改为正在使用的
+`TaskTransaction.storeFeatures()`，不在任意任务后回滚。状态查询在冻结代码
+`175-*` 1/1 失败、改单行后 `176-*` 1/0；按 ID 查询在单行版 `178-*`
+1/1 失败、加对应改动后 `179-*` 1/0。旧的单行候选内存 Core `177-*`
+819/0、96 skip、exit 0；这是中间版，不能算最终候选完整回归。最终候选
+RocksDB 定向 `180-*` 中持久任务 `TaskCoreTest` 17/0 与新 worker 事务测试
+1/0，启动断言在内存 `181-*` 和 RocksDB `182-*` 均 1/0；这些是引擎级
+证据，不是 TP 服务停机或 graph journal 恢复通过。候选的 RocksDB Core
+完整套件 `183-*` 为 819/0 失败/0 错误/42 skip、Maven exit 0；其运行时还包含
+一处无调用点的 server-info feature 改动，随后已撤回该行，最终仅保留两处任务查询
+改动，需以最终 diff 的定向实测和复审为准。只读审查指出关闭期间的 task 调用
+接纳竞态在冻结代码中已存在，本次窄修复不解决它，也不应宣称并发关闭安全；
+真实标准/TP 服务及 journal 恢复仍须复验。
+随后从最终两处候选源码 `mvn clean test-compile` exit 0，直接 JUnit 运行新测试时
+`RocksDB.class` 来源为本轮 TP JAR，`/proc/self/maps` 确认映射本轮 native，JAR/native
+SHA-256 均匹配。`184-*` 的 JUnit 为 Tests=1、Failures=0、Ignored=0，
+但 JVM 退出时触发
+`SidePluginRepo ... db not closed`，进程 exit 134；**完整运行失败**，不能只摘取
+JUnit 计数算通过。此定向配置没有 `rocksdb.provider=topling`，因此它证明真实 TP
+JNI 在该直接测试 harness 中退出失败，不能冒充 Java adapter 的 TP provider 分支通过。
+该 harness 只运行测试类，没有执行 `CoreTestSuite` 的 `@AfterClass clear()` 关图步骤；
+因此 exit 134 不能单独当作正常 suite 或服务的 #212 复现，需以带明确关图的进程
+复测区分。原始命令、配置、classpath、映射和退出日志均在 `184-*`。
+按此修正测试专用 harness，在确切隔离提交 `8b09df2b7` 上重新 clean test-compile，
+从独立数据根以本轮 TP JAR/native 运行同一单类测试，并在 JUnit 后明确调用
+`CoreTestSuite.clear()`。`192-*` 显示 JUnit Tests=1、Failures=0、Ignored=0，
+关图日志出现、JVM exit 0，
+无 `db not closed` 断言；实际 JAR 来源/native 映射与 SHA-256 仍匹配。
+因此 `184-*` 的 134 是缺少 suite 清理的 harness 失败，不能计作 #212 的
+独立复现；本轮真实 CRUD 服务 `187-*` 的停机 137 则仍是 #212 失败。
+
+将上述两处任务查询改动**仅用于测试**叠加到仍未提交的图级 journal 候选上，
+11 个源码路径逐文件 SHA-256 清单为 `185-combined-build/source-manifest.json`，
+清单 SHA-256 `ec8f93bea90d6fb22bd44359cbeaa1fb173f6acc7cb32cfe68d3999af197b78a`；
+父 HEAD 仍是冻结 SHA。`docker buildx --no-cache --target topling` 从该源码重建，
+构建脚本 exit 0，镜像 digest/实际 imageID 同为
+`sha256:5fae943216db879feab2fd3b713c858aba3e14873da4288719332771603bdc86`。
+镜像标签 `local/hugegraph:journal-taskdb-candidate-ec8f93be-20260928` 仅是定位名；
+label 同时记录固定 HEAD、未提交源码清单哈希和 `topling`，包内 TP JAR/native SHA-256
+再次匹配本轮输入。原始构建、镜像身份和哈希见 `185-combined-build/`；它不是正式发行物。
+
+首次最小服务脚本复制旧 checkpoint 数据根时，因 Docker 所建 provider marker 文件权限
+在容器启动前 exit 1，原目录未改动；提权复制被自动审批拒绝，未绕过。保留部分复制目录与
+`186-combined-minimal.log`，改用新的空数据根让服务自己建快照。该真实 TP 服务仅请求
+`/versions`、`snapshot_create` 与 `snapshot_resume`，两个 snapshot API 均 HTTP 200，
+三库 live `CURRENT` 均在、无 pending；脚本 exit 0，SIGTERM 后容器 exit 0。
+测试探针恢复后记录 `refs=0 threads=[]`。原始 `186-combined-minimal-retry.*` 和
+`186-combined-minimal/` 保留。这证明空数据的组恢复入口可进入，不证明带数据的即时可见性。
+
+另一全新专属数据根执行完整真实 TP 服务脚本 `187-combined-service-smoke.sh`：
+CRUD 创建两顶点一边并查询成功，`snapshot_create` HTTP 200，快照后新增顶点
+POST 201/GET 200，`snapshot_resume` HTTP 200。测试专用 agent 在服务 JVM
+输出 `RUNTIME_JAR` 为镜像内 TP JAR、`RUNTIME_NATIVE` 为
+`/hugegraph-server/library/librocksdbjni-linux64.so` 的实际 `/proc/self/maps` 映射；
+与上述镜像文件 SHA-256 相结合确认本次实际 TP 加载。恢复后**同进程首次 GET**
+对快照后顶点仍为 200，快照前两点为 200；首次停机出现
+`SidePluginRepo ... db not closed`，容器 exit 137。随后在同一数据根首次重启，
+快照后顶点首笔 GET 为 404、快照前两点均为 200，原 CRUD verify 成功。
+测试容器移除后另做文件系统检查（`193-data-postrun-inventory.txt`）：三库 live
+`CURRENT` 存在、checkpoint `CURRENT` 缺失、无 pending；这是事后状态，
+没有作为恢复 HTTP 调用瞬间的文件原子性证明。脚本按即时可见性断言 exit 1，
+不能用重启后的成功覆盖该失败。原始 HTTP 状态/正文、运行时映射、容器日志、镜像
+身份与首次停机码见 `187-*`；测试专用 agent 源码/JAR/hash 在 `188-runtime-agent/`。
+该 journal 联合候选仍因 schema、迭代器和缓存的在线安全门禁保持未提交；#249、#212
+均未通过最终验收。两轮测试容器已移除，kind 基础组件和 BuildKit 之外无本轮服务。
+`187-*` 涵盖 REST CRUD 与服务内 Gremlin Server 的正常停机流程，没有独立
+Gremlin 查询负载后关闭的断言；该模式仍待复测，不能把服务日志中的
+“Gremlin Server - shutdown complete”当作其业务会话关闭通过。
+窄任务查询修复经三名独立只读审查者最终复核未发现该 diff 的 P0/P1，原有关闭期间
+`call()` 接纳竞态未在本修复中解决；逐人结论抄录于
+`194-three-reviewer-transcript.md`。`mvn editorconfig:format` 与
+`mvn clean compile -Dmaven.javadoc.skip=true` 分别 exit 0（`189-*`、`190-*`）。
+fetch 核对 `org/toplingdb` 仍为冻结 SHA、与隔离分支提交前 `0/0`
+（提交后对远端 `1/0`，原始核对见 `193-code-remote-verification.txt`）后，在
+`codex/toplingdb-lifecycle-212` 独立提交代码和测试
+`8b09df2b71ea39efe7929c567041839cddbfad93`；原 `toplingdb` 分支尚未集成此提交，
+且 #249 整体不因此判通过。journal 的 11 路径联合候选仍是未提交实验。
+
 收尾资源复核（`131-resource-final.txt`，此前阶段见 `117-resource-final.txt`）：
 所有本轮验收服务容器已移除，仅 kind 控制面与 BuildKit 容器运行；集群内只有
 `kube-system` 和 `local-path-storage` 基础 Pod，无旧 HugeGraph 服务批次。
@@ -426,6 +521,10 @@ BuildKit 两个容器，容器层 3.981 MB；根分区可用从 1.1 TB 增至 1.
 Docker 报告 80 个卷共 7.58 TB 属于逻辑计数，包含验证数据，未据此批量 prune；
 后续仍按一次一批服务启动，并在每轮结束时回收容器、保留任务证据。
 先前两项任务匿名卷仍在，定向删除被自动审批拒绝；未清理非任务资源。
+`195-resource-after-service.txt` 再核对联合候选测试后资源：内存 available 117 GiB，
+根盘可用 1.2 TB，运行容器仍只有 kind 控制面与 BuildKit；kind 只有五个基础
+namespace、无 HugeGraph Pod。Docker 的 80 个卷包含验证数据，继续保留，
+不按“可回收”逻辑计数批量清理。
 
 下一步：本地提交本轮证据文档；远端推送受自动审批拒绝且 GitHub 认证失效，关联 issue 更新待恢复。
 后续收口 #212 停机断言、

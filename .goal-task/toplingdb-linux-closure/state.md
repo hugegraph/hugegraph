@@ -25,6 +25,17 @@ snapshot resume 同进程缓存可见性异常；单 DB mount 拒绝时并行 m/
 独立候选镜像的真实 TP 服务恢复被活跃事务预检以 HTTP 400 拒绝，数据重开可读，
 最小无 CRUD 及空闲 60 秒的恢复对照仍被 400 拒绝；完整 CRUD 停机仍 exit 137，
 安全复审还有 schema/iterator 在线门禁，代码未提交、完整回归未过。
+后续测试专用探针把该 400 的活跃上层事务定位到 task DB worker；隔离分支的两处任务
+查询改动经三名只读审查者检查，RocksDB Core 819/0/0/42 skip，但真实 TP JNI 定向
+单类测试在断言通过后 native 停机 exit 134；该 harness 缺少 suite 关图步骤，
+补充明确关图后同一测试 Tests=1、Failures=0、Ignored=0，进程 exit 0。
+#212 关闭与 #249 在线安全仍未通过。
+两处改动叠加 journal 后的新 TP 测试镜像已完成真实服务恢复：空数据
+snapshot create/resume 200/200、停机 0；带 CRUD 的恢复也返回 200，但恢复后
+同进程首次读取仍见快照后顶点，首次停机 137；重启首读才正确为 404。
+详细身份与原始证据见 [Linux 验收](linux.md)。
+窄任务查询修复已在隔离分支提交 `8b09df2b7`，原 `toplingdb` 分支尚未集成；
+journal 联合候选仍未提交，#249、#212 保持未完成。
 
 ## 此前 Mac 阶段与加载规则
 
