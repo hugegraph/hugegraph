@@ -54,6 +54,9 @@ TP CRUD、首次重启与两次 SIGTERM 均通过，原分支镜像另有 20/20 
 整合 TP 镜像补做 #249 checkpoint 数据树故障：人工无效链接使 `s` 库 resume
 HTTP 400 并保留 pending/源文件；仅移除该链接后同根重开、基线 verify、pending
 自行清除和正常停机通过。`g/m` checkpoint 仍在，全图原子恢复未通过。
+冻结 SHA 的 #248 第三次有效单宿主 1+1+2 实测：clear 后主/第二 Server
+均读到新数据，单独重启主 Server 后首个外部图 GET 为 200、ID/属性匹配，
+完整 verify 通过；历史首次不可见线索仍未复现，issue 不关闭。
 
 ## 此前 Mac 阶段与加载规则
 
