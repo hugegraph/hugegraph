@@ -514,8 +514,24 @@ Gremlin 查询负载后关闭的断言；该模式仍待复测，不能把服务
 fetch 核对 `org/toplingdb` 仍为冻结 SHA、与隔离分支提交前 `0/0`
 （提交后对远端 `1/0`，原始核对见 `193-code-remote-verification.txt`）后，在
 `codex/toplingdb-lifecycle-212` 独立提交代码和测试
-`8b09df2b71ea39efe7929c567041839cddbfad93`；原 `toplingdb` 分支尚未集成此提交，
+`8b09df2b71ea39efe7929c567041839cddbfad93`；随后本地 cherry-pick 到原
+`toplingdb` 分支为 `54e5bebae6fa3cf737c5c39bfd05867dde4bd397`，前一提交
+`388ec897098476c82fe6c3467d3f85109fd620ad` 是挂载预检修复 `b4905385` 的
+本地整合。两者均未推送远端，
 且 #249 整体不因此判通过。journal 的 11 路径联合候选仍是未提交实验。
+整合后工作树 `54e5bebae6fa3cf737c5c39bfd05867dde4bd397` 运行
+`mvn editorconfig:format` exit 0（`202-*`）。首次 `mvn clean compile`（`203-*`）
+在 Apache RAT 阶段因旧生成的 PD TP 发行目录 `rocksdb_resource/index.html` 和
+`style.css` 无批准 header 而 exit 1，尚未到达此次改动所在的 Server 模块编译；
+将三组件旧生成发行目录
+与 tar **搬迁保留**到专属数据证据区，原 tar SHA 和路径见 `204-*`，没有修改源码
+或跳过 RAT。原命令重跑 `205-*` exit 0；合并入口 fixture `206-*` exit 0、23 PASS。
+使用新的数据根及同时传给 Maven/Surefire JVM 的专属临时目录，标准 RocksDB
+`CoreTestSuite` `207-*` 为 819 tests、0 failures、0 errors、42 skipped，Maven exit 0。
+测试生成的两个非跟踪索引目录已移到专属数据证据区，原分支 `git status` 仅余证据文档。
+上述是本地两修复整合后的**标准**回归；真实 TP 服务分别在挂载修复候选镜像和
+task/journal 联合测试镜像上验证过，尚未构建/运行这两个整合提交的同一精确镜像，
+不冒充其端到端服务验收。
 
 收尾资源复核（`131-resource-final.txt`，此前阶段见 `117-resource-final.txt`）：
 所有本轮验收服务容器已移除，仅 kind 控制面与 BuildKit 容器运行；集群内只有
@@ -539,7 +555,7 @@ namespace、无 HugeGraph Pod。Docker 的 80 个卷包含验证数据，继续�
 
 下一步：本地提交本轮证据文档；远端推送受自动审批拒绝且 GitHub 认证失效，关联 issue 更新待恢复。
 后续收口 #212 停机断言、
-单 Store 查询连续性、snapshot resume 即时可见性、隔离候选修复的推送/集成，以及 PD/Store
+单 Store 查询连续性、snapshot resume 即时可见性、本地修复的远端推送，以及 PD/Store
 长驻服务 native 映射门禁后，再决定 #252 固定 workload 的至少三轮对照。
 性能仍依赖相关正确性与资源门禁。每项按本轮实际命令、计数和数据断言继续更新。
 
@@ -565,7 +581,7 @@ Mac 上的 Linux 容器核心实测身份与结果见 [mac.md](mac.md#本机核�
 
 | 项目 | 验收场景与预期 | 状态 |
 | --- | --- | --- |
-| #250/#251/#253 | 直接及容器启动，默认/自定义目录和额外图；实际 JNI 与 Java provider 一致；冲突在数据库打开前失败，原数据不变 | 冻结 SHA 单 DB mount 全图失败；隔离修复候选通过，待推送/集成；PD/Store 长驻映射待证 |
+| #250/#251/#253 | 直接及容器启动，默认/自定义目录和额外图；实际 JNI 与 Java provider 一致；冲突在数据库打开前失败，原数据不变 | 冻结 SHA 单 DB mount 全图失败；隔离修复候选通过且本地整合 `388ec8970`，待推送；PD/Store 长驻映射待证 |
 | #254 | 用真实 TP JNI 经 adapter 执行多 key truncate，旧数据全空、CF 保留、可重新读写并关闭；标准 provider 对照自身预期分支 | 本轮通过：TP 1/0/0，标准对照通过 |
 | #255 | 真正运行 runtime diagnostic，检查前置探测、错误分类、原始日志和 JNI 身份；仅已知断言得到例外，其他错误阻塞 | probe 通过；合成 CF 精确断言例外，真实关闭失败 |
 | #249 | 标准/TP 确定提交分别验证 snapshot 成功与故障恢复，包含独立/嵌套 WAL、失败后重启及源文件校验 | helper、持久回滚、服务校验拒绝与 s 库 WAL 复制失败重试通过；全图恢复未完成，同进程缓存失败，数据树复制/发布服务故障待验 |

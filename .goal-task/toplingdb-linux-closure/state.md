@@ -34,8 +34,11 @@ snapshot resume 同进程缓存可见性异常；单 DB mount 拒绝时并行 m/
 snapshot create/resume 200/200、停机 0；带 CRUD 的恢复也返回 200，但恢复后
 同进程首次读取仍见快照后顶点，首次停机 137；重启首读才正确为 404。
 详细身份与原始证据见 [Linux 验收](linux.md)。
-窄任务查询修复已在隔离分支提交 `8b09df2b7`，原 `toplingdb` 分支尚未集成；
-journal 联合候选仍未提交，#249、#212 保持未完成。
+挂载预检与窄任务查询修复已分别本地整合到原 `toplingdb` 分支为
+`388ec8970`、`54e5bebae`，尚未推送远端；journal 联合候选仍未提交，
+#249、#212 保持未完成。
+两修复合并后的标准 Core 819/0/0/42 skip、入口 fixture 23 PASS、clean compile
+均通过；精确合并镜像的真实 TP 服务仍待验。
 冻结 TP 镜像另经单次只读 Gremlin 请求后正常停机（exit 0）；REST CRUD 后的
 native 停机失败仍保留，两个场景不互相替代。
 
