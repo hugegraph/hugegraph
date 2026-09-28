@@ -19,6 +19,8 @@
 当前整合 HEAD 的标准 Core 全量回归为 819/0/0/42 skip、Maven exit 0。
 真实 TP 服务在 3977 次 GET 持续流量下 SIGTERM exit 0，同根重启数据校验通过；
 这是一轮带流量样本，未关闭所有接纳/排空竞态门禁。
+长 Gremlin 在途请求遇 SIGTERM 时返回 HTTP 500/`NoHttpResponseException`，
+服务本身 exit 0、无 native 断言、同根重启数据可读；请求排空仍待解决。
 
 #249 标准/TP 的 snapshot helper、校验拒绝、WAL 复制和数据树故障后 `s` 库
 pending 保留与修复故障源后的同根重开已获真实证据；`g/m` checkpoint 仍在，
