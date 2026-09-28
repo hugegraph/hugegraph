@@ -241,6 +241,24 @@ REST 读写路径，不替代完整 API suite、异步请求或 #212 全部 CF �
 都证明首个 `s` 数据树复制/校验故障可重试，**不证明全图原子恢复**；
 内层异常未直接取到，不能精确宣称触发了 `copyDirectory` 还是 `verifyTree`。
 
+#249 进程锁另在精确整合 TP Server 镜像和任务专属根 `data/tp-process-lock-254`
+实测。第一容器基线 CRUD 与真实 TP JAR/native JVM 映射通过；第二容器绑定**同一**
+data/WAL 根时在 `RocksDBStdSessions.lockForOpen()` 报
+`RecoveryLockException: database open/recovery lock held`（`m` 库）。第二容器
+没有自行退出，`/versions` HTTP 200、健康状态可为 healthy，但图数据 GET
+HTTP 404；原脚本错误等待它自行退出，90 秒后 timeout 124、脚本 exit 1，
+原始 `254-*` 保留。同期第一容器完整 verify exit 0、关键 CURRENT/MANIFEST
+SHA-256 检查 exit 0、三个 `.resume-lock` 文件清单不变，两个容器随后各停机 exit 0。
+未删除任何锁文件；`255-*` 用同根新 TP 容器正常打开、完整 verify exit 0，
+运行时 TP JAR/native 映射匹配，停机 exit 0。
+标准 provider 使用同一整合镜像但服务 JVM 实际映射标准 JAR 和 `/tmp` native
+做 `256-*` 对照：第二进程也在 `m` 库 `lockForOpen()` 遭同类拒绝，
+`/versions` HTTP 200、图 GET 404；第一进程的数据哈希/锁清单不变，
+故障中及停机重开后完整 verify 都通过，首次/最终停机 exit 0，脚本 exit 0。
+两种 provider 的跨进程同时打开**锁保护通过**；健康检查未反映 backend 打开失败
+属于通用启动链独立问题，不能以 `/versions` 或容器健康证明第二库已初始化。
+本测试没有让两个进程同时恢复同一 pending，#249 恢复并发门禁仍未通过。
+
 #248 冻结 SHA 的第三次**有效**时序实验使用固定 imageID：PD
 `sha256:31fa84ca...cbb596`、Store `sha256:a0df11c1...afc17e`、
 HStore Server `sha256:51953abb...d17722e`，均为 `9d797c7...` 标签/修订；
@@ -776,7 +794,7 @@ Mac 上的 Linux 容器核心实测身份与结果见 [mac.md](mac.md#本机核�
 | #250/#251/#253 | 直接及容器启动，默认/自定义目录和额外图；实际 JNI 与 Java provider 一致；冲突在数据库打开前失败，原数据不变 | 冻结 SHA 单 DB mount 全图失败；隔离修复候选通过且本地整合 `388ec8970`，待推送；PD/Store 长驻 TP 映射已通过 `216-*` |
 | #254 | 用真实 TP JNI 经 adapter 执行多 key truncate，旧数据全空、CF 保留、可重新读写并关闭；标准 provider 对照自身预期分支 | 本轮通过：TP 1/0/0，标准对照通过 |
 | #255 | 真正运行 runtime diagnostic，检查前置探测、错误分类、原始日志和 JNI 身份；仅已知断言得到例外，其他错误阻塞 | probe 通过；合成 CF 精确断言例外，整合候选的 REST CRUD 服务关闭通过，完整 CF 生命周期未收口 |
-| #249 | 标准/TP 确定提交分别验证 snapshot 成功与故障恢复，包含独立/嵌套 WAL、失败后重启及源文件校验 | helper、持久回滚、服务校验拒绝及标准/TP 的 s 库 WAL 复制和数据树复制/校验故障后重试通过；全图恢复未完成，同进程缓存失败，WAL 发布服务故障待验 |
+| #249 | 标准/TP 确定提交分别验证 snapshot 成功与故障恢复，包含独立/嵌套 WAL、失败后重启及源文件校验 | helper、持久回滚、服务校验拒绝、标准/TP 的 s 库 WAL/数据树故障后重试及跨进程同时打开锁保护通过；全图恢复、pending 恢复并发、在线缓存安全、WAL 发布服务故障仍待验 |
 | #212 | 核对真实 DB/CF 和服务生命周期的残余关闭告警，区分已知合成断言、正常关库和卡住 worker | 冻结 SHA 真实复现；本地整合 `e17f1b6d8` 的 REST CRUD/并发读、重启及两次 SIGTERM 通过；更广关停/CF 门禁待验 |
 | #248 | 复查 clear 后首次 Server 重启丢可见性的单次线索，固定确认写入及查询证据；第二次成功不覆盖第一次异常 | 三次有效实验未复现，第三次含第二 Server 交叉读取和主 Server 首笔 GET；旧线索未关闭 |
 | #213 | 核实不可变 JNI 坐标、源码/工具链、CPU 基线、校验和及许可/发布链 | ABI/CPU 已核，正式发布链未完成 |
