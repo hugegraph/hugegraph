@@ -128,6 +128,24 @@ HTTP 工作线程的 thread-local。候选源码和审查结论留 `160-*`，已
 没有构建/测试/提交。安全修复需要独立 DB 所有权、停止新 session 的关停阶段和
 活跃操作排空屏障；#212 仍为真实服务失败，不用强制关闭规避。
 
+#212 会话池并发前置修复另在隔离分支 `codex/toplingdb-lifecycle-212` 完成，
+其父提交为 `8b09df2b71ea39efe7929c567041839cddbfad93`（冻结 SHA 的后代），
+候选提交 `c2e8664f18796b2eaef7f4c0719091ae7396b73b`。该改动只让新 session
+登记与最后一个 session 的 native `doClose()` 共用池锁；已有 thread-local 快路径不变。
+定向并发测试在原实现下稳定检出“后端已关闭但另一线程仍持有活跃 session”
+（`227-*`，1 test/1 failure，预期红灯），在候选实现下 1/0/0/0、exit 0
+（`226-*`）。三名独立只读审查者对最终测试握手及代码复审均未发现新的 P0/P1。
+标准 RocksDB 定向回归 `228-*` 为 38/0 failure/0 error/1 skip、exit 0；
+`mvn editorconfig:format`（`229-*`）和全仓 `mvn clean compile`
+（`230-*`）均 exit 0。真实 TP JNI 的整类 `RocksDBSessionsTest` 在合成 CF
+清理时触发精确已知的 `cfh must in cfh_to_view` 断言并 exit 134，
+JUnit 未返回计数（`231-pool-tp/rocksdb-sessions.log`）；同一临时数据目录
+随后单测因残留 CF 1 test/2 failures，保留该失败；换专属空目录后
+多 key adapter truncate 1/0/0、进程 exit 0，JAR CodeSource 与 native maps
+均匹配本轮 SHA-256（`231-pool-tp/adapter-fresh.log`）。这只验证池竞态修复及
+定向 JNI 兼容性；REST worker 会话残余、服务停机 exit 137、关停接纳/排空
+仍未解决。该候选尚未并入原 `toplingdb`，也未推送；不能据此改判 #212 通过。
+
 #250/#251/#253 反向数据根冲突：标准镜像指向已停机 TP 根、TP 镜像指向已停机标准根，
 两次 Docker 启动均 exit 1，报对应 `provider marker mismatch`，未进入 Java 数据库打开。
 只读容器在失败前后比较全目录文件相对路径、逻辑大小、已分配块数、mtime，及所有逻辑大小
