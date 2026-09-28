@@ -210,6 +210,15 @@ suite 另创建两个相对 `rocksdb-index*` 目录，已原样移入专属 data
 `258-standard-core/relative-index-relocation.txt`，原工作树恢复干净。
 此为整合后**标准 JNI** Core 全量回归，不替代真实 TP JNI 或 #249 在线安全。
 
+#212 同一整合 TP Server 镜像另做真实流量中 SIGTERM（`259-*`），独立新数据根
+CRUD create exit 0、JVM TP JAR/native 映射匹配。16 个客户端 worker 持续 GET
+顶点列表，`traffic-results.txt` 记录 3977 次请求，3977 次 HTTP 200、0 错误；
+写入停机请求时间后下一 UTC 秒仍有 3173 次请求开始，服务日志在停机请求当秒
+已出现 `HugeGraphServer stopping`。首次 SIGTERM 进程 exit 0，日志中 tx refs
+降至 0、无 `db not closed` 或 REST 清理异常；相同数据根重启完整 verify exit 0，
+最终 SIGTERM 仍 exit 0，脚本 exit 0。该时间重叠证明本次有请求流量覆盖
+shutdown 窗口，**不证明所有长响应、异步请求或任意接纳/排空竞态均安全**。
+
 #249 在同一精确整合 TP 镜像 `sha256:7379d24f...02ac42` 上增加数据树故障实验。
 新专属根 `data/datatree-fault-tp-243` 的基线 CRUD 和 `snapshot_create` HTTP 200；
 为让宿主注入测试链接预设 ACL，但容器创建的 checkpoint 子目录将有效权限收紧为
