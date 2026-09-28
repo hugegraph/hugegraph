@@ -939,6 +939,11 @@ exit 0（两顶点、一边及 Gremlin count=2），最终 SIGTERM stop exit 0�
 `org/toplingdb` 仍为冻结 SHA，该取样的 ahead/behind 为 `19/0`。
 代码与证据文档已分别提交，远端推送此前被自动审批拒绝且 GitHub 认证失效，
 关联 issue 仅保留本地进展草稿，尚未更新远端；不绕过拒绝或强推。
+再次只读核对 `gh auth status` exit 1，活动账号 token 仍被报告 invalid；
+公开 [#249](https://github.com/hugegraph/hugegraph/issues/249) 仍 Open，页面未增加
+恢复并发约束。旧长草稿保持不变，新版简明进展稿在专属 evidence 的
+`issue-drafts/{249,248,240}-latest.md`；均未发送，待认证与推送门禁解除后
+按实际远端源码重新核对再发布，不引用尚未推送的文档链接作为已公开证据。
 后续独立复核 #212 更广的关闭并发/DB-CF 生命周期、#249 恢复后即时缓存与
 schema/iterator 在线安全、服务级复制/发布故障及全图失败重放，再复核单 Store
 查询连续性和 #248 原始时序；#249 恢复并发要求是在线业务还是维护排空的澄清
