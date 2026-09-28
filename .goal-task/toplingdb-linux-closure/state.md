@@ -5,7 +5,8 @@
 本轮固定验收源码 `9d797c7608e244f03436ce11294d9bd72aba4d2d` 的 38 项 CI
 已全部成功，Linux 服务器验收另见 [linux.md](linux.md)。x86_64 主机完成干净构建、
 标准 Core/定向回归、真实 TP helper 与 adapter truncate、三组件标准/TP 发行包和
-镜像身份核验；历史 kind/k8s 工作负载已清理，当前仅 kind 控制面与任务 BuildKit 常驻。
+镜像身份核验；历史 kind/k8s 工作负载已清理，kind 控制面与任务 BuildKit
+现已停止并保留数据，当前无运行容器。
 冻结源码的 REST CRUD 后 TP 停机曾 `db not closed`/exit 137；#249 全图恢复和
 同进程缓存仍失败，CI 绿灯不改变这两项结论。
 
@@ -19,6 +20,8 @@
 当前整合 HEAD 的标准 Core 全量回归为 819/0/0/42 skip、Maven exit 0。
 真实 TP 服务在 3977 次 GET 持续流量下 SIGTERM exit 0，同根重启数据校验通过；
 这是一轮带流量样本，未关闭所有接纳/排空竞态门禁。
+同一整合 TP 镜像在独立数据根完成 SIGKILL 137 后首次图 GET 200、完整
+CRUD/Gremlin 校验及最终正常停机；前一次过早 GET 连接重置原始证据保留。
 长 Gremlin 在途请求遇 SIGTERM 时返回 HTTP 500/`NoHttpResponseException`，
 服务本身 exit 0、无 native 断言、同根重启数据可读；请求排空仍待解决。
 

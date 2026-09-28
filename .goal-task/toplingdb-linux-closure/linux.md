@@ -797,6 +797,31 @@ namespace、无 HugeGraph Pod。Docker 的 80 个卷包含验证数据，继续�
 `199-resource-after-gremlin.txt` 表明后续两轮 Gremlin 容器也均已移除，仍只有
 上述两个常驻容器；内存 available 117 GiB，根盘可用 1.2 TB。
 
+用户再次要求只保留一批服务占资源。`263-resource-cleanup/before.txt` 确认 kind
+仅有控制面和基础 Pod，Docker 只运行 kind 控制面及本任务 BuildKit；两者各占约
+990 MiB 内存。执行 `docker stop -t 30 buildx_buildkit_hg-topling-closure-local0
+kind-control-plane` exit 0，容器保留为 exited、卷和镜像未删除，当前无运行容器；
+available 内存从约 116 GiB 升至 118 GiB，根盘可用仍约 1.2 TB。
+`263-resource-cleanup/{before,stop,after}.txt` 保留命令前后状态。历史服务容器层
+此前已回收约 84 GiB；本次停容器只释放运行资源，不把镜像/验证数据当作可丢弃垃圾。
+
+整合 TP Server 镜像 `sha256:7379d24f6231eba72762593ee5d47964014e31f3b0d4ef5ec2e68ed24402ac42`
+（revision `e17f1b6d8`，源自冻结 SHA 后的本地修复）新增真实崩溃恢复实验，命令
+`bash evidence/264-tp-sigkill-restart/run.sh`，脚本 exit 0。独立 bind 根
+`data/tp-sigkill-restart-264/` 中先由 Server smoke 创建 property key、vertex/edge
+label、2 顶点和 1 边并读回，`JAVA_TOOL_OPTIONS` agent 在运行进程打印 TP JAR
+CodeSource 与 `library/librocksdbjni-linux64.so` 实际映射。对该任务容器执行
+`docker kill --signal=KILL`，退出码 137；`g/m/s` 的 CURRENT/MANIFEST
+在 kill 前后 SHA-256 校验均为 OK，三份 `.resume-lock` 文件名/大小未变。
+同一容器和同一数据根重启，先等待 `/versions` HTTP 成功，再只发一次顶点 GET：
+curl exit 0、HTTP 200、ID 与 `riscv-smoke-v1-kill264` 匹配；随后完整 smoke verify
+exit 0（两顶点、一边及 Gremlin count=2），最终 SIGTERM stop exit 0。
+容器已移除，数据及 `264-*` 原始日志保留；未删锁/marker、未重试失败图请求。
+前一轮新根 `262-*` 的 create、SIGKILL 137、文件校验与锁检查成功，但重启后
+脚本在服务监听前直接 GET，curl exit 56/连接重置，故该轮不能计作数据恢复通过；
+原始失败保留。`264-*` 仅证明此单 Server 场景的崩溃后读取，不能替代 #249
+全图 snapshot 原子恢复、在线 pending 并发或多节点故障验收。
+
 此段记录前的状态取样：本地 `toplingdb` HEAD 为
 `9dd7b5b85d98a3fd6903262f91625ee39850d69e`、工作树干净；fetch 后
 `org/toplingdb` 仍为冻结 SHA，该取样的 ahead/behind 为 `19/0`。
