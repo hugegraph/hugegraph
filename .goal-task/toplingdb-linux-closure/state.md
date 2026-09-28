@@ -36,6 +36,9 @@ WAL 发布故障仍未通过。标准/TP 的同时开库锁保护通过，但第
 回看旧证据发现它使用主键顶点的属性过滤查询，追加标准/TP 两批该路径
 对照，首次属性读均命中；标准脚本后续附加 ID 请求格式错误而 exit 1，
 TP 脚本 exit 0。旧 schema ID 与 Store 根不同，仍未完整复现原始状态。
+再按旧时序补 PD 重启，并在独立 TP 根使用旧版容器内 PD/Store 路径；
+PD/Store 进程内 TP JAR/native 映射和哈希匹配，PD 恢复到 `Cluster_OK`，
+Server 首次属性读仍通过。旧代码/schema ID/部署差异仍在，#248 不关闭。
 #213 公开 issue 仍 Open，
 较新 producer workflow 与旧 JAR 构建时逐字节相同；正式 JNI 来源/许可/CPU
 支持下限未收口。#252 待相关正确性与资源门禁后置。

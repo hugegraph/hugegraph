@@ -377,6 +377,35 @@ TP 相同 imageID 的服务映射另见 `216-*`；本测试仅按实际根及已
 零引用匿名卷，合计约 2.30 GB，ID/大小见各自 `task-anonymous-volume*.txt`。
 此前定向删卷被自动审批拒绝，不绕过；当前无运行容器。
 
+#248 又补一轮更接近旧失败时序的固定 SHA TP 单宿主 HStore 对照。
+旧 `a35ebeb17` 顺序是 clear 后写入、**PD 先重启**、再只重启 Server；
+上一轮 `268-*` 没有 PD 重启。新独立根 `data/clear-oldroot-pd-270/`
+将 TP PD/Store 的空 bind 目录分别挂到旧版容器内
+`/hugegraph-pd/pd_data`、`/hugegraph-store/storage`，provider 仍明确选
+`topling`，另一组 TP 默认根为空。命令
+`bash evidence/270-tp-oldroot-pd-restart/run.sh` exit 0；Server、PD、Store
+仍用固定 SHA imageID，详情 `image-identities.txt`。仅此一批服务运行，结束后
+四个容器和网络已清理。
+脚本按 drop→重建图→`person`/`name` 主键 schema→写入→属性查询→clear→
+重新写入执行。PD SIGTERM 后 exit 143，重启后受认证的 `/v1/cluster`
+HTTP 200、`Cluster_OK`、`PState_Normal`、1 PD/1 Store/12 分区；新顶点
+属性查询仍命中。Store 在 PD 中断期间记录瞬时连接失败/PD unreachable，
+恢复后第二 Server 属性查询 HTTP 200、目标命中。随后仅重启主 Server，
+首次属性查询 HTTP 200、目标命中，按 ID GET 亦 HTTP 200；两台 Server
+首次正常停机 exit 0。失败和成功时序的原始日志、状态、请求正文分别保留，
+未用后续成功掩盖 PD 中断期间的 Store 错误。
+测试专用 Java agent 源码/JAR/hash 与自检留 `269-component-identity-agent/`。
+它从 **PD 首次启动及重启后的进程、Store 实际 JVM** 的已加载 `RocksDB` CodeSource
+和 `/proc/self/maps` 输出 TP JAR `86eb1bd3…2031fae`、native
+`c25ff6e6…174dd38` 的全 SHA-256；不是只凭镜像标签、环境变量或磁盘上
+存在 `.so` 判定。旧容器内路径 `/storage` 在此轮确实能加载 TP，因此旧路径
+本身**不足以证明标准 provider fallback**；旧集群的实际配置/运行时映射
+仍需其历史原始环境证据，不能由新实验反推。
+本轮 `person` schema ID 为 `1`，旧失败为 `2`；源码、Docker/kind 部署也
+不同，#248 仍未重现且不关闭。新镜像自动产生两个零引用 Server 匿名卷
+各约 420 MB，ID/大小留 `270-*/task-anonymous-volume*.txt`；此前删卷
+被自动审批拒绝，不重试或绕过。当前无运行容器。
+
 #250/#251/#253 反向数据根冲突：标准镜像指向已停机 TP 根、TP 镜像指向已停机标准根，
 两次 Docker 启动均 exit 1，报对应 `provider marker mismatch`，未进入 Java 数据库打开。
 只读容器在失败前后比较全目录文件相对路径、逻辑大小、已分配块数、mtime，及所有逻辑大小
