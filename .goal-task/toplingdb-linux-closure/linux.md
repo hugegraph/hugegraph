@@ -193,6 +193,15 @@ verify 均通过，脚本 exit 0；首次、第二次 SIGTERM 进程都 exit 0�
 可复现关闭失败；#212 更广的异步/关停接纳排空、所有 native DB/CF 生命周期
 及 #255 合成 CF 断言仍需独立核查，不自动关闭 issue，也不把该结果外推为 HA。
 
+追加当前干净本地源码 `91bf84f30...` 的标准 provider REST API 回归（`253-*`）：
+专属容器在精确整合镜像中选择标准 JAR，测试专用 agent 看到服务 JVM 的
+`RocksDB.class` CodeSource 为 `/hugegraph-server/lib/rocksdbjni-8.10.2.jar`，
+native `/proc/self/maps` 为 `/tmp/librocksdbjni...so`，无 TP library 映射。
+Maven 与 Surefire JVM 均使用专属临时目录，`mvn clean test -P api-test,rocksdb`
+定向 Schema 1、Edge 5、Vertex 4，合计 10/0 failure/0 error/0 skip、exit 0；
+服务停机 exit 0，无 REST 清理异常或 native 关闭断言。该定向回归覆盖多种同步
+REST 读写路径，不替代完整 API suite、异步请求或 #212 全部 CF 生命周期。
+
 #249 在同一精确整合 TP 镜像 `sha256:7379d24f...02ac42` 上增加数据树故障实验。
 新专属根 `data/datatree-fault-tp-243` 的基线 CRUD 和 `snapshot_create` HTTP 200；
 为让宿主注入测试链接预设 ACL，但容器创建的 checkpoint 子目录将有效权限收紧为

@@ -15,6 +15,7 @@
 `sha256:7379d24f...02ac42` 的 CRUD、20/20 并发 GET、首次重启及两次 SIGTERM
 均通过，运行时 TP JAR/native 映射吻合。#212 更广关停并发/CF 生命周期和
 #255 已知合成 CF 断言仍独立待验。
+同源码标准 JNI 的 Schema/Edge/Vertex API 定向回归另为 10/0/0/0、服务停机 0。
 
 #249 标准/TP 的 snapshot helper、校验拒绝、WAL 复制和数据树故障后 `s` 库
 pending 保留与修复故障源后的同根重开已获真实证据；`g/m` checkpoint 仍在，
