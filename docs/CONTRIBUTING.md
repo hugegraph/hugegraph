@@ -50,6 +50,21 @@ and automatic cancellation and retries. Report what you actually validated and a
   Update the [dependency inventory](../install-dist/scripts/dependency/known-dependencies.txt)
   using [the regeneration script](../install-dist/scripts/dependency/regenerate_known_dependencies.sh).
 
+Install/package the current reactor before regenerating the inventory:
+
+```bash
+mvn install -DskipTests -Dmaven.javadoc.skip=true
+bash install-dist/scripts/dependency/regenerate_known_dependencies.sh
+```
+
+The build must produce Server, PD and Store distributions for the same current revision.
+It skips tests and is not validation evidence. The inventory combines Maven runtime
+dependencies with flat and nested distribution jars, including Spring Boot `BOOT-INF/lib`
+dependencies inserted by repackaging. Missing distributions fail collection; source or POM
+inspection alone cannot establish the full shipped inventory. Review all additions and
+removals and their license/NOTICE coverage. The dependency check compares the exact inventory;
+repeat it for release platform/profile variants as needed.
+
 ## Submit and review
 
 Use `type(scope): description` for commits; omit the scope when it is unclear.
