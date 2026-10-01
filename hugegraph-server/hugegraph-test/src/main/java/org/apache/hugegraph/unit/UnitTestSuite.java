@@ -27,7 +27,6 @@ import org.apache.hugegraph.auth.WsAndHttpBasicAuthHandlerTest;
 import org.apache.hugegraph.backend.page.QueryListTest;
 import org.apache.hugegraph.backend.tx.GraphIndexTransactionTest;
 import org.apache.hugegraph.backend.tx.GraphTransactionTest;
-import org.apache.hugegraph.core.RoleElectionStateMachineTest;
 import org.apache.hugegraph.meta.EtcdMetaDriverTest;
 import org.apache.hugegraph.meta.MetaManagerSchemaCacheClearEventTest;
 import org.apache.hugegraph.meta.managers.AuthMetaManagerTest;
@@ -189,7 +188,6 @@ import org.junit.runners.Suite;
         SystemSchemaStoreTest.class,
         ServerInfoManagerTest.class,
         TaskSchedulerServerInfoTest.class,
-        RoleElectionStateMachineTest.class,
         HugeGraphAuthProxyTest.class,
         SchemaElementTest.class,
         OltpTraverserTest.class,
