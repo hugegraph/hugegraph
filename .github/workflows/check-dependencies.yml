@@ -14,6 +14,7 @@ jobs:
     env:
       USE_STAGE: 'false' # Whether to include the stage repository.
       SCRIPT_DEPENDENCY: install-dist/scripts/dependency
+      PYTHONDONTWRITEBYTECODE: '1' # Keep generated Python caches out of source style checks.
     steps:
       - name: Checkout source
         uses: actions/checkout@v7
