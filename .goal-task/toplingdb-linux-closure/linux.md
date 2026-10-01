@@ -24,14 +24,46 @@ JUnit 1 项/1 失败、Java exit 1，失败定位为 saved manager 缓存旁路�
 数据库留专属 data/resume-20261002/tmp 根，四份 pending 未删除。清单哈希是失败后的
 留证，不能视作失败前后字节不变证明。
 
+随后扩展为三项真实数据库红测，分别检查失败恢复后的 saved manager、成功恢复后的
+warmed saved manager，以及成功恢复后的旧 builder 写入。标准 JNI 为 3 项/3 失败、
+Java exit 1；真实 TP 为 3 项/3 失败、Java exit 1。旧 builder 错误创建 property key
+id=2 后由新 manager 回读 id=2，再记录并失败，不是仅由异常推断写入成功。
+原始日志分别为 `saved-schema-standard-final.log` 与 `saved-schema-topling-corrected.log`。
+
+TP 首次启动遗漏 `java.library.path`，在 LD_PRELOAD 后又尝试提取加载 JNI，触发
+`dup name ZipOffsetBlobStore` 并 exit 134，尚未运行任何测试。这是本轮启动参数错误，
+不属于 #255 的合成 CF 例外，也不计作通过。原 `saved-schema-topling-final.log` 保留，
+因 native 输出环境内容只限本地私有读取；可分享摘要另存 `topling-first-launch-summary.txt`。
+修正路径后唯一 TP JAR codeSource 和 `/proc/self/maps` 中 native 路径均指向本轮核验
+文件，SHA-256 与冻结身份完全匹配，见 `jni-identity-final.json`，没有标准 JNI 替代。
+
 新的未集成 `GraphSnapshotAccessGate` 提供 lease、epoch、单恢复 owner 和
-RUNNING/QUIESCING/RECOVERING/UNAVAILABLE 状态转换。其独立测试 6/0、Java exit 0；
-三名独立只读审查者分别检查生命周期、失败重试和测试有效性，未发现单类新 P0/P1。
-这不是整体生产修复复审：当前没有生产入口引用该 gate，schema/builder、独立事务、
-惰性 iterator、后台任务与缓存重建仍须完整接入并实测。审查明确要求 iterator 最后
-一次 native 使用结束后才释放 lease，不能把 checkValid 当作 native 操作互斥。
-所有新文件保留在隔离 worktree，未提交/整合。后续以该红测转绿、确定性并发场景、
-三人整体复审及真实标准/TP 同进程恢复与故障恢复为门禁；#249 仍未通过。
+RUNNING/QUIESCING/RECOVERING/UNAVAILABLE 状态转换；`Lease.fork()` 允许已有访问
+在 QUIESCING 发布独立结果 pin。`GraphSnapshotIterator` 在同一局部锁内协调读取、
+metadata 与 close，防止同线程重入提前释放，底层 close 失败保留 pin 并封闭读取，
+只有显式成功重试才释放。分页值须在 close 前捕获成 detached 值。三名独立审查者
+发现并修正 remove 契约 P2：该包装器现明确只读，始终拒绝 remove，不调用 delegate
+或清理。三名 delta 复审无新阻塞；原报告和复审分别保存 `access-iterator-review-*`。
+
+最终干净 compile exit 0；屏障 10 项、迭代器 9 项，总计 19/0，Java exit 0，日志
+`clean-build-readonly-iterator.log`、`access-iterator-tests-readonly-final.log`。iterator
+测试使用 synthetic CIter/latch/monitor，不能声称真实 native iterator 或全图恢复通过。
+最初 18/0 和此前 6/0 日志保留，计数增加来自新增边界与只读 remove 合同测试。
+Maven/JVM 均使用 `data/resume-20261002/tmp`；classpath 去除已安装 HugeGraph JAR，
+使用隔离树 reactor classes。命令与退出码见 `commands.json` 和对应 `.exit` 文件。
+隔离树 HEAD 仍为冻结 SHA 加未提交候选；16 路径源码清单/哈希与原始 patch 留
+`source-final-manifest.json`、`source-final/`、`candidate-final-tracked.patch`，不是正式发布。
+
+本轮七个数据库根与十二份 pending 保留，清单和 checkpoint/marker 失败后哈希见
+`final-data-inventory.json`。这些哈希没有失败前对照，不能视作字节不变证明。
+没有启动新的服务容器；主分支文档与隔离候选分开，未经整合验收的代码没有提交或推送。
+#249 下一动作是将完整语义访问纳入 gate/epoch：保存的 schema manager/builder、
+TinkerPop 与独立事务、indexTx、缓存填充和 lazy result、task/ephemeral 队列，以及
+RamTable/auth/system 内存状态。不得使用 `serverStarted()` 写初始化/重复排队代替缓存
+重建；快照创建也需一致性排空，但不能把 createSnapshot 当成改变数据代际的恢复。
+之后以六项红测转绿、确定性并发与 close 失败、同图失败重试、三人整体复审、真实
+标准/TP 服务同进程恢复为门禁。纯基础类复审不等于整体生产修复批准，#249 仍失败。
+公开进展草稿另留 `issue-drafts/249-20261002.md`，认证和审批解除后才能发送。
 
 ## 2026-09-28 固定源码验收进度
 

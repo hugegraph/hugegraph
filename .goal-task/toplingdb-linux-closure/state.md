@@ -2,14 +2,12 @@
 
 ## 2026-10-02 恢复执行
 
-用户要求先发布本地已完成提交，再继续剩余验收；额度约束改为至少保留周额度
-7%。恢复核对时实际使用 50%，原 `toplingdb` 工作树干净、远端仍为冻结 SHA，
-本地领先 44 个提交。GitHub token 仍无效，新授权下重新尝试 push 仍被自动审批
-在执行前拒绝（AskForApproval=Never），PR 尚未更新。
-#249 独立推进：真实标准 RocksDB 的 saved SchemaManager 缓存旁路红测
-1/1 失败，失败后 graph/member pending 和 checkpoint 原样保留；未接入生产
-入口的 lease/epoch 状态机候选 6/0，三名只读审查者未发现单类新 P0/P1，
-整体在线恢复安全仍未通过。详情只维护 [linux.md](linux.md)。
+用户将额度改为至少保留周额度 7%；最新工具报告剩余 48%。本地原分支
+已补提交恢复记录，发布仍受 GitHub 认证失效和执行审批拒绝阻碍，PR 尚未更新。
+#249 标准/真实 TP JNI 各三项 saved manager/builder 红测均失败；TP 实际
+JAR/native 身份匹配，错误写入及 pending/checkpoint 保留。未集成的恢复
+屏障和只读迭代器候选 19/0，经三名独立只读审查及修正后复审，仍不能替代
+整体在线安全验收。详情和下一动作只维护 [linux.md](linux.md)。
 
 ## 2026-09-28 Linux 阶段摘要
 
