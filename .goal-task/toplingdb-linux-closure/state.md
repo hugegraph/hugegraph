@@ -1,5 +1,16 @@
 # ToplingDB 双环境任务入口
 
+## 2026-10-02 恢复执行
+
+用户要求先发布本地已完成提交，再继续剩余验收；额度约束改为至少保留周额度
+7%。恢复核对时实际使用 50%，原 `toplingdb` 工作树干净、远端仍为冻结 SHA，
+本地领先 44 个提交。GitHub token 仍无效，新授权下重新尝试 push 仍被自动审批
+在执行前拒绝（AskForApproval=Never），PR 尚未更新。
+#249 独立推进：真实标准 RocksDB 的 saved SchemaManager 缓存旁路红测
+1/1 失败，失败后 graph/member pending 和 checkpoint 原样保留；未接入生产
+入口的 lease/epoch 状态机候选 6/0，三名只读审查者未发现单类新 P0/P1，
+整体在线恢复安全仍未通过。详情只维护 [linux.md](linux.md)。
+
 ## 2026-09-28 Linux 阶段摘要
 
 本轮固定验收源码 `9d797c7608e244f03436ce11294d9bd72aba4d2d` 的 38 项 CI

@@ -1,5 +1,38 @@
 # Linux 验收与恢复入口
 
+## 2026-10-02 恢复与发布核对
+
+用户恢复任务并将额度改为最少保留 7%；工具实际报告周额度使用 50%。
+主 `toplingdb` HEAD `0e186a890e5124642b230843c2a40295d5ee4072`、工作树干净；
+fetch `org/toplingdb` 后仍为冻结 SHA，ahead/behind `44/0`。44 个本地提交
+中的四项已完成修复和验收文档均留在原分支，未夹带 journal 未提交候选。
+`gh auth status` exit 1、token invalid。用户重新授权后尝试
+`git push org HEAD:refs/heads/toplingdb`，仍在执行前被自动审批拒绝，原因
+`approval required by policy, but AskForApproval is set to Never`；没有写入远端。
+PR #179 已重新附着本任务；需要认证及审批执行策略恢复后才能发布，未绕过拒绝。
+原始核对留本轮 evidence `resume-20261002/publish-preflight.json`。
+
+#249 在现有隔离 journal worktree 新增真实标准 RocksDB 红测
+`SnapshotSavedSchemaGateTest.testSavedSchemaManagerRejectsCachedReadAfterRestoreFailure`。
+clean compile/dependency classpath exit 0，去除已安装 HugeGraph JAR、使用本 worktree
+reactor classes 和唯一标准 rocksdbjni；Maven 与测试 JVM 均显式使用专属 tmp。
+checkpoint 的 g 中注入悬空测试链接，CURRENT/MANIFEST 保持有效；真实复制失败后
+graph journal 及 m/g/s 三份 pending 已发布、三库 checkpoint 保留，新 schema manager
+被 graph unavailable 门禁拒绝，但恢复前保存并预热的 SchemaManager 仍返回缓存对象。
+JUnit 1 项/1 失败、Java exit 1，失败定位为 saved manager 缓存旁路，未用 TP 结果代替。
+原日志 `saved-schema-red.log`、退出码和 `red-data-inventory.json` 在同 evidence 子目录；
+数据库留专属 data/resume-20261002/tmp 根，四份 pending 未删除。清单哈希是失败后的
+留证，不能视作失败前后字节不变证明。
+
+新的未集成 `GraphSnapshotAccessGate` 提供 lease、epoch、单恢复 owner 和
+RUNNING/QUIESCING/RECOVERING/UNAVAILABLE 状态转换。其独立测试 6/0、Java exit 0；
+三名独立只读审查者分别检查生命周期、失败重试和测试有效性，未发现单类新 P0/P1。
+这不是整体生产修复复审：当前没有生产入口引用该 gate，schema/builder、独立事务、
+惰性 iterator、后台任务与缓存重建仍须完整接入并实测。审查明确要求 iterator 最后
+一次 native 使用结束后才释放 lease，不能把 checkValid 当作 native 操作互斥。
+所有新文件保留在隔离 worktree，未提交/整合。后续以该红测转绿、确定性并发场景、
+三人整体复审及真实标准/TP 同进程恢复与故障恢复为门禁；#249 仍未通过。
+
 ## 2026-09-28 固定源码验收进度
 
 本轮冻结源码为 `9d797c7608e244f03436ce11294d9bd72aba4d2d`。用户确认其 38 项 CI
