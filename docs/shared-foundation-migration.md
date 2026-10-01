@@ -158,6 +158,41 @@ Shared `Index.hasTtl()` follows the existing engine contract for system indexes;
 the Store envelope is handled at the serializer boundary. Existing unsupported
 index-only element reconstruction is not enabled by this consolidation.
 
+### Store-rebuilt index keys
+
+The old Store-side `IndexBuilder` shortened long text values to 20 characters,
+while Server queries used the complete value and its hash. The shared builder
+now uses the Server contract. Frozen producer/query fixtures document this
+existing mismatch in the compatibility resource
+[README](../hugegraph-struct/src/test/resources/compatibility/2f827d6e8/README.md#existing-indexbuilderquery-mismatch).
+
+Old shortened index rows remain decodable; they do not automatically match a
+query using the full value. Before upgrading, assess whether an installation
+used Store-side index rebuilding and rebuild affected indexes from graph data
+where necessary. This change does not automatically rebuild indexes or recover
+missing historical entries. Ordinary Server-created index keys retain their
+existing contract.
+
+### HStore OLAP physical keys
+
+The HStore OLAP repair changes new physical keys from a vertex ID alone to
+`[property ID][vertex ID]`, so multiple OLAP properties on one vertex can coexist.
+This is a behavior change in addition to shared-type relocation. Existing row
+values remain readable without rewriting them.
+
+Readers prefer the requested property's compound key, then fall back to the old
+vertex-only key only when its value contains the matching property ID. Deleting
+one property removes its compound row and a matching legacy row; it preserves
+other properties. Historical properties already overwritten by the old
+vertex-only writer cannot be recovered by this change.
+
+Upgrade all Server and Store writers together before resuming writes. An old
+writer can update a legacy row while a new reader still prefers a previously
+written compound row, so mixed-version OLAP writes are outside the supported
+upgrade contract below.
+
+### Schema map decoding
+
 Schema map decoding preserves the existing wire field names and ID identity.
 Two decoder defects are corrected separately from type relocation: primary-key
 and edge sort-key lists retain their order and duplicate entries rather than
@@ -194,9 +229,10 @@ Mixed-version rolling upgrades are not a supported acceptance target for this
 change. Back up data and configuration using the existing deployment procedure
 before upgrading; this consolidation introduces no data-rewrite operation.
 
-Preserve existing type codes, ID and property bytes, index keys, TTL/OLAP layout,
-query semantics and configuration defaults. Java API changes do not authorize
-changes to storage tables or wire contracts.
+Preserve existing type codes, ID and property bytes, ordinary index keys, TTL
+formats, query semantics and configuration defaults. The HStore OLAP physical
+key transition above is an explicit repair with legacy-row fallback. Java API
+changes alone do not authorize changes to storage tables or wire contracts.
 
 `BaseVertex.TypeContext` makes the legacy classification context explicit:
 
@@ -216,6 +252,25 @@ and requires an explicit compatibility policy; it is not part of a mechanical
 import migration. Keep existing Kryo decoding where historical values require it.
 
 ## Validation and release prerequisites
+
+### Review the behavioral changes
+
+Package moves and import-only caller changes can be reviewed after these paths.
+Compare each shared implementation with both its previous core and struct
+implementations; a matching class name does not establish equivalent behavior.
+
+| Review area | Main entrypoints | Decision or invariant |
+|-------------|------------------|-----------------------|
+| Java/SPI boundary | `HugeGraphSupplier`, `HugeGraph.sameAs`, `GraphSerializer`, custom `HugeElement` implementations | Accept caller recompilation and the documented 1.8.0 migration |
+| Element ownership | `BaseElement/BaseVertex/BaseEdge`, `HugeElement/HugeVertex/HugeEdge`, offheap properties | One state owner; preserve callback order, clone and adjacency identity, virtual value reads |
+| Historical codecs | `BytesBuffer`, `BinaryElementSerializer`, `BinarySerializer`, `LegacyClassNames`, `KryoUtil` | Preserve producer-specific bytes and old enum ordinals without changing canonical writers |
+| Queries, schema and indexes | `ConditionQuery`, `EdgeLabel.fromMap`, `IndexBuilder`, `Index` | Preserve query behavior, ordered keys, endpoints, full-value hash and TTL contracts |
+| HStore and metadata | `HstoreTables`, `OlapStage`, `SchemaDriver`, `FilterIterator` | Explicitly accept the OLAP key repair; preserve exact owner reads, batch bounds, namespaces and watch closure |
+| Delivery | Shared-foundation/inventory guards, packaged jars, Gremlin imports, downstream callers | Verify resolved and shipped dependencies, actual startup and paired website documentation |
+
+Supplier capability narrowing and a new query value-tag protocol remain the
+focused follow-ups below. They do not require a provider framework, permanent
+duplicate classes or a new wire format in this consolidation.
 
 The ownership description above is not a claim that all release gates have
 passed. Review the actual commit, test reports and built distribution before

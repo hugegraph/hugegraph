@@ -19,10 +19,16 @@ package org.apache.hugegraph.util;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.lang.reflect.Array;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.UUID;
 
 import org.apache.hugegraph.exception.BackendException;
+import org.apache.hugegraph.query.Condition.RelationType;
 import org.apache.tinkerpop.shaded.kryo.Kryo;
+import org.apache.tinkerpop.shaded.kryo.KryoException;
+import org.apache.tinkerpop.shaded.kryo.Registration;
 import org.apache.tinkerpop.shaded.kryo.Serializer;
 import org.apache.tinkerpop.shaded.kryo.io.Input;
 import org.apache.tinkerpop.shaded.kryo.io.Output;
@@ -83,10 +89,114 @@ public final class KryoUtil {
     /** Resolve relocated names only when Kryo decodes a class descriptor. */
     private static class LegacyClassResolver extends DefaultClassResolver {
 
+        private static final String LEGACY_RELATION =
+                "org.apache.hugegraph.backend.query.Condition$RelationType";
+        private final Map<Integer, Registration> legacyRelations = new HashMap<>();
+
+        @Override
+        protected Registration readName(Input input) {
+            // Peek only at a new descriptor, then let Kryo own its name cache.
+            int position = input.position();
+            int nameId = input.readVarInt(true);
+            String name = this.nameIdToClass == null || this.nameIdToClass.get(nameId) == null ?
+                          input.readString() : null;
+            input.setPosition(position);
+            Registration registration = super.readName(input);
+            Registration legacy = this.legacyRelations.get(nameId);
+            if (legacy == null && name != null) {
+                Serializer<?> serializer = null;
+                if (LEGACY_RELATION.equals(name)) {
+                    serializer = new LegacyRelationSerializer();
+                } else if (name.startsWith("[") && name.endsWith("L" + LEGACY_RELATION + ";")) {
+                    serializer = new LegacyRelationArraySerializer(registration.getType());
+                }
+                if (serializer != null) {
+                    // Never register this globally: canonical descriptors use other ordinals.
+                    legacy = new Registration(registration.getType(), serializer, NAME);
+                    this.legacyRelations.put(nameId, legacy);
+                }
+            }
+            return legacy != null ? legacy : registration;
+        }
+
+        @Override
+        public void reset() {
+            super.reset();
+            this.legacyRelations.clear();
+        }
+
         @Override
         protected Class<?> getTypeByName(String name) {
             Class<?> type = LegacyClassNames.lookup(name);
             return type != null ? type : super.getTypeByName(name);
+        }
+    }
+
+    /** The frozen core enum order differs from the existing shared enum order. */
+    private static class LegacyRelationSerializer extends Serializer<RelationType> {
+
+        private static final RelationType[] VALUES = {
+                RelationType.EQ, RelationType.GT, RelationType.GTE, RelationType.LT,
+                RelationType.LTE, RelationType.NEQ, RelationType.IN, RelationType.NOT_IN,
+                RelationType.PREFIX, RelationType.TEXT_CONTAINS, RelationType.TEXT_CONTAINS_ANY,
+                RelationType.CONTAINS, RelationType.CONTAINS_VALUE, RelationType.CONTAINS_KEY,
+                RelationType.SCAN
+        };
+
+        private LegacyRelationSerializer() {
+            this.setAcceptsNull(true);
+            this.setImmutable(true);
+        }
+
+        @Override
+        public RelationType read(Kryo kryo, Input input, Class<RelationType> type) {
+            int ordinal = input.readVarInt(true);
+            if (ordinal == 0) {
+                return null;
+            }
+            if (ordinal < 0 || ordinal > VALUES.length) {
+                throw new KryoException("Invalid legacy relation ordinal: " + ordinal);
+            }
+            return VALUES[ordinal - 1];
+        }
+
+        @Override
+        public void write(Kryo kryo, Output output, RelationType value) {
+            kryo.getSerializer(RelationType.class).write(kryo, output, value);
+        }
+    }
+
+    /** Typed enum arrays omit element descriptors, so retain the enclosing descriptor's codec. */
+    private static class LegacyRelationArraySerializer extends Serializer<Object[]> {
+
+        private final Serializer<?> componentSerializer;
+
+        private LegacyRelationArraySerializer(Class<?> type) {
+            this.setAcceptsNull(true);
+            Class<?> component = type.getComponentType();
+            this.componentSerializer = component == RelationType.class ? new LegacyRelationSerializer() :
+                                       new LegacyRelationArraySerializer(component);
+        }
+
+        @Override
+        @SuppressWarnings({"unchecked", "rawtypes"})
+        public Object[] read(Kryo kryo, Input input, Class<Object[]> type) {
+            int length = input.readVarInt(true);
+            if (length == 0) {
+                return null;
+            }
+            Class<?> component = type.getComponentType();
+            Object[] values = (Object[]) Array.newInstance(component, length - 1);
+            kryo.reference(values);
+            for (int i = 0; i < values.length; i++) {
+                values[i] = kryo.readObjectOrNull(input, component, (Serializer) this.componentSerializer);
+            }
+            return values;
+        }
+
+        @Override
+        public void write(Kryo kryo, Output output, Object[] values) {
+            kryo.getSerializer(values.getClass()).write(kryo, output, values);
         }
     }
 

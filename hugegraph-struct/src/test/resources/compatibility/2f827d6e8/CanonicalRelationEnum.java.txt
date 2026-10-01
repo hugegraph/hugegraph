@@ -14,12 +14,4 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
-package org.apache.hugegraph.masterelection;
-
-public interface RoleElectionStateMachine {
-
-    void shutdown();
-
-    void start(RoleListener callback);
-}
+package org.apache.hugegraph.query; public class Condition { public enum RelationType {EQ,GT,GTE,LT,LTE,NEQ,IN,NOT_IN,PREFIX,TEXT_ANALYZER_CONTAINS,TEXT_CONTAINS,TEXT_MATCH_REGEX,TEXT_MATCH_EDIT_DISTANCE,TEXT_NOT_CONTAINS,TEXT_PREFIX,TEXT_NOT_PREFIX,TEXT_SUFFIX,TEXT_NOT_SUFFIX,TEXT_CONTAINS_ANY,CONTAINS,CONTAINS_VALUE,CONTAINS_KEY,TEXT_CONTAINS_FUZZY,TEXT_FUZZY,TEXT_CONTAINS_REGEX,TEXT_REGEX,SCAN} }

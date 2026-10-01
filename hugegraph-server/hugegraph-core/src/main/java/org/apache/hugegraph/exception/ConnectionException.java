@@ -17,8 +17,6 @@
 
 package org.apache.hugegraph.exception;
 
-import org.apache.hugegraph.exception.HugeException;
-
 public class ConnectionException extends HugeException {
 
     private static final long serialVersionUID = -2224809756208190785L;

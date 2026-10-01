@@ -60,7 +60,9 @@ import org.apache.hugegraph.type.define.DataType;
 import org.apache.hugegraph.util.Bytes;
 import org.apache.hugegraph.util.KryoUtil;
 import org.apache.hugegraph.util.LegacyClassNames;
+import org.apache.tinkerpop.shaded.kryo.Kryo;
 import org.apache.tinkerpop.shaded.kryo.KryoException;
+import org.apache.tinkerpop.shaded.kryo.io.Output;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -233,6 +235,82 @@ public class LegacyKryoCompatibilityTest {
                 KryoUtil.kryo().reset();
             }
         }
+    }
+
+    @Test
+    public void testEveryLegacyRelationOrdinal() throws IOException {
+        Properties relations = this.relationFixtures();
+        String[] names = relations.getProperty("legacy.names").split(",");
+        Assert.assertEquals(15, names.length);
+        for (String name : names) {
+            Condition.RelationType expected = Condition.RelationType.valueOf(name);
+            Assert.assertEquals(name, expected, readRelationFixture(relations, "enum." + name));
+        }
+    }
+
+    @Test
+    public void testLegacyRelationDescriptorsInContainersAndArrays() throws IOException {
+        Properties relations = this.relationFixtures();
+        Condition.RelationType[] expected = Arrays.stream(relations.getProperty("legacy.names").split(","))
+                                                 .map(Condition.RelationType::valueOf)
+                                                 .toArray(Condition.RelationType[]::new);
+        Assert.assertArrayEquals(expected, (Object[]) readRelationFixture(relations, "array"));
+        Object matrix = readRelationFixture(relations, "matrix");
+        Assert.assertEquals(Condition.RelationType[][].class, matrix.getClass());
+        Assert.assertArrayEquals(new Object[]{expected, null, new Condition.RelationType[0]}, (Object[]) matrix);
+        Map<?, ?> nested = (Map<?, ?>) readRelationFixture(relations, "nested");
+        Assert.assertEquals(Arrays.asList(expected), nested.get("values"));
+        Assert.assertArrayEquals(expected, (Object[]) nested.get("array"));
+        Assert.assertEquals(Condition.RelationType.SCAN, nested.get("last"));
+    }
+
+    @Test
+    public void testInterleavedLegacyAndCanonicalRelationDescriptors() throws IOException {
+        List<?> values = (List<?>) readRelationFixture(this.relationFixtures(), "interleaved");
+        Assert.assertEquals(Condition.RelationType.SCAN, values.get(0));
+        Assert.assertEquals(Condition.RelationType.TEXT_PREFIX, values.get(1));
+        Assert.assertEquals(Condition.RelationType.TEXT_CONTAINS, values.get(2));
+        Assert.assertEquals(Condition.RelationType.TEXT_REGEX, values.get(3));
+        Assert.assertArrayEquals(new Condition.RelationType[]{Condition.RelationType.SCAN, null,
+                                                              Condition.RelationType.TEXT_CONTAINS},
+                                (Object[]) values.get(4));
+        Assert.assertArrayEquals(new Condition.RelationType[]{Condition.RelationType.TEXT_PREFIX, null,
+                                                              Condition.RelationType.TEXT_REGEX},
+                                (Object[]) values.get(5));
+        Assert.assertSame(values.get(4), values.get(6));
+        Assert.assertSame(values.get(5), values.get(7));
+        List<?> written = (List<?>) roundTrip(values);
+        Assert.assertEquals(values.subList(0, 4), written.subList(0, 4));
+        Assert.assertArrayEquals((Object[]) values.get(4), (Object[]) written.get(4));
+        Assert.assertArrayEquals((Object[]) values.get(5), (Object[]) written.get(5));
+        Assert.assertSame(written.get(4), written.get(6));
+        Assert.assertSame(written.get(5), written.get(7));
+    }
+
+    @Test
+    public void testCanonicalRelationWriterRetainsDefaultOrdinals() {
+        for (Condition.RelationType relation : Condition.RelationType.values()) {
+            Assert.assertEquals(relation, roundTrip(relation));
+            Output output = new Output(128);
+            new Kryo().writeClassAndObject(output, relation);
+            Assert.assertArrayEquals(output.toBytes(), KryoUtil.toKryoWithType(relation));
+        }
+        Condition.RelationType[] values = Condition.RelationType.values();
+        Assert.assertArrayEquals(values, (Object[]) roundTrip(values));
+    }
+
+    private Properties relationFixtures() throws IOException {
+        Properties relations = new Properties();
+        try (InputStream input = this.getClass().getResourceAsStream(
+                                "/compatibility/2f827d6e8/core-relation-ordinals.properties")) {
+            Assert.assertNotNull(input);
+            relations.load(input);
+        }
+        return relations;
+    }
+
+    private static Object readRelationFixture(Properties relations, String name) {
+        return KryoUtil.fromKryoWithType(Bytes.fromHex(relations.getProperty(name + ".hex")));
     }
 
     private void assertValue(String name, Object expected) {

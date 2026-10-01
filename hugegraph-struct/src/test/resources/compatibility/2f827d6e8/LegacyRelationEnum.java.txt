@@ -14,22 +14,4 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
-package org.apache.hugegraph.masterelection;
-
-public interface Config {
-
-    String node();
-
-    String url();
-
-    int exceedsFailCount();
-
-    long randomTimeoutMillisecond();
-
-    long heartBeatIntervalSecond();
-
-    int masterDeadTimes();
-
-    long baseTimeoutMillisecond();
-}
+package org.apache.hugegraph.backend.query; public class Condition { public enum RelationType {EQ,GT,GTE,LT,LTE,NEQ,IN,NOT_IN,PREFIX,TEXT_CONTAINS,TEXT_CONTAINS_ANY,CONTAINS,CONTAINS_VALUE,CONTAINS_KEY,SCAN} }

@@ -17,7 +17,6 @@
 
 package org.apache.hugegraph.exception;
 
-import org.apache.hugegraph.exception.HugeException;
 import org.apache.hugegraph.type.HugeType;
 
 public class ExistedException extends HugeException {
