@@ -2,6 +2,66 @@
 
 ## 2026-10-02 恢复与发布核对
 
+### 远端新增提交的保留与合并
+
+最终 fetch 发现远端从冻结 SHA 前进到 `30a949bc5555f3057972724ff14e4d5f80a0cdf9`，
+新增 upstream `82034fb9f`（移除 legacy scheduler）及其 merge。当时本地 HEAD
+`908144f8a` 为 ahead/behind `46/2`。在原分支执行普通无冲突 merge，三名独立
+只读审查确认四项本地修复仍保留，记录 `remote-merge-review-{failure,tests,independent}.txt`。
+格式检查 exit 0 且未额外修改文件；完整 `mvn clean compile` exit 0。合并源的
+五类定向回归最终 15/0/0、JVM exit 0，日志 `remote-merge-targeted-tests-final.log`。
+代码合并独立提交 `ed6c295f0e599e5cd506a5d6aa54361b00a42081`，双亲为
+`908144f8a` 和 `30a949bc5`，提交后 ahead/behind `47/0`。没有 rebase/force-push。
+
+两个测试启动器问题均保留首次证据：先将 properties 中空 map 写成 `[]`，造成
+15 项中 3 项 setup 失败、exit 1；随后配置正确时 15/0，但自建 launcher 没有
+关闭全局 TaskManager，主线程退出后留下 idle 非 daemon worker。thread dump
+显示 `DestroyJavaVM` 等待、无 main，专属 JVM 在留证后 SIGTERM 143；修正为
+显式 `HugeFactory.shutdown(30L, false)` 后正常 exit 0。没有因此修改生产代码。
+详细三次日志、配置、launcher 和 thread dump 均在同 evidence 目录。
+
+隔离 journal worktree 继续固定 9d797c7 加未提交候选，未随远端更换源码。
+上述合并门禁只服务于发布兼容性，不能把冻结 SHA 的 38 项 CI 或既有服务结果
+移植成新 merge SHA 的完整验收。
+
+新合并 SHA 的 TP Server 兼容性检查另从无 target 的完整 tracked 源码上下文构建，
+不复用旧发行包/镜像。第一次使用 git archive 受 `.gitattributes` 的目录 export-ignore
+影响，缺少 Docker/installer 文件而 build exit 1；原 context/日志保留，未修改 Dockerfile。
+改用干净 index 内容加核验的冻结 JNI 输入后 `--no-cache --pull` 构建 exit 0，日志
+`remote-merge-image-build-corrected.log`。镜像 manifest digest 与实际 imageID 为
+`sha256:bf12f2d0dbbdeb4205b53c24ab700cf268e3ac89148e21e525b01345ef7d4a1b`，
+OCI config digest `sha256:822ec5c80f9ae46537e9324eb014d0090e74a4f25036f98eeb7960309cd17947`；
+源码 label 为精确 `ed6c295f0...`，完整 inspect 和 digest 在 `remote-merge-image-identity.json`。
+构建器完成后停止，随后只运行一个专属服务容器，使用新编译的只读身份 probe。
+
+首轮资源 4 CPU/4 GiB：真实 CRUD 通过，20 个并发 GET 为 17×200、3×503，脚本
+exit 22。日志明确 `currentLoad=8,maxWorkerThreads=8` 的负载保护；该 filter/config
+源码未被 merge 修改。失败容器清理 SIGTERM exit 0、未 OOM，原始请求状态、日志和
+数据均保留在 `merge-service/`。不能将后续成功覆盖此轮失败。
+
+同镜像/同 backend 数据根改为 16 CPU/4 GiB（default 32 REST workers），先验证前轮
+数据的首次同根重启，再做 20/20 GET、两次 SIGTERM exit 0 和又一次同根重启数据
+校验；脚本/JVM service 状态均通过，证据 `merge-service-v2/` 与
+`remote-merge-service-results.json`。实际 Server PID 1524/1528 的 RocksDB class
+codeSource、native maps、两份 SHA-256 均吻合冻结 TP JAR/native；core JAR 来源与
+哈希另留 runtime-processes-hashes，container 实际 Image 也匹配 bf12...。这两种资源下
+的接纳结果不构成 #252 性能对照，亦未覆盖新的全部启动/快照/多节点门禁。
+当前测试容器已删除，专属 backend 数据保留，kind 和本任务 builder 均停止，无运行容器。
+
+#213 在本轮重新读取公开 issue，仍 Open、正文最新说明仍是 2026-09-26。Producer
+默认 HEAD/memtable_as_log_index 仍 `e819a6df...`，fix-jni-ci 已到 `a46a3dfe...`；
+重新下载该固定 ref 的 workflow 与此前 `31afa28f...` workflow 逐字节相同。
+记录 `producer-refs-current.txt`、`producer-topling-jni-a46a3dfe.yml`、hash/diff。
+该文件仍为 shallow checkout、递归 submodule、deploy-file，未提供本项要求的完整
+不可变来源/许可/CPU 基线与 attestation 交付链；本轮没有发布或更换正式 JNI。
+公开来源：[issue #213](https://github.com/hugegraph/hugegraph/issues/213)、
+[已核查 workflow](https://github.com/hugegraph/toplingdb/blob/a46a3dfe4687f7744f0f5291a182f0d5378faae0/.github/workflows/topling-jni.yml)。
+
+GitHub 认证仍无效，执行审批拒绝未解除。本地合并没有推送；认证恢复后仍须
+再次 fetch 检查新增远端变化。
+
+### 本轮启动核对与 #249 最小复现
+
 用户恢复任务并将额度改为最少保留 7%；工具实际报告周额度使用 50%。
 主 `toplingdb` HEAD `0e186a890e5124642b230843c2a40295d5ee4072`、工作树干净；
 fetch `org/toplingdb` 后仍为冻结 SHA，ahead/behind `44/0`。44 个本地提交
