@@ -17,7 +17,7 @@
 
 package org.apache.hugegraph.server;
 
-import org.apache.hugegraph.HugeException;
+import org.apache.hugegraph.exception.HugeException;
 import org.apache.hugegraph.api.filter.RedirectFilterDynamicFeature;
 import org.apache.hugegraph.config.HugeConfig;
 import org.apache.hugegraph.core.GraphManager;

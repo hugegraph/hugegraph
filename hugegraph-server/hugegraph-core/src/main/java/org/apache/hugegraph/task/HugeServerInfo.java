@@ -25,12 +25,12 @@ import java.util.Map;
 
 import org.apache.hugegraph.HugeGraph;
 import org.apache.hugegraph.HugeGraphParams;
-import org.apache.hugegraph.backend.id.Id;
-import org.apache.hugegraph.backend.id.IdGenerator;
-import org.apache.hugegraph.schema.IndexLabel;
-import org.apache.hugegraph.schema.PropertyKey;
+import org.apache.hugegraph.id.Id;
+import org.apache.hugegraph.id.IdGenerator;
+import org.apache.hugegraph.struct.schema.IndexLabel;
+import org.apache.hugegraph.struct.schema.PropertyKey;
 import org.apache.hugegraph.schema.SchemaManager;
-import org.apache.hugegraph.schema.VertexLabel;
+import org.apache.hugegraph.struct.schema.VertexLabel;
 import org.apache.hugegraph.type.HugeType;
 import org.apache.hugegraph.type.define.Cardinality;
 import org.apache.hugegraph.type.define.DataType;

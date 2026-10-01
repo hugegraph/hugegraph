@@ -78,7 +78,23 @@ If we want to add new third-party dependencies to the `HugeGraph` project, we ne
 1. Find the third-party dependent repository, put the dependent `license` file into [./install-dist/release-docs/licenses/](https://github.com/apache/hugegraph/tree/master/install-dist/release-docs/licenses) path.
 2. Declare the dependency in [./install-dist/release-docs/LICENSE](https://github.com/apache/hugegraph/blob/master/install-dist/release-docs/LICENSE) `LICENSE` information.
 3. Find the NOTICE file in the repository and append it to [./install-dist/release-docs/NOTICE](https://github.com/apache/hugegraph/blob/master/install-dist/release-docs/NOTICE) file (skip this step if there is no NOTICE file).
-4. Execute locally [./install-dist/scripts/dependency/regenerate_known_dependencies.sh](https://github.com/apache/hugegraph/blob/master/install-dist/scripts/dependency/regenerate_known_dependencies.sh) to update the dependency list [known-dependencies.txt](https://github.com/apache/hugegraph/blob/master/install-dist/scripts/dependency/known-dependencies.txt) (or manually update).
+4. From the repository root, install/package the reactor first, then run
+   [regenerate_known_dependencies.sh](../install-dist/scripts/dependency/regenerate_known_dependencies.sh)
+   to update [known-dependencies.txt](../install-dist/scripts/dependency/known-dependencies.txt):
+
+   ```bash
+   mvn install -DskipTests -Dmaven.javadoc.skip=true
+   bash install-dist/scripts/dependency/regenerate_known_dependencies.sh
+   ```
+
+   The build must produce Server, PD and Store `lib` artifacts for the same current
+   revision used by the collector. It skips tests and is not validation evidence.
+   The inventory combines Maven's runtime dependencies with flat and nested
+   distribution jars, including Spring Boot `BOOT-INF/lib` dependencies inserted
+   by repackaging. Missing distributions fail collection; source/POM inspection
+   alone cannot establish the full shipped inventory. Review all additions and
+   removals and their license/NOTICE coverage. The dependency check is a strict
+   comparison, so repeat it for the release platform/profile variants as needed.
 
 **Example**: A new third-party dependency is introduced into the project -> `ant-1.9.1.jar`
 - The project source code is located at: https://github.com/apache/ant/tree/rel/1.9.1
@@ -183,5 +199,4 @@ git push -f origin bugfix-branch:bugfix-branch
 GitHub will automatically update the Pull Request after we push it, wait for code review.
 
 For Any question, please contact us through [dev@hugegraph.apache.org](mailto:dev@hugegraph.apache.org) ([subscriber](https://hugegraph.apache.org/docs/contribution-guidelines/subscribe/) only)
-
 
