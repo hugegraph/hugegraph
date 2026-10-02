@@ -118,8 +118,24 @@ public class ScriptCompatibilityRegressionTest {
     }
 
     @Test
+    public void testNullSpreadRegexAcrossProfiles() throws Exception {
+        for (ScriptExecutionProfile profile : ScriptExecutionProfile.values()) {
+            try (PolicyScriptEngine engine = new PolicyScriptEngine(profile)) {
+                for (String operation : List.of("matches('a')", "replaceAll('a', 'b')", "replaceFirst('a', 'b')",
+                                                "split(',')", "split(',', 2)")) {
+                    String source = "String[] values = null; List<String> items = null; " +
+                                    "null*." + operation + " == [] && " +
+                                    "values*." + operation + " == [] && items*." + operation + " == []";
+                    Assert.assertEquals(profile + ": " + source, true,
+                                        engine.eval(source, new SimpleBindings()));
+                }
+            }
+        }
+    }
+
+    @Test
     public void testArrayRegexBridgePreservesNullReceiver() {
-        Assert.assertNull(ScriptDataOperations.regexTexts((String[]) null));
+        Assert.assertNull(ScriptDataOperations.regexArrayTexts(null));
     }
 
     @Test
@@ -127,7 +143,7 @@ public class ScriptCompatibilityRegressionTest {
         Thread.currentThread().interrupt();
         try {
             IllegalStateException error = Assert.assertThrows(IllegalStateException.class,
-                    () -> ScriptDataOperations.regexTexts(new String[]{"a"}));
+                    () -> ScriptDataOperations.regexArrayTexts(new String[]{"a"}));
             Assert.assertEquals("SCRIPT_EXECUTION_TIMEOUT", error.getMessage());
             Assert.assertTrue(Thread.currentThread().isInterrupted());
         } finally {
