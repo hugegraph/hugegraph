@@ -36,6 +36,7 @@ import org.codehaus.groovy.ast.expr.StaticMethodCallExpression;
 import org.codehaus.groovy.ast.expr.TupleExpression;
 import org.codehaus.groovy.transform.stc.ExtensionMethodNode;
 import org.codehaus.groovy.transform.stc.StaticTypeCheckingVisitor;
+import org.codehaus.groovy.transform.stc.StaticTypesMarker;
 import org.codehaus.groovy.transform.stc.TypeCheckingExtension;
 
 public final class ScriptTypeCheckingExtension extends TypeCheckingExtension {
@@ -122,6 +123,20 @@ public final class ScriptTypeCheckingExtension extends TypeCheckingExtension {
             }
         }
         return false;
+    }
+
+    @Override
+    public void afterMethodCall(MethodCall call) {
+        if (!(call instanceof Expression)) {
+            return;
+        }
+        Expression expression = (Expression) call;
+        Object marked = expression.getNodeMetaData(ScriptLocalMethodsCustomizer.RETURN_TYPE);
+        if (marked instanceof ClassNode) {
+            // convertReturn is declared as Object. Keep the helper's declared type so the
+            // closure return, and calls such as helper().isEmpty(), stay statically typed.
+            expression.putNodeMetaData(StaticTypesMarker.INFERRED_TYPE, marked);
+        }
     }
 
     @Override

@@ -28,7 +28,7 @@ import org.codehaus.groovy.ast.CodeVisitorSupport;
 import org.codehaus.groovy.ast.MethodNode;
 import org.codehaus.groovy.ast.expr.ArgumentListExpression;
 import org.codehaus.groovy.ast.expr.BinaryExpression;
-import org.codehaus.groovy.ast.expr.CastExpression;
+import org.codehaus.groovy.ast.expr.ClassExpression;
 import org.codehaus.groovy.ast.expr.ClosureExpression;
 import org.codehaus.groovy.ast.expr.DeclarationExpression;
 import org.codehaus.groovy.ast.expr.EmptyExpression;
@@ -51,6 +51,7 @@ import org.codehaus.groovy.syntax.Types;
 final class ScriptLocalMethodsCustomizer extends CompilationCustomizer {
 
     static final Object RETURN_CAST = new Object();
+    static final Object RETURN_TYPE = new Object();
 
     ScriptLocalMethodsCustomizer() {
         super(CompilePhase.CONVERSION);
@@ -94,10 +95,17 @@ final class ScriptLocalMethodsCustomizer extends CompilationCustomizer {
                         discard.putNodeMetaData(ScriptTypeCheckingExtension.DATA_CALL, Boolean.TRUE);
                         statement.setExpression(discard);
                     } else if (!ClassHelper.isDynamicTyped(method.getReturnType())) {
-                        CastExpression cast = new CastExpression(method.getReturnType(), statement.getExpression());
-                        cast.setSourcePosition(statement.getExpression());
-                        cast.putNodeMetaData(RETURN_CAST, Boolean.TRUE);
-                        statement.setExpression(cast);
+                        // A Groovy cast would coerce a collection or map into a constructor call.
+                        // Keep the declared type, and convert only through the checked helper.
+                        ClassExpression type = new ClassExpression(method.getReturnType());
+                        StaticMethodCallExpression convert = new StaticMethodCallExpression(
+                                ClassHelper.make(ScriptDataOperations.class), "convertReturn",
+                                new ArgumentListExpression(statement.getExpression(), type));
+                        convert.setSourcePosition(statement.getExpression());
+                        convert.putNodeMetaData(ScriptTypeCheckingExtension.DATA_CALL, Boolean.TRUE);
+                        convert.putNodeMetaData(RETURN_CAST, Boolean.TRUE);
+                        convert.putNodeMetaData(RETURN_TYPE, method.getReturnType());
+                        statement.setExpression(convert);
                     }
                 }
             });

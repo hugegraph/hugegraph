@@ -487,6 +487,7 @@ org.apache.hugegraph.security.script.ScriptDataOperations#checkedData(java.lang.
 org.apache.hugegraph.security.script.ScriptDataOperations#checkedMap(java.util.Map)
 org.apache.hugegraph.security.script.ScriptDataOperations#collect(java.util.List,groovy.lang.Closure)
 org.apache.hugegraph.security.script.ScriptDataOperations#compareTo(java.lang.Object,java.lang.Object)
+org.apache.hugegraph.security.script.ScriptDataOperations#convertReturn(java.lang.Object,java.lang.Class)
 org.apache.hugegraph.security.script.ScriptDataOperations#discard(java.lang.Object)
 org.apache.hugegraph.security.script.ScriptDataOperations#div(java.lang.Object,java.lang.Object)
 org.apache.hugegraph.security.script.ScriptDataOperations#elementProperties(org.apache.tinkerpop.gremlin.structure.Element)
