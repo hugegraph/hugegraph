@@ -50,6 +50,8 @@ import org.codehaus.groovy.syntax.Types;
 /** Keeps helper functions local to the checked request, with the same closure budget. */
 final class ScriptLocalMethodsCustomizer extends CompilationCustomizer {
 
+    static final Object RETURN_CAST = new Object();
+
     ScriptLocalMethodsCustomizer() {
         super(CompilePhase.CONVERSION);
     }
@@ -94,6 +96,7 @@ final class ScriptLocalMethodsCustomizer extends CompilationCustomizer {
                     } else if (!ClassHelper.isDynamicTyped(method.getReturnType())) {
                         CastExpression cast = new CastExpression(method.getReturnType(), statement.getExpression());
                         cast.setSourcePosition(statement.getExpression());
+                        cast.putNodeMetaData(RETURN_CAST, Boolean.TRUE);
                         statement.setExpression(cast);
                     }
                 }

@@ -20,6 +20,7 @@ package org.apache.hugegraph.security.script;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Date;
 import java.util.LinkedHashMap;
@@ -280,6 +281,10 @@ public final class ScriptDataOperations {
 
     public static String[] regexSplit(String value, String pattern, int limit) {
         return Pattern.compile(pattern).split(new RegexInput(value), limit);
+    }
+
+    public static List<RegexText> regexTexts(String[] values) {
+        return regexTexts(values == null ? null : Arrays.asList(values));
     }
 
     public static List<RegexText> regexTexts(Collection<?> values) {

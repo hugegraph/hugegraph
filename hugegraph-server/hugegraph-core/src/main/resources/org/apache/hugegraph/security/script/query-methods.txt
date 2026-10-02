@@ -520,6 +520,7 @@ org.apache.hugegraph.security.script.ScriptDataOperations#regexReplaceFirst(java
 org.apache.hugegraph.security.script.ScriptDataOperations#regexSplit(java.lang.String,java.lang.String)
 org.apache.hugegraph.security.script.ScriptDataOperations#regexSplit(java.lang.String,java.lang.String,int)
 org.apache.hugegraph.security.script.ScriptDataOperations#regexText(java.lang.String)
+org.apache.hugegraph.security.script.ScriptDataOperations#regexTexts(java.lang.String[])
 org.apache.hugegraph.security.script.ScriptDataOperations#regexTexts(java.util.Collection)
 org.apache.hugegraph.security.script.ScriptDataOperations#toJson(java.lang.Object)
 org.apache.hugegraph.security.script.ScriptDataOperations#toString(java.lang.Object,boolean)
