@@ -70,6 +70,11 @@ and indexes. Update implementations and call sites, then recompile every affecte
 integration against the matching 1.8.0 artifacts; import changes alone do not make
 old compiled clients binary-compatible.
 
+String IDs use Java's UTF-16 string order consistently, including IDs loaded
+from UTF-8 bytes. Decoding an ID lazily no longer changes its comparison result;
+this fixes the inherited Core comparator's inconsistent ordering for supplementary
+Unicode characters. Persisted ID bytes are unchanged.
+
 External implementations of `org.apache.hugegraph.HugeGraph` must change their
 `sameAs` override parameter from `HugeGraph` to
 `org.apache.hugegraph.HugeGraphSupplier`. Shared schema and queries receive this

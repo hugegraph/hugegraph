@@ -189,11 +189,7 @@ public abstract class IdGenerator {
             if (cmp != 0) {
                 return cmp;
             }
-            if (this.id != null) {
-                return this.id.compareTo(other.asString());
-            } else {
-                return Bytes.compare(this.bytes, other.asBytes());
-            }
+            return this.asString().compareTo(other.asString());
         }
 
         @Override
