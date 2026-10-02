@@ -23,6 +23,28 @@ The default script engine remains Gremlin Groovy. This upgrade does not switch
 remote requests to GremlinLang. Validate application scripts against the full
 TinkerPop 3.5.1 to 3.8.1 upgrade interval before deploying.
 
+## List property compatibility
+
+The public TinkerPop `Graph.Features` contract changes:
+`features().vertex().properties().supportsUniformListValues()` and
+`features().edge().properties().supportsUniformListValues()` now return `false`
+instead of `true`. Clients and compatibility tests that inspect these flags may
+stop enabling uniform-list operations. The corresponding graph-variable flag
+remains `true`.
+
+HugeGraph still supports vertex and edge properties whose schema declares
+`LIST` cardinality with `valueList()` and a supported element type, for example
+`schema.propertyKey("tags").asText().valueList().create()`. Values must match the
+schema's element type. This schema capability does not provide arbitrary Java
+`List` values for `SINGLE` properties. The feature-reporting change itself does
+not remove stored lists or require rewriting existing list data.
+
+When upgrading, review client feature-detection branches. Applications using
+HugeGraph list properties should retain their explicit element type and `LIST`
+schema, and verify list writes and reads with that schema. Generic TinkerPop
+clients should honor the reported feature flags; do not treat a skipped
+uniform-list compatibility test as validation of HugeGraph's schema list path.
+
 ## Queries
 
 See [query count and filter behavior](query-semantics.md) for transaction counts
