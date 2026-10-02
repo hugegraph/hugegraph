@@ -17,6 +17,9 @@
 | runtime 依赖已移除或换版本 | 同步原 CI generator 的 known 清单，先确认实际 runtime 集合唯一差异；CI 对新增与删除都失败，不为匹配旧清单加入已移除库 | [第二轮 CI 补救](mac.md#第二轮-ci-补救安全启动-fixture-与依赖清单)，inventory-before-sorted.diff |
 | provider admission 已创建根目录或 marker | 目录认领与 backend 初始化分开判断；初始化走既有表/CF 检查，不能用目录或 CURRENT 存在跳过。信号测试先验证真实活进程，看门狗超时不能当退出码传播成功 | [完整真实启动回归](mac.md#第三轮-ci-补救真实启动与-backend-初始化) |
 | 二进制 JNI 与包仓库校验和相同 | 只证明字节身份；发布前仍核源码及 SidePlugin 固定提交、构建参数/CPU 基线、不可变坐标和许可证。上游 POM、包页与本地 LICENSE 不一致时保留法务/发布门禁 | [本轮 #213 核查](linux.md#2026-09-28-固定源码验收进度)，`118-*` |
-| Docker 构建使用 git archive 上下文 | 先检查 export-ignore；源码发行归档可能排除 Docker 与 installer 目录。构建从干净 checkout/index 生成完整上下文，另核验 JNI 输入，不从工作树夹带旧 target 或数据 | [2026-10-02 构建](linux.md#2026-10-02-恢复与发布核对) |
-| 独立 JUnit launcher 返回后 JVM 不退出 | 断言通过与进程退出分开记录；thread dump 若 main 已结束、全局 worker idle，应显式按 API 关闭 TaskManager/EventHub，而不是只关闭单图或把 SIGTERM 143 算通过 | [2026-10-02 定向回归](linux.md#2026-10-02-恢复与发布核对) |
-| snapshot 只检查新入口可用性 | 保存的 schema manager/builder 会直接访问旧 tx/cache；用真实复制故障和成功恢复后的读写各自红测。单类 gate/iterator 测试不能替代完整语义操作、后台队列、缓存和 native 生命周期接入 | [2026-10-02 六项红测](linux.md#2026-10-02-恢复与发布核对) |
+| 从 GitHub 源码归档创建构建上下文 | 先检查 export-ignore；归档可能缺 installer 等文件。以 gh 获取不可变完整 tree/blob，并逐文件比 Git blob SHA 和执行权限；字节匹配才复用本地源码，不夹带旧 target 或数据 | [完整源码重建](linux.md#2026-10-02-恢复后的实际执行) |
+| 独立 JUnit launcher 返回后 JVM 不退出 | 断言通过与进程退出分开记录；thread dump 若 main 已结束、全局 worker idle，应显式按 API 关闭 TaskManager/EventHub，而不是只关闭单图或把 SIGTERM 143 算通过 | [2026-10-02 定向回归](linux-history-20261002.md#2026-10-02-恢复与发布核对) |
+| snapshot 只检查新入口可用性 | 保存的 schema manager/builder 会直接访问旧 tx/cache；用真实复制故障和成功恢复后的读写各自红测。单类 gate/iterator 测试不能替代完整语义操作、后台队列、缓存和 native 生命周期接入 | [2026-10-02 六项红测](linux-history-20261002.md#2026-10-02-恢复与发布核对) |
+| CI 失败的 auth 源码与 master 相同 | 还要对比请求清理、事务与 schema 生命周期，并做同配置基线实测；多个 backend 同败只能证明不是某个 native 独有，不能证明本 PR 未放大问题 | [当前归因计划](linux.md#2026-10-03-ci-归因与后续计划) |
+| 名称看似表明保留 ID 范围 | 核对实际分配入口及运行对象 ID；primitive() 范围含动态 auth 用户 -27，不能据此排除关联删除。按真实特殊类型隔离 OLAP，并覆盖双向关系及无关对象保留 | [auth 回归](linux.md#2026-10-03-ci-归因与后续计划) |
+| JUnit launcher 显示 ignored=0 | 另记录 Result.getAssumptionFailureCount()；wasSuccessful 与 ignored 不能单独证明没有 assumption skip | [最终计数](linux.md#2026-10-03-ci-归因与后续计划) |
