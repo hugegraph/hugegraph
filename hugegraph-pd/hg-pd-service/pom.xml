@@ -57,6 +57,13 @@
             <version>${revision}</version>
         </dependency>
 
+        <!-- Preserve the interpolation library previously supplied by Server core. -->
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-text</artifactId>
+            <version>1.10.0</version>
+        </dependency>
+
         <dependency>
             <groupId>io.jsonwebtoken</groupId>
             <artifactId>jjwt-api</artifactId>
