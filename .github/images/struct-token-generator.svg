@@ -1,0 +1,77 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1300 720" width="1300" height="720" font-family="Helvetica Neue, Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#444444"/>
+    </marker>
+  </defs>
+  <rect x="0" y="0" width="1300" height="720" fill="#ffffff"/>
+
+  <!-- column titles -->
+  <text x="325" y="50" font-size="26" font-weight="bold" fill="#222222" text-anchor="middle">Today</text>
+  <text x="975" y="50" font-size="26" font-weight="bold" fill="#222222" text-anchor="middle">After this PR</text>
+  <line x1="650" y1="80" x2="650" y2="690" stroke="#cccccc" stroke-width="2" stroke-dasharray="8 6"/>
+
+  <!-- LEFT: today -->
+  <rect x="30" y="80" width="590" height="250" rx="10" fill="#f6f8fa" stroke="#888888" stroke-width="2"/>
+  <text x="50" y="112" font-size="20" font-weight="bold" fill="#333333">Server lib/: two classes named auth.TokenGenerator</text>
+
+  <rect x="50" y="130" width="550" height="80" rx="8" fill="#e6f4ea" stroke="#2e7d32" stroke-width="2"/>
+  <text x="66" y="160" font-size="19" font-weight="bold" fill="#1b5e20">hugegraph-core.jar: TokenGenerator</text>
+  <text x="66" y="190" font-size="18" fill="#1b5e20">config.AuthOptions token_secret default: random per process</text>
+
+  <rect x="50" y="228" width="550" height="80" rx="8" fill="#fdecea" stroke="#c62828" stroke-width="2"/>
+  <text x="66" y="258" font-size="19" font-weight="bold" fill="#b71c1c">hugegraph-struct.jar: TokenGenerator</text>
+  <text x="66" y="288" font-size="18" fill="#b71c1c">options.AuthOptions token_secret default: fixed string</text>
+
+  <text x="50" y="370" font-size="19" fill="#333333">The JVM loads whichever class comes first on the classpath.</text>
+
+  <!-- branch: sorted launcher -->
+  <rect x="30" y="400" width="285" height="130" rx="10" fill="#ffffff" stroke="#2e7d32" stroke-width="2"/>
+  <text x="46" y="430" font-size="18" font-weight="bold" fill="#1b5e20">bin/hugegraph-server.sh</text>
+  <text x="46" y="458" font-size="17" fill="#333333">find hugegraph*.jar | sort</text>
+  <text x="46" y="484" font-size="17" fill="#333333">"core" sorts before "struct"</text>
+  <text x="46" y="510" font-size="17" fill="#1b5e20">core class wins</text>
+
+  <rect x="335" y="400" width="285" height="130" rx="10" fill="#ffffff" stroke="#c62828" stroke-width="2"/>
+  <text x="351" y="430" font-size="18" font-weight="bold" fill="#b71c1c">Any other order</text>
+  <text x="351" y="458" font-size="17" fill="#333333">java -cp 'lib/*', an embedding</text>
+  <text x="351" y="484" font-size="17" fill="#333333">app, fat jar, IDE run</text>
+  <text x="351" y="510" font-size="17" fill="#b71c1c">struct class can win</text>
+
+  <line x1="172" y1="532" x2="172" y2="578" stroke="#444444" stroke-width="2" marker-end="url(#arr)"/>
+  <line x1="477" y1="532" x2="477" y2="578" stroke="#444444" stroke-width="2" marker-end="url(#arr)"/>
+
+  <rect x="30" y="582" width="285" height="100" rx="10" fill="#e6f4ea" stroke="#2e7d32" stroke-width="2"/>
+  <text x="46" y="614" font-size="17" fill="#1b5e20">auth.token_secret unset:</text>
+  <text x="46" y="640" font-size="17" fill="#1b5e20">JWTs signed with a random</text>
+  <text x="46" y="666" font-size="17" fill="#1b5e20">per-process key</text>
+
+  <rect x="335" y="582" width="285" height="100" rx="10" fill="#fdecea" stroke="#c62828" stroke-width="2"/>
+  <text x="351" y="614" font-size="17" fill="#b71c1c">auth.token_secret unset:</text>
+  <text x="351" y="640" font-size="17" fill="#b71c1c">JWTs signed with the fixed</text>
+  <text x="351" y="666" font-size="17" fill="#b71c1c">default string from struct</text>
+
+  <!-- RIGHT: after -->
+  <rect x="680" y="80" width="590" height="250" rx="10" fill="#f6f8fa" stroke="#888888" stroke-width="2"/>
+  <text x="700" y="112" font-size="20" font-weight="bold" fill="#333333">Server lib/: one class named auth.TokenGenerator</text>
+
+  <rect x="700" y="130" width="550" height="80" rx="8" fill="#e6f4ea" stroke="#2e7d32" stroke-width="2"/>
+  <text x="716" y="160" font-size="19" font-weight="bold" fill="#1b5e20">hugegraph-core.jar: TokenGenerator</text>
+  <text x="716" y="190" font-size="18" fill="#1b5e20">config.AuthOptions token_secret default: random per process</text>
+
+  <rect x="700" y="228" width="550" height="80" rx="8" fill="#ffffff" stroke="#999999" stroke-width="2" stroke-dasharray="8 6"/>
+  <text x="716" y="258" font-size="19" fill="#777777">hugegraph-struct.jar: no TokenGenerator,</text>
+  <text x="716" y="288" font-size="19" fill="#777777">no auth.token_secret option</text>
+
+  <text x="700" y="370" font-size="19" fill="#333333">Only one class with that name exists, so classpath</text>
+  <text x="700" y="396" font-size="19" fill="#333333">order no longer decides the signing key.</text>
+
+  <rect x="680" y="430" width="590" height="252" rx="10" fill="#f6f8fa" stroke="#888888" stroke-width="2"/>
+  <text x="700" y="462" font-size="20" font-weight="bold" fill="#333333">PD</text>
+  <text x="700" y="494" font-size="18" fill="#333333">pd/util/TokenUtil: the only other code using this</text>
+  <text x="700" y="520" font-size="18" fill="#333333">class name, with no callers. Removed.</text>
+  <text x="700" y="560" font-size="18" fill="#333333">PDConfig keeps its PUBLISHED_SECRET_KEY check.</text>
+  <text x="700" y="586" font-size="18" fill="#333333">Unchanged.</text>
+  <text x="700" y="626" font-size="18" fill="#333333">PD auth (REST and gRPC) compares a Basic-auth</text>
+  <text x="700" y="652" font-size="18" fill="#333333">password with auth.secret-key, not TokenGenerator.</text>
+</svg>
