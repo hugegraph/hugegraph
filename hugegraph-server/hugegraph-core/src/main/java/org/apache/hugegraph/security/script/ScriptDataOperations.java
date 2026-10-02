@@ -283,7 +283,7 @@ public final class ScriptDataOperations {
         return Pattern.compile(pattern).split(new RegexInput(value), limit);
     }
 
-    public static List<RegexText> regexTexts(String[] values) {
+    public static List<RegexText> regexArrayTexts(String[] values) {
         return regexTexts(values == null ? null : Arrays.asList(values));
     }
 

@@ -91,9 +91,12 @@ public final class ScriptTypeCheckingExtension extends TypeCheckingExtension {
             }
             if (Set.of("matches", "replaceAll", "replaceFirst", "split").contains(name == null ? "" : name) &&
                 (method.isSpreadSafe() || this.getType(method.getObjectExpression()).equals(ClassHelper.STRING_TYPE))) {
+                String bridge = "regexText";
+                if (method.isSpreadSafe()) {
+                    bridge = this.getType(method.getObjectExpression()).isArray() ? "regexArrayTexts" : "regexTexts";
+                }
                 StaticMethodCallExpression receiver = new StaticMethodCallExpression(
-                        ClassHelper.make(ScriptDataOperations.class),
-                        method.isSpreadSafe() ? "regexTexts" : "regexText",
+                        ClassHelper.make(ScriptDataOperations.class), bridge,
                         new ArgumentListExpression(method.getObjectExpression()));
                 receiver.setSourcePosition(method.getObjectExpression());
                 receiver.putNodeMetaData(DATA_CALL, Boolean.TRUE);
