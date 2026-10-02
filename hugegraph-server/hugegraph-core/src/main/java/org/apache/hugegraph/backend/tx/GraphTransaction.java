@@ -593,9 +593,9 @@ public class GraphTransaction extends IndexableTransaction {
                 assert q.resultType().isVertex() || q.resultType().isEdge();
                 // Reset aggregate to fallback and scan
                 q.aggregate(null);
-                result = IteratorUtils.count(q.resultType().isVertex() ?
-                                             this.queryVertices(q) :
-                                             this.queryEdges(q));
+                result = countAndClose(q.resultType().isVertex() ?
+                                       this.queryVertices(q) :
+                                       this.queryEdges(q));
             }
 
             return new QueryResults<>(IteratorUtils.of(result), q);

@@ -19,11 +19,14 @@ package org.apache.hugegraph.core;
 
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.NoSuchElementException;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.apache.hugegraph.backend.query.Aggregate;
 import org.apache.hugegraph.backend.query.Aggregate.AggregateFunc;
+import org.apache.hugegraph.backend.query.Condition;
+import org.apache.hugegraph.backend.query.ConditionQuery;
 import org.apache.hugegraph.backend.query.Query;
 import org.apache.hugegraph.backend.tx.GraphTransaction;
 import org.apache.hugegraph.exception.NoIndexException;
@@ -33,6 +36,7 @@ import org.apache.hugegraph.traversal.optimize.HugeCountStep;
 import org.apache.hugegraph.traversal.optimize.HugeCountStrategy;
 import org.apache.hugegraph.traversal.optimize.HugeGraphStep;
 import org.apache.hugegraph.type.HugeType;
+import org.apache.hugegraph.type.define.HugeKeys;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.TextP;
@@ -42,6 +46,7 @@ import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__;
 import org.apache.tinkerpop.gremlin.process.traversal.step.HasContainerHolder;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.RangeGlobalStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.map.OrderGlobalStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.util.HasContainer;
 import org.apache.tinkerpop.gremlin.process.traversal.step.TraversalParent;
 import org.apache.tinkerpop.gremlin.structure.Edge;
@@ -194,9 +199,14 @@ public class CountStrategyCoreTest extends BaseCoreTest {
         this.initSchema();
         this.initGraph();
 
-        long count = graph().traversal().V().order().by("name").count().next();
+        GraphTraversal<Vertex, Long> traversal = graph().traversal().V()
+                                                        .order().by("name").count();
+        traversal.asAdmin().applyStrategies();
 
-        Assert.assertEquals(3L, count);
+        Assert.assertFalse(traversal.asAdmin().getEndStep() instanceof HugeCountStep);
+        Assert.assertTrue(traversal.asAdmin().getSteps().stream()
+                                   .anyMatch(step -> step instanceof OrderGlobalStep));
+        Assert.assertEquals(3L, traversal.next().longValue());
     }
 
     @Test
@@ -500,11 +510,11 @@ public class CountStrategyCoreTest extends BaseCoreTest {
 
     @Test
     public void testUncommittedVertexCountClosesIteratorOnFailure() {
-        FailingCloseableIterator<Vertex> vertices =
-                new FailingCloseableIterator<>();
+        CountCloseableIterator<Vertex> vertices =
+                new CountCloseableIterator<>(true);
         AtomicBoolean dirty = new AtomicBoolean(true);
         GraphTransaction transaction =
-                this.newFailingCountTransaction(vertices, null, dirty);
+                this.newCountTransaction(vertices, null, dirty);
 
         try {
             Query query = countQuery(HugeType.VERTEX);
@@ -519,11 +529,11 @@ public class CountStrategyCoreTest extends BaseCoreTest {
 
     @Test
     public void testUncommittedEdgeCountClosesIteratorOnFailure() {
-        FailingCloseableIterator<Edge> edges =
-                new FailingCloseableIterator<>();
+        CountCloseableIterator<Edge> edges =
+                new CountCloseableIterator<>(true);
         AtomicBoolean dirty = new AtomicBoolean(true);
         GraphTransaction transaction =
-                this.newFailingCountTransaction(null, edges, dirty);
+                this.newCountTransaction(null, edges, dirty);
 
         try {
             Query query = countQuery(HugeType.EDGE);
@@ -532,6 +542,44 @@ public class CountStrategyCoreTest extends BaseCoreTest {
             Assert.assertTrue(edges.closed());
         } finally {
             dirty.set(false);
+            transaction.close();
+        }
+    }
+
+    @Test
+    public void testCommittedVertexCountClosesIterator() {
+        this.assertCommittedVertexCountClosesIterator(false);
+    }
+
+    @Test
+    public void testCommittedVertexCountClosesIteratorOnFailure() {
+        this.assertCommittedVertexCountClosesIterator(true);
+    }
+
+    private void assertCommittedVertexCountClosesIterator(boolean fail) {
+        SchemaManager schema = graph().schema();
+        schema.propertyKey("name").asText().create();
+        schema.vertexLabel("person").properties("name")
+              .primaryKeys("name").create();
+
+        ConditionQuery query = new ConditionQuery(HugeType.VERTEX);
+        query.eq(HugeKeys.LABEL, graph().vertexLabel("person").id());
+        query.query(Condition.eq(graph().propertyKey("name").id(), "marko"));
+        query.aggregate(new Aggregate(AggregateFunc.COUNT, null));
+
+        CountCloseableIterator<Vertex> vertices = new CountCloseableIterator<>(fail);
+        GraphTransaction transaction = this.newCountTransaction(
+                vertices, null, new AtomicBoolean(false));
+        try {
+            // Primary-key optimization produces an IdQuery that must scan to count.
+            if (fail) {
+                Assert.assertThrows(IllegalStateException.class,
+                                    () -> transaction.queryNumber(query));
+            } else {
+                Assert.assertEquals(1L, transaction.queryNumber(query).longValue());
+            }
+            Assert.assertTrue(vertices.closed());
+        } finally {
             transaction.close();
         }
     }
@@ -560,7 +608,7 @@ public class CountStrategyCoreTest extends BaseCoreTest {
         return query;
     }
 
-    private GraphTransaction newFailingCountTransaction(
+    private GraphTransaction newCountTransaction(
             Iterator<Vertex> vertices, Iterator<Edge> edges,
             AtomicBoolean dirty) {
         return new GraphTransaction(params(), params().loadGraphStore()) {
@@ -582,19 +630,32 @@ public class CountStrategyCoreTest extends BaseCoreTest {
         };
     }
 
-    private static final class FailingCloseableIterator<T>
+    private static final class CountCloseableIterator<T>
             implements CloseableIterator<T> {
 
+        private final boolean fail;
+        private boolean consumed;
         private boolean closed;
+
+        private CountCloseableIterator(boolean fail) {
+            this.fail = fail;
+        }
 
         @Override
         public boolean hasNext() {
-            throw new IllegalStateException("Injected iterator failure");
+            if (this.fail) {
+                throw new IllegalStateException("Injected iterator failure");
+            }
+            return !this.consumed;
         }
 
         @Override
         public T next() {
-            throw new IllegalStateException("Injected iterator failure");
+            if (!this.hasNext()) {
+                throw new NoSuchElementException();
+            }
+            this.consumed = true;
+            return null;
         }
 
         @Override
