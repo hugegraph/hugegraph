@@ -50,6 +50,7 @@ public class HugeGraphProviderLifecycleTest {
                 String path = this.directory.getRoot().getAbsolutePath();
                 config.put("rocksdb.data_path", path);
                 config.put("rocksdb.wal_path", path);
+                config.remove("rocksdb.data_disks");
             }
             Configuration configuration = new MapConfiguration(config);
             graph = (TestGraph) provider.openTestGraph(configuration);
