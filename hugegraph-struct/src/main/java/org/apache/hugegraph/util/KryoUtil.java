@@ -33,7 +33,9 @@ import org.apache.tinkerpop.shaded.kryo.Serializer;
 import org.apache.tinkerpop.shaded.kryo.io.Input;
 import org.apache.tinkerpop.shaded.kryo.io.Output;
 import org.apache.tinkerpop.shaded.kryo.util.DefaultClassResolver;
+import org.apache.tinkerpop.shaded.kryo.util.IntMap;
 import org.apache.tinkerpop.shaded.kryo.util.MapReferenceResolver;
+import org.apache.tinkerpop.shaded.kryo.util.ObjectMap;
 
 public final class KryoUtil {
 
@@ -95,13 +97,31 @@ public final class KryoUtil {
 
         @Override
         protected Registration readName(Input input) {
-            // Peek only at a new descriptor, then let Kryo own its name cache.
-            int position = input.position();
+            // Kryo shaded by Gremlin 3.5.1 names contain a varint ID and, on first use, a string.
+            // Consume once: streamed Input may refill, making position rewind unsafe.
             int nameId = input.readVarInt(true);
-            String name = this.nameIdToClass == null || this.nameIdToClass.get(nameId) == null ?
-                          input.readString() : null;
-            input.setPosition(position);
-            Registration registration = super.readName(input);
+            if (this.nameIdToClass == null) {
+                this.nameIdToClass = new IntMap<>();
+            }
+            Class<?> type = this.nameIdToClass.get(nameId);
+            String name = null;
+            if (type == null) {
+                name = input.readString();
+                type = this.getTypeByName(name);
+                if (type == null) {
+                    try {
+                        type = Class.forName(name, false, this.kryo.getClassLoader());
+                    } catch (ClassNotFoundException e) {
+                        throw new KryoException("Unable to find class: " + name, e);
+                    }
+                    if (this.nameToClass == null) {
+                        this.nameToClass = new ObjectMap<>();
+                    }
+                    this.nameToClass.put(name, type);
+                }
+                this.nameIdToClass.put(nameId, type);
+            }
+            Registration registration = this.kryo.getRegistration(type);
             Registration legacy = this.legacyRelations.get(nameId);
             if (legacy == null && name != null) {
                 Serializer<?> serializer = null;

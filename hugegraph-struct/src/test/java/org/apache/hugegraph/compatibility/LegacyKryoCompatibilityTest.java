@@ -17,6 +17,7 @@
 
 package org.apache.hugegraph.compatibility;
 
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.lang.reflect.Array;
@@ -62,6 +63,7 @@ import org.apache.hugegraph.util.KryoUtil;
 import org.apache.hugegraph.util.LegacyClassNames;
 import org.apache.tinkerpop.shaded.kryo.Kryo;
 import org.apache.tinkerpop.shaded.kryo.KryoException;
+import org.apache.tinkerpop.shaded.kryo.io.Input;
 import org.apache.tinkerpop.shaded.kryo.io.Output;
 import org.junit.Assert;
 import org.junit.Before;
@@ -267,18 +269,7 @@ public class LegacyKryoCompatibilityTest {
     @Test
     public void testInterleavedLegacyAndCanonicalRelationDescriptors() throws IOException {
         List<?> values = (List<?>) readRelationFixture(this.relationFixtures(), "interleaved");
-        Assert.assertEquals(Condition.RelationType.SCAN, values.get(0));
-        Assert.assertEquals(Condition.RelationType.TEXT_PREFIX, values.get(1));
-        Assert.assertEquals(Condition.RelationType.TEXT_CONTAINS, values.get(2));
-        Assert.assertEquals(Condition.RelationType.TEXT_REGEX, values.get(3));
-        Assert.assertArrayEquals(new Condition.RelationType[]{Condition.RelationType.SCAN, null,
-                                                              Condition.RelationType.TEXT_CONTAINS},
-                                (Object[]) values.get(4));
-        Assert.assertArrayEquals(new Condition.RelationType[]{Condition.RelationType.TEXT_PREFIX, null,
-                                                              Condition.RelationType.TEXT_REGEX},
-                                (Object[]) values.get(5));
-        Assert.assertSame(values.get(4), values.get(6));
-        Assert.assertSame(values.get(5), values.get(7));
+        assertInterleavedRelations(values);
         List<?> written = (List<?>) roundTrip(values);
         Assert.assertEquals(values.subList(0, 4), written.subList(0, 4));
         Assert.assertArrayEquals((Object[]) values.get(4), (Object[]) written.get(4));
@@ -297,6 +288,83 @@ public class LegacyKryoCompatibilityTest {
         }
         Condition.RelationType[] values = Condition.RelationType.values();
         Assert.assertArrayEquals(values, (Object[]) roundTrip(values));
+    }
+
+    @Test
+    public void testCanonicalRelationsWithStreamedInput() {
+        for (int bufferSize : new int[]{2, 7, 16}) {
+            for (Condition.RelationType relation : Condition.RelationType.values()) {
+                for (Object value : readStreamedTwice(KryoUtil.toKryoWithType(relation), bufferSize)) {
+                    Assert.assertEquals(relation, value);
+                }
+            }
+            Condition.RelationType[] relations = {Condition.RelationType.TEXT_PREFIX, null,
+                                                  Condition.RelationType.TEXT_REGEX};
+            for (Object value : readStreamedTwice(KryoUtil.toKryoWithType(relations), bufferSize)) {
+                Assert.assertArrayEquals(relations, (Object[]) value);
+            }
+        }
+    }
+
+    @Test
+    public void testLegacyRelationsWithStreamedInput() throws IOException {
+        Properties relations = this.relationFixtures();
+        Condition.RelationType[] expected = Arrays.stream(relations.getProperty("legacy.names").split(","))
+                                                 .map(Condition.RelationType::valueOf)
+                                                 .toArray(Condition.RelationType[]::new);
+        for (int bufferSize : new int[]{2, 7, 16}) {
+            for (Condition.RelationType relation : expected) {
+                byte[] bytes = Bytes.fromHex(relations.getProperty("enum." + relation + ".hex"));
+                for (Object value : readStreamedTwice(bytes, bufferSize)) {
+                    Assert.assertEquals(relation, value);
+                }
+            }
+            for (Object value : readStreamedTwice(Bytes.fromHex(relations.getProperty("array.hex")), bufferSize)) {
+                Assert.assertArrayEquals(expected, (Object[]) value);
+            }
+            for (Object value : readStreamedTwice(Bytes.fromHex(relations.getProperty("matrix.hex")), bufferSize)) {
+                Assert.assertArrayEquals(new Object[]{expected, null, new Condition.RelationType[0]}, (Object[]) value);
+            }
+            byte[] interleaved = Bytes.fromHex(relations.getProperty("interleaved.hex"));
+            for (Object value : readStreamedTwice(interleaved, bufferSize)) {
+                assertInterleavedRelations((List<?>) value);
+            }
+        }
+    }
+
+    private static Object[] readStreamedTwice(byte[] payload, int bufferSize) {
+        // Start a descriptor at the last buffered byte and cross refills; the second
+        // top-level object also verifies reset of descriptor and reference caches.
+        int prefix = bufferSize - 1;
+        byte[] bytes = new byte[prefix + 2 * payload.length + 1];
+        System.arraycopy(payload, 0, bytes, prefix, payload.length);
+        System.arraycopy(payload, 0, bytes, prefix + payload.length, payload.length);
+        bytes[bytes.length - 1] = 93;
+        try (Input input = new Input(new ByteArrayInputStream(bytes), bufferSize)) {
+            for (int i = 0; i < prefix; i++) {
+                Assert.assertEquals(0, input.readByte());
+            }
+            Object[] values = {KryoUtil.kryo().readClassAndObject(input), KryoUtil.kryo().readClassAndObject(input)};
+            Assert.assertEquals(93, input.readByte());
+            return values;
+        } finally {
+            KryoUtil.kryo().reset();
+        }
+    }
+
+    private static void assertInterleavedRelations(List<?> values) {
+        Assert.assertEquals(Condition.RelationType.SCAN, values.get(0));
+        Assert.assertEquals(Condition.RelationType.TEXT_PREFIX, values.get(1));
+        Assert.assertEquals(Condition.RelationType.TEXT_CONTAINS, values.get(2));
+        Assert.assertEquals(Condition.RelationType.TEXT_REGEX, values.get(3));
+        Assert.assertArrayEquals(new Condition.RelationType[]{Condition.RelationType.SCAN, null,
+                                                              Condition.RelationType.TEXT_CONTAINS},
+                                (Object[]) values.get(4));
+        Assert.assertArrayEquals(new Condition.RelationType[]{Condition.RelationType.TEXT_PREFIX, null,
+                                                              Condition.RelationType.TEXT_REGEX},
+                                (Object[]) values.get(5));
+        Assert.assertSame(values.get(4), values.get(6));
+        Assert.assertSame(values.get(5), values.get(7));
     }
 
     private Properties relationFixtures() throws IOException {
