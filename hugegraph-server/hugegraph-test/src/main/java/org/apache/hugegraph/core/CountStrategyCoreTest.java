@@ -17,6 +17,7 @@
 
 package org.apache.hugegraph.core;
 
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.NoSuchElementException;
@@ -46,6 +47,7 @@ import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__;
 import org.apache.tinkerpop.gremlin.process.traversal.step.HasContainerHolder;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.RangeGlobalStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.map.CountGlobalStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.OrderGlobalStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.util.HasContainer;
 import org.apache.tinkerpop.gremlin.process.traversal.step.TraversalParent;
@@ -192,6 +194,66 @@ public class CountStrategyCoreTest extends BaseCoreTest {
         schema.vertexLabel("sample").properties("score").create();
         schema.indexLabel("sampleByScore").onV("sample")
               .by("score").range().create();
+    }
+
+    private static void assertUnoptimizedCount(long expected,
+                                                GraphTraversal<?, Long> traversal) {
+        traversal.asAdmin().applyStrategies();
+
+        Assert.assertInstanceOf(CountGlobalStep.class, traversal.asAdmin().getEndStep());
+        Assert.assertFalse(traversal.asAdmin().getSteps().stream()
+                                   .anyMatch(step -> step instanceof HugeCountStep));
+        Assert.assertEquals(Collections.singletonList(expected), traversal.toList());
+    }
+
+    private void assertRepeatedGraphCounts(long vertices) {
+        assertUnoptimizedCount(vertices * vertices,
+                               graph().traversal().V().V().count());
+        assertUnoptimizedCount(2L * vertices,
+                               graph().traversal().inject(1, 2).V().count());
+        // Repeated inputs can be bulked, but each must still contribute a scan.
+        assertUnoptimizedCount(2L * vertices,
+                               graph().traversal().inject(1, 1).barrier().V().count());
+
+        GraphTraversal<Vertex, Long> root = graph().traversal().V().count();
+        root.asAdmin().applyStrategies();
+        Assert.assertInstanceOf(HugeCountStep.class, root.asAdmin().getStartStep());
+        Assert.assertEquals(Collections.singletonList(vertices), root.toList());
+    }
+
+    @Test
+    public void testRepeatedGraphCountOnEmptyGraph() {
+        this.initSchema();
+
+        this.assertRepeatedGraphCounts(0L);
+    }
+
+    @Test
+    public void testRepeatedGraphCountOnSingleVertex() {
+        this.initSchema();
+        graph().addVertex(T.label, "person", "name", "marko");
+        commitTx();
+
+        this.assertRepeatedGraphCounts(1L);
+    }
+
+    @Test
+    public void testRepeatedGraphCountOnMultipleVertices() {
+        this.initSchema();
+        this.initGraph();
+
+        this.assertRepeatedGraphCounts(3L);
+    }
+
+    @Test
+    public void testRepeatedGraphCountWithIds() {
+        this.initSchema();
+        this.initGraph();
+        Object id = graph().traversal().V().next().id();
+
+        assertUnoptimizedCount(3L, graph().traversal().V().V(id).count());
+        assertUnoptimizedCount(2L, graph().traversal().inject(1, 2).V(id).count());
+        assertUnoptimizedCount(1L, graph().traversal().V(id).V(id).count());
     }
 
     @Test

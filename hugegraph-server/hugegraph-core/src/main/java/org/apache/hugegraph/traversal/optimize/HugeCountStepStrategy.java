@@ -93,7 +93,9 @@ public final class HugeCountStepStrategy
             step = step.getPreviousStep();
         } while (step != null);
 
-        if (graphStep == null) {
+        // A mid-traversal scan runs once per incoming traverser (including bulk).
+        if (graphStep == null || !graphStep.isStartStep() ||
+            traversal.getStartStep() != graphStep) {
             return;
         }
 
