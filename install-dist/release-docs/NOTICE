@@ -1783,11 +1783,11 @@ the License.
 
 ========================================================================
 
-commons-configuration2-2.7 NOTICE
+commons-configuration2-2.8.0 NOTICE
 
 ========================================================================
 Apache Commons Configuration
-Copyright 2001-2020 The Apache Software Foundation
+Copyright 2001-2022 The Apache Software Foundation
 
 This product includes software developed at
 The Apache Software Foundation (http://www.apache.org/).
@@ -1795,11 +1795,11 @@ The Apache Software Foundation (http://www.apache.org/).
 
 ========================================================================
 
-commons-lang3-3.11 NOTICE
+commons-lang3-3.18.0 NOTICE
 
 ========================================================================
 Apache Commons Lang
-Copyright 2001-2020 The Apache Software Foundation
+Copyright 2001-2025 The Apache Software Foundation
 
 This product includes software developed at
 The Apache Software Foundation (https://www.apache.org/).

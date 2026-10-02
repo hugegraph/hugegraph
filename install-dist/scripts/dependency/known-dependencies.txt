@@ -47,14 +47,12 @@ commons-collections-3.2.2.jar
 commons-collections4-4.4.jar
 commons-compress-1.21.jar
 commons-configuration-1.10.jar
-commons-configuration2-2.7.jar
 commons-configuration2-2.8.0.jar
 commons-crypto-1.1.0.jar
 commons-io-2.12.0.jar
 commons-io-2.7.jar
 commons-io-2.8.0.jar
 commons-lang-2.6.jar
-commons-lang3-3.11.jar
 commons-lang3-3.12.0.jar
 commons-lang3-3.13.0.jar
 commons-lang3-3.18.0.jar
