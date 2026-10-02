@@ -35,6 +35,7 @@ import org.apache.hugegraph.backend.store.BackendEntryIterator;
 import org.apache.hugegraph.backend.store.BackendFeatures;
 import org.apache.hugegraph.backend.store.BackendMutation;
 import org.apache.hugegraph.backend.store.BackendStore;
+import org.apache.hugegraph.backup.GraphWriteFence;
 import org.apache.hugegraph.exception.NotFoundException;
 import org.apache.hugegraph.perf.PerfUtil.Watched;
 import org.apache.hugegraph.schema.PropertyKey;
@@ -232,9 +233,12 @@ public abstract class AbstractTransaction implements Transaction {
         // Do commit
         assert !this.committing : "Not allowed to commit when it's committing";
         this.committing = true;
+        GraphWriteFence fence = GraphWriteFence.of(this.graph.spaceGraphName());
+        fence.enterMutation();
         try {
             this.commit2Backend();
         } finally {
+            fence.leaveMutation();
             this.committing = false;
             this.reset();
         }

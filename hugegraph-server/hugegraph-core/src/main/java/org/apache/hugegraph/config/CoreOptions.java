@@ -73,6 +73,13 @@ public class CoreOptions extends OptionHolder {
                     disallowEmpty(),
                     "g"
             );
+    public static final ConfigOption<String> BACKUP_REPOSITORY_ROOT =
+            new ConfigOption<>(
+                    "backup.repository_root",
+                    "Root directory for server-managed graph backups.",
+                    disallowEmpty(),
+                    "./backups"
+            );
     public static final ConfigOption<String> SERIALIZER =
             new ConfigOption<>(
                     "serializer",
