@@ -2,6 +2,21 @@
 
 ## 2026-10-02 恢复与发布核对
 
+### 用户设备授权后的发布复核
+
+用户完成 GitHub device flow，`gh` 登录恢复为 imbajin；`gh api user` 成功，
+目标仓库 permissions 显示 push/admin 均为 true。Git 使用 gh HTTPS credential helper；
+`GIT_TERMINAL_PROMPT=0 git push --dry-run org HEAD:refs/heads/toplingdb` exit 0，
+预告 `30a949bc5..2143efed3` 的正常 fast-forward。PR #179 的 head repository/ref
+核验为 hugegraph/hugegraph:toplingdb，远端 head 仍为 30a949bc5。
+
+按用户原有发布授权执行真实 `git push org HEAD:refs/heads/toplingdb`，再次被执行
+审批在进程启动前拒绝：`approval required by policy, but AskForApproval is set to Never`。
+认证和仓库写权限这两个阻碍已解除；剩余是需要审批与当前 Never 策略的冲突。
+没有实际推送，没有绕过为其他写入工具，PR 尚未包含本地提交。gh 的 credential store
+回退到本机 hosts.yml 纯文本文件；未读取或提交 token 内容。
+
+
 ### 远端新增提交的保留与合并
 
 最终 fetch 发现远端从冻结 SHA 前进到 `30a949bc5555f3057972724ff14e4d5f80a0cdf9`，
