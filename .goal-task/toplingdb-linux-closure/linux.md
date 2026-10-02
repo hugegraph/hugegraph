@@ -16,11 +16,12 @@
 | 合并 `ed6c295f0e599e5cd506a5d6aa54361b00a42081` | 保留 upstream `82034fb9f` 的 legacy scheduler 删除；三人只读审查、干净编译和 15 项定向回归通过。 |
 | master `176fb56dd747ef0f60a126cf721aa12d17627c31` | 已同步删除 inactive RedirectFilter 的改动，保留本分支已完成修复。 |
 | 代码同步 `de541b11d66429b5c3c7272062330192e20de5aa` | 双亲为 94da2e8de 和 176fb56dd；普通合并已发布。格式/干净编译 exit 0，34 项标准定向回归、真实 TP truncate 1 项通过，三人只读审查无阻塞。 |
-| 当前 PR head `993ff6fe6401d3b612c21ea6d6d50fa0c75ab61f` | 代码与此前文档已推送，本地 branch 与远端 head 一致。新增本地验收记录尚未发布；最新 CI 见下方归因计划。 |
+| WAL 验证源码 `993ff6fe6401d3b612c21ea6d6d50fa0c75ab61f` | 完成服务级 WAL 发布故障和 pending 并发；该版本的 auth CI 回归由下一项修复。 |
+| 最新代码 `3aa44152e8e13749d82ba58449b93254384ed0ed` | auth 级联修复已推送并同步本地；标准/真实 TP 回归和服务验证通过，验收文档另行提交。最新 PR head 与 CI 通过 gh 核对。 |
 | 隔离 journal/gate 候选 | 留在冻结 SHA 的未提交工作树，未整合进 PR，不作为 PR 实现或实测通过证据。 |
 
 代码同步时 compare master...toplingdb 的 behind 为 0；2026-10-03 查询当前 PR 为 MERGEABLE。
-当前 head 的 38 项检查已结束，33 成功、5 失败；详见下方归因计划。
+旧 993ff6fe 的检查为 33 成功、5 失败；新修复与文档提交已触发 CI，待完整结果，详见下方归因计划。
 冻结 SHA 的 CI 成功不能替代最新源码验证。
 后续通过 `gh` 核对 PR 与 master；不直接调用 Git，不重排、force-push 或自动合并 PR。
 
