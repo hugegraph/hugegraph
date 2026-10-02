@@ -62,7 +62,14 @@ final class ScriptResults {
     }
 
     static Object prepare(Object value, long deadline) {
-        ScriptExecutionBudget.check(deadline);
+        try {
+            ScriptExecutionBudget.check(deadline);
+        } catch (RuntimeException | Error failure) {
+            // Preparation still owns the result. The response iterator cannot
+            // release a cursor that was rejected before ownership was handed off.
+            closeRejected(value, new IdentityHashMap<>(), 0, new int[]{0}, failure);
+            throw failure;
+        }
         if (value instanceof Traversal.Admin) {
             Traversal.Admin<?, ?> traversal =
                     (Traversal.Admin<?, ?>) value;

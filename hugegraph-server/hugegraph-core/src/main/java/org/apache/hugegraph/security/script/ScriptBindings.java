@@ -263,7 +263,8 @@ public final class ScriptBindings {
             return this.views && value.getClass().getClassLoader() == null &&
                    Set.of("java.util.ArrayList$SubList", "java.util.LinkedHashMap$LinkedKeySet",
                           "java.util.LinkedHashMap$LinkedValues", "java.util.HashMap$KeySet",
-                          "java.util.HashMap$Values").contains(value.getClass().getName());
+                          "java.util.HashMap$Values", "java.util.Collections$UnmodifiableMap")
+                      .contains(value.getClass().getName());
         }
 
 
@@ -323,7 +324,7 @@ public final class ScriptBindings {
                             "java.util.ImmutableCollections$Map1", "java.util.ImmutableCollections$MapN",
                             "java.util.Collections$EmptyMap", "java.util.Collections$SingletonMap")
                             .contains(value.getClass().getName()) || value.getClass().getClassLoader() != null) {
-                        if (!isJsonMap(value)) {
+                        if (!this.allowsView(value) && !isJsonMap(value)) {
                             throw denied("custom map implementation");
                         }
                     }

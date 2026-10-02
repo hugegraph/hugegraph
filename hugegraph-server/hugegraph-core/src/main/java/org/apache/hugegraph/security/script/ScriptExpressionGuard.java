@@ -328,7 +328,10 @@ public final class ScriptExpressionGuard extends CompilationCustomizer {
 
             @Override
             public void visitCastExpression(CastExpression expression) {
-                if (this.user(expression) && !Set.of("java.lang.String", "java.lang.Integer",
+                if (Boolean.TRUE.equals(expression.getNodeMetaData(ScriptLocalMethodsCustomizer.RETURN_CAST))) {
+                    // Lowered helpers retain the same type restrictions as local declarations.
+                    this.checkLocalType(expression.getType());
+                } else if (this.user(expression) && !Set.of("java.lang.String", "java.lang.Integer",
                         "java.lang.Long", "java.lang.Double", "java.lang.Float", "java.lang.Boolean",
                         "int", "long", "double", "float", "boolean", "java.util.List", "java.util.Map",
                         "java.util.Set", "java.util.Collection", "java.util.Date", "org.apache.hugegraph.util.Blob",

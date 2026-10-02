@@ -75,6 +75,9 @@ import org.apache.hugegraph.unit.core.RolePermissionTest;
 import org.apache.hugegraph.unit.core.RowLockTest;
 import org.apache.hugegraph.unit.core.SchemaElementTest;
 import org.apache.hugegraph.unit.core.ScriptPolicyCompilationTest;
+import org.apache.hugegraph.unit.core.ScriptResultPreparationTest;
+import org.apache.hugegraph.unit.core.StorePropertySnapshotTest;
+import org.apache.hugegraph.unit.core.ScriptCompatibilityRegressionTest;
 import org.apache.hugegraph.unit.core.ScriptRequestGuardTest;
 import org.apache.hugegraph.unit.core.SecurityManagerTest;
 import org.apache.hugegraph.unit.core.StackSnapshotReuseTest;
@@ -172,6 +175,9 @@ import org.junit.runners.Suite;
         ScriptPolicyCompilationTest.class,
         PolicyScriptEngineTest.class,
         PolicyCompatibilityTest.class,
+        ScriptResultPreparationTest.class,
+        StorePropertySnapshotTest.class,
+        ScriptCompatibilityRegressionTest.class,
         PolicySessionEngineTest.class,
         PolicySessionLifecycleTest.class,
         ScriptRequestGuardTest.class,
