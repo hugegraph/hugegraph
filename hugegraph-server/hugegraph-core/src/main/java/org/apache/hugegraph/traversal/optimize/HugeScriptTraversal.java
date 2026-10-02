@@ -20,12 +20,16 @@
 package org.apache.hugegraph.traversal.optimize;
 
 import java.util.Map;
+import java.util.Set;
 
 import javax.script.Bindings;
 import javax.script.ScriptEngine;
 import javax.script.ScriptException;
 
 import org.apache.hugegraph.HugeException;
+import org.apache.hugegraph.security.script.PolicyScriptEngines;
+import org.apache.hugegraph.security.script.ScriptExecutionProfile;
+import org.apache.hugegraph.security.script.ScriptPolicyRuntime;
 import org.apache.tinkerpop.gremlin.jsr223.SingleGremlinScriptEngineManager;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.TraversalSource;
@@ -48,6 +52,7 @@ public final class HugeScriptTraversal<S, E> extends DefaultTraversal<S, E> {
 
     private final String script;
     private final String language;
+    private final ScriptExecutionProfile profile;
     private final Map<String, Object> bindings;
     private final Map<String, String> aliases;
 
@@ -55,6 +60,14 @@ public final class HugeScriptTraversal<S, E> extends DefaultTraversal<S, E> {
 
     public HugeScriptTraversal(TraversalSource traversalSource, String language, String script,
                                Map<String, Object> bindings, Map<String, String> aliases) {
+        this(traversalSource, language, script, bindings, aliases,
+             ScriptExecutionProfile.QUERY);
+    }
+
+    public HugeScriptTraversal(TraversalSource traversalSource, String language, String script,
+                               Map<String, Object> bindings, Map<String, String> aliases,
+                               ScriptExecutionProfile profile) {
+        this.profile = profile;
         this.graph = traversalSource.getGraph();
         this.language = language;
         this.script = script;
@@ -73,7 +86,15 @@ public final class HugeScriptTraversal<S, E> extends DefaultTraversal<S, E> {
 
     @Override
     public void applyStrategies() throws IllegalStateException {
-        ScriptEngine engine = SingleGremlinScriptEngineManager.get(this.language);
+        ScriptEngine engine;
+        if (ScriptPolicyRuntime.enabled()) {
+            if (!"gremlin-groovy".equals(this.language)) {
+                throw new IllegalArgumentException("SCRIPT_LANGUAGE_DENIED");
+            }
+            engine = PolicyScriptEngines.get(this.profile);
+        } else {
+            engine = SingleGremlinScriptEngineManager.get(this.language);
+        }
 
         Bindings bindings = engine.createBindings();
         bindings.putAll(this.bindings);
@@ -89,6 +110,10 @@ public final class HugeScriptTraversal<S, E> extends DefaultTraversal<S, E> {
         bindings.put("graph", this.graph);
 
         for (Map.Entry<String, String> entry : this.aliases.entrySet()) {
+            if (ScriptPolicyRuntime.enabled() &&
+                Set.of("graph", "schema", "job").contains(entry.getKey())) {
+                throw new IllegalArgumentException("SCRIPT_BINDING_DENIED: reserved alias");
+            }
             Object value = bindings.get(entry.getValue());
             if (value == null) {
                 throw new IllegalArgumentException(String.format("Invalid alias '%s':'%s'",

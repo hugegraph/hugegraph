@@ -21,19 +21,28 @@ import java.util.ArrayList;
 import java.util.Date;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import javax.script.Bindings;
 import javax.script.CompiledScript;
 import javax.script.ScriptEngineManager;
 import javax.script.ScriptException;
+import javax.script.SimpleBindings;
 
 import org.apache.commons.lang.StringUtils;
+import org.apache.hugegraph.HugeGraphSupplier;
 import org.apache.hugegraph.backend.BackendColumn;
 import org.apache.hugegraph.id.Id;
 import org.apache.hugegraph.rocksdb.access.RocksDBSession;
 import org.apache.hugegraph.rocksdb.access.ScanIterator;
+import org.apache.hugegraph.security.script.PolicyScriptEngine;
+import org.apache.hugegraph.security.script.PolicyScriptEngines;
+import org.apache.hugegraph.security.script.ScriptElementView;
+import org.apache.hugegraph.security.script.ScriptExecutionProfile;
+import org.apache.hugegraph.security.script.ScriptPolicyRuntime;
 import org.apache.hugegraph.store.grpc.Graphpb;
 import org.apache.hugegraph.store.grpc.Graphpb.Edge;
 import org.apache.hugegraph.store.grpc.Graphpb.ScanPartitionRequest;
@@ -78,6 +87,7 @@ public class GraphStoreIterator<T> extends AbstractSelectIterator
     private ArrayList<RocksDBSession.BackendColumn> data;
     private GroovyScriptEngineImpl engine;
     private CompiledScript script;
+    private PolicyScriptEngine policyEngine;
     private BaseElement current;
     private Exception stopCause;
 
@@ -105,6 +115,19 @@ public class GraphStoreIterator<T> extends AbstractSelectIterator
         }
         String condition = request.getCondition();
         if (!StringUtils.isEmpty(condition)) {
+            if (ScriptPolicyRuntime.enabled()) {
+                this.policyEngine = PolicyScriptEngines.get(
+                        ScriptExecutionProfile.STORE_FILTER);
+                try {
+                    this.script = this.policyEngine.compile(condition, new SimpleBindings(
+                            Map.of("element", new ScriptElementView(
+                                    "", "", Map.of()))));
+                } catch (Exception error) {
+                    this.iter.close();
+                    throw new IllegalArgumentException("Invalid Store filter condition", error);
+                }
+                return;
+            }
             ScriptEngineManager factory = new ScriptEngineManager();
             engine = (GroovyScriptEngineImpl) factory.getEngineByName("groovy");
             try {
@@ -120,14 +143,36 @@ public class GraphStoreIterator<T> extends AbstractSelectIterator
     }
 
     @Override
+    public BaseElement parseEntry(BackendColumn column, boolean vertex) {
+        if (this.policyEngine == null) {
+            return super.parseEntry(column, vertex);
+        }
+        HugeGraphSupplier graph = BusinessHandlerImpl.getGraphSupplier(this.request.getGraphName());
+        return vertex ? this.serializer.parseVertex(graph, column, null) :
+               this.serializer.parseEdge(graph, column, null, true);
+    }
+
+    @Override
     public boolean hasNext() {
         if (current == null) {
             while (iter.hasNext()) {
+                if (Thread.currentThread().isInterrupted()) {
+                    IllegalStateException error = new IllegalStateException("Store scan cancelled");
+                    this.stopCause = error;
+                    this.iter.close();
+                    throw error;
+                }
                 RocksDBSession.BackendColumn next = this.iter.next();
-                BaseElement element = getElement(next);
+                BaseElement element = this.policyEngine == null ? getElement(next) : null;
                 try {
+                    if (this.policyEngine != null) {
+                        element = getElement(next);
+                    }
                     boolean evalResult = true;
-                    if (isVertex) {
+                    if (this.policyEngine != null) {
+                        evalResult = (Boolean) this.script.eval(new SimpleBindings(
+                                Map.of("element", policyView(element))));
+                    } else if (isVertex) {
                         BaseVertex el = (BaseVertex) element;
                         if (engine != null) {
                             Bindings bindings = engine.createBindings();
@@ -149,9 +194,23 @@ public class GraphStoreIterator<T> extends AbstractSelectIterator
                     return true;
                 } catch (ScriptException | MissingMethodException se) {
                     stopCause = se;
+                    if (this.policyEngine != null) {
+                        this.iter.close();
+                        throw new IllegalStateException("Store filter evaluation failed", se);
+                    }
                     log.error("get next with error which cause to stop:", se);
                     return false;
+                } catch (AssertionError error) {
+                    IllegalStateException failure = new IllegalStateException("Store filter evaluation failed", error);
+                    this.stopCause = failure;
+                    this.iter.close();
+                    throw failure;
                 } catch (Exception e) {
+                    if (this.policyEngine != null) {
+                        this.stopCause = e;
+                        this.iter.close();
+                        throw new IllegalStateException("Store filter evaluation failed", e);
+                    }
                     log.error("get next with error:", e);
                 }
             }
@@ -159,6 +218,20 @@ public class GraphStoreIterator<T> extends AbstractSelectIterator
             return true;
         }
         return false;
+    }
+
+    private static ScriptElementView policyView(BaseElement element) {
+        Map<String, Object> values = new LinkedHashMap<>();
+        Map<Long, String> names = new LinkedHashMap<>();
+        Iterator<BaseProperty<?>> properties = element.properties().iterator();
+        while (properties.hasNext()) {
+            BaseProperty<?> property = properties.next();
+            values.put(property.propertyKey().name(), property.value());
+            names.put(property.propertyKey().id().asLong(), property.propertyKey().name());
+        }
+        return new ScriptElementView(
+                element.id().asString(), element.schemaLabel().name(),
+                values, names);
     }
 
     @Override

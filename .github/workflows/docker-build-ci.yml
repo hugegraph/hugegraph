@@ -123,8 +123,11 @@ jobs:
 
       - name: Build ${{ matrix.dockerfile }}
         run: |
-          IMAGE_ID=$(docker build -q --build-arg SOURCE_REVISION="$GITHUB_SHA" \
-            -f ${{ matrix.dockerfile }} .)
+          IMAGE_ID_FILE=$(mktemp)
+          trap 'rm -f "$IMAGE_ID_FILE"' EXIT
+          docker build --progress=plain --iidfile "$IMAGE_ID_FILE" \
+            --build-arg SOURCE_REVISION="$GITHUB_SHA" -f ${{ matrix.dockerfile }} .
+          IMAGE_ID=$(cat "$IMAGE_ID_FILE")
           echo "Built: $IMAGE_ID"
           echo "IMAGE_ID=$IMAGE_ID" >> "$GITHUB_ENV"
           HC=$(docker inspect --format='{{json .Config.Healthcheck}}' "$IMAGE_ID")

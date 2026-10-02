@@ -268,6 +268,14 @@ public final class HugeGraphAuthProxy implements HugeGraph {
         return this.hugegraph;
     }
 
+    /**
+     * Identity unwrap for server graph lifecycle. Event workers do not carry
+     * a request user, so drop/create matching must not require admin context.
+     */
+    HugeGraph originGraph() {
+        return this.hugegraph;
+    }
+
     @Override
     public KvStore kvStore() {
         return this.hugegraph.kvStore();

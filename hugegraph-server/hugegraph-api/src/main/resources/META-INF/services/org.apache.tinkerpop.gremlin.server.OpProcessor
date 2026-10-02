@@ -1,1 +1,2 @@
 org.apache.hugegraph.opencypher.CypherOpProcessor
+org.apache.hugegraph.auth.PolicySessionOpProcessor
