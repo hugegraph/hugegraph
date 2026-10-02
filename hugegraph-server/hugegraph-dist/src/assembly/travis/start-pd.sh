@@ -45,6 +45,6 @@ pushd $PD_DIR
     export SPRING_APPLICATION_JSON='{"auth":{"secret-key":"pd-ci-test-secret-not-for-production"}}'
     . bin/start-hugegraph-pd.sh
 )
-wait_for_http_status HugeGraphPD http://127.0.0.1:8620/v1/health \
-                     "$PD_DIR"/bin/pid "$PD_DIR" 90 200,401
+wait_for_http_status HugeGraphPD http://127.0.0.1:8620/v1/ready \
+                     "$PD_DIR"/bin/pid "$PD_DIR" 90 200
 popd

@@ -24,16 +24,18 @@ import org.apache.commons.configuration2.MapConfiguration;
 import org.apache.hugegraph.dist.RegisterUtil;
 import org.apache.hugegraph.testutil.Assert;
 import org.apache.hugegraph.testutil.Utils;
-import org.junit.Assume;
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.TemporaryFolder;
 
 public class HugeGraphProviderLifecycleTest {
 
+    @Rule
+    public TemporaryFolder directory = new TemporaryFolder();
+
     @Test
-    public void testProviderContextLifecycleWithMemoryBackend()
-            throws Exception {
-        Assume.assumeTrue("memory".equals(
-                Utils.getConf().getString("backend")));
+    public void testProviderContextLifecycle() throws Exception {
+        String backend = Utils.getConf().getString("backend");
         RegisterUtil.registerBackends();
         HugeGraphProviderContext context = new HugeGraphProviderContext();
         ProcessTestGraphProvider provider = context.provider();
@@ -43,21 +45,33 @@ public class HugeGraphProviderLifecycleTest {
 
             Map<String, Object> config = provider.getBaseConfiguration(
                     "provider_context", this.getClass(),
-                    "testProviderContextLifecycleWithMemoryBackend", null);
+                    "testProviderContextLifecycle", null);
+            if ("rocksdb".equals(backend)) {
+                String path = this.directory.getRoot().getAbsolutePath();
+                config.put("rocksdb.data_path", path);
+                config.put("rocksdb.wal_path", path);
+            }
             Configuration configuration = new MapConfiguration(config);
             graph = (TestGraph) provider.openTestGraph(configuration);
 
-            Assert.assertEquals("memory", graph.hugegraph().backend());
+            Assert.assertEquals(backend, graph.hugegraph().backend());
             Assert.assertFalse(graph.closed());
 
             provider.clear(graph, configuration);
+            Assert.assertEquals("rocksdb".equals(backend), graph.closed());
+
+            graph = (TestGraph) provider.openTestGraph(configuration);
             Assert.assertFalse(graph.closed());
 
             context.clear();
             Assert.assertTrue(graph.closed());
 
             context.clear();
-            Assert.assertNotSame(provider, context.provider());
+            ProcessTestGraphProvider nextProvider = context.provider();
+            Assert.assertNotSame(provider, nextProvider);
+            graph = (TestGraph) nextProvider.openTestGraph(configuration);
+            Assert.assertEquals(backend, graph.hugegraph().backend());
+            Assert.assertFalse(graph.closed());
         } finally {
             context.clear();
         }

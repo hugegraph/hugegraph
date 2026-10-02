@@ -34,5 +34,9 @@ The new TinkerPop step APIs are adapted without discarding property metadata.
 
 The upgrade CI explicitly selects Structure and Process tests for Memory,
 RocksDB and HStore. HStore has separate standard-process and feature-test steps.
+Provider lifecycle checks run against the selected backend, including reopening
+the graph after cleanup and after closing the provider context. Each selected
+Structure or Process suite must report at least one executed test; a report
+containing only skipped tests fails the gate.
 A green build with those steps skipped is not compatibility evidence. Review
 reports from the actual PR revision before deploying.

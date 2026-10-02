@@ -27,16 +27,19 @@ SUITE=$2
 REPORT_DIR=hugegraph-server/hugegraph-test/target/surefire-reports
 
 function run_structure_test() {
-    mvn test -pl hugegraph-server/hugegraph-test -am -P tinkerpop-structure-test,$BACKEND
+    run_selected_test tinkerpop-structure-test "StructureStandardTest" "StructureStandardTest"
 }
 
 function run_process_test() {
-    mvn test -pl hugegraph-server/hugegraph-test -am -P tinkerpop-process-test,$BACKEND
+    run_selected_test tinkerpop-process-test \
+        "ProcessStandardTest,HugeGraphFeatureTest,HugeGraphProviderLifecycleTest" \
+        "ProcessStandardTest" "HugeGraphFeatureTest" "HugeGraphProviderLifecycleTest"
 }
 
-function run_selected_process_test() {
-    local tests=$1
-    shift
+function run_selected_test() {
+    local profile=$1
+    local tests=$2
+    shift 2
     if [[ $# -eq 0 ]]; then
         echo "At least one expected Surefire report is required"
         exit 2
@@ -50,16 +53,20 @@ function run_selected_process_test() {
         rm -f "$report"
     done
     mvn test -pl hugegraph-server/hugegraph-test -am \
-        -P tinkerpop-process-test,$BACKEND \
+        -P "$profile,$BACKEND" \
         -Dtest="$tests" \
         -Dsurefire.failIfNoSpecifiedTests=false
 
     for expected_report in "${expected_reports[@]}"; do
         report="$REPORT_DIR/TEST-org.apache.hugegraph.tinkerpop.$expected_report.xml"
-        if [[ ! -s "$report" ]] || ! grep -Eq 'tests="[1-9][0-9]*"' "$report"; then
-            echo "Expected a non-empty Surefire report: $report"
-            exit 1
-        fi
+        python3 - "$report" <<'PY'
+import sys
+import xml.etree.ElementTree as ET
+
+report = ET.parse(sys.argv[1]).getroot()
+if int(report.attrib["tests"]) <= int(report.attrib.get("skipped", "0")):
+    sys.exit("Expected executed tests in Surefire report: " + sys.argv[1])
+PY
     done
 }
 
@@ -71,13 +78,13 @@ case "$SUITE" in
         run_process_test
         ;;
     process-standard)
-        run_selected_process_test \
+        run_selected_test tinkerpop-process-test \
             "ProcessStandardTest,HugeGraphProviderLifecycleTest" \
             "ProcessStandardTest" \
             "HugeGraphProviderLifecycleTest"
         ;;
     process-feature)
-        run_selected_process_test "HugeGraphFeatureTest" "HugeGraphFeatureTest"
+        run_selected_test tinkerpop-process-test "HugeGraphFeatureTest" "HugeGraphFeatureTest"
         ;;
     tinkerpop)
         run_structure_test
