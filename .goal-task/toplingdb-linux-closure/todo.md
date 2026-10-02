@@ -1,43 +1,32 @@
-# ToplingDB 跨环境 issue 索引
+# ToplingDB issue 归属与依赖索引
 
-共同入口为 [state.md](state.md)。本文件只维护归属和依赖，不维护详细执行状态。
-开发状态与证据在 [mac.md](mac.md)，验收状态与证据在 [linux.md](linux.md)。
-同一项可开发完成而 Linux 待验，不能合并为一个通过标记。
+当前范围见 [state.md](state.md)，实测及下一动作只在 [linux.md](linux.md) 维护。
+本表把 TP 新增/放大的问题与通用独立调查分开；发现新归因时按源码证据重新分类。
 
-## TP 依赖映射
-
-| Issue | 开发责任 | 验收责任与依赖 |
+| Issue / 范围 | 归属 | 依赖与记录位置 |
 | --- | --- | --- |
-| #250 / #251 / #253 | [Mac 配置与数据隔离](mac.md#开发清单与验收)，同一配置来源问题组 | [Linux 启动验收](linux.md#验收清单)，单 DB mount 修复已本地整合、PD/Store 长驻 TP 映射已验，仍依赖远端推送 |
-| #254 | [Mac adapter 回归](mac.md#开发清单与验收) | [Linux TP JNI](linux.md#验收清单)，依赖 fixture 及 provider 修复 |
-| #255 | [Mac CI 分类门禁](mac.md#开发清单与验收) | [Linux native diagnostic](linux.md#验收清单)，依赖分类实现 |
-| #249 | [Mac WAL 失败安全](mac.md#开发清单与验收)，保留恢复能力 | [Linux 标准/TP 恢复](linux.md#验收清单)；依赖全图失败恢复协调、schema/iterator/cache 在线安全；WAL 发布仍需服务故障源，pending 并发注入的辅助容器预检被本机自动审批拒绝 |
-| #212 / #248 | 必要源码线索交给 Mac，不能直接认定 native 根因 | [Linux 生命周期调查](linux.md#验收清单)，不作为本机 goal 完成条件 |
-| #213 | 不在本机 goal 实现正式发布链 | [Linux 与 producer 发布核查](linux.md#验收清单)，正式发行要求 |
-| #252 | 不在 Mac 执行性能测试 | [Linux 对照实验](linux.md#验收清单)，依赖相关正确性和资源条件 |
+| #250/#251/#253 配置、目录、挂载、provider | TP 适配门禁。 | [Linux 清单](linux.md#验收清单)，源码变化时回归真实拒绝与数据不变。 |
+| #254 truncate / #255 diagnostic | TP JNI 与 adapter 门禁。 | [Linux 清单](linux.md#验收清单)，需要真实身份；合成 CF 精确例外不覆盖其他错误。 |
+| #249 WAL 扩展 457295ac8 | PR 新增共用代码，仍负责其回归。 | [Linux 故障证据](linux.md#真实服务与故障证据)；复制/发布/损坏保护、reopen与相关锁不能忽略。 |
+| #213 JNI 来源、许可、支持下限 | TP 正式发行门禁，producer 提供材料。 | [Linux 发行核查](linux.md#jni-来源与正式发布)。 |
+| #252 三轮标准/TP 对照 | Linux 性能验收。 | 仅依赖 TP 相关正确性与资源，不依赖通用在线恢复全部完成。 |
+| #212 真实 native 生命周期 | 新的 TP 独有错误仍归适配；通用请求排空独立。 | [Linux 生命周期记录](linux.md#独立调查与隔离候选)，保留冻结首次失败。 |
+| #248 clear 首次重启不可见 | 通用调查，旧失败保留。 | [Linux 对照记录](linux.md#独立调查与隔离候选)，不同源码/schema/部署不能覆盖旧失败。 |
+| master 同步 | 保留双方改动及四项修复的发布兼容性。 | [Linux 源码状态](linux.md#当前范围与源码)，不替代冻结 SHA 实测。 |
 
-父汇总 [#240](https://github.com/hugegraph/hugegraph/issues/240)，原 [#214](https://github.com/hugegraph/hugegraph/issues/214)
-仅为历史里程碑。等待一项不阻塞独立项目；Mac 完成不自动关闭 issue。
+## 通用问题独立跟进
 
-## ignore：非 TP 专属，独立跟进
+| 问题 | 现有归属与边界 |
+| --- | --- |
+| snapshot 缓存/全图协调、保存对象生命周期 | 相关机制在标准源码早已缺失；旧 epoch 拒绝断言仅在未提交候选实测，详见 [源码归因](linux.md#问题归属依据)。 |
+| 跨 Server schema cache | [Apache #3235](https://github.com/apache/hugegraph/issues/3235)、[PR #3237](https://github.com/apache/hugegraph/pull/3237)、[组织 PR #236](https://github.com/hugegraph/hugegraph/pull/236)。 |
+| clear 缓存、truncate 吞异常、同名图重建 | 分别沿组织 #242/#243/#244，schema PR 不覆盖全部行为。 |
+| Store session 指标 / JVM 不退出 | 组织 #241/#211；标准也复现，旧补丁不夹带。 |
+| 健康检查与 Gremlin 停机排空 | 开库拒绝后 versions 200、在途请求 500 属通用语义；详见 [独立调查](linux.md#独立调查与隔离候选)。 |
+| Store 地址、路由/扫描、Loader | 组织 #245；Apache #3124/#3130，历史 channel refresh 保持独立。 |
+| HStore 图快照与完整 HA/部署配置 | 组织 #246/#247；PR #235 单机备份不能当 HStore 图协议，单宿主不证明物理多机 HA。 |
+| 临时端口 / HStore 联合索引 | 组织 #216/#217，按原 issue 跟进。 |
 
-| 状态 | 问题 | 已有跟进与边界 |
-| --- | --- | --- |
-| `ignore` | 跨 Server schema cache 一致性 | [Apache #3235](https://github.com/apache/hugegraph/issues/3235)、[PR #3237](https://github.com/apache/hugegraph/pull/3237) / [组织 PR #236](https://github.com/hugegraph/hugegraph/pull/236)，复用现有方案，不另做一套 |
-| `ignore` | graph clear 顶点/边缓存、truncate 吞异常、同名图重建 | 分别沿 [#242](https://github.com/hugegraph/hugegraph/issues/242)、[#243](https://github.com/hugegraph/hugegraph/issues/243)、[#244](https://github.com/hugegraph/hugegraph/issues/244) 跟进；schema PR 不覆盖全部这些行为；[#3151](https://github.com/apache/hugegraph/issues/3151) 仅相关。保留标准 provider 复现与待归因边界 |
-| `ignore` | Store 指标 session 泄漏 | [#241](https://github.com/hugegraph/hugegraph/issues/241)； [Apache PR #3081](https://github.com/apache/hugegraph/pull/3081) 已有相同生产修复；旧工作区补丁与回归见 Mac 历史证据，不随 TP 提交 |
-| `ignore` | 通用 Store 停机后 JVM 不退出 | [组织 #211](https://github.com/hugegraph/hugegraph/issues/211)，标准 provider 也复现；不等同已证明全部 TP native 关闭告警的根因 |
-| `ignore` | 同根开库锁拒绝后 `/versions` 仍 200/healthy | [Linux 进程锁实测](linux.md#2026-09-28-固定源码验收进度) 的标准/TP 第二进程都无法打开图而健康检查通过；归通用启动/健康语义独立跟进，不把该状态算 backend 初始化成功 |
-| `ignore` | SIGTERM 时在途 Gremlin 代理请求失败 | [Linux 长请求实测](linux.md#2026-09-28-固定源码验收进度) 的 REST 代理返回 HTTP 500/`NoHttpResponseException`；源码先停 Gremlin 后停 REST，归通用停机排空独立跟进。不可直接交换顺序，REST 销毁事件还会关闭共享图 |
-| `ignore` | Store 地址变化后的旧连接、通用 Loader 重试 | [#245](https://github.com/hugegraph/hugegraph/issues/245)； [Apache #3124](https://github.com/apache/hugegraph/issues/3124)、[已合并 PR #3130](https://github.com/apache/hugegraph/pull/3130)；当前分支已含修复，残余扫描场景另行回归，Linux 未提交 channel refresh 不混入 TP 主线 |
-| `ignore` | HStore 图级快照协议 | [#246](https://github.com/hugegraph/hugegraph/issues/246)； 通用能力缺口，本次不新增跨分区协议；[组织 PR #235](https://github.com/hugegraph/hugegraph/pull/235) 是单机 RocksDB 备份，不能冒充 HStore 图快照支持 |
-| `ignore` | 完整 HA 网络分区矩阵、Compose/Helm 通用配置对齐 | [#247](https://github.com/hugegraph/hugegraph/issues/247)； 部署沿 [Apache #3131](https://github.com/apache/hugegraph/issues/3131) / [组织 PR #221](https://github.com/hugegraph/hugegraph/pull/221) 跟进；TP provider 注入、数据隔离和 JNI 选择仍在主线 |
-| `ignore` | mini-cluster 临时端口竞争 | 复用 [#216](https://github.com/hugegraph/hugegraph/issues/216)，不在 TP 里做局部端口补丁 |
-| `ignore` | HStore 联合索引 | 复用 [#217](https://github.com/hugegraph/hugegraph/issues/217)，已并入 committed-path 历史验证进展，no-commit 覆盖单独确认 |
-
-以上归属沿用 2026-09-26 核对，不声称关联 issue/PR 已解决所有残余现象。后续发现由 TP 改动独有触发时重新归类并记录依据。
-
-## 历史记录
-
-旧复选框、P1–P7、失败与后置证据完整保存在 [历史清单](todo-history-20260926.md)，
-仅在追溯具体项时读取，不再作为当前全量门禁。
+父汇总为 [#240](https://github.com/hugegraph/hugegraph/issues/240)，#214 仅作历史里程碑。
+旧完整索引保留在 [同期归档](state-history-20261002.md#todomd-同期原始索引) 与
+[todo-history-20260926.md](todo-history-20260926.md)；不将旧授权、状态或门禁作为当前安排。

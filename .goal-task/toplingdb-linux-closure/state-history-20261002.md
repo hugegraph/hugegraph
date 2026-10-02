@@ -1,0 +1,201 @@
+# state.md 历史档案（2026-10-02 精简前）
+
+> 本档案原样保留精简前记录，只供追溯命令、首次失败和旧判断。
+> 旧额度、认证/审批限制、待推送状态、候选下一动作和门禁归属均可能过时。
+> 当前范围以 [state.md](state.md) 为入口，实际验收与 TP 归因以 [linux.md](linux.md) 为准。
+> 不用归档中的旧 SHA 结果证明新源码，也不把未提交候选视为 PR 已实现。
+
+# ToplingDB 双环境任务入口
+
+## 2026-10-02 恢复执行
+
+用户将额度改为至少保留周额度 7%；最新工具报告剩余 47%。本地原分支
+已保留远端新 scheduler 重构并普通合并为 `ed6c295f0`；三人只读审查、
+干净编译和 15 项定向回归通过。新合并 TP 镜像在 16 CPU/4 GiB 下完成
+20/20 GET、同根重启及两次 SIGTERM 0；4 CPU 首轮的 3×503 负载拒绝原证据保留。
+用户完成设备授权并调整审批后，正常推送已成功；用 `gh` 核对 PR #179
+head 为 `94da2e8de5214e84f1a16d58e3124db60a96783d`，发布阻碍已解除。
+#249 标准/真实 TP JNI 各三项 saved manager/builder 红测均失败；TP 实际
+JAR/native 身份匹配，错误写入及 pending/checkpoint 保留。未集成的恢复
+屏障和只读迭代器候选 19/0，经三名独立只读审查及修正后复审，仍不能替代
+整体在线安全验收。详情和下一动作只维护 [linux.md](linux.md)。
+
+## 2026-09-28 Linux 阶段摘要
+
+本轮固定验收源码 `9d797c7608e244f03436ce11294d9bd72aba4d2d` 的 38 项 CI
+已全部成功，Linux 服务器验收另见 [linux.md](linux.md)。x86_64 主机完成干净构建、
+标准 Core/定向回归、真实 TP helper 与 adapter truncate、三组件标准/TP 发行包和
+镜像身份核验；历史 kind/k8s 工作负载已清理，kind 控制面与任务 BuildKit
+现已停止并保留数据，当前无运行容器。
+冻结源码的 REST CRUD 后 TP 停机曾 `db not closed`/exit 137；#249 全图恢复和
+同进程缓存仍失败，CI 绿灯不改变这两项结论。
+
+本地原 `toplingdb` 分支依次整合挂载预检 `388ec8970`、任务查询 `54e5bebae`、
+会话池末次关闭竞态 `6d5893fd6` 与 REST 请求完成清理 `e17f1b6d8`。
+后两项经各三名独立只读审查者检查；精确整合 TP Server 镜像
+`sha256:7379d24f...02ac42` 的 CRUD、20/20 并发 GET、首次重启及两次 SIGTERM
+均通过，运行时 TP JAR/native 映射吻合。#212 更广关停并发/CF 生命周期和
+#255 已知合成 CF 断言仍独立待验。
+同源码标准 JNI 的 Schema/Edge/Vertex API 定向回归另为 10/0/0/0、服务停机 0。
+当前整合 HEAD 的标准 Core 全量回归为 819/0/0/42 skip、Maven exit 0。
+真实 TP 服务在 3977 次 GET 持续流量下 SIGTERM exit 0，同根重启数据校验通过；
+这是一轮带流量样本，未关闭所有接纳/排空竞态门禁。
+同一整合 TP 镜像在独立数据根完成 SIGKILL 137 后首次图 GET 200、完整
+CRUD/Gremlin 校验及最终正常停机；前一次过早 GET 连接重置原始证据保留。
+长 Gremlin 在途请求遇 SIGTERM 时返回 HTTP 500/`NoHttpResponseException`，
+服务本身 exit 0、无 native 断言、同根重启数据可读；请求排空仍待解决。
+
+#249 标准/TP 的 snapshot helper、校验拒绝、WAL 复制和数据树故障后 `s` 库
+pending 保留与修复故障源后的同根重开已获真实证据；`g/m` checkpoint 仍在，
+图级 journal 候选未提交，在线缓存/schema/iterator 安全、全图原子恢复和
+WAL 发布故障仍未通过。标准/TP 的同时开库锁保护通过，但第二进程可
+`/versions` 200/healthy 而图 API 404；通用健康语义独立跟进，pending 恢复
+并发仍待验。后端候选新增显式 `topling` provider 的三库恢复→truncate→
+CF 复用定向测试，真实 TP JNI/JAR/native 下 1/0/0、JVM exit 0；
+生产候选源码未变，仍不替代上述服务和在线安全门禁。
+同一显式 TP 配置的三库启动重放定向再获 1/0/0、JVM exit 0；
+候选仍未提交，真实服务同进程缓存失败及在线安全缺口未解除。
+#248 在冻结源码的三次有效 TP 实验（含第二 Server 交叉读）
+未复现旧首次重启不可见线索；标准 PD/Store 对照的新根实验中，clear 后
+第二 Server 和主 Server 首次重启读取也通过。旧失败仍保留，issue 不关闭。
+回看旧证据发现它使用主键顶点的属性过滤查询，追加标准/TP 两批该路径
+对照，首次属性读均命中；标准脚本后续附加 ID 请求格式错误而 exit 1，
+TP 脚本 exit 0。旧 schema ID 与 Store 根不同，仍未完整复现原始状态。
+再按旧时序补 PD 重启，并在独立 TP 根使用旧版容器内 PD/Store 路径；
+PD/Store 进程内 TP JAR/native 映射和哈希匹配，PD 恢复到 `Cluster_OK`，
+Server 首次属性读仍通过。旧代码/schema ID/部署差异仍在，#248 不关闭。
+#213 公开 issue 仍 Open，
+较新 producer workflow 与旧 JAR 构建时逐字节相同；正式 JNI 来源/许可/CPU
+支持下限未收口。#252 待相关正确性与资源门禁后置。
+
+证据只在 [Linux 验收](linux.md) 详列，任务数据和原始日志不入 Git。
+代码与此前进度文档已分别提交并发布到原 PR；冻结源码的验收证据仍独立保留。
+本次发布后的记录修订尚在本地，不能当作已经提交到 PR 的文档。
+
+## 此前 Mac 阶段与加载规则
+
+2026-09-27 用户确认：复用本目录、`hugegraph/hugegraph` 的 `toplingdb` 分支与
+[PR #179](https://github.com/hugegraph/hugegraph/pull/179)。此前 Mac goal 是本机代码收口并交接 Linux，
+不以 Linux native、性能、多节点或正式发布完成作为本机 goal 的完成条件。
+文档初始化已在 7c7519b79 完成交付；2026-09-27 用户启动本机 goal。
+六项实现的本机定向验证与交付已完成，但完整 CI 随后发现未收口的代码/构建门禁。
+第二轮交付 head `89979877b` 的 CI 已完成，37 项通过、1 项失败；
+第三轮已修复真实启动 fixture 把目录认领误当 backend 初始化的问题，
+完整安全→启动顺序及同 backend 再运行均通过（startup 各 16/0）。
+当时修正提交 `8d92909b78f05e762e3e741a0949d6d33dac9374`，当时待核对发布结果与新 head CI。
+详细状态和证据见 mac.md；不将旧 complete 标记等同 PR 可合入。
+Linux 服务器验收现按上方 2026-09-28 阶段执行。
+
+- Mac 默认只读本文件和 [Mac 开发](mac.md)。
+- Linux 默认只读本文件和 [Linux 验收](linux.md)。
+- 查 issue 归属时读 [跨环境索引](todo.md)；查经验时按需读 [经验导航](lessons.md)。
+- 查旧结论时才读 [证据索引](evidence-index.md) 与下方历史档案，不默认加载历史日志。
+
+最新用户确认优先于任务文档；仓库 [AGENTS.md](../../AGENTS.md) 的工程约束继续适用。
+本文件管理共同合同与导航；分项开发状态只写 mac.md，分项验收状态只写 linux.md，
+todo.md 只管理映射和依赖。历史档案中的旧授权、下一动作、勾选和限制不覆盖当前合同。
+
+## 共同边界
+
+- 本机范围为 #250/#251/#253/#254/#255 和保留能力并修复的 #249。
+  #212/#248/#213 保留调查或发布跟进；#252 由 Linux 执行。
+- provider 配置为权威来源；环境变量冲突时失败，不静默 fallback。
+  已知 CF 断言仅保留精确识别且前置探测通过的诊断例外，其他错误阻塞。
+- 保持标准 RocksDB API + Easy Migrate，不添加 Java SidePluginRepo 管理或平行存储 API。
+  不兼容数据目录不混用；切换不等于热切换或格式转换。
+- 通用问题为 ignore，按 todo.md 独立跟进；本分支新增共用代码的回归仍负责。
+- Mac 做开发、核心回归和实测、审查；必要时允许 1+3+3 和 Docker 镜像/容器实测。
+  本机不做性能压测或高资源的非核心测试；以实际负载和验证必要性判断，不按进程数一刀切。
+  Linux 服务器继续负责性能、多节点与最终环境验收；本机 Linux 容器的真实 JNI 结果记录实际平台边界。
+
+## 执行、审查与发布
+
+- 用户已授权范围内必要的文件、Git、测试、审查和远端更新；不因同一授权重复询问、等待、后置或 blocked。
+  目标限于上述仓库分支、PR #179 和 todo.md 关联 issue 的进展更新；不自动合并 PR、关闭缺少验收的 issue、
+  发布正式 JNI 产物或执行范围外破坏操作，不保存凭据。本机容器核心实测适用上述边界，远端服务器实验由后续阶段安排。
+- 每个阶段先核对当前源码及相关证据。实现按根因分批，独立任务可并行，文件归属不重叠。
+  生产行为变化同步更新仓库文档；涉及网站文档时按仓库规则关联文档 PR。
+- 行为或数据安全变更在主要阶段使用 3 名独立只读审查者；修复后复审受影响 diff。
+  文档阶段用 1 名独立审查者。最多 3 轮修复/复审，未通过则保留门禁并继续独立项。
+- 代码推送前按 AGENTS.md 做格式、编译和相关模块测试；文档只做链接、路径和 git diff --check。
+  纯文档批次不运行完整构建。不得跳过失败或将静态检查冒充真实运行。
+- 验证与审查通过后按阶段提交、非强制推送原分支；Mac 远端名为 hugegraph，Linux 历史远端名为 org，
+  使用前核对 URL。推送前 fetch；远端前进则保留双方改动后整合，推送后核对远端精确 SHA。
+  不覆盖 Linux 未提交内容，不夹带通用旧补丁；文档与代码按职责分开提交。
+- 单项最多尝试 3 次，记录证据、恢复尝试和解除条件，将其及依赖后置，继续独立项。
+  等待 WAL 或 Linux 时可继续配置回归、诊断门禁、文档与交接，不制造无关工作。
+- 每次有效循环报告完成、验证、剩余和下一动作；仅有固定门禁分母时报告比例。
+  交接、上下文压缩或配额等待前更新对应环境文件；state.md 只更新阶段摘要。
+  配额或暂时故障不等于完成；恢复时沿同一入口继续，不另建重复 goal。
+- 整体 blocked 仅在同一阻塞连续至少 3 个 goal turn 出现，且恢复、重排后全部有意义剩余工作仍共同受阻时使用。
+  needs input、Linux 待验或单个失败不自动阻塞整体；缺少工具或凭据不伪造能力。
+
+## 完成与交接
+
+本机完成必须同时满足：六项代码范围的行为和回归门禁通过、适用独立审查通过且无未解决高严重度发现、
+匹配文档齐备、确定提交已推送并核对、本分支引入的相关 CI 失败已消除、Linux 待验清单可执行。
+完整 CI 未结束时记录“已交付、待 CI”，不提前标记本机代码收口完成。Mac 完成不关闭 Linux 验收门禁。
+交接记录统一包含提交、行为变化、本地命令/退出码/结果、未覆盖边界、Linux 场景及预期；
+Linux 在自己的文档记录实际源码、镜像 digest、JNI 身份、命令和结果，不能继承旧 SHA 的通过。
+
+## 初始化阶段与历史导航
+
+初始化源码基线为 4e1db45215d875b19250b0283e42a1484a5ce3f6；文档交付为 7c7519b79。
+本机代码执行基线为 7c7519b79；实现、回归与交付的当前真值只在 mac.md 维护。
+Linux 服务器环境未实时核查，后续接收确定提交按 linux.md 执行。
+
+以下四份档案逐字节保存自该基线，仅供历史取证，禁止把旧指令当成当前执行安排：
+
+- [原执行合同与完整日志](state-history-20260926.md)
+- [原任务清单与历史实验](todo-history-20260926.md)
+- [原开发交接](development-handoff-history-20260926.md)
+- [原 Linux 环境快照](local-status-history-20260926.md)
+
+2026-09-27 用户补充：本机允许必要的 1+3+3 及容器核心实测；此前“最小验证”不解释为只做静态或假 runtime 检查。
+
+
+# todo.md 同期原始索引
+
+# ToplingDB 跨环境 issue 索引
+
+共同入口为 [state.md](state.md)。本文件只维护归属和依赖，不维护详细执行状态。
+开发状态与证据在 [mac.md](mac.md)，验收状态与证据在 [linux.md](linux.md)。
+同一项可开发完成而 Linux 待验，不能合并为一个通过标记。
+
+## TP 依赖映射
+
+| Issue | 开发责任 | 验收责任与依赖 |
+| --- | --- | --- |
+| #250 / #251 / #253 | [Mac 配置与数据隔离](mac.md#开发清单与验收)，同一配置来源问题组 | [Linux 启动验收](linux.md#验收清单)，单 DB mount 修复已本地整合、PD/Store 长驻 TP 映射已验，仍依赖远端推送 |
+| #254 | [Mac adapter 回归](mac.md#开发清单与验收) | [Linux TP JNI](linux.md#验收清单)，依赖 fixture 及 provider 修复 |
+| #255 | [Mac CI 分类门禁](mac.md#开发清单与验收) | [Linux native diagnostic](linux.md#验收清单)，依赖分类实现 |
+| #249 | [Mac WAL 失败安全](mac.md#开发清单与验收)，保留恢复能力 | [Linux 标准/TP 恢复](linux.md#验收清单)；依赖全图失败恢复协调、schema/iterator/cache 在线安全；WAL 发布仍需服务故障源，pending 并发注入的辅助容器预检被本机自动审批拒绝 |
+| #212 / #248 | 必要源码线索交给 Mac，不能直接认定 native 根因 | [Linux 生命周期调查](linux.md#验收清单)，不作为本机 goal 完成条件 |
+| #213 | 不在本机 goal 实现正式发布链 | [Linux 与 producer 发布核查](linux.md#验收清单)，正式发行要求 |
+| #252 | 不在 Mac 执行性能测试 | [Linux 对照实验](linux.md#验收清单)，依赖相关正确性和资源条件 |
+
+父汇总 [#240](https://github.com/hugegraph/hugegraph/issues/240)，原 [#214](https://github.com/hugegraph/hugegraph/issues/214)
+仅为历史里程碑。等待一项不阻塞独立项目；Mac 完成不自动关闭 issue。
+
+## ignore：非 TP 专属，独立跟进
+
+| 状态 | 问题 | 已有跟进与边界 |
+| --- | --- | --- |
+| `ignore` | 跨 Server schema cache 一致性 | [Apache #3235](https://github.com/apache/hugegraph/issues/3235)、[PR #3237](https://github.com/apache/hugegraph/pull/3237) / [组织 PR #236](https://github.com/hugegraph/hugegraph/pull/236)，复用现有方案，不另做一套 |
+| `ignore` | graph clear 顶点/边缓存、truncate 吞异常、同名图重建 | 分别沿 [#242](https://github.com/hugegraph/hugegraph/issues/242)、[#243](https://github.com/hugegraph/hugegraph/issues/243)、[#244](https://github.com/hugegraph/hugegraph/issues/244) 跟进；schema PR 不覆盖全部这些行为；[#3151](https://github.com/apache/hugegraph/issues/3151) 仅相关。保留标准 provider 复现与待归因边界 |
+| `ignore` | Store 指标 session 泄漏 | [#241](https://github.com/hugegraph/hugegraph/issues/241)； [Apache PR #3081](https://github.com/apache/hugegraph/pull/3081) 已有相同生产修复；旧工作区补丁与回归见 Mac 历史证据，不随 TP 提交 |
+| `ignore` | 通用 Store 停机后 JVM 不退出 | [组织 #211](https://github.com/hugegraph/hugegraph/issues/211)，标准 provider 也复现；不等同已证明全部 TP native 关闭告警的根因 |
+| `ignore` | 同根开库锁拒绝后 `/versions` 仍 200/healthy | [Linux 进程锁实测](linux.md#2026-09-28-固定源码验收进度) 的标准/TP 第二进程都无法打开图而健康检查通过；归通用启动/健康语义独立跟进，不把该状态算 backend 初始化成功 |
+| `ignore` | SIGTERM 时在途 Gremlin 代理请求失败 | [Linux 长请求实测](linux.md#2026-09-28-固定源码验收进度) 的 REST 代理返回 HTTP 500/`NoHttpResponseException`；源码先停 Gremlin 后停 REST，归通用停机排空独立跟进。不可直接交换顺序，REST 销毁事件还会关闭共享图 |
+| `ignore` | Store 地址变化后的旧连接、通用 Loader 重试 | [#245](https://github.com/hugegraph/hugegraph/issues/245)； [Apache #3124](https://github.com/apache/hugegraph/issues/3124)、[已合并 PR #3130](https://github.com/apache/hugegraph/pull/3130)；当前分支已含修复，残余扫描场景另行回归，Linux 未提交 channel refresh 不混入 TP 主线 |
+| `ignore` | HStore 图级快照协议 | [#246](https://github.com/hugegraph/hugegraph/issues/246)； 通用能力缺口，本次不新增跨分区协议；[组织 PR #235](https://github.com/hugegraph/hugegraph/pull/235) 是单机 RocksDB 备份，不能冒充 HStore 图快照支持 |
+| `ignore` | 完整 HA 网络分区矩阵、Compose/Helm 通用配置对齐 | [#247](https://github.com/hugegraph/hugegraph/issues/247)； 部署沿 [Apache #3131](https://github.com/apache/hugegraph/issues/3131) / [组织 PR #221](https://github.com/hugegraph/hugegraph/pull/221) 跟进；TP provider 注入、数据隔离和 JNI 选择仍在主线 |
+| `ignore` | mini-cluster 临时端口竞争 | 复用 [#216](https://github.com/hugegraph/hugegraph/issues/216)，不在 TP 里做局部端口补丁 |
+| `ignore` | HStore 联合索引 | 复用 [#217](https://github.com/hugegraph/hugegraph/issues/217)，已并入 committed-path 历史验证进展，no-commit 覆盖单独确认 |
+
+以上归属沿用 2026-09-26 核对，不声称关联 issue/PR 已解决所有残余现象。后续发现由 TP 改动独有触发时重新归类并记录依据。
+
+## 历史记录
+
+旧复选框、P1–P7、失败与后置证据完整保存在 [历史清单](todo-history-20260926.md)，
+仅在追溯具体项时读取，不再作为当前全量门禁。
