@@ -29,11 +29,18 @@ import java.util.Set;
 
 import org.apache.hugegraph.schema.SchemaManager;
 import org.apache.hugegraph.testutil.Assert;
+import org.apache.hugegraph.traversal.optimize.HugeCountStepStrategy;
+import org.apache.hugegraph.traversal.optimize.HugeCountStrategy;
+import org.apache.hugegraph.traversal.optimize.HugeGraphStepStrategy;
+import org.apache.hugegraph.traversal.optimize.HugeVertexStepStrategy;
 import org.apache.tinkerpop.gremlin.process.traversal.DT;
+import org.apache.tinkerpop.gremlin.process.traversal.GType;
+import org.apache.tinkerpop.gremlin.process.traversal.NotP;
 import org.apache.tinkerpop.gremlin.process.traversal.Merge;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.TextP;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal;
+import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversalSource;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__;
 import org.apache.tinkerpop.gremlin.process.traversal.step.sideEffect.AddPropertyStepContract;
 import org.apache.tinkerpop.gremlin.process.traversal.step.sideEffect.FailStep;
@@ -396,6 +403,65 @@ public class TinkerPop37StepsCoreTest extends BaseCoreTest {
         Assert.assertEquals(Arrays.asList("lop", "vadas"),
                             this.namesWithLocalFilter(
                                  TextP.notRegex("^mar")));
+    }
+
+    @Test
+    public void testTypeOfPredicatesStayLocal() {
+        SchemaManager schema = graph().schema();
+        schema.propertyKey("name").asText().create();
+        schema.propertyKey("age").asInt().create();
+        schema.vertexLabel("person").properties("name", "age")
+              .primaryKeys("name").nullableKeys("age").create();
+        graph().addVertex(T.label, "person", "name", "marko", "age", 29);
+        graph().addVertex(T.label, "person", "name", "vadas", "age", 27);
+        graph().addVertex(T.label, "person", "name", "lop");
+        commitTx();
+
+        this.assertTypeFilter(T.label, P.typeOf(GType.STRING),
+                              "lop", "marko", "vadas");
+        this.assertTypeFilter(T.label, P.typeOf(GType.INT));
+        this.assertTypeFilter("name", P.typeOf(GType.STRING),
+                              "lop", "marko", "vadas");
+        this.assertTypeFilter("name", P.typeOf(GType.INT));
+        this.assertTypeFilter("age", P.typeOf(GType.INT), "marko", "vadas");
+        this.assertTypeFilter("age", P.typeOf(GType.STRING));
+        this.assertTypeFilter("age", P.typeOf(Integer.class), "marko", "vadas");
+        this.assertTypeFilter("age", P.typeOf("Integer"), "marko", "vadas");
+        this.assertTypeFilter("age", P.not(P.typeOf(GType.INT)));
+        this.assertTypeFilter("age", P.not(P.typeOf(GType.STRING)), "marko", "vadas");
+        this.assertTypeFilter("age", P.typeOf(GType.INT).and(P.gt(28)), "marko");
+        this.assertTypeFilter("age", P.typeOf(GType.STRING).or(P.eq(27)), "vadas");
+        this.assertTypeFilter("age", P.not(P.typeOf(GType.STRING)).and(P.gt(28)),
+                              "marko");
+        this.assertTypeFilter("age", new NotP<>(P.typeOf(GType.INT).and(P.gt(28))),
+                              "vadas");
+    }
+
+    private void assertTypeFilter(Object key, P<?> predicate, String... expected) {
+        for (boolean optimized : new boolean[]{true, false}) {
+            GraphTraversalSource source = graph().traversal();
+            if (!optimized) {
+                source = source.withoutStrategies(HugeGraphStepStrategy.class,
+                                                  HugeVertexStepStrategy.class,
+                                                  HugeCountStepStrategy.class,
+                                                  HugeCountStrategy.class);
+            }
+            GraphTraversal<Vertex, Vertex> traversal = source.V();
+            if (key instanceof T) {
+                traversal = traversal.has((T) key, predicate.clone());
+            } else {
+                traversal = traversal.has((String) key, predicate.clone());
+            }
+            Assert.assertEquals(Arrays.asList(expected),
+                                traversal.values("name").order().toList());
+            GraphTraversal<Vertex, Vertex> counted = source.V();
+            if (key instanceof T) {
+                counted = counted.has((T) key, predicate.clone());
+            } else {
+                counted = counted.has((String) key, predicate.clone());
+            }
+            Assert.assertEquals((long) expected.length, counted.count().next().longValue());
+        }
     }
 
     private void initMutationSchema() {

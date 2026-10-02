@@ -31,6 +31,7 @@ import org.apache.hugegraph.testutil.Assert;
 import org.apache.hugegraph.type.define.DataType;
 import org.apache.hugegraph.type.define.IndexType;
 import org.apache.hugegraph.type.define.SchemaStatus;
+import org.apache.tinkerpop.gremlin.process.traversal.GType;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.TextP;
@@ -70,6 +71,22 @@ public class TraversalUtilOptimizeTest {
         Assert.assertFalse(TraversalUtil.canExtractHasContainer(
                 null, new HasContainer(T.label.getAccessor(),
                                        P.within(null, "person"))));
+    }
+
+    @Test
+    public void testCanExtractHasContainerKeepsTypePredicatesLocal() {
+        Assert.assertFalse(TraversalUtil.canExtractHasContainer(
+                null, new HasContainer(T.label.getAccessor(), P.typeOf(GType.STRING))));
+        Assert.assertFalse(TraversalUtil.canExtractHasContainer(
+                null, new HasContainer(T.label.getAccessor(),
+                                       P.typeOf(GType.STRING).and(P.eq("person")))));
+        Assert.assertFalse(TraversalUtil.canExtractHasContainer(
+                null, new HasContainer(T.label.getAccessor(),
+                                       P.typeOf(GType.STRING).or(P.eq("person")))));
+        Assert.assertFalse(TraversalUtil.canExtractHasContainer(
+                null, new HasContainer(T.label.getAccessor(), P.not(P.typeOf(GType.STRING)))));
+        Assert.assertFalse(TraversalUtil.canExtractHasContainer(
+                null, new HasContainer(T.label.getAccessor(), P.test((a, b) -> true, "person"))));
     }
 
     @Test

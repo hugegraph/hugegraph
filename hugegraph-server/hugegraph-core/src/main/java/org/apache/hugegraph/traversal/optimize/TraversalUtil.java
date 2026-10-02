@@ -55,13 +55,13 @@ import org.apache.hugegraph.util.DateUtil;
 import org.apache.hugegraph.util.E;
 import org.apache.hugegraph.util.JsonUtil;
 import org.apache.tinkerpop.gremlin.process.traversal.Compare;
+import org.apache.tinkerpop.gremlin.process.traversal.CompareType;
 import org.apache.tinkerpop.gremlin.process.traversal.Contains;
 import org.apache.tinkerpop.gremlin.process.traversal.NotP;
 import org.apache.tinkerpop.gremlin.process.traversal.Order;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.PBiPredicate;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
-import org.apache.tinkerpop.gremlin.process.traversal.TextP;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal;
 import org.apache.tinkerpop.gremlin.process.traversal.step.HasContainerHolder;
@@ -881,8 +881,7 @@ public final class TraversalUtil {
     static boolean canExtractHasContainer(HugeGraph graph,
                                           HasContainer has) {
         if (has.getKey() == null || has.getPredicate() == null ||
-            hasNullLabelValue(has) || hasNotPredicate(has) ||
-            hasTextPredicate(has)) {
+            hasNullLabelValue(has) || !hasSupportedPredicate(has)) {
             return false;
         }
         if (isSysProp(has.getKey())) {
@@ -917,26 +916,20 @@ public final class TraversalUtil {
         return true;
     }
 
-    private static boolean hasNotPredicate(HasContainer has) {
+    private static boolean hasSupportedPredicate(HasContainer has) {
         List<P<Object>> predicates = new ArrayList<>();
         collectPredicates(predicates, ImmutableList.of(has.getPredicate()));
         for (P<Object> predicate : predicates) {
-            if (predicate instanceof NotP) {
-                return true;
+            // Keep this set aligned with convHas2Condition(). Other predicates
+            // (including NotP, TextP and typeOf) must execute in HasStep.
+            PBiPredicate<?, ?> bp = predicate.getBiPredicate();
+            if (!(bp instanceof Compare) &&
+                !(bp instanceof Contains) &&
+                !(bp instanceof Condition.RelationType)) {
+                return false;
             }
         }
-        return false;
-    }
-
-    private static boolean hasTextPredicate(HasContainer has) {
-        List<P<Object>> predicates = new ArrayList<>();
-        collectPredicates(predicates, ImmutableList.of(has.getPredicate()));
-        for (P<Object> predicate : predicates) {
-            if (TextP.class.isInstance(predicate)) {
-                return true;
-            }
-        }
-        return false;
+        return true;
     }
 
     public static void extractOrder(Step<?, ?> newStep,
@@ -1454,6 +1447,15 @@ public final class TraversalUtil {
         collectPredicates(leafPredicates, ImmutableList.of(predicate));
         for (P<Object> pred : leafPredicates) {
             if (isNullInequalityPredicate(pred)) {
+                continue;
+            }
+            if (pred instanceof NotP) {
+                updatePredicateValue(((NotP<?>) pred).negate(), pkey);
+                continue;
+            }
+            if (pred.getBiPredicate() instanceof CompareType) {
+                // GType, Class and type-name operands describe the value's
+                // type; they are not values of the property's schema type.
                 continue;
             }
             Object value = validPropertyValue(pred.getValue(), pkey);

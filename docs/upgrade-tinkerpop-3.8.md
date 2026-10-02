@@ -50,6 +50,10 @@ uniform-list compatibility test as validation of HugeGraph's schema list path.
 See [query count and filter behavior](query-semantics.md) for transaction counts
 and local predicate filtering. Version-specific handling retains negated
 predicates and filtering barriers where pushdown would change their meaning.
+`P.typeOf()` runs as a local filter for system and schema properties, including
+inside negated or connective predicates. Its type operands are preserved without
+schema value conversion. Missing properties do not match, including when the
+type predicate is negated. Type filters do not use backend indexes on their own.
 The new TinkerPop step APIs are adapted without discarding property metadata.
 
 ## Compatibility verification
