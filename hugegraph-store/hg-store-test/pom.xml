@@ -209,12 +209,6 @@
                 </exclusion>
             </exclusions>
         </dependency>
-        <dependency>
-            <groupId>org.apache.hugegraph</groupId>
-            <artifactId>hg-store-node</artifactId>
-            <version>${revision}</version>
-            <scope>compile</scope>
-        </dependency>
     </dependencies>
     <build>
         <plugins>
@@ -253,6 +247,7 @@
                                 <include>**/PartitionStateMachineTest.java</include>
                                 <include>**/PartitionEngineErrorTest.java</include>
                                 <include>**/BatchGraphIsolationTest.java</include>
+                                <include>**/SchemaDriverTest.java</include>
                             </includes>
                         </configuration>
                     </execution>

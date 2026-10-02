@@ -17,8 +17,6 @@
 
 package org.apache.hugegraph.exception;
 
-import org.apache.hugegraph.HugeException;
-
 public class NoIndexException extends HugeException {
 
     private static final long serialVersionUID = 6297062575844576832L;

@@ -19,7 +19,7 @@ package org.apache.hugegraph.traversal.optimize;
 
 import java.util.function.BiPredicate;
 
-import org.apache.hugegraph.backend.query.Condition;
+import org.apache.hugegraph.query.Condition;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
 
 public class ConditionP extends P<Object> {
