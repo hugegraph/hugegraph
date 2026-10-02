@@ -237,7 +237,7 @@ TP p1 竞争 JVM 曾用标准 Java JAR+TP native，被身份断言拒绝；人�
 goal 已在切换模型后恢复为 active。修复提交 `3aa44152e8e13749d82ba58449b93254384ed0ed`
 已从隔离分支 `toplingdb-auth-cascade-20261003` 快进至原 toplingdb、PR #179 及本地 checkout；
 父提交为原 PR head 993ff6fe，未重排或 force-push。
-两个远端 master 在本次核对均为 176fb56dd，未继续前进。周额度最近剩余 19%，保留至少 7%。
+两个远端 master 在本次核对均为 176fb56dd，未继续前进。用户最新决定取消 7% 保留限制，允许用完剩余周额度。
 
 原 head 993ff6fe 的 38 项 CI 为 33 成功、5 失败，五个失败 job 均在
 `ProjectApiTest.testList` 删除后重建 `test_project46` 时返回 400，提示旧 access 已存在。
@@ -269,6 +269,7 @@ Server PID 的 JAR/native 已逐一核验，删除均 204、服务关闭均 0；
 | 格式、干净编译、Server/test install | exit 0；Maven/JVM 均用专属临时目录。 | `build-commands-v4-retry.json` |
 | 标准 Auth 与边界 | AuthTest 53、OLAP 保护 1、普通顶点删边 1，共 55；failure/ignored/assumption 均 0，JVM exit 0。 | `green-standard-v4.log` |
 | 真实 TP 关键回归 | 项目、用户带关系、用户无关系、OLAP、普通顶点删除，共 5；failure/ignored/assumption 均 0，JVM exit 0。 | `green-real-tp-v4.log` |
+| 完整标准 API suite | 161 项、0 failure、0 ignored、14 assumption skip；13 项 GraphSpace 需要 HStore，1 项 Gremlin clear 需要共享存储。服务 exit 0。 | `../auth-sequence/fix-api-suite-std2/` |
 | 小批次级联提交 | 阈值 2，标准/真实 TP 各 1 项通过，三类失败/skip 计数均 0；原有分批提交异常传播问题仍独立。 | `lowbatch-{standard,tp}.log` |
 | 真实认证服务 | 标准/TP 均通过：三轮项目删除重建、用户带关系删除和同名重建不继承旧 membership、无关关系保留、图 CRUD、首次同根重启 GET 200，各两次正常关闭 0/0。 | `../auth-sequence/fix-v4-{std,tp}/` |
 
@@ -280,7 +281,8 @@ metadata 的 configDigest 为 null，未补造。包哈希、命令与 inspect �
 实验 JAR/native 身份仍采用本页固定输入，另按首次与重启 Server PID 验证实际加载。
 
 无效前置与较早候选仍保留：认证未配置、原 agent 反射被安全模式过滤、手工 classpath
-混入 Struct 同名类、生成的旧 TP 发行目录触发 RAT。它们不计生产回归通过；生成目录已移出
+混入 Struct 同名类、生成的旧 TP 发行目录触发 RAT、完整 API 首轮客户端不能访问容器内 Arthas 8561。
+API 改为在同一专属容器运行客户端后整套通过；首轮 161/1 failure/14 skip 保留。它们不计生产回归通过；生成目录已移出
 源码并保留。被替代的 43b88c1 候选、旧项目通过结果及 metadata 留在证据中，不代表最终用户边界通过。
 
 冻结→候选的 PD/Store/Struct/Commons、POM/native/assembly 无变化，依据为
