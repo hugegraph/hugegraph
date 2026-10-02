@@ -369,7 +369,12 @@ public class GraphTransaction extends IndexableTransaction {
                                     Map<Id, HugeEdge> removedEdges) {
         // Remove related edges of each vertex
         for (HugeVertex v : removedVertices.values()) {
-            if (!v.schemaLabel().existsLinkLabel()) {
+            // System edge labels may be absent from schema enumeration after
+            // request cleanup, so always scan auth/system vertex relations.
+            // OLAP shares its ID with a base vertex and must keep its original
+            // path rather than scan that base vertex's ordinary edges.
+            VertexLabel label = v.schemaLabel();
+            if ((!label.system() || label.olap()) && !label.existsLinkLabel()) {
                 continue;
             }
             // Query all edges of the vertex and remove them
