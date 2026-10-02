@@ -118,7 +118,8 @@ public final class ScriptMethodPolicy {
                    "power", "compareTo", "equal", "propertyMap", "collect", "getAt", "getAtSafe", "project",
                    "elementProperties",
                    "regexMatches", "regexFind", "regexReplaceAll", "regexReplaceFirst", "regexSplit",
-                   "regexText", "regexTexts", "regexArrayTexts", "toJson", "discard", "checkedData", "checkedMap");
+                   "regexText", "regexTexts", "regexArrayTexts", "toJson", "convertReturn", "discard",
+                   "checkedData", "checkedMap");
         this.allowExact(ScriptDataOperations.class.getName(), "toString", Object.class, boolean.class);
         this.allow(ScriptDataOperations.RegexText.class.getName(), "matches", "replaceAll", "replaceFirst", "split");
         this.allow(ScriptExecutionBudget.class.getName(), "check", "deadline");

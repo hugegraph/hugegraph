@@ -49,7 +49,12 @@ public class ScriptCompatibilityRegressionTest {
                         "Object helper() { 1 }; helper() == 1",
                         "List<Byte> helper() { [] }; helper().isEmpty()",
                         "byte helper(boolean early) { if (early) { return 257 }; 258 }; " +
-                        "helper(true) == 1 && helper(false) == 2")) {
+                        "helper(true) == 1 && helper(false) == 2",
+                        "UUID helper() { null }; helper() == null",
+                        "String helper() { 'abc' }; helper() == 'abc'",
+                        "String helper() { \"v${1}\" }; helper() == 'v1'",
+                        "IntRange helper() { new IntRange(1, 4) }; helper().contains(2)",
+                        "Number helper(Number value) { value }; helper(1) == 1")) {
                     Assert.assertEquals(profile + ": " + source, true,
                                         engine.eval(source, new SimpleBindings()));
                 }
@@ -73,6 +78,56 @@ public class ScriptCompatibilityRegressionTest {
                 Assert.assertThrows(ScriptException.class, () -> engine.eval(
                         "((UUID) identifier) == null",
                         new SimpleBindings(Map.of("identifier", new UUID(0L, 1L)))));
+            }
+        }
+    }
+
+    @Test
+    public void testReturnConversionKeepsNumbersAndRejectsConstructorArguments() {
+        Assert.assertEquals(Byte.valueOf((byte) 1), ScriptDataOperations.convertReturn(257, byte.class));
+        Assert.assertEquals(Short.valueOf((short) 1), ScriptDataOperations.convertReturn(65537, short.class));
+        Assert.assertEquals(Character.valueOf('A'), ScriptDataOperations.convertReturn(65, char.class));
+        Assert.assertEquals(Byte.valueOf((byte) 1), ScriptDataOperations.convertReturn(1, Byte.class));
+        Assert.assertNull(ScriptDataOperations.convertReturn(null, UUID.class));
+        List<Integer> values = List.of(1);
+        Assert.assertSame(values, ScriptDataOperations.convertReturn(values, List.class));
+        SecurityException denied = Assert.assertThrows(SecurityException.class,
+                () -> ScriptDataOperations.convertReturn(List.of(1, 4), groovy.lang.IntRange.class));
+        Assert.assertEquals("SCRIPT_EXPRESSION_DENIED: return conversion", denied.getMessage());
+        denied = Assert.assertThrows(SecurityException.class,
+                () -> ScriptDataOperations.convertReturn(Map.of("from", 1), groovy.lang.IntRange.class));
+        Assert.assertEquals("SCRIPT_EXPRESSION_DENIED: return conversion", denied.getMessage());
+    }
+
+    @Test
+    public void testTypedLocalHelperRejectsImplicitConstruction() throws Exception {
+        List<String> implicit = List.of(
+                "IntRange helper() { List args = [1, 4]; args }; helper() == null",
+                "IntRange helper() { Map args = [from: 1, to: 4]; args }; helper() == null",
+                "org.apache.hugegraph.schema.SchemaManager helper() { List args = [null, null]; args }; " +
+                "helper() == null",
+                "P helper() { List args = ['x']; args }; helper() == null");
+        List<String> declared = List.of(
+                "List args = [1, 4]; IntRange value = args; value.contains(2)",
+                "List args = ['x']; P value = args; value == null",
+                "List args = [null, null]; (org.apache.hugegraph.schema.SchemaManager) args == null",
+                "new org.apache.hugegraph.schema.SchemaManager(null, null) == null");
+        for (ScriptExecutionProfile profile : ScriptExecutionProfile.values()) {
+            try (PolicyScriptEngine engine = new PolicyScriptEngine(profile)) {
+                for (String source : implicit) {
+                    ScriptException error = Assert.assertThrows(profile + ": " + source, ScriptException.class,
+                            () -> engine.eval(source, new SimpleBindings()));
+                    Throwable cause = error.getCause();
+                    Assert.assertTrue(profile + ": " + source + " -> " + error.getMessage(),
+                            cause instanceof SecurityException &&
+                            "SCRIPT_EXPRESSION_DENIED: return conversion".equals(cause.getMessage()));
+                }
+                for (String source : declared) {
+                    Assert.assertThrows(profile + ": " + source, ScriptException.class,
+                            () -> engine.eval(source, new SimpleBindings()));
+                }
+                Assert.assertEquals(profile + ": explicit constructor", true,
+                        engine.eval("new IntRange(1, 4).contains(2)", new SimpleBindings()));
             }
         }
     }

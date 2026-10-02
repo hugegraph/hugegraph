@@ -243,6 +243,114 @@ public final class ScriptDataOperations {
         return null;
     }
 
+    /**
+     * Helper return conversion. Numeric narrowing and an already compatible value are
+     * allowed. Groovy cast coercion is not: a collection or map must not become a
+     * constructor call just because the helper declares a reference return type.
+     */
+    public static Object convertReturn(Object value, Class<?> type) {
+        if (type == null || (value == null && type.isPrimitive())) {
+            throw deniedReturn();
+        }
+        if (value == null || type.isInstance(value)) {
+            return value;
+        }
+        Class<?> boxed = boxedPrimitive(type);
+        if (boxed != null && boxed.isInstance(value)) {
+            return value;
+        }
+        if (value instanceof Number || value instanceof Character) {
+            Object converted = convertNumber(value, type);
+            if (converted != null) {
+                return converted;
+            }
+        }
+        if (type == String.class && value instanceof GString) {
+            return value.toString();
+        }
+        throw deniedReturn();
+    }
+
+    private static Object convertNumber(Object value, Class<?> type) {
+        if (!isNumericReturn(type)) {
+            return null;
+        }
+        Number number = value instanceof Character ? Integer.valueOf((Character) value) : (Number) value;
+        if (type == byte.class || type == Byte.class) {
+            return number.byteValue();
+        }
+        if (type == short.class || type == Short.class) {
+            return number.shortValue();
+        }
+        if (type == int.class || type == Integer.class) {
+            return number.intValue();
+        }
+        if (type == long.class || type == Long.class) {
+            return number.longValue();
+        }
+        if (type == float.class || type == Float.class) {
+            return number.floatValue();
+        }
+        if (type == double.class || type == Double.class) {
+            double converted = number.doubleValue();
+            if (!(number instanceof Double) &&
+                (converted == Double.NEGATIVE_INFINITY || converted == Double.POSITIVE_INFINITY)) {
+                throw deniedReturn();
+            }
+            return converted;
+        }
+        if (type == char.class || type == Character.class) {
+            return (char) number.intValue();
+        }
+        if (type == BigDecimal.class) {
+            return NumberMath.toBigDecimal(number);
+        }
+        if (type == BigInteger.class) {
+            return NumberMath.toBigInteger(number);
+        }
+        return null;
+    }
+
+    private static boolean isNumericReturn(Class<?> type) {
+        return type == byte.class || type == short.class || type == int.class || type == long.class ||
+               type == float.class || type == double.class || type == char.class ||
+               type == Byte.class || type == Short.class || type == Integer.class || type == Long.class ||
+               type == Float.class || type == Double.class || type == Character.class ||
+               type == BigDecimal.class || type == BigInteger.class;
+    }
+
+    private static Class<?> boxedPrimitive(Class<?> type) {
+        if (type == boolean.class) {
+            return Boolean.class;
+        }
+        if (type == byte.class) {
+            return Byte.class;
+        }
+        if (type == short.class) {
+            return Short.class;
+        }
+        if (type == int.class) {
+            return Integer.class;
+        }
+        if (type == long.class) {
+            return Long.class;
+        }
+        if (type == float.class) {
+            return Float.class;
+        }
+        if (type == double.class) {
+            return Double.class;
+        }
+        if (type == char.class) {
+            return Character.class;
+        }
+        return null;
+    }
+
+    private static SecurityException deniedReturn() {
+        return new SecurityException("SCRIPT_EXPRESSION_DENIED: return conversion");
+    }
+
     public static Object checkedData(Object value) {
         return ScriptBindings.data(value);
     }

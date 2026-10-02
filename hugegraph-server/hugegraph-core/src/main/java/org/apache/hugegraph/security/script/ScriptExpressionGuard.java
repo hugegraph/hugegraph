@@ -29,6 +29,7 @@ import org.codehaus.groovy.ast.ClassHelper;
 import org.codehaus.groovy.ast.ClassNode;
 import org.codehaus.groovy.ast.GenericsType;
 import org.codehaus.groovy.ast.Parameter;
+import org.codehaus.groovy.ast.expr.ArgumentListExpression;
 import org.codehaus.groovy.ast.expr.ArrayExpression;
 import org.codehaus.groovy.ast.expr.AttributeExpression;
 import org.codehaus.groovy.ast.expr.BinaryExpression;
@@ -38,6 +39,7 @@ import org.codehaus.groovy.ast.expr.ClassExpression;
 import org.codehaus.groovy.ast.expr.ClosureExpression;
 import org.codehaus.groovy.ast.expr.ConstructorCallExpression;
 import org.codehaus.groovy.ast.expr.DeclarationExpression;
+import org.codehaus.groovy.ast.expr.Expression;
 import org.codehaus.groovy.ast.expr.MethodCallExpression;
 import org.codehaus.groovy.ast.expr.MethodPointerExpression;
 import org.codehaus.groovy.ast.expr.PropertyExpression;
@@ -218,6 +220,9 @@ public final class ScriptExpressionGuard extends CompilationCustomizer {
                 } else if (type.equals(ScriptDataOperations.class.getName()) &&
                            Boolean.TRUE.equals(call.getNodeMetaData(ScriptTypeCheckingExtension.DATA_CALL))) {
                     // Compiler-created data bridge; arguments keep their original source positions.
+                    if (Boolean.TRUE.equals(call.getNodeMetaData(ScriptLocalMethodsCustomizer.RETURN_CAST))) {
+                        this.checkHelperReturn(call);
+                    }
                 } else if (!STATIC_TYPES.contains(type)) {
                     throw denied("static method call");
                 }
@@ -226,6 +231,11 @@ public final class ScriptExpressionGuard extends CompilationCustomizer {
 
             @Override
             public void visitMethodCallExpression(MethodCallExpression call) {
+                // Static compilation rewrites the helper bridge into a method call and copies
+                // its metadata. The declared return type still has to be a local type.
+                if (Boolean.TRUE.equals(call.getNodeMetaData(ScriptLocalMethodsCustomizer.RETURN_CAST))) {
+                    this.checkHelperReturn(call);
+                }
                 if (this.user(call)) {
                     if (call.getMethodAsString() == null) {
                         throw denied("dynamic method call");
@@ -326,12 +336,24 @@ public final class ScriptExpressionGuard extends CompilationCustomizer {
                 super.visitConstructorCallExpression(expression);
             }
 
+            private void checkHelperReturn(org.codehaus.groovy.ast.expr.MethodCall call) {
+                Object marked = ((ASTNode) call).getNodeMetaData(ScriptLocalMethodsCustomizer.RETURN_TYPE);
+                Expression arguments = call.getArguments();
+                List<Expression> values = arguments instanceof ArgumentListExpression ?
+                                          ((ArgumentListExpression) arguments).getExpressions() : null;
+                // The class literal is compiler-owned. Its line number stays unset so it is
+                // not a user class value, while the declared return type keeps its generics.
+                if (!(marked instanceof ClassNode) || values == null || values.size() != 2 ||
+                    !(values.get(1) instanceof ClassExpression) ||
+                    !sameReturnType((ClassNode) marked, ((ClassExpression) values.get(1)).getType())) {
+                    throw denied("return conversion");
+                }
+                this.checkLocalType((ClassNode) marked);
+            }
+
             @Override
             public void visitCastExpression(CastExpression expression) {
-                if (Boolean.TRUE.equals(expression.getNodeMetaData(ScriptLocalMethodsCustomizer.RETURN_CAST))) {
-                    // Lowered helpers retain the same type restrictions as local declarations.
-                    this.checkLocalType(expression.getType());
-                } else if (this.user(expression) && !Set.of("java.lang.String", "java.lang.Integer",
+                if (this.user(expression) && !Set.of("java.lang.String", "java.lang.Integer",
                         "java.lang.Long", "java.lang.Double", "java.lang.Float", "java.lang.Boolean",
                         "int", "long", "double", "float", "boolean", "java.util.List", "java.util.Map",
                         "java.util.Set", "java.util.Collection", "java.util.Date", "org.apache.hugegraph.util.Blob",
@@ -365,6 +387,34 @@ public final class ScriptExpressionGuard extends CompilationCustomizer {
             }
 
         }.visitClass(node);
+    }
+
+    private static boolean sameReturnType(ClassNode expected, ClassNode actual) {
+        if (expected == actual) {
+            return true;
+        }
+        if (expected == null || actual == null || !expected.getName().equals(actual.getName())) {
+            return false;
+        }
+        GenericsType[] left = expected.getGenericsTypes();
+        GenericsType[] right = actual.getGenericsTypes();
+        if (left == null || right == null) {
+            return left == right;
+        }
+        if (left.length != right.length) {
+            return false;
+        }
+        for (int i = 0; i < left.length; i++) {
+            if (left[i].isPlaceholder() != right[i].isPlaceholder() ||
+                left[i].isWildcard() != right[i].isWildcard()) {
+                return false;
+            }
+            if (!left[i].isPlaceholder() && !left[i].isWildcard() &&
+                !sameReturnType(left[i].getType(), right[i].getType())) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static boolean isMapType(ClassNode type) {
