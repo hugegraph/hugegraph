@@ -1001,6 +1001,16 @@ independently of the release name.
   that steps down for good, as after a failed raft snapshot on a full disk
   ([apache/hugegraph#3222](https://github.com/apache/hugegraph/issues/3222)),
   would answer `/v1/health` forever; `pd.livenessPath` overrides.
+- A PD that cannot open its RocksDB store at startup (for example while
+  another process still holds the store's `LOCK` file) neither retries nor
+  exits: `/v1/ready` answers 503 with `STATE_UNINITIALIZED` while
+  `/v1/health` answers 200, as observed outside Kubernetes in
+  [apache/hugegraph#3226](https://github.com/apache/hugegraph/issues/3226).
+  Under the chart such a Pod is not Ready; with more than one PD its
+  startup and liveness probes use `/v1/health`, so the kubelet does not
+  restart it, and with a single PD they use `/v1/ready`, so it does. How
+  the state arises in a cluster, and whether a restart or Pod deletion
+  clears it, is untested. Deleting the `LOCK` files is not a fix.
 - Server discovery is a lease: a replaced Server can stay in PD's list for
   up to 45 seconds after it stops, so Hubble's cluster view may briefly
   show a stale address. Application traffic is unaffected, because it
