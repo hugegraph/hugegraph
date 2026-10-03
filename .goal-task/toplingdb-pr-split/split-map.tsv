@@ -119,7 +119,7 @@ hugegraph-pd/Dockerfile	@@ -33,9 +33,9 @@ RUN --mount=type=cache,id=hugegraph-ma
 hugegraph-pd/Dockerfile	@@ -56,21 +56,82 @@ RUN apt-get -q update \	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
 hugegraph-pd/docs/development.md	@@ -93,8 +93,13 @@ mvn clean install -DskipTests	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
 hugegraph-pd/hg-pd-core/pom.xml	@@ -49,7 +49,7 @@	P1	标准RocksDB统一8.10.2及已删除指标枚举适配
-hugegraph-pd/hg-pd-core/src/main/java/org/apache/hugegraph/pd/StoreNodeService.java	@@ -858,6 +858,10 @@ public synchronized void checkStoreStatus() {	P4-REVIEW	PD follower状态刷新及异常保留完整组；通用生产行为，需baseline对照证明本次必要性，否则独立跟进
+hugegraph-pd/hg-pd-core/src/main/java/org/apache/hugegraph/pd/StoreNodeService.java	@@ -858,6 +858,10 @@ public synchronized void checkStoreStatus() {	DEFER	base/source对照未发现TP或本次共用代码新增依赖；PD状态刷新及HStore属性白名单按既有通用问题独立跟进，实测新增回归则重开
 hugegraph-pd/hg-pd-core/src/main/java/org/apache/hugegraph/pd/store/HgKVStoreImpl.java	@@ -67,7 +67,7 @@ public void init(PDConfig config) {	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
 hugegraph-pd/hg-pd-dist/docker/docker-entrypoint.sh	"@@ -87,8 +87,30 @@ require_env ""HG_PD_AUTH_SECRET_KEY"""	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
 hugegraph-pd/hg-pd-dist/docker/docker-entrypoint.sh	"@@ -119,6 +141,7 @@ SPRING_APPLICATION_JSON=""$(cat <<JSON"	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
@@ -135,13 +135,13 @@ hugegraph-pd/hg-pd-dist/src/assembly/static/bin/util.sh	@@ -394,3 +394,21 @@ fun
 hugegraph-pd/hg-pd-dist/src/assembly/static/conf/application.yml	@@ -42,6 +42,10 @@ grpc:	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
 hugegraph-pd/hg-pd-dist/src/assembly/static/conf/rocksdb_pd.yaml	@@ -0,0 +1,164 @@	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
 hugegraph-pd/hg-pd-service/pom.xml	@@ -178,6 +178,8 @@	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
-hugegraph-pd/hg-pd-service/src/main/java/org/apache/hugegraph/pd/rest/IndexAPI.java	@@ -22,6 +22,7 @@	P4-REVIEW	PD follower状态刷新及异常保留完整组；通用生产行为，需baseline对照证明本次必要性，否则独立跟进
-hugegraph-pd/hg-pd-service/src/main/java/org/apache/hugegraph/pd/rest/IndexAPI.java	@@ -65,7 +66,7 @@ public BriefStatistics index() throws PDException, ExecutionException, Interrupt	P4-REVIEW	PD follower状态刷新及异常保留完整组；通用生产行为，需baseline对照证明本次必要性，否则独立跟进
-hugegraph-pd/hg-pd-service/src/main/java/org/apache/hugegraph/pd/rest/IndexAPI.java	@@ -99,6 +100,19 @@ public BriefStatistics index() throws PDException, ExecutionException, Interrupt	P4-REVIEW	PD follower状态刷新及异常保留完整组；通用生产行为，需baseline对照证明本次必要性，否则独立跟进
-hugegraph-pd/hg-pd-service/src/main/java/org/apache/hugegraph/pd/rest/IndexAPI.java	@@ -109,13 +123,13 @@ public BriefStatistics index() throws PDException, ExecutionException, Interrupt	P4-REVIEW	PD follower状态刷新及异常保留完整组；通用生产行为，需baseline对照证明本次必要性，否则独立跟进
+hugegraph-pd/hg-pd-service/src/main/java/org/apache/hugegraph/pd/rest/IndexAPI.java	@@ -22,6 +22,7 @@	DEFER	base/source对照未发现TP或本次共用代码新增依赖；PD状态刷新及HStore属性白名单按既有通用问题独立跟进，实测新增回归则重开
+hugegraph-pd/hg-pd-service/src/main/java/org/apache/hugegraph/pd/rest/IndexAPI.java	@@ -65,7 +66,7 @@ public BriefStatistics index() throws PDException, ExecutionException, Interrupt	DEFER	base/source对照未发现TP或本次共用代码新增依赖；PD状态刷新及HStore属性白名单按既有通用问题独立跟进，实测新增回归则重开
+hugegraph-pd/hg-pd-service/src/main/java/org/apache/hugegraph/pd/rest/IndexAPI.java	@@ -99,6 +100,19 @@ public BriefStatistics index() throws PDException, ExecutionException, Interrupt	DEFER	base/source对照未发现TP或本次共用代码新增依赖；PD状态刷新及HStore属性白名单按既有通用问题独立跟进，实测新增回归则重开
+hugegraph-pd/hg-pd-service/src/main/java/org/apache/hugegraph/pd/rest/IndexAPI.java	@@ -109,13 +123,13 @@ public BriefStatistics index() throws PDException, ExecutionException, Interrupt	DEFER	base/source对照未发现TP或本次共用代码新增依赖；PD状态刷新及HStore属性白名单按既有通用问题独立跟进，实测新增回归则重开
 hugegraph-pd/hg-pd-test/README.md	@@ -0,0 +1,15 @@	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
 hugegraph-pd/hg-pd-test/src/main/java/org/apache/hugegraph/pd/core/PDCoreTestBase.java	@@ -44,7 +44,8 @@	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
-hugegraph-pd/hg-pd-test/src/main/java/org/apache/hugegraph/pd/rest/IndexAPIClusterStateTest.java	@@ -0,0 +1,64 @@	P4-REVIEW	PD follower状态刷新及异常保留完整组；通用生产行为，需baseline对照证明本次必要性，否则独立跟进
+hugegraph-pd/hg-pd-test/src/main/java/org/apache/hugegraph/pd/rest/IndexAPIClusterStateTest.java	@@ -0,0 +1,64 @@	DEFER	base/source对照未发现TP或本次共用代码新增依赖；PD状态刷新及HStore属性白名单按既有通用问题独立跟进，实测新增回归则重开
 hugegraph-server/Dockerfile	@@ -33,9 +33,9 @@ RUN --mount=type=cache,id=hugegraph-maven-${SOURCE_REVISION},target=/root/.m2,sh	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
 hugegraph-server/Dockerfile	@@ -49,7 +49,7 @@ WORKDIR /hugegraph-server/	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
 hugegraph-server/Dockerfile	@@ -59,24 +59,91 @@ RUN apt-get -q update \	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
@@ -171,11 +171,11 @@ hugegraph-server/hugegraph-core/src/main/java/org/apache/hugegraph/backend/tx/Gr
 hugegraph-server/hugegraph-core/src/main/java/org/apache/hugegraph/backend/tx/GraphTransaction.java	@@ -743,7 +748,7 @@ public Iterator<Vertex> queryTaskInfos(Query query) {	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
 hugegraph-server/hugegraph-core/src/main/java/org/apache/hugegraph/backend/tx/GraphTransaction.java	@@ -888,7 +893,7 @@ public HugeEdge addEdge(HugeEdge edge) {	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
 hugegraph-server/hugegraph-core/src/main/java/org/apache/hugegraph/backend/tx/GraphTransaction.java	@@ -1827,7 +1832,7 @@ private void lockForUpdateProperty(SchemaLabel schemaLabel,	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
-hugegraph-server/hugegraph-core/src/main/java/org/apache/hugegraph/security/HugeSecurityManager.java	@@ -63,7 +63,11 @@ public class HugeSecurityManager extends SecurityManager {	P4-REVIEW	Gremlin到HStore transport属性白名单完整组；需baseline对照证明本次必要性，否则独立跟进
+hugegraph-server/hugegraph-core/src/main/java/org/apache/hugegraph/security/HugeSecurityManager.java	@@ -63,7 +63,11 @@ public class HugeSecurityManager extends SecurityManager {	DEFER	base/source对照未发现TP或本次共用代码新增依赖；PD状态刷新及HStore属性白名单按既有通用问题独立跟进，实测新增回归则重开
 hugegraph-server/hugegraph-core/src/main/java/org/apache/hugegraph/task/StandardTaskScheduler.java	@@ -596,7 +596,7 @@ private <V> Iterator<HugeTask<V>> queryTask(Map<String, Object> conditions,	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
 hugegraph-server/hugegraph-core/src/main/java/org/apache/hugegraph/traversal/algorithm/OltpTraverser.java	@@ -43,6 +43,7 @@	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
 hugegraph-server/hugegraph-core/src/main/java/org/apache/hugegraph/traversal/algorithm/OltpTraverser.java	@@ -73,7 +74,10 @@ protected OltpTraverser(HugeGraph graph) {	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
-hugegraph-server/hugegraph-core/src/test/java/org/apache/hugegraph/security/HugeSecurityManagerTest.java	@@ -36,5 +36,9 @@ public void testWhiteSystemPropertiesExcludeRemovedBackends() throws Exception {	P4-REVIEW	Gremlin到HStore transport属性白名单完整组；需baseline对照证明本次必要性，否则独立跟进
+hugegraph-server/hugegraph-core/src/test/java/org/apache/hugegraph/security/HugeSecurityManagerTest.java	@@ -36,5 +36,9 @@ public void testWhiteSystemPropertiesExcludeRemovedBackends() throws Exception {	DEFER	base/source对照未发现TP或本次共用代码新增依赖；PD状态刷新及HStore属性白名单按既有通用问题独立跟进，实测新增回归则重开
 hugegraph-server/hugegraph-dist/docker/README.md	@@ -27,6 +27,30 @@ Use Docker to quickly start a standalone HugeGraph Server with RocksDB.	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
 hugegraph-server/hugegraph-dist/docker/README.md	@@ -159,3 +183,11 @@ docker run -itd --name=graph -p 8080:8080 -e HG_SERVER_STARTUP_TIMEOUT_S=450 hug	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
 hugegraph-server/hugegraph-dist/docker/docker-entrypoint-test.sh	"@@ -22,7 +22,11 @@ TEST_HOME=$(mktemp -d ""${TMPDIR:-/tmp}/hugegraph-entrypoint-test.XXXXXX"")"	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
@@ -387,8 +387,8 @@ hugegraph-store/hg-store-node/src/test/java/org/apache/hugegraph/store/service/S
 hugegraph-store/hg-store-rocksdb/pom.xml	@@ -57,7 +57,7 @@	P1	标准RocksDB统一8.10.2及已删除指标枚举适配
 hugegraph-store/hg-store-rocksdb/src/main/java/org/apache/hugegraph/rocksdb/access/RocksDBOptions.java	@@ -56,7 +56,6 @@ public class RocksDBOptions extends OptionHolder {	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
 hugegraph-store/hg-store-rocksdb/src/main/java/org/apache/hugegraph/rocksdb/access/RocksDBSession.java	@@ -450,8 +450,9 @@ private void openRocksDB(String dbDataPath, long version) {	DEFER	既有行为覆盖增强、JRaft测试整理或纯格式；不机械搬入，若构造实测证实本次必要则重分类
-hugegraph-store/hg-store-test/src/main/java/org/apache/hugegraph/store/core/raft/HgStoreStateMachineTest.java	@@ -130,6 +130,21 @@ public void testOnApply() {	DEFER	仅随JRaft 1.3.14新增Iterator.setAutoCommitPerLog API纳入；保留1.3.13时排除
-hugegraph-store/hg-store-test/src/main/java/org/apache/hugegraph/store/core/raft/HgStoreStateMachineTest.java	@@ -155,16 +170,6 @@ public void setErrorAndRollback(long ntail, Status st) {	DEFER	仅随JRaft 1.3.14新增Iterator.setAutoCommitPerLog API纳入；保留1.3.13时排除
+hugegraph-store/hg-store-test/src/main/java/org/apache/hugegraph/store/core/raft/HgStoreStateMachineTest.java	@@ -130,6 +130,21 @@ public void testOnApply() {	P1/PARTIAL	PDStore JRaft1.3.14修复已实测NoSuchMethod；仅新增setAutoCommitPerLog override，原commit方法搬动不纳入
+hugegraph-store/hg-store-test/src/main/java/org/apache/hugegraph/store/core/raft/HgStoreStateMachineTest.java	@@ -155,16 +170,6 @@ public void setErrorAndRollback(long ntail, Status st) {	P1/PARTIAL	PDStore JRaft1.3.14修复已实测NoSuchMethod；仅新增setAutoCommitPerLog override，原commit方法搬动不纳入
 hugegraph-store/hg-store-test/src/main/java/org/apache/hugegraph/store/core/snapshot/HgSnapshotHandlerTest.java	@@ -334,23 +334,29 @@ public void testDbCompactionSkipsWhenRangeLockStillHeldAfterWait() throws Interr	DEFER	既有行为覆盖增强、JRaft测试整理或纯格式；不机械搬入，若构造实测证实本次必要则重分类
 hugegraph-store/hg-store-test/src/main/java/org/apache/hugegraph/store/core/snapshot/HgSnapshotHandlerTest.java	@@ -373,7 +379,7 @@ public void testDbCompactionReleasesPathLockWhenInterruptedWaitingForRangeLock()	DEFER	既有行为覆盖增强、JRaft测试整理或纯格式；不机械搬入，若构造实测证实本次必要则重分类
 hugegraph-store/hg-store-test/src/main/java/org/apache/hugegraph/store/core/snapshot/HgSnapshotHandlerTest.java	@@ -399,8 +405,41 @@ public void testDbCompactionReleasesPathLockWhenInterruptedWaitingForRangeLock()	DEFER	既有行为覆盖增强、JRaft测试整理或纯格式；不机械搬入，若构造实测证实本次必要则重分类
@@ -397,9 +397,9 @@ install-dist/release-docs/LICENSE	@@ -480,6 +479,11 @@ non-Apache-2.0 license te
 install-dist/release-docs/LICENSE	@@ -654,10 +658,48 @@ non-Apache-2.0 license text is required for a bundled component.	P1/P4/DEFER	P1删6.29.5/7.7.3；P4核TP许可；JRaft及补录/重复按真实产物另证，不整hunk复制
 install-dist/release-docs/licenses/LICENSE-rocksdbjni-8.10.2-SNAPSHOT.txt	@@ -0,0 +1,202 @@	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
 install-dist/scripts/build-topling-distribution.sh	@@ -0,0 +1,180 @@	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
-install-dist/scripts/dependency/known-dependencies.txt	@@ -282,8 +282,7 @@ jna-5.5.0.jar	P1/P4/DEFER	P1仅删旧RocksDB；SLF4J跟随cluster验证修复P4；JRaft变动待证
-install-dist/scripts/dependency/known-dependencies.txt	@@ -464,8 +463,6 @@ protostuff-core-1.6.0.jar	P1/P4/DEFER	P1仅删旧RocksDB；SLF4J跟随cluster验证修复P4；JRaft变动待证
-install-dist/scripts/dependency/known-dependencies.txt	@@ -487,7 +484,6 @@ slf4j-api-1.7.21.jar	P1/P4/DEFER	P1仅删旧RocksDB；SLF4J跟随cluster验证修复P4；JRaft变动待证
-pom.xml	@@ -89,15 +89,16 @@	P1/P4/DEFER	P1仅rocksdb.version；JRaft待必要性证据；TP资源RAT归P4；.goal-task排除不进入功能PR
-pom.xml	@@ -203,6 +204,8 @@	P1/P4/DEFER	P1仅rocksdb.version；JRaft待必要性证据；TP资源RAT归P4；.goal-task排除不进入功能PR
-pom.xml	@@ -221,6 +224,9 @@	P1/P4/DEFER	P1仅rocksdb.version；JRaft待必要性证据；TP资源RAT归P4；.goal-task排除不进入功能PR
+install-dist/scripts/dependency/known-dependencies.txt	@@ -282,8 +282,7 @@ jna-5.5.0.jar	P1/P4/DEFER	P1删旧RocksDB并替换PDStore JRaft1.3.13为1.3.14；Server1.3.11保留；SLF4J与其他补录按真实产物另证
+install-dist/scripts/dependency/known-dependencies.txt	@@ -464,8 +463,6 @@ protostuff-core-1.6.0.jar	P1/P4/DEFER	P1删旧RocksDB并替换PDStore JRaft1.3.13为1.3.14；Server1.3.11保留；SLF4J与其他补录按真实产物另证
+install-dist/scripts/dependency/known-dependencies.txt	@@ -487,7 +484,6 @@ slf4j-api-1.7.21.jar	P1/P4/DEFER	P1删旧RocksDB并替换PDStore JRaft1.3.13为1.3.14；Server1.3.11保留；SLF4J与其他补录按真实产物另证
+pom.xml	@@ -89,15 +89,16 @@	P1/P4/DEFER	P1统一RocksDB并按PD实测升PDStore JRaft1.3.14，Server1.3.11保持；TP资源RAT归P4，任务排除不入PR
+pom.xml	@@ -203,6 +204,8 @@	P1/P4/DEFER	P1统一RocksDB并按PD实测升PDStore JRaft1.3.14，Server1.3.11保持；TP资源RAT归P4，任务排除不入PR
+pom.xml	@@ -221,6 +224,9 @@	P1/P4/DEFER	P1统一RocksDB并按PD实测升PDStore JRaft1.3.14，Server1.3.11保持；TP资源RAT归P4，任务排除不入PR

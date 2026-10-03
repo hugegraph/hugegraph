@@ -20,7 +20,7 @@ P2 Server与Store生命周期互不直接依赖，如后续review确需减小PR�
 
 ## 混合修改块
 
-- 根POM：P1只引入rocksdb.version；JRaft保持原1.3.11/1.3.13，除非实际错误证明必须升级；HgStoreStateMachineTest的setAutoCommitPerLog override仅随1.3.14纳入，不能带到1.3.13。P4的资源排除另行处理。
+- 根POM：P1引入rocksdb.version并将PDStore JRaft升至1.3.14：PD core实测1.3.13调用8.10.2已删除的blockCacheCompressedSize而失败。Server原有1.3.11暂保留，若新路径依赖另证；HgStoreStateMachineTest的Iterator适配随1.3.14纳入。P4的资源排除另行处理。
 - RocksDBSessions.databaseOpened、RocksDBStore.opened和无session副作用测试属于P2。
 - OpenedRocksDB全部恢复锁/关闭改动属于P3；RocksDBStdSessions的两个open路径、reload/forceClose/resume一并处理。
 - RocksDBStore的typed contention、cached-owner copy/register和resume写锁属于P3；provider/truncate属于P4。

@@ -30,15 +30,15 @@
 
 ## 当前执行材料
 
-任务记录已提交到org的`task/topling-split-records-20261003`，提交`14a0e5787055d95f67c7a3c4f4081ce5f1f1132b`；已复核仅4份清单/状态文档，不进入功能PR，不改变代码或源分支。此后本地新增状态在下一里程碑同步。
+任务记录已提交到org的`task/topling-split-records-20261003`，最近已确认提交`5c82517bf63534f4d872526a844fc68f8c4174c0`；已复核仅4份清单/状态文档，不进入功能PR，不改变代码或源分支。此后本地新增状态在下一里程碑同步。
 
 - [拆分方案](design.md)、[逐文件/修改块归属](split-map.tsv)：198文件、404项（392个patch块、12个binary/no-patch）；P1独立，P2独立，P3依赖P2无副作用开库查询，P4依赖必要前置。
 - 完整只读来源：`/Users/zhu/github/hugegraph-topling-split-source`；通过gh clone获取，与固定head的2712个blob哈希全部一致。
-- P1隔离构造：`/Users/zhu/github/hugegraph-topling-split-runtime`；gh clone org/master后逐blob核验基线，再修改POM/metrics/LICENSE/清单。JRaft暂保持原版本。
+- P1隔离构造：`/Users/zhu/github/hugegraph-topling-split-runtime`；gh clone org/master后逐blob核验基线，再修改POM/metrics/LICENSE/清单。PDStore JRaft按实测ABI错误升至1.3.14，Server保留1.3.11。
 - 以下绝对路径为本机/专属主机证据索引，未随记录分支上传，不是公开附件。
 - 原始API/源码核验证据：`/Users/zhu/github/hugegraph-topling-split-evidence`；来源清单、base/source完整Git tree、源码哈希核验JSON均已保存。
 - P1远程目标为`hugegraph/hugegraph:task/topling-split-runtime`；先仅创建指向org基线的空分支，不发布未验证候选、不触碰master或原toplingdb。候选通过适用验证后再以非强制更新发布提交。
-- 本机Darwin arm64，Docker linux aarch64/10 CPU/约12.6GB，初次预检时无运行容器；当前Docker不响应，原构建容器状态unknown，未确认退出、未重启。真实Linux x86_64 TP能力待核实；不能将ARM测试当原生x86验收。
+- 本机Darwin arm64，Docker linux aarch64/10 CPU/约12.6GB，初次预检时无运行容器；Docker已恢复，原容器确认exit1非OOM，未重启；独立v3干净编译及标准打包已通过。真实Linux x86_64 TP能力待核实；不能将ARM测试当原生x86验收。
 - 本地主要checkout与org/master的blob差异仅Struct AuthOptions及TokenGenerator删除，符合Apache新增提交内容；未触碰这些文件，不把blob比较当索引状态。
 - 已发现Apache同源PR #3134，head同源、OPEN，保留不改。org现有toplingdb-auth-cascade分支不是拆分分支；随后已创建P1空分支task/topling-split-runtime，仅指向org基线，尚未发布候选提交。
 
@@ -105,7 +105,7 @@ TP 适配及来源 PR 新增共用代码引入或放大的回归在范围内；�
 
 ## 当前门槛与下一步
 
-逐项状态仅维护在[todo.md](todo.md)。当前已构造3个候选、发布0个子PR；重任务等待Docker恢复，P4依赖/许可仍可独立推进。
+逐项状态仅维护在[todo.md](todo.md)。当前已构造P1/P2/P3及P4累积候选、发布0个子PR；重任务串行推进。PD测试证实旧JRaft与8.10.2存在API不兼容，正在定位最小升级；P4外部输入实现及许可核查并行推进。
 
 - 全部必要功能单元合入 Apache、最终验证及审查通过、产品文档/许可证到位且无未解决高严重性发现后，才可完成任务；保留原 PR/分支，关闭或清理另经用户确认。
-- 下一步：在不重启未知状态构建的前提下核对Docker恢复；完成P2及基于P2的P3候选最终静态复审，恢复后串行完成P1最终源码验证及服务验收。
+- 下一步：修正有实测依据的P1 JRaft依赖，串行完成模块及旧数据服务验证；同步完成P4显式JNI路径/哈希输入和相关文档，再做三人独立复审。
