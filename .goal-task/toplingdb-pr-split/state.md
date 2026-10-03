@@ -30,7 +30,7 @@
 
 ## 当前执行材料
 
-任务记录已提交到org的`task/topling-split-records-20261003`，最近已确认提交`edaac33c4ffdfa5ae8d5de5ca94e72f0074334db`；已复核仅4份清单/状态文档，不进入功能PR，不改变代码或源分支。此后本地新增状态在下一里程碑同步。
+任务记录已提交到org的`task/topling-split-records-20261003`，最近已确认提交`85a75f5f9a6c573ccf714d057a00beda7fd53d76`；包含4份清单/状态文档及PR说明配图/提示词，不进入功能PR，不改变代码或源分支。此后本地新增状态在下一里程碑同步。
 
 - [拆分方案](design.md)、[逐文件/修改块归属](split-map.tsv)：198文件、404项（392个patch块、12个binary/no-patch）；P1独立，P2独立，P3依赖P2无副作用开库查询，P4依赖必要前置。
 - 完整只读来源：`/Users/zhu/github/hugegraph-topling-split-source`；通过gh clone获取，与固定head的2712个blob哈希全部一致。
@@ -40,7 +40,7 @@
 - P1已发布[PR #262](https://github.com/hugegraph/hugegraph/pull/262)，head `28a7d6531aaee6c00cc21a746895c3c3ba7c10c1`；P2已发布[PR #261](https://github.com/hugegraph/hugegraph/pull/261)，head `7d1472b80a878ab83154a4daee9bf5060775da99`。均基于org/master独立提交，不触碰master或原toplingdb。按用户最新要求，完成可审查步骤及适用提交前检查后及时非强制提交并创建PR，后续服务/CI门槛在PR中明确保留。
 - 本机Darwin arm64，Docker linux aarch64/10 CPU/约12.6GB，初次预检时无运行容器；Docker已恢复，原容器确认exit1非OOM，未重启；独立v3干净编译及标准打包已通过。真实Linux x86_64 TP能力待核实；不能将ARM测试当原生x86验收。
 - 本地主要checkout与org/master的blob差异仅Struct AuthOptions及TokenGenerator删除，符合Apache新增提交内容；未触碰这些文件，不把blob比较当索引状态。
-- 已发现Apache同源PR #3134，head同源、OPEN，保留不改。org现有toplingdb-auth-cascade分支不是拆分分支；随后已创建P1空分支task/topling-split-runtime，仅指向org基线，尚未发布候选提交。
+- 已发现Apache同源PR #3134，head同源、OPEN，保留不改。org现有toplingdb-auth-cascade分支不是拆分分支；P1/P2候选已发布，当前PR链接及head见上文。
 
 ## 初始化待办
 
@@ -65,7 +65,7 @@ TP 适配及来源 PR 新增共用代码引入或放大的回归在范围内；�
 
 ## 仓库、提交与合入约定
 
-- 子分支建在 `hugegraph/hugegraph`；初始 draft PR 默认 base 为 org/master，最终提交到 `apache/hugegraph` master。
+- 子分支建在 `hugegraph/hugegraph`；所有 PR 使用非Draft状态，默认 base 为 org/master，最终提交到 `apache/hugegraph` master。
 - 版本库操作只使用 gh 内置命令或 gh api，不直接调用 git，不通过别名/脚本隐藏调用。允许 gh 自身的 clone/checkout 内置实现。
 - 可用 Git Data API 创建 tree/commit/ref；更新 ref 前核对预期父提交并使用 `force:false`。与其他会话冲突时刷新分析，不覆盖。
 - 本范围所需源码、环境、依赖、提交、分支、推送、建 PR、测试和审查响应已授权，不重复询问；授权不包含每次合入。
@@ -106,7 +106,11 @@ TP 适配及来源 PR 新增共用代码引入或放大的回归在范围内；�
 
 ## 当前门槛与下一步
 
-逐项状态仅维护在[todo.md](todo.md)。当前已构造P1/P2/P3及P4累积候选、发布2个子PR；重任务串行推进。PD测试证实旧JRaft与8.10.2存在API不兼容，正在定位最小升级；P4外部输入实现及许可核查并行推进。
+逐项状态仅维护在[todo.md](todo.md)。当前已构造P1/P2/P3及P4累积候选、发布2个子PR；重任务串行推进。PD测试证实旧JRaft与8.10.2存在API不兼容，P1已采用实测通过的最小升级；P4外部输入实现已完成，许可闭包仍待齐备。
 
 - 全部必要功能单元合入 Apache、最终验证及审查通过、产品文档/许可证到位且无未解决高严重性发现后，才可完成任务；保留原 PR/分支，关闭或清理另经用户确认。
-- 下一步：修正有实测依据的P1 JRaft依赖，串行完成模块及旧数据服务验证；同步完成P4显式JNI路径/哈希输入和相关文档，再做三人独立复审。
+- 下一步：完成P3多图/真实挂载验证并发布非Draft PR；释放重任务槽后执行P4标准构建及回归测试。P1旧数据服务升级、P2 API/真实关闭与P4真实TP及许可门槛继续保留。
+
+## PR 描述规则（用户最新要求）
+
+描述突出 before → after 的核心行为差异，通俗精炼；按内容选择对照表、ASCII、Mermaid或有用的生成配图。不在正文堆放提交哈希、日志、测试计数和排错流水账；详细证据保存在任务记录与CI，只保留简短验证结论及必要未完成项。所有PR保持非Draft。
