@@ -57,3 +57,9 @@ P4已实现上游源码不检入opaque JNI、由显式路径和校验和输入�
 
 - P3拆分曾漏掉一个相邻hunk，现已恢复cached-owner存活检查、同锁copy/open/register及typed recovery错误不走CF文字fallback；完整open方法与来源字节一致，三人静态复审完成；恢复/WAL定向测试、多图及真实bind mount拒绝已验证，服务级故障演练仍待完成。
 - P2扫描关闭路径的executor拒绝/异步失败会在onError后继续空页/成功完成；现统一失败终态、串行observer回调、跳过当前线程中断，并在正常取消前先确立完成终态。补5项定向回归及Store stop容器CI入口。来源类5/5失败、当前类5/5通过的probe使用缓存peer类，仅是局部红绿证据；三人静态复审已通过，仍需最终源码完整构建及真实服务验收。
+
+## 本轮交付关系
+
+P4/#264现已基于临时组合前置f7428943发布：P1 169d09bf + P3 2eb60f03，P3已继承P2 976ecc29。后续P1合入master后，P4可在保留祖先历史的正常master合并并核对diff后只以P3为未合入前置；不force-push、不把临时组合分支直接合master。网站#510与P4配对，合入授权分仓库取得。
+
+P4标准与Topling包分别构造；空standard PD/Store根也需原子claim，只有旧非空未标记目录保留unenforced例外。Compose允许精确完整声明集合或精确实际使用集合，不允许任意子集；HA每个节点数据源/目标/provider独立断言。脏输入的三类Topling根必须从directory与tar排除，实际负例已验证。JNI发版合规继续后续TODO，actual唯一加载与服务gate不延期。

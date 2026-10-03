@@ -1,7 +1,7 @@
 # ToplingDB PR 拆分任务
 
 更新：2026-10-04（Asia/Singapore）。用户已确认 deep 模式与本文件初始化。
-用户已明确恢复执行；已发布P1/P2/P3 PR，尚未合入，原 Linux goal 保持暂停。
+用户已明确恢复执行；已发布四个功能PR与配套网站文档PR，尚未合入，原 Linux goal 保持暂停。
 
 ## 入口与依据
 
@@ -30,7 +30,7 @@
 
 ## 当前执行材料
 
-任务记录已提交到org的`task/topling-split-records-20261003`，最近已确认提交`d4447618ec3fa5357b53b5dcd244828aa6905b8d`；包含4份清单/状态文档及PR说明配图/提示词，不进入功能PR，不改变代码或源分支。此后本地新增状态在下一里程碑同步。
+任务记录已提交到org的`task/topling-split-records-20261003`，本次同步父提交`bf03864cc93d2ee47d58304c2abe84dcaf7818a5`；包含4份清单/状态文档及PR说明配图/提示词，不进入功能PR，不改变代码或源分支。此后本地新增状态在下一里程碑同步。
 
 - [拆分方案](design.md)、[逐文件/修改块归属](split-map.tsv)：198文件、404项（392个patch块、12个binary/no-patch）；P1独立，P2独立，P3依赖P2无副作用开库查询，P4依赖必要前置。
 - 完整只读来源：`/Users/zhu/github/hugegraph-topling-split-source`；通过gh clone获取，与固定head的2712个blob哈希全部一致。
@@ -38,7 +38,7 @@
 - 以下绝对路径为本机/专属主机证据索引，未随记录分支上传，不是公开附件。
 - 原始API/源码核验证据：`/Users/zhu/github/hugegraph-topling-split-evidence`；来源清单、base/source完整Git tree、源码哈希核验JSON均已保存。
 - P1已发布[PR #262](https://github.com/hugegraph/hugegraph/pull/262)，head `169d09bfae7edb15a713d0170534c9e0b9ea0480`；P2已发布[PR #261](https://github.com/hugegraph/hugegraph/pull/261)，head `976ecc29d5c571b25cf96659461ac6e6e0a05dc1`。均基于org/master独立提交，不触碰master或原toplingdb。按用户最新要求，完成可审查步骤及适用提交前检查后及时非强制提交并创建PR，后续服务/CI门槛在PR中明确保留。
-- P3已发布[PR #263](https://github.com/hugegraph/hugegraph/pull/263)，head `2eb60f0378e31d484e0c97660f68078e6deb69ba`，基于P2，仅10个增量文件；非Draft，远端10份文件与已验证源码一致。P4继承反馈后标准53项通过，当前同步新Store扫描/打包修复，最终复测后发布。
+- P3已发布[PR #263](https://github.com/hugegraph/hugegraph/pull/263)，head `2eb60f0378e31d484e0c97660f68078e6deb69ba`，基于P2，仅10个增量文件；非Draft，远端10份文件与已验证源码一致。P4已发布[PR #264](https://github.com/hugegraph/hugegraph/pull/264)，head `9af9d146659a2c8f290d231be7d0777421585f38`，base组合分支`task/topling-split-prerequisites`（head `f7428943e73e407d494aba8819ffef2462521902`）；109份增量源码。配套网站[PR #510](https://github.com/apache/hugegraph-doc/pull/510)，head `b2e9a63329201bbb52ba34e6464214a9377844da`。
 - 本机Darwin arm64，Docker linux aarch64/10 CPU/约12.6GB，初次预检时无运行容器；Docker已恢复，原容器确认exit1非OOM，未重启；独立v3干净编译及标准打包已通过。真实Linux x86_64 TP能力待核实；不能将ARM测试当原生x86验收。
 - 本地主要checkout与org/master的blob差异仅Struct AuthOptions及TokenGenerator删除，符合Apache新增提交内容；未触碰这些文件，不把blob比较当索引状态。
 - 已发现Apache同源PR #3134，head同源、OPEN，保留不改。org现有toplingdb-auth-cascade分支不是拆分分支；P1/P2候选已发布，当前PR链接及head见上文。
@@ -107,10 +107,10 @@ TP 适配及来源 PR 新增共用代码引入或放大的回归在范围内；�
 
 ## 当前门槛与下一步
 
-逐项状态仅维护在[todo.md](todo.md)。当前已构造P1/P2/P3及P4累积候选、发布3个子PR；重任务串行推进。PD测试证实旧JRaft与8.10.2存在API不兼容，P1已采用实测通过的最小升级；P4外部输入实现已完成；JNI发版合规材料按用户决定单列后续TODO。
+逐项状态仅维护在[todo.md](todo.md)。当前已构造P1/P2/P3及P4累积候选、发布四个功能PR与一个网站PR；重任务串行推进。PD测试证实旧JRaft与8.10.2存在API不兼容，P1已采用实测通过的最小升级；P4外部输入实现已完成；JNI发版合规材料按用户决定单列后续TODO。
 
 - 全部必要功能单元合入 Apache、最终验证及审查通过、产品文档到位且无未解决高严重性功能发现后，才可完成任务；保留原 PR/分支，关闭或清理另经用户确认。
-- 下一步：完成P2新扫描/打包反馈的三路复审及实际package验证，正常追加P2/P3后回复resolve；再执行P4最终继承树验证、发布及真实JNI与服务验收；P2真实关闭harness与独立网站文档候选继续推进。P1旧数据服务升级、P2 API/真实关闭与P4真实TP功能验证继续保留；JNI许可/发版合规按用户最新决定列为后续TODO，不阻塞本轮。
+- 下一步：串行执行P4标准匿名volume镜像启动与真实Topling Server/PD/Store验收；确认实际服务JAR/native唯一加载、数据读写重启、正常关闭和拒绝路径。P1旧服务升级、P2 API/扫描TTL关闭、P3服务故障和真实Raft集群仍保留。JNI发版合规单列后续TODO。
 
 ## PR 描述规则（用户最新要求）
 
@@ -124,44 +124,24 @@ TP 适配及来源 PR 新增共用代码引入或放大的回归在范围内；�
 
 P1在现有非Draft #262上以正常新提交调整，不合入、不force-push。长期保留最小Java兼容夹具、薄脚本与一个CI job，位置为`hugegraph-server/hugegraph-test/src/test/rocksdb-compatibility/`，不进入生产二进制。用Maven effective POM读取Server/PD/Store真实RocksDB版本，PR比较base/head，push比较before/after；只执行发生变化且去重后的版本对，不维护历史矩阵，无法确定时硬失败。本次仅PD 6.29.5到8.10.2、Store 7.7.3到8.10.2，Server不变跳过。修改测试/CI需实测变化执行、未变跳过及兼容路径；真实服务、Raft、集群与TP仍单独验收。P4同步继承路径与CI；不要把此测试扩成升级工具或平台。
 
-## 模型切换后的恢复检查点
+## 最新恢复检查点：2026-10-04
 
-用户切换模型前的P1/#262兼容测试调整已完成，正常追加提交`f550935eae208ba0ba46761143969e60243919fb`，非Draft且标题保留(1/4)，PR说明已更新；新head的rocksdb-compatibility CI已成功。未执行任何合入。P4受影响路径、文档、前置计划已同步；已启动的格式检查及全仓clean compile自然结束成功、源码无漂移、容器已清理，未开始新任务。
+用户已恢复手动执行，并要求每个里程碑刷新全部已提交PR的head、CI、issue/review评论和未resolve讨论；确认问题后修复、实测、正常追加提交，再及时resolve。原平台goal仍paused；不创建重复goal/automation，不自动合入。
 
-恢复时先刷新三个PR的head/CI，再继续原goal的服务与真实TP验收以及P4/网站PR交付。P1的两组兼容、跳过/去重/错误路径已完成，不要重复旧固定版本矩阵。P4此前unit/core/清表红绿/相关模块验证已通过，本次继承测试改动后的干净编译也已通过；细节见本机证据`p4/inherited-fixture-pause-state.json`与`p1/compatibility-validation/validation-summary.json`。P1旧服务fresh run3已实际运行：旧PD/Store的128条数据、元数据及分区身份核验通过，但旧Store正常关闭超时，升级阶段未执行，失败证据与旧库保留。P2真实API/扫描TTL关闭和P3服务故障演练仍待运行。P4尚未发布，临时前置组合分支仅有计划，所需P1 head已更新为f550935e。JNI许可/发版合规仍按用户明确决定单列后续TODO，不阻塞功能交付。
+当前功能heads：P1 169d09bfae7edb15a713d0170534c9e0b9ea0480、P2 976ecc29d5c571b25cf96659461ac6e6e0a05dc1、P3 2eb60f0378e31d484e0c97660f68078e6deb69ba、P4 9af9d146659a2c8f290d231be7d0777421585f38。均非Draft并保留(1/4)至(4/4)。P1/P2独立，P3 stack于P2；P4 base组合P1与P3（已含P2），组合分支只展示TP增量，不合入master。所有org/Apache合入仍逐PR待用户确认。
 
-## 里程碑评论闭环（用户最新要求）
+P1兼容夹具与边界完成，两旧版本路径、未变/JRaft-only跳过、去重、未知版本硬失败以及真实6 JVM已通过；当前head兼容CI成功。P2事务/扫描关闭和Node普通library+exec artifact反馈已修复，中央Store34、Node11、full format/cleancompile/package/Distidentity通过；三个独立review及补充test-only复审通过，对应线程resolve。976仅暴露RISC-V stop日志，未降低exit/timeout也未证明真实关闭修复。P3正常merge继承P2，恢复native42、transaction3、MultiGraphs11（2既有skip）、Store34/Node11及package通过；typedcause断言仅改测试，原始cause保留。
 
-用户切换模型后已明确恢复执行。每个里程碑刷新已提交PR的当前head、CI、issue/review评论与未resolve讨论；按当前源码确认问题，确认存在后修复、实测、正常追加提交，再及时resolve对应线程。旧/误报/与用户既定边界冲突的建议记录依据，不把未修复问题当已解决。本次刷新P1/P2/P3分别有4/4/6个未resolve线程，P2事务边界与P3共享恢复锁反馈优先核查，未合入任何PR。
+P4新反馈修复9af：PD unclassified executable JAR恢复打包；Compose volume集合及每个HA节点严格挂载断言；三种Topling数据根从目录/归档排除；三个standard镜像建立默认数据根；空standard PD/Store根原子claim。恰3名独立最终review无重要未解决发现。实际Linux full format/cleancompile/cleanpackage、三组件真实JNI输入的Topling生成、发行目录/tar及dirty input不变、provider ownership/entrypoint真实争用通过；Compose v5实际render及HA负例通过（不冒称v2实测）。泄漏负例baseline0、directory1、archive1已核，先前harness误断言失败原样留证。四条功能反馈已reply+resolve；标准匿名volume镜像线程仍等真实镜像启动再resolve。JNI许可线程按用户接受的后续TODO关闭，未宣称合规已通过。
 
-## 本轮反馈修复验证
+网站#510：9文件候选逐字节远端核验，双语最新指南及6篇历史notice保留原route；实际latest OINK变换/strict Hugo/artifact验证、213 source/render、24原搜索ranking及12指南/移动/语言切换/搜索浏览器验证通过。gh-only排除14项未变Gitworktree安全fixture，不声称full suite全运行。配套PR所有CI已完成成功或publish预期skip，无未resolve讨论。
 
-P1三项低风险反馈修复已本地完成，待串行格式/编译、Iterator及兼容实测。P2修复遍历器关闭误伤调用方事务、边界清理受onClose(COMMIT)影响以及Store测试目录/CI漏跑，已同步P3/P4，实测进行中。P3修复所有副本共享恢复后的数据库、恢复锁移交、只读checkpoint副作用及错误cause；本轮格式/clean compile和42项真实RocksDB测试全部通过、无skip、源文件无漂移，容器已清理，尚未发布本轮提交。
+本里程碑CI/评论证据在E/feedback-20261004/resume-milestone：P1/P2/P3当前head无新开放讨论；大部分CI成功，但cluster与部分PD/Store/HStore仍在排队/运行。P2新headRISC-V现成功，不替代服务关闭gate。P4新head绝大部分尚排队/运行，不报绿。新评论/CI随下一里程碑再刷新。
 
-恰好三名独立只读审查者已完成。两人无发现，第三人指出快照恢复与活跃懒查询迭代器的原有生命周期漏洞。固定P2基线与原P3源码对照确认并非本轮或P3引入/放大；独立跟进，不在此goal扩展通用租约框架，也不宣称已修复或已验证该并发边界。恢复锁反馈自身仍按本轮实测验收。另有GremlinJob原有finally提交行为，同样未在本轮改动或声称修复。详见本机E/feedback-20261004/independent-review-disposition.json。
+真实服务gate未完成：P1旧PD/Store run3已有128条数据、digest、metadata及partitionidentity通过，旧Store实际ContextClosedListener.wait循环关闭超时，栈和数据保留、容器清理，尚未升级PASS；P2独立API/TTL/scan及正常close待执行；P3服务故障与真实Raft/集群待执行；P4真实JNI actual CodeSource/native maps/hash、服务重启/正常close待执行。旧iterator租约和GremlinJob finally提交为固定base已有通用TODO，没有宣称修复。
 
-## 评论修复交付里程碑
+执行材料：P4源码/109文件manifest在E/p4；新反馈证据F/p4；干净standard发行目录F/p4/actual-new-feedback/clean-standard/{server,pd,store}。源码树的standard发行目录是dirty fixture，勿用于真实服务。Topling pristine tar在P4/hugegraph-{server,pd,store}/apache-hugegraph-{component}-1.7.0-topling.tar.gz，实际服务先提取到全新专属根，不使用distribution test修改后的目录。JNI JAR SHA256 86eb1bd3d9f84ef0dddd3fe95c640a6f145ca2d5a26a5ba628f1f298a2031fae，SO c25ff6e676290db6db47df0954640aa609c391450ec90e1a8eec1f87e174dd38；这些仅身份与打包证据，不是actual加载结论。
 
-本轮正常追加P1 `169d09bfae7edb15a713d0170534c9e0b9ea0480`、P2 `ffe1e54053aa904aa2b4305f3be51968153ec4c4`、P3 `6910e301e1528a4dc5232f369d5a5c11ef3ca9f6`；均保持非Draft和编号后缀，未合入。P3新提交同时以旧P3和最新P2为父，普通合并保留双方历史，不force-push。P1/P2/P3原有讨论均已处理并resolve或核实已resolve；误报/既定边界建议在回复中说明依据，没有当作代码修复。每个新里程碑仍须重新拉取新反馈。
+仅一个heavy batch。准备harness分别在E/p4/runtime-server-acceptance、runtime-pdstore-acceptance、runtime-standard-images，尚未开始实际服务。当前可复用local/hg-topling-split-validation:20261004（JDK11/Python3/rsync/unzip/flock）；本机ARM64下linux/amd64属模拟，不当原生physical x86结论。重任务随进程caffeinate -i；成功证据保存后立即删专属容器，失败先诊断归档再exact删，镜像/缓存保留。不重启清理他人资源，不删pending/checkpoint/lock绕过失败。
 
-P1本轮格式/clean compile及10项StateMachine测试通过；两组旧版本6 JVM兼容与未变跳过再次通过。首次兼容启动镜像缺Python，保留失败后复用已有服务镜像，未加依赖。P2本轮全仓格式/clean compile通过；RocksDB完整core825项、0失败0错误、45已有skip；新事务3项全执行，memory下3项也通过；集中Store suite24项全部通过无skip。测试首轮遗留损坏数据与有限查询/暂停扫描器夹具错误均留证并按根因修正；没改生产断言或扩展历史矩阵。P3本轮恢复代码和42项原生测试证书匹配；继承的P2文件逐字节匹配，最新整体树补充重放已通过：全仓格式/clean compile、42恢复加3继承事务测试，0失败0错误0skip，无源文件漂移，容器已清理。
-
-P4源路径、CI、测试套件、3项反馈与文档已同步，前置计划采用上述最新heads；109份增量清单匹配当前源文件，仍未创建P4分支/PR。JNI输入JAR/native哈希已复核，真实加载/服务仍待执行。记录E/feedback-20261004和E/p4/feedback-prerequisite-sync.json。
-
-环境恢复：本机系统sleep后OrbStack VM未wake，app显示Running但Docker /_ping及状态查询超时；只终止本任务挂起CLI，随后短时caffeinate用户活动信号使VM wake和ping=OK，没有重启/清理其他资源。挂起容器已确认不存在。后续重任务用随进程退出的caffeinate -i防闲置睡眠；成功容器仍立即清理，失败证据保留。
-
-最新CI反馈：Struct失败定位为既有JaCoCo配置契约未包含新store-server-test。只更新测试契约的profile/报告/session及顺序，保留严格校验；Linux下P2/P3/P4的JaCoCo与Codecov两个完整契约实际运行通过，生产Java未变。P2/P3已正常追加此修正，当前heads见上文，P4继续继承；CI待新head结果。P4反馈整合后的format/clean compile和定向标准验证为当前唯一重任务。
-
-## 2026-10-04 第二轮评论/CI检查点
-
-原14条讨论均已闭环；当前里程碑P1/P3无未resolve，P2新两条扫描错误终结及borrowed receiver中断反馈确认存在，修复尚未提交。#263 cluster CI在package编译失败，真实cluster测试未执行；Node采用普通library主artifact及exec classifier，Dist选exec且输出名保持一致，P3/P4已同步。本轮首测两个失败保留，根因是batch fixture perKeyMax=0未读取iterator；round2修正并新增真实路径验证，完全移除借用回调线程中断，channel关闭可靠排空。当前唯一重任务为P2 round2 format/cleancompile/package及ServerSuite，恰3名独立只读复审进行中。
-
-P4反馈后的标准53项已通过无skip，首次反射测试适配失败与修复均留证，容器已删除；新Store继承树尚需最终验证。网站独立gh API快照719文件和8文件候选、链接、轻量Python及严格Hugo通过，latest assembly/搜索/artifact/内容审查待完成。Docker系统休眠问题用caffeinate -i按任务防休眠；不重启或清理他人服务。所有服务、真实TP、当前head CI及逐PR用户合入授权仍保留，未合入任何PR。
-
-## 最新已提交反馈里程碑
-
-P2/#261正常追加b780352775de6f8464a9108730d05d22d95d099b修复扫描错误终结及Node packaging，最后Store34/Node11、format/cleancompile/package/Distidentity全部通过；恰3名最终复审无重要未修复发现，test-only等待状态TOCTOU也三人确认，相关两review线程已回复resolve。随后976ecc29d5c571b25cf96659461ac6e6e0a05dc1仅让RISC-V退出stop诊断可见，保留失败exit与10s阈值，相关shell隔离验证通过；不能宣称关闭问题已修复。
-
-P3/#263旧6910e301 CI确认异常cause保留后MultiGraphs deepestcause旧断言失配，P3/P4只修测试typedwrapper/原始cause断言并保留失败场景。当前唯一重任务为P3最终整体树验证，native42及MultiGraphs11（2既有skip）已通过、剩余package进行中，尚未提交新P3。P4最终继承树复测与PR发布继续；网站latest真实assembly/artifact通过，独立审查后的最后双语mount范围修正需要最终重建/source/search。三仓库合入仍无授权，不执行合入。
-
-P3最新正常merge提交2eb60f0378e31d484e0c97660f68078e6deb69ba，parents旧6910e301及P2最新976ecc29；10文件恢复增量保持，前置scan/package/CI诊断继承。整体树formatter/cleancompile、native42、transaction3、MultiGraphs11（2原skip）、中央Store34、Node11及actualpackage/Distidentity通过，容器删除。当前唯一heavy为P4最终继承树相同边界验证；P4前置组合计划已更新到上述heads，尚无P4 ref/PR。
+上述E为/Users/zhu/github/hugegraph-topling-split-evidence，F为E/feedback-20261004，P4为/Users/zhu/github/hugegraph-topling-split-provider；绝对本机证据不随记录分支上传，远端状态仅为恢复索引。
