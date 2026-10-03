@@ -35,8 +35,8 @@ import org.rocksdb.RocksDB;
 import org.rocksdb.RocksIterator;
 import org.rocksdb.WriteOptions;
 
-/** Cross-version JNI fixture. Each phase must run in a separate JVM. */
-public final class RocksDBUpgradeFixture {
+/** RocksDB SST/WAL compatibility test. Each phase must run in a separate JVM. */
+public final class RocksDBCompatibilityTest {
 
     private static int assertions;
 
@@ -73,7 +73,7 @@ public final class RocksDBUpgradeFixture {
              FlushOptions flush = new FlushOptions().setWaitForFlush(true);
              RocksDB db = RocksDB.open(options, path.toString(), Arrays.asList(
                      new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY, cfOptions),
-                     new ColumnFamilyDescriptor(bytes("upgrade-fixture"), cfOptions)), handles)) {
+                     new ColumnFamilyDescriptor(bytes("compatibility-fixture"), cfOptions)), handles)) {
             try {
                 for (ColumnFamilyHandle handle : handles) {
                     if (seed) {
@@ -175,6 +175,6 @@ public final class RocksDBUpgradeFixture {
         return value.getBytes(StandardCharsets.UTF_8);
     }
 
-    private RocksDBUpgradeFixture() {
+    private RocksDBCompatibilityTest() {
     }
 }

@@ -28,14 +28,36 @@ on:
 
 # TODO: consider merge to one ci.yml file
 jobs:
-  rocksdb-upgrade:
+  rocksdb-compatibility:
     permissions:
       contents: read
     runs-on: ubuntu-24.04
+    env:
+      BEFORE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+      AFTER_SHA: ${{ github.event.pull_request.head.sha || github.event.after }}
     steps:
-      - name: Checkout
+      - name: Require exact comparison revisions
+        run: |
+          for revision in "$BEFORE_SHA" "$AFTER_SHA"; do
+            if [[ ! "$revision" =~ ^[0-9a-f]{40}$ || "$revision" =~ ^0+$ ]]; then
+              echo "Error: cannot determine the before/after revision for RocksDB compatibility" >&2
+              exit 1
+            fi
+          done
+
+      - name: Checkout before
         uses: actions/checkout@v4
         with:
+          ref: ${{ env.BEFORE_SHA }}
+          path: before
+          persist-credentials: false
+
+      - name: Checkout after
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ env.AFTER_SHA }}
+          path: after
           persist-credentials: false
 
       - name: Install Java 11
@@ -44,27 +66,22 @@ jobs:
           java-version: '11'
           distribution: 'zulu'
 
-      - name: Resolve standard RocksDB JNI versions
+      - name: Test only changed RocksDB version pairs
         run: |
-          for version in 6.29.5 7.7.3 8.10.2; do
-            mvn -B -ntp dependency:get \
-              -Dartifact=org.rocksdb:rocksdbjni:$version -Dtransitive=false
-          done
+          bash after/hugegraph-server/hugegraph-test/src/test/rocksdb-compatibility/run.sh \
+            "$GITHUB_WORKSPACE/before" "$GITHUB_WORKSPACE/after" \
+            "$RUNNER_TEMP/rocksdb-compatibility"
 
-      - name: Verify old SST and WAL data with the new JNI
-        run: |
-          bash install-dist/scripts/rocksdb-upgrade/run.sh \
-            "$HOME/.m2/repository/org/rocksdb/rocksdbjni/6.29.5/rocksdbjni-6.29.5.jar" \
-            "$HOME/.m2/repository/org/rocksdb/rocksdbjni/7.7.3/rocksdbjni-7.7.3.jar" \
-            "$HOME/.m2/repository/org/rocksdb/rocksdbjni/8.10.2/rocksdbjni-8.10.2.jar" \
-            "$RUNNER_TEMP/rocksdb-upgrade"
-
-      - name: Preserve upgrade logs and synthetic databases
+      - name: Preserve comparison and synthetic-data failure evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: rocksdb-upgrade-${{ github.sha }}
-          path: ${{ runner.temp }}/rocksdb-upgrade/
+          name: rocksdb-compatibility-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/rocksdb-compatibility/run.log
+            ${{ runner.temp }}/rocksdb-compatibility/models/
+            ${{ runner.temp }}/rocksdb-compatibility/pairs.tsv
+            ${{ runner.temp }}/rocksdb-compatibility/cases/
 
   struct:
     runs-on: ubuntu-latest

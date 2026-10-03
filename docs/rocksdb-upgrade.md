@@ -12,51 +12,30 @@ configuration copier calls compressed-cache methods removed from RocksDB 8.x,
 which prevents Raft storage initialization. Treat the JNI and JRaft changes as
 one service upgrade and validate existing Raft logs with the complete new package.
 
-## Reproducible JNI fixture
+## RocksDB compatibility test
 
-Run [the fixture](../install-dist/scripts/rocksdb-upgrade/run.sh) with a JDK and
-explicit, trusted standard `org.rocksdb:rocksdbjni` JARs. It adds no build
-dependency and does not download or select JARs implicitly. From the repository
-root, using the Maven local repository as an example:
+The permanent [compatibility test](../hugegraph-server/hugegraph-test/src/test/rocksdb-compatibility/run.sh)
+uses Maven effective POMs to compare the actual Server, PD and Store RocksDB
+versions. CI compares PR base/head or push before/after, fails if a version
+cannot be resolved, and runs only changed version pairs, deduplicated across
+components. POM or JRaft changes alone do not run the JNI test. No historical
+version matrix is maintained.
+
+Run from two complete source checkouts with Java 11+, Maven and Python 3:
 
 ```bash
-bash install-dist/scripts/rocksdb-upgrade/run.sh \
-  "$HOME/.m2/repository/org/rocksdb/rocksdbjni/6.29.5/rocksdbjni-6.29.5.jar" \
-  "$HOME/.m2/repository/org/rocksdb/rocksdbjni/7.7.3/rocksdbjni-7.7.3.jar" \
-  "$HOME/.m2/repository/org/rocksdb/rocksdbjni/8.10.2/rocksdbjni-8.10.2.jar" \
-  /tmp/hugegraph-rocksdb-upgrade-new-run
+bash hugegraph-server/hugegraph-test/src/test/rocksdb-compatibility/run.sh \
+  /path/to/before /path/to/after /tmp/new-rocksdb-compatibility-run
 ```
 
-The output directory must not exist. All original databases, upgraded copies,
-classes and logs remain there on success or failure. Reruns require a new output
-path. The runner prints each command and exit code; each JVM prints its actual
-RocksDB class CodeSource, JAR SHA-256 and native version. Record the tested source
-revision and JAR acquisition provenance alongside `run.log`.
-
-For each old version, three separate JVMs perform these steps:
-
-1. Create the default and a named column family, write three SST records per
-   family, then write two additional synchronous WAL records per family. Check
-   that the two records remain in each active memtable and that nonempty SST
-   and WAL files exist. Halt without closing RocksDB, preventing a shutdown
-   flush from disguising missing WAL recovery.
-2. Preserve the original directory and open only a copy with 8.10.2. Check all
-   ten old values and exact iterator counts. Update one SST value, delete an
-   SST value and a WAL value, append a new value, and flush both families.
-3. Reopen the upgraded copy in another 8.10.2 JVM. Check the eight remaining
-   values, deleted keys and exact iterator counts.
-
-A successful run reports two upgrade pairs, six JVM phases, zero skips, and
-assertion counts per phase. `halt(0)` is intentional only in the seed phase;
-any missing seed PASS line or nonzero command exit means the run failed.
-
-This proves the exercised **JNI SST/WAL fixture** only. It does not prove
-HugeGraph schema/index/auth compatibility, production tuning combinations,
-PD/Store service upgrades, JRaft log-storage recovery, replica catch-up or TP
-compatibility. Those require old-version service-created data, the new complete
-application artifacts, relevant queries/writes, restart/recovery and service
-checks. Keep those acceptance gates separate; fixture success does not waive
-one. Do not delete lock, pending or checkpoint files to make an upgrade pass.
+Each pair creates synthetic SST and synchronous WAL data with the old JNI,
+reads/modifies/deletes/adds data with the new JNI, then verifies it in a separate
+JVM. Original data, commands, JAR hashes, native versions and failure evidence
+are retained in the new output directory. This test never opens business data,
+runs at application startup, or enters a production binary distribution.
+When changing this test or its CI, verify both changed/unchanged version
+selection and run the changed version pairs. Service-created data, Raft logs,
+cluster upgrades and Topling acceptance remain separate checks.
 
 ## Store monitoring changes
 
