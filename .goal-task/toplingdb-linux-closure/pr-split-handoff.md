@@ -1,0 +1,142 @@
+# ToplingDB PR 拆分与 Apache 上游交接
+
+更新于 2026-10-03。本文是新会话的执行入口，不要求读取原聊天记录。
+目标是把 [hugegraph/hugegraph PR #179](https://github.com/hugegraph/hugegraph/pull/179)
+拆成约四个容易审查、能够逐个安全合入 **apache/hugegraph 的 master** 的 PR。
+
+## 用户已确定的边界
+
+- 每个子 PR 完成构建、相关实测与 CI 后，**逐个交给用户 review；收到针对该 PR 的确认后才合入**。
+  仓库写权限不等于合入授权。不要启用 auto-merge，也不要直接推送 Apache master。
+- 优先独立基于 Apache master；只有证实存在代码或行为依赖才使用 stacked PR。
+  不追求四个 PR 行数相等，不允许先合入已知不安全的中间版本再由后续 PR 修补。
+- 保留原 `toplingdb` 和 PR #179 作为整合与审计参考；不 force-push、重排其历史或提前关闭它。
+  子 PR 使用新分支，发布前检查是否已有其他会话创建的拆分 PR，避免重复工作。
+- GitHub 和版本库操作全部使用 `gh`；不要直接调用 Git，也不要通过别名隐藏 Git 命令。
+  `gh repo clone`、`gh pr checkout` 及 `gh api` 的内置能力可以使用。
+- 性能 #252 可选；正式 JNI 发布链 #213 独立跟进，不扩大为本轮必须完成的发行流水线。
+  但 Apache 子 PR 中的依赖来源、许可证标注和实际获取方式仍须清楚，不能用旧验收免除其审查。
+- 原 Linux goal 已按用户要求暂停。新会话开展拆分任务，不自动恢复旧 goal。
+  用户已取消 7% 周额度保留限制，允许用完剩余额度；不得擅自兑换额度重置。
+
+## 固定参考与实时状态
+
+| 对象 | 已核对的参考 |
+| --- | --- |
+| 源 PR | hugegraph/hugegraph #179，head 分支 `toplingdb`。该 PR 当前目标是 fork 的 master，新子 PR 的目标是 Apache master。 |
+| 本次分析源码/文档快照 | `1d97657194a908e6701779064f6b8e101570e10d`；本交接发布会再增加文档提交。新会话必须重新读取源 PR head 并固定工作 SHA。 |
+| 最后生产代码修复 | `3aa44152e8e13749d82ba58449b93254384ed0ed`，后续到上述快照仅文档变化。 |
+| Apache master | 本次核对为 `176fb56dd747ef0f60a126cf721aa12d17627c31`，新会话重新核对，不能假定没有前进。 |
+| 源 PR CI | **1d976571 的 38 项检查已全部成功**。旧“33 项排队”记录已经过时；新 head/子 PR 的 CI 必须重新查询。 |
+| 历史 Linux 冻结基线 | `9d797c7608e244f03436ce11294d9bd72aba4d2d`；不是新子 PR 的开发 base。 |
+| 临时 auth 分支 | `toplingdb-auth-cascade-20261003` 指向已同步进原分支的修复，是临时隔离分支，不是四个上游子 PR 之一。 |
+
+旧 API 失败已经归因并修复：master 的项目删除重建正常，源 PR 的 FINISHED 清理使 schema
+缓存变冷，隐藏关联边未被枚举，留下 access/belong。保留清理并修正级联删除后通过。
+**必须将请求清理、必要的 schema/index 修正和 auth 配套回归放在同一完整单元。**
+曾用 `primitive()` 排除负 ID 范围的候选 `43b88c1` 不完整：真实用户标签为 -27，仍会漏删
+belong。最终实现仅排除特殊 OLAP 标签；不要恢复旧候选或仅摘取不完整的中间提交。
+
+## 建议四个功能单元
+
+以下是待验证的逻辑划分，本会话尚未构造四个子分支，也没有任何“每层 CI 已通过”的结论。
+路径均相对仓库根；同一个文件可能必须按修改块拆分。
+
+| 单元 | 范围与源码入口 | 独立合入条件 |
+| --- | --- | --- |
+| 1. 标准运行时依赖 | 根/PD/Server/Store POM、Store `RocksDBMetricsConst`、依赖清单及 LICENSE/NOTICE。PD RocksDB 6.29.5、Store 7.7.3 → 8.10.2，Server 原已为 8.10.2。 | 默认 RocksDB 构建、服务及升级兼容正常；新建库重启不能替代旧数据打开验证。JRaft 1.3.11/1.3.13 → 1.3.14 是否必要须另证，非必要不夹带。 |
+| 2. 事务与关闭生命周期 | Server `HugeFactory`、`StandardHugeGraph`、`BackendSessionPool`、REST `ApplicationConfig`、auth `ContextTask`、必要的 GraphTransaction/GraphIndexTransaction 修正；Store grpc/扫描与关停修复。 | 标准模式独立通过 Core/API、关闭及并发回归；项目和用户关联删除均正确，其他对象保留。不要把 auth 修复与触发它的清理接口拆开。 |
+| 3. Snapshot/WAL 安全 | Server rocksdb 模块的 `RocksDBSnapshotRestore`、`OpenedRocksDB`、`RocksDBStdSessions`，`RocksDBStore` 的恢复/锁相关修改。 | 标准 provider 可独立验证成功与故障恢复、独立/嵌套 WAL、材料保留、锁/并发；不承诺尚未实现的全图原子恢复。 |
+| 4. 完整 TP 接入 | provider 选项、TP truncate 差异、JNI 选择、ABI 与所有数据/WAL 根预检、三组件包、启动脚本、Docker、对应 CI 和产品文档。 | 合入时 TP 是完整可选能力，默认标准包不混入 TP；真实 JNI、拒绝路径、服务/重启/关闭通过。 |
+
+预期组织方式是 master 上并行准备单元 1～3，单元 4 在必要前置合入后提交。
+发现实际依赖时再增加 stack 边，并在 PR 描述中写出 base、前置 PR、合入顺序和重新验证范围。
+不要仅为“平行”复制公共实现，也不要仅为“stack”制造不必要串行等待。
+
+特别注意以下跨文件依赖：
+
+- `RocksDBStore` 同时含 provider/truncate、opened/session 和恢复锁修改，不能整文件随意归入一层。
+- `RocksDBSessionsTest` 同时含原有测试、新 WAL 用例和 TP adapter 分支测试，需要按测试目的分配。
+- `OpenedRocksDB` 的关闭和恢复锁移交是配套实现，锁释放顺序不能拆散。
+- 当前标准 runtime CI 也调用 `preload-topling.sh`；workflow 与它依赖的脚本/配置必须在同一层可用。
+- `testAdapterToplingTruncateWithMultipleKeys` 在标准 JNI 下也能检查 Java 分支；名字不证明已加载 TP。
+  真正 TP 验证另核唯一 JNI JAR、实际 native maps 和哈希。
+
+## 规模与保留范围
+
+在 1d976571 相对 176fb56dd 的快照中：209 文件，+16,167/-646 行，228 个提交。
+生产 Java 34 文件 +1,329/-311；运行脚本 18 文件 +1,466/-49；测试 62 文件 +6,016/-181；
+构建/CI/配置 41 文件 +1,881/-97；文档/许可证文本 42 文件 +5,475/-8；另有 11 张图片和 1 个 JNI JAR。
+测试包括 44 个 Java 文件和 18 个 Shell 文件，不全是 TP 专属。
+
+四单元新增量曾粗估约 30、2,300、1,600、8,500 行；不是配额或最终补丁大小。
+第一个还需补升级验证，最后一个含大量启动/发行测试与文档。不要为了接近估算而遗漏实现。
+`.goal-task/`、`.specs/` 和 `docs/toplingdb/images/` 合计约 3,666 行历史/规划/绘图材料，
+应保留在审计来源中，默认不搬入 Apache 子 PR。产品操作说明、必要许可证和有效测试必须随实现。
+实验 JNI JAR 约 9.1 MiB，图片约 12.6 MiB，均未计入文本行数；交付方式单独给用户 review。
+
+## 已有验证与不能外推的结论
+
+详细 Linux 证据权威位置为 [linux.md](linux.md)，问题归属见 [todo.md](todo.md)。
+此处只给新环境选择回归范围所需的摘要：
+
+- 冻结基线：标准 session/helper 43 项；真实 TP helper 27 项；真实 adapter truncate 1 项。
+  三组件标准/TP 构建、身份、配置、启动、信号、CRUD/重启及单宿主分布式部署已有记录。
+- 993ff6fe：标准/TP 服务的 g 成员 WAL 发布失败保留材料、冷启恢复及 pending 恢复并发对照通过。
+  使用真实同库 WAL fixture，不声称默认 checkpoint 自然含 WAL 或全图原子恢复完成。
+- 最后代码 3aa44152：三人最终复审；标准 55 项、真实 TP 5 项、分批删边每 provider 1 项通过。
+  标准/TP 真实服务的项目/用户删除重建、无关关系保留、CRUD、首次重启及两次关闭均通过。
+  完整标准 API 161 项无失败、14 assumption skip（13 项 HStore GraphSpace、1 项共享存储 Gremlin）。
+- 源 PR 的绿色 CI 和这些实测都不证明拆分后的任意中间树安全。重新组合、变更 base 或依赖后，按实际变化复测。
+- 已有新库实测不证明 PD/Store 旧版本数据库升级或降级兼容；这属于单元 1 必须明确的新边界。
+
+真实 TP 固定输入（仅本轮 Linux x86_64）：
+
+- JAR SHA-256：`86eb1bd3d9f84ef0dddd3fe95c640a6f145ca2d5a26a5ba628f1f298a2031fae`
+- native SHA-256：`c25ff6e676290db6db47df0954640aa609c391450ec90e1a8eec1f87e174dd38`
+
+新机器先核架构、ABI、CPU 与权限；不能把 x86_64 身份套到其他架构。
+原始私有证据可能只在旧机器 `/home/soc-baidu/.codex/validation-runtime/toplingdb-linux-closure/`
+下可用。新环境不应依赖这些绝对路径或 `/tmp/topling-*.py`；用仓库内测试、CI workflow 和
+linux.md 重建必要验证。缺失原始材料时明确写“旧记录”，不要伪造已独立复核。
+首轮失败必须保留，原始数据库、镜像、凭据和大日志不提交。
+
+## 新会话启动与执行顺序
+
+1. 先读根 `AGENTS.md` 和本文；state 用于确认简要状态，linux/todo 按待拆分范围取用，
+   再读相应模块 AGENTS 和 CONTRIBUTING。默认不读 Mac 文档和 history 长日志。
+   检查已有本地改动/分支/资源及现有上游 PR，不覆盖其他会话的工作。
+2. 用 gh 刷新源 PR、Apache master 和检查结果，记录不可变 SHA。需要新源码时使用完整 checkout；
+   GitHub archive 的 export-ignore 曾漏掉 install-dist 文件，不能直接拿不完整归档构建。
+3. 生成逐文件/修改块归属清单：子 PR、理由、依赖、配套测试/文档、未纳入及原因。
+   先验证 1～3 可否独立；明确真正的 stack 关系，不按旧提交顺序机械 cherry-pick。
+4. 构造第一个完整子 PR 并干净验证，再逐步推进；可以先创建 draft PR 用于 review，但不能把缺门槛的草稿当可合入。
+   每个子 PR 标明源码身份、实际执行/skip 计数、标准/TP 覆盖边界、风险及与后续 PR 的关系。
+5. 生产行为或持久化修改由三名独立只读审查者检查，修改后复审与实测。重任务/测试服务串行，启动清理只在专属容器。
+   发布前按仓库要求运行格式、干净编译及相关测试；Commons 需显式启用测试。不要为绿灯删除断言或放宽例外。
+6. 每个子 PR 满足检查后，向用户提供具体可审阅结果并等待该 PR 的合入确认。
+   确认后使用正常合入流程，记录 merge SHA；再刷新依赖 PR 的 base、差异和 CI。禁止绕过必需检查/使用管理权限强合。
+7. 全部所需单元合入后，核对最终 Apache master 的功能集合与源 PR 意图，执行标准/真实 TP 整合验证。
+   原 PR #179 和未完成 issue 的关闭/清理再向用户确认，保留审计索引。
+
+首次核对命令示例（在适合的新目录运行 clone）：
+
+```bash
+gh pr view 179 --repo hugegraph/hugegraph --json headRefOid,baseRefOid,statusCheckRollup
+gh api repos/apache/hugegraph/commits/master --jq .sha
+gh api --paginate 'repos/hugegraph/hugegraph/pulls/179/files?per_page=100'
+gh repo clone hugegraph/hugegraph hugegraph-source -- --branch toplingdb
+```
+
+新环境先检查 gh 版本和认证。当前 gh 的 `pr create --head <org>:<branch>` 帮助提示不支持组织 owner；
+若使用 hugegraph 组织下的 fork，可用 `gh api` 创建 cross-fork draft PR，目标为 `apache/hugegraph`、
+base 为 master、head 为实际 fork 分支，并核对返回的 base/head repo。
+需要保存提交时可使用 gh Git Data API 创建 tree/commit/ref；更新 ref 必须核对预期父提交并 `force:false`。
+不要把新环境的工具限制自动等同没有仓库写权限，更不要绕过其执行策略。
+
+## 需要提出具体方案后交用户判断的事项
+
+- 若四单元无法各自独立构建/合入，说明真实依赖以及增加 stack 或调整数量的代价，再决定拆分边界。
+- 若旧数据升级验证失败、需不可逆迁移、改变默认行为或删除已有支持，先提供复现和迁移/回滚方案。
+- JNI 获取与交付方式、必要的上游网站文档配套 PR，以及不能从来源解释的许可证标注，均应在相关子 PR review 中明确。
+- 目标仓库和逐 PR 合入确认已经由用户决定，不重复询问。

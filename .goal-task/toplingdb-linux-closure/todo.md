@@ -1,6 +1,6 @@
 # ToplingDB issue 归属与依赖索引
 
-当前范围见 [state.md](state.md)，实测及下一动作只在 [linux.md](linux.md) 维护。
+新会话拆分计划见 [pr-split-handoff.md](pr-split-handoff.md)。当前范围见 [state.md](state.md)，实测及下一动作只在 [linux.md](linux.md) 维护。
 本表把 TP 新增/放大的问题与通用独立调查分开；发现新归因时按源码证据重新分类。
 
 | Issue / 范围 | 归属 | 依赖与记录位置 |
@@ -12,7 +12,7 @@
 | #252 三轮标准/TP 对照 | 可选后置，不阻塞当前任务。 | 决定执行时另按固定 workload/配置/资源记录，不依赖通用在线恢复改造。 |
 | #212 真实 native 生命周期 | 新的 TP 独有错误仍归适配；通用请求排空独立。 | [Linux 生命周期记录](linux.md#独立调查与隔离候选)，保留冻结首次失败。 |
 | #248 clear 首次重启不可见 | 通用调查，旧失败保留。 | [Linux 对照记录](linux.md#独立调查与隔离候选)，不同源码/schema/部署不能覆盖旧失败。 |
-| 当前 head 的 ProjectApiTest CI 失败 | 已由 master/单点实测确认本 PR 的 FINISHED 清理触发，属于当前任务。 | [CI 归因与计划](linux.md#2026-10-03-ci-归因与后续计划)，用户 -27 缺口已由红绿实测闭合；3aa44152 已发布到 PR #179，三人复审、标准55/TP5及最终双 provider 服务通过；待新 CI 核对。 |
+| 历史 ProjectApiTest CI 回归（已修复） | 已由 master/单点实测确认本 PR 的 FINISHED 清理触发，属于当前任务。 | [CI 归因与计划](linux.md#2026-10-03-ci-归因与后续计划)，用户 -27 缺口已由红绿实测闭合；3aa44152 已发布到 PR #179，三人复审、标准55/TP5及最终双 provider 服务通过；源快照 1d976571 的 38 项 CI 已通过；拆分后需按新源码重验。 |
 | master 同步 | 保留双方改动及四项修复的发布兼容性。 | [Linux 源码状态](linux.md#当前范围与源码)，不替代冻结 SHA 实测。 |
 
 ## 通用问题独立跟进

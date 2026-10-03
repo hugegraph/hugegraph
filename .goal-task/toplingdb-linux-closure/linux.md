@@ -21,7 +21,7 @@
 | 隔离 journal/gate 候选 | 留在冻结 SHA 的未提交工作树，未整合进 PR，不作为 PR 实现或实测通过证据。 |
 
 代码同步时 compare master...toplingdb 的 behind 为 0；2026-10-03 查询当前 PR 为 MERGEABLE。
-旧 993ff6fe 的检查为 33 成功、5 失败；新修复与文档提交已触发 CI，待完整结果，详见下方归因计划。
+旧 993ff6fe 的检查为 33 成功、5 失败；最终 1d976571 的 38 项检查全部成功，详见下方归因记录。
 冻结 SHA 的 CI 成功不能替代最新源码验证。
 后续通过 `gh` 核对 PR 与 master；不直接调用 Git，不重排、force-push 或自动合并 PR。
 
@@ -234,7 +234,7 @@ TP p1 竞争 JVM 曾用标准 Java JAR+TP native，被身份断言拒绝；人�
 
 ### 2026-10-03 CI 归因与后续计划
 
-goal 已在切换模型后恢复为 active。修复提交 `3aa44152e8e13749d82ba58449b93254384ed0ed`
+原 Linux goal 已按用户要求暂停。修复提交 `3aa44152e8e13749d82ba58449b93254384ed0ed`
 已从隔离分支 `toplingdb-auth-cascade-20261003` 快进至原 toplingdb、PR #179 及本地 checkout；
 父提交为原 PR head 993ff6fe，未重排或 force-push。
 两个远端 master 在本次核对均为 176fb56dd，未继续前进。用户最新决定取消 7% 保留限制，允许用完剩余周额度。
@@ -291,8 +291,8 @@ GraphTransaction 与两份测试。冻结 PD/Store 组件证据可复用；新 S
 分布式验证分别列明，不把两个新 Server 镜像算成新全栈部署。
 
 1. 已发布代码 3aa44152，标准/TP 实际运行 core/API JAR 哈希与最终构建包一致，取证见 `final-runtime-verification.json`。
-2. 验收文档单独提交；更新 PR 与 #249/#240 进展，并核对最新 head 的完整 CI。代码发布后首个快照为 35 项（1 成功、34 排队），不是最终结果。
-3. 按通过、失败及独立后置交付；新 CI 尚未通过前不标 goal 完成。
+2. 验收文档与 #249/#240 进展已发布；2026-10-03 交接核对确认 **1d976571 的 38 项 CI 全部成功**。先前排队快照只作历史记录。
+3. 原 goal 保持用户指定的暂停状态；新会话按 [拆分交接](pr-split-handoff.md) 面向 Apache master 推进。完整分支的通过不替代子 PR 及新 base 的验证。
 
 #252 性能可选、#213 正式发行独立后置，均不占上述必需顺序。通用缓存/全图恢复问题按 todo.md
 独立跟进；本轮不把隔离 journal/gate 候选合入 PR。
