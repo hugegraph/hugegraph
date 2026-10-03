@@ -50,8 +50,8 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- end }}
 
 {{- define "hugegraph.selectorLabels" -}}
-app.kubernetes.io/name: {{ include "hugegraph.name" . }}
-app.kubernetes.io/instance: {{ .Release.Name }}
+app.kubernetes.io/name: {{ include "hugegraph.name" . | quote }}
+app.kubernetes.io/instance: {{ .Release.Name | quote }}
 {{- end }}
 
 {{- define "hugegraph.pd.name" -}}
