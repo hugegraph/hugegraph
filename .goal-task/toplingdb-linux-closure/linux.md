@@ -292,7 +292,7 @@ GraphTransaction 与两份测试。冻结 PD/Store 组件证据可复用；新 S
 
 1. 已发布代码 3aa44152，标准/TP 实际运行 core/API JAR 哈希与最终构建包一致，取证见 `final-runtime-verification.json`。
 2. 验收文档与 #249/#240 进展已发布；2026-10-03 交接核对确认 **1d976571 的 38 项 CI 全部成功**。先前排队快照只作历史记录。
-3. 原 goal 保持用户指定的暂停状态；新会话按 [拆分交接](pr-split-handoff.md) 面向 Apache master 推进。完整分支的通过不替代子 PR 及新 base 的验证。
+3. 原 goal 保持用户指定的暂停状态；新会话按 [拆分交接](pr-split-handoff.md) 在 org 建分支并先向 org master 提交实测，最终向 Apache master 提交合入。完整分支的通过不替代子 PR 及新 base 的验证。
 
 #252 性能可选、#213 正式发行独立后置，均不占上述必需顺序。通用缓存/全图恢复问题按 todo.md
 独立跟进；本轮不把隔离 journal/gate 候选合入 PR。

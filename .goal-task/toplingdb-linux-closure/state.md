@@ -8,7 +8,8 @@
 ## 当前交接
 
 - 原 Linux goal 已按用户要求暂停；本会话只整理交接，不自动恢复。
-- 新任务面向 **apache/hugegraph 的 master**，约四个可逐个安全合入的子 PR。
+- 新任务拆成约四个子 PR：分支建在 **hugegraph/hugegraph**，默认先向 org master 提交并实测；
+  最终向 **apache/hugegraph master** 提交合入，上游差异和 CI 需重新验证。
 - 每个子 PR 先交用户 review，收到该 PR 的明确确认后才合入。
 - 新会话先读 [拆分交接](pr-split-handoff.md)；它取代聊天中的早期三 PR 粗分建议。
   分支依赖尚未验证，不能宣称子 PR 已独立通过 CI。
