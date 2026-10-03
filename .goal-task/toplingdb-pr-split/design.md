@@ -15,7 +15,7 @@
 | P3 Snapshot/WAL | P2（真实依赖） | databaseOpened接口来自P2；recoveryLock、native关闭/重开移交、pending/WAL发布恢复完整保留；标准故障矩阵和挂载说明 |
 | P4 完整TP接入 | 必要P1/P2/P3前置 | provider选择/truncate、所有根预检、JNI/ABI、三组件包、Docker/CI、真实TP验收及产品文档 |
 
-P1与P2无已发现静态依赖，仍需分别构造验证。P3调用P2新增的无副作用状态查询，旧closed()只看session计数，不能替代native ownership；不为名义独立复制公共接口。
+P1与P2独立构造并已分别完成相应构建和定向验证；完整服务及CI门槛仍需分别满足。P3调用P2新增的无副作用状态查询，旧closed()只看session计数，不能替代native ownership；不为名义独立复制公共接口。
 P2 Server与Store生命周期互不直接依赖，如后续review确需减小PR，可按完整子系统调整数量，不拆开各自关闭链。
 
 ## 混合修改块
@@ -39,7 +39,7 @@ P2 Server与Store生命周期互不直接依赖，如后续review确需减小PR�
 
 ## 交付顺序
 
-先完成P1构造、旧数据与相关服务验证、三人独立审查及CI，再交用户review；等待期间推进P2和P3独立可执行部分及P4依赖/许可文档核查。
+按用户最新要求，完成可审查步骤和适用提交前验证后及时发布非Draft PR，显式保留未完成服务/CI门槛；不必等待四个单元全部验收结束。P1/P2独立指向master；P3已经stack在P2上；P4使用包含P1与P3的临时前置组合分支以保持增量diff，待前置取得明确合入确认并合入后刷新/调整base，必要时正常合并master以建立祖先关系，不重写历史。标题编号(1/4)至(4/4)表示功能单元，不表示线性依赖。
 各PR只在对应仓库取得明确确认后合入。Apache已有同源整合PR #3134，保留为审计参考，不另行修改、合入或关闭。
 Apache master当前比org多`02628ed5`（Struct TokenGenerator/AuthOptions去重）；每次上游交付重新比较，保留上游变化。
 
@@ -51,9 +51,9 @@ Apache master当前比org多`02628ed5`（Struct TokenGenerator/AuthOptions去重
 ## P4依赖交付待审方案
 
 当前精确JNI SHA256为`86eb1bd3d9f84ef0dddd3fe95c640a6f145ca2d5a26a5ba628f1f298a2031fae`，本机解包确认仅linux64 native、无LICENSE/NOTICE/POM。固定producer `31afa28f...` 的README明确core可选Apache2/GPLv2，POM同时列两者；workflow会动态取得SidePlugin，所以不能把core许可直接当精确binary闭包。
-优先评估上游源码不检入opaque JNI、由显式路径和校验和输入构造可选TP包/镜像的消费方式；标准发行保持不带TP，原org整合分支保留实验产物。此方案尚未实现或获对应PR review，不宣称免除了许可证门槛，也不把外部依赖缺失当完整TP功能已经交付。正式producer发布链继续独立后置。
+P4已实现上游源码不检入opaque JNI、由显式路径和校验和输入构造可选TP包/镜像；标准发行保持不带TP，原org整合分支保留实验产物。外部输入与打包失败保全修复已通过静态复审及shell故障注入，全仓干净编译通过；完整测试和真实native验收尚未结束。此方式不免除精确二进制的来源与许可证门槛，缺少完整材料时不发布可再分发产物。正式producer发布链继续独立后置。
 
 ## 构造后已确认修正
 
-- P3拆分曾漏掉一个相邻hunk，现已恢复cached-owner存活检查、同锁copy/open/register及typed recovery错误不走CF文字fallback；完整open方法与来源字节一致，三人静态复审完成，运行门槛未完成。
+- P3拆分曾漏掉一个相邻hunk，现已恢复cached-owner存活检查、同锁copy/open/register及typed recovery错误不走CF文字fallback；完整open方法与来源字节一致，三人静态复审完成；恢复/WAL定向测试、多图及真实bind mount拒绝已验证，服务级故障演练仍待完成。
 - P2扫描关闭路径的executor拒绝/异步失败会在onError后继续空页/成功完成；现统一失败终态、串行observer回调、跳过当前线程中断，并在正常取消前先确立完成终态。补5项定向回归及Store stop容器CI入口。来源类5/5失败、当前类5/5通过的probe使用缓存peer类，仅是局部红绿证据；三人静态复审已通过，仍需最终源码完整构建及真实服务验收。
