@@ -112,6 +112,15 @@ The assembled distribution will be available at:
 hugegraph-store/apache-hugegraph-store-<version>/lib/hg-store-node-<version>.jar
 ```
 
+The Node module keeps a regular JAR for development dependencies and attaches its
+Spring Boot executable as `hg-store-node-<version>-exec.jar`. The distribution
+uses the executable JAR with the filename shown above, so the start script is
+unchanged. To run the Store server tests through the package phase:
+
+```bash
+mvn clean package -pl hugegraph-store/hg-store-test -am -Pstore-server-test
+```
+
 ### Configuration
 
 Extract the distribution package and edit `conf/application.yml`:

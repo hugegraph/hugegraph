@@ -51,6 +51,7 @@ import org.apache.hugegraph.pd.common.KVPair;
 import org.apache.hugegraph.rocksdb.access.RocksDBSession;
 import org.apache.hugegraph.rocksdb.access.ScanIterator;
 import org.apache.hugegraph.store.grpc.common.ScanMethod;
+import org.apache.hugegraph.store.grpc.common.Header;
 import org.apache.hugegraph.store.grpc.common.ScanOrderType;
 import org.apache.hugegraph.store.grpc.stream.KvPageRes;
 import org.apache.hugegraph.store.grpc.stream.KvStream;
@@ -64,8 +65,12 @@ import org.apache.hugegraph.store.node.grpc.ScanBatchResponse;
 import org.apache.hugegraph.store.node.grpc.ParallelScanIterator;
 import org.apache.hugegraph.store.node.grpc.QueryCondition;
 import org.apache.hugegraph.store.node.grpc.ScanOneShotResponse;
+import org.apache.hugegraph.store.node.grpc.ScanBatchOneShotResponse;
+import org.apache.hugegraph.store.node.grpc.ScanBatchResponse3;
 import org.apache.hugegraph.store.node.grpc.ScanStreamResponse;
+import org.apache.hugegraph.store.node.util.HgChannel;
 import org.junit.Test;
+import org.mockito.ArgumentCaptor;
 
 import io.grpc.Context;
 import io.grpc.Status;
@@ -578,6 +583,328 @@ public class ScanShutdownTest {
             scan.close();
             executor.shutdownNow();
         }
+    }
+
+    @Test
+    public void testInterruptedOneShotDoesNotSendPartialSuccess() {
+        for (boolean batch : new boolean[]{false, true}) {
+            HgStoreWrapperEx wrapper = mock(HgStoreWrapperEx.class);
+            ScanIterator iterator = mock(ScanIterator.class);
+            StreamObserver<KvPageRes> output = mock(StreamObserver.class);
+            when(wrapper.scanAll(anyString(), anyString(), any(byte[].class))).thenReturn(iterator);
+            when(iterator.hasNext()).thenReturn(true);
+            when(iterator.position()).thenReturn(new byte[4]);
+            when(iterator.next()).thenAnswer(invocation -> {
+                Thread.currentThread().interrupt();
+                return RocksDBSession.BackendColumn.of(new byte[4], new byte[0]);
+            });
+            try {
+                if (batch) {
+                    ScanBatchOneShotResponse.scanOneShot(batchRequest(), output, wrapper);
+                } else {
+                    ScanOneShotResponse.scanOneShot(
+                            ScanStreamReq.newBuilder().setMethod(ScanMethod.ALL).setLimit(10).build(),
+                            output, wrapper);
+                }
+                verify(iterator).next();
+                assertTrue("scan must preserve an external interrupt",
+                           Thread.currentThread().isInterrupted());
+                verify(output).onError(any(Throwable.class));
+                verify(output, never()).onNext(any(KvPageRes.class));
+                verify(output, never()).onCompleted();
+                verify(iterator).close();
+            } finally {
+                Thread.interrupted();
+            }
+        }
+    }
+
+    @Test(timeout = 5000)
+    public void testInterruptedBatchWorkerDoesNotCompletePartialPage() throws Exception {
+        ThreadPoolExecutor executor = (ThreadPoolExecutor) Executors.newFixedThreadPool(1);
+        HgStoreWrapperEx wrapper = mock(HgStoreWrapperEx.class);
+        ScanIterator iterator = mock(ScanIterator.class);
+        StreamObserver<KvPageRes> output = mock(StreamObserver.class);
+        when(wrapper.scanAll(anyString(), anyString(), any(byte[].class))).thenReturn(iterator);
+        when(iterator.hasNext()).thenReturn(true);
+        when(iterator.position()).thenReturn(new byte[4]);
+        when(iterator.next()).thenAnswer(invocation -> {
+            Thread.currentThread().interrupt();
+            return RocksDBSession.BackendColumn.of(new byte[4], new byte[0]);
+        });
+        StreamObserver<ScanStreamBatchReq> response = ScanBatchResponse3.of(output, wrapper, executor);
+        try {
+            response.onNext(batchRequest());
+            executor.shutdown();
+            assertTrue(executor.awaitTermination(1, TimeUnit.SECONDS));
+            verify(iterator).next();
+            assertCancelled(output);
+            verify(output, never()).onNext(any(KvPageRes.class));
+            verify(output, never()).onCompleted();
+            verify(iterator).close();
+        } finally {
+            response.onCompleted();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test(timeout = 10000)
+    public void testCancellationDoesNotInterruptReceiverAfterHandoff() throws Exception {
+        assertReceiverInterruptAfterHandoff(false);
+    }
+
+    @Test(timeout = 10000)
+    public void testCancellationPreservesExternalReceiverInterruptAfterHandoff() throws Exception {
+        assertReceiverInterruptAfterHandoff(true);
+    }
+
+    @Test(timeout = 5000)
+    public void testReceivePreservesExternalInterrupt() throws Exception {
+        ThreadPoolExecutor executor = (ThreadPoolExecutor) Executors.newFixedThreadPool(1);
+        HgStoreWrapperEx wrapper = mock(HgStoreWrapperEx.class);
+        AppConfig config = mock(AppConfig.class);
+        when(config.getServerWaitTime()).thenReturn(60);
+        StreamObserver<KvPageRes> output = mock(StreamObserver.class);
+        ScanStreamResponse response = ScanStreamResponse.of(output, wrapper, executor, config);
+        FutureTask<Boolean> request = new FutureTask<>(() -> {
+            Thread.currentThread().interrupt();
+            response.onNext(ScanStreamReq.newBuilder().setMethod(ScanMethod.ALL)
+                                         .setPageSize(1).setLimit(10).build());
+            return Thread.currentThread().isInterrupted();
+        });
+        Thread caller = new Thread(request, "scan-external-interrupt-test");
+        try {
+            caller.start();
+            assertTrue(request.get(1, TimeUnit.SECONDS));
+            assertCancelled(output);
+            verify(output, never()).onCompleted();
+            executor.shutdown();
+            assertTrue(executor.awaitTermination(1, TimeUnit.SECONDS));
+        } finally {
+            response.onCompleted();
+            executor.shutdownNow();
+            caller.join(1000);
+        }
+    }
+
+    private static void assertReceiverInterruptAfterHandoff(boolean externalInterrupt) throws Exception {
+        ThreadPoolExecutor executor = (ThreadPoolExecutor) Executors.newFixedThreadPool(1);
+        HgStoreWrapperEx wrapper = mock(HgStoreWrapperEx.class);
+        ScanIterator iterator = mock(ScanIterator.class);
+        when(wrapper.scanAll(anyString(), anyString(), any(byte[].class))).thenReturn(iterator);
+        when(iterator.next()).thenReturn(RocksDBSession.BackendColumn.of(new byte[4], new byte[0]));
+        when(iterator.position()).thenReturn(new byte[4]);
+        CountDownLatch beforePage = new CountDownLatch(1);
+        CountDownLatch releasePage = new CountDownLatch(1);
+        AtomicInteger advances = new AtomicInteger();
+        when(iterator.hasNext()).thenAnswer(invocation -> {
+            int advance = advances.incrementAndGet();
+            if (advance == 2) {
+                beforePage.countDown();
+                assertTrue(releasePage.await(2, TimeUnit.SECONDS));
+            }
+            return advance <= 2;
+        });
+        AppConfig config = mock(AppConfig.class);
+        when(config.getServerWaitTime()).thenReturn(60);
+        StreamObserver<KvPageRes> output = mock(StreamObserver.class);
+        ScanStreamResponse response = ScanStreamResponse.of(output, wrapper, executor, config);
+        Field responseLock = ScanStreamResponse.class.getDeclaredField("responseLock");
+        responseLock.setAccessible(true);
+        FutureTask<Boolean> request = new FutureTask<>(() -> {
+            response.onNext(ScanStreamReq.newBuilder().setMethod(ScanMethod.ALL)
+                                         .setPageSize(1).setLimit(10).build());
+            return Thread.currentThread().isInterrupted();
+        });
+        Thread caller = new Thread(request, "scan-late-cancellation-test");
+        try {
+            caller.start();
+            assertTrue(beforePage.await(1, TimeUnit.SECONDS));
+            synchronized (responseLock.get(response)) {
+                // The real channel hands off a page before its callback reaches responseLock.
+                releasePage.countDown();
+                long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(1);
+                while (caller.getState() != Thread.State.BLOCKED && System.nanoTime() < deadline) {
+                    Thread.yield();
+                }
+                assertEquals(Thread.State.BLOCKED, caller.getState());
+                if (externalInterrupt) {
+                    caller.interrupt();
+                }
+                response.onCompleted();
+            }
+            assertEquals(externalInterrupt, request.get(1, TimeUnit.SECONDS));
+            executor.shutdown();
+            assertTrue(executor.awaitTermination(1, TimeUnit.SECONDS));
+            verify(output).onCompleted();
+            verify(output, never()).onError(any(Throwable.class));
+            verify(output, never()).onNext(any(KvPageRes.class));
+            verify(iterator).close();
+        } finally {
+            releasePage.countDown();
+            response.onCompleted();
+            executor.shutdownNow();
+            caller.join(1000);
+        }
+    }
+
+    @Test(timeout = 5000)
+    public void testInterruptedStreamWorkerDoesNotCompletePartialPage() throws Exception {
+        ThreadPoolExecutor executor = (ThreadPoolExecutor) Executors.newFixedThreadPool(1);
+        HgStoreWrapperEx wrapper = mock(HgStoreWrapperEx.class);
+        ScanIterator iterator = mock(ScanIterator.class);
+        when(wrapper.scanAll(anyString(), anyString(), any(byte[].class))).thenReturn(iterator);
+        when(iterator.hasNext()).thenReturn(true);
+        when(iterator.position()).thenReturn(new byte[4]);
+        when(iterator.next()).thenAnswer(invocation -> {
+            Thread.currentThread().interrupt();
+            return RocksDBSession.BackendColumn.of(new byte[4], new byte[0]);
+        });
+        AppConfig config = mock(AppConfig.class);
+        when(config.getServerWaitTime()).thenReturn(60);
+        StreamObserver<KvPageRes> output = mock(StreamObserver.class);
+        ScanStreamResponse response = ScanStreamResponse.of(output, wrapper, executor, config);
+        try {
+            response.onNext(ScanStreamReq.newBuilder().setMethod(ScanMethod.ALL)
+                                         .setPageSize(1).setLimit(10).build());
+            executor.shutdown();
+            assertTrue(executor.awaitTermination(1, TimeUnit.SECONDS));
+            verify(iterator).next();
+            assertCancelled(output);
+            verify(output, never()).onNext(any(KvPageRes.class));
+            verify(output, never()).onCompleted();
+            verify(iterator).close();
+        } finally {
+            response.onCompleted();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test(timeout = 5000)
+    public void testInterruptedStreamSenderReportsCancellation() throws Exception {
+        AtomicReference<Thread> worker = new AtomicReference<>();
+        ThreadPoolExecutor executor = (ThreadPoolExecutor) Executors.newFixedThreadPool(1, task -> {
+            Thread thread = new Thread(task, "scan-interrupted-sender-test");
+            worker.set(thread);
+            return thread;
+        });
+        HgStoreWrapperEx wrapper = mock(HgStoreWrapperEx.class);
+        ScanIterator iterator = mock(ScanIterator.class);
+        when(wrapper.scanAll(anyString(), anyString(), any(byte[].class))).thenReturn(iterator);
+        when(iterator.hasNext()).thenReturn(true);
+        when(iterator.next()).thenReturn(RocksDBSession.BackendColumn.of(new byte[4], new byte[0]));
+        when(iterator.position()).thenReturn(new byte[4]);
+        AppConfig config = mock(AppConfig.class);
+        when(config.getServerWaitTime()).thenReturn(60);
+        StreamObserver<KvPageRes> output = mock(StreamObserver.class);
+        CountDownLatch errorReceived = new CountDownLatch(1);
+        doAnswer(invocation -> {
+            errorReceived.countDown();
+            return null;
+        }).when(output).onError(any(Throwable.class));
+        ScanStreamResponse response = ScanStreamResponse.of(output, wrapper, executor, config);
+        try {
+            // Consume one page, then interrupt the actual worker waiting to hand off its next page.
+            response.onNext(ScanStreamReq.newBuilder().setMethod(ScanMethod.ALL)
+                                         .setPageSize(1).setLimit(10).build());
+            awaitTimedWaiting(worker.get());
+            worker.get().interrupt();
+            assertTrue(errorReceived.await(1, TimeUnit.SECONDS));
+            executor.shutdown();
+            assertTrue(executor.awaitTermination(1, TimeUnit.SECONDS));
+            assertCancelled(output);
+            verify(output).onNext(any(KvPageRes.class));
+            verify(output, never()).onCompleted();
+            verify(iterator).close();
+        } finally {
+            response.onCompleted();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test(timeout = 5000)
+    public void testChannelCloseReleasesWaitingReceiverWithoutInterrupt() throws Exception {
+        HgChannel<String> channel = HgChannel.of(60);
+        FutureTask<Boolean> receive = new FutureTask<>(() -> {
+            assertNull(channel.receive());
+            return Thread.currentThread().isInterrupted();
+        });
+        Thread caller = new Thread(receive, "channel-close-receiver-test");
+        try {
+            caller.start();
+            awaitTimedWaiting(caller);
+            channel.close();
+            assertFalse(receive.get(1, TimeUnit.SECONDS));
+            assertNull(channel.receive());
+            assertFalse(channel.send("after-close"));
+        } finally {
+            channel.close();
+            caller.join(1000);
+        }
+    }
+
+    @Test(timeout = 5000)
+    public void testChannelCloseReleasesWaitingProducer() throws Exception {
+        HgChannel<String> channel = HgChannel.of(60);
+        FutureTask<Boolean> send = new FutureTask<>(() -> channel.send("page"));
+        Thread producer = new Thread(send, "channel-close-producer-test");
+        try {
+            producer.start();
+            awaitTimedWaiting(producer);
+            channel.close();
+            assertFalse(send.get(1, TimeUnit.SECONDS));
+        } finally {
+            channel.close();
+            producer.join(1000);
+        }
+    }
+
+    @Test(timeout = 5000)
+    public void testChannelRetainsTimeoutAndNormalHandoff() throws Exception {
+        HgChannel<String> channel = HgChannel.of(1);
+        AtomicInteger timeouts = new AtomicInteger();
+        long started = System.nanoTime();
+        assertNull(channel.receive(timeout -> {
+            assertEquals(Long.valueOf(1L), timeout);
+            timeouts.incrementAndGet();
+        }));
+        assertEquals(1, timeouts.get());
+        assertTrue("short close polling must not shorten the configured timeout",
+                   System.nanoTime() - started >= TimeUnit.MILLISECONDS.toNanos(900));
+        FutureTask<Boolean> send = new FutureTask<>(() -> channel.send("page"));
+        Thread producer = new Thread(send, "channel-handoff-test");
+        try {
+            producer.start();
+            assertEquals("page", channel.receive());
+            assertTrue(send.get(1, TimeUnit.SECONDS));
+        } finally {
+            channel.close();
+            producer.join(1000);
+        }
+    }
+
+    private static void awaitTimedWaiting(Thread thread) {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(1);
+        Thread.State observed = thread.getState();
+        while (observed != Thread.State.TIMED_WAITING && System.nanoTime() < deadline) {
+            Thread.yield();
+            observed = thread.getState();
+        }
+        assertEquals(Thread.State.TIMED_WAITING, observed);
+    }
+
+    private static ScanStreamBatchReq batchRequest() {
+        return ScanStreamBatchReq.newBuilder().setHeader(Header.newBuilder().setGraph("g"))
+                                 .setQueryRequest(ScanQueryRequest.newBuilder().setMethod(ScanMethod.ALL)
+                                                                 .setTable("t").setLimit(10)
+                                                                 .setPerKeyMax(Long.MAX_VALUE)
+                                                                 .setPageSize(1)).build();
+    }
+
+    private static void assertCancelled(StreamObserver<KvPageRes> output) {
+        ArgumentCaptor<Throwable> failure = ArgumentCaptor.forClass(Throwable.class);
+        verify(output).onError(failure.capture());
+        assertEquals(Status.Code.CANCELLED, Status.fromThrowable(failure.getValue()).getCode());
     }
 
     private static void assertUnavailable(Runnable action) {

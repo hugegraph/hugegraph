@@ -246,9 +246,12 @@ public class ScanBatchResponse3 {
         }
 
         void error(String msg, Throwable t) {
+            this.error(Status.INTERNAL, msg, t);
+        }
+
+        void error(Status status, String msg, Throwable t) {
             if (!finishFlag.getAndSet(true)) {
-                this.responseObserver.onError(HgGrpc.toErr(Status.INTERNAL,
-                                                           msg, t));
+                this.responseObserver.onError(HgGrpc.toErr(status, msg, t));
             }
         }
     }
@@ -402,6 +405,9 @@ public class ScanBatchResponse3 {
 
                     }
 
+                    if (!this.breakdown.get() && Thread.currentThread().isInterrupted()) {
+                        throw new InterruptedException("Scanning interrupted");
+                    }
                     this.completeFlag.set(true);
 
                     deliverer.deliver(dataBuilder, curTimes.incrementAndGet(), true);
@@ -410,7 +416,8 @@ public class ScanBatchResponse3 {
 
             } catch (InterruptedException e) {
                 log.error("Interrupted waiting of iterator, canceled while.", e);
-                this.deliverer.error("Failed to finish scanning, cause by InterruptedException.");
+                this.deliverer.error(Status.CANCELLED,
+                                     "Failed to finish scanning, cause by InterruptedException.", e);
             } catch (TimeoutException t) {
                 log.info(t.getMessage());
                 this.deliverer.error("Sever waiting exceeded ["
