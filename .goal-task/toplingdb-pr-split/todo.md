@@ -20,10 +20,10 @@
 | P3候选 | 格式、干净编译及恢复/WAL定向测试通过 | 10文件增量；三名静态审查及遗漏修复复审通过；恢复27+Sessions13项全通过无skip；MultiGraphs11项中2skip、其余通过，双真实bind mount均拒绝；#263非Draft已发布 |
 | P2/P3运行验收 | P2 core非root全量通过；P3定向及挂载验证通过 | P2首次root权限失败与tmpfs noexec首次失败均保留，未改断言；完整非root822项、0失败、0错误、45skip、exit0，成功容器已删除。P2 API及扫描/TTL真实关闭harness已准备、未执行（需先打包P2三组件）；P3恢复/WAL、多图及两个真实挂载别名拒绝均通过；探针classpath首次失败已保留 |
 | P4通用生产修复分组 | 已排除，实测回归可重开 | base/source调用链和依赖对照无新增TP必要性；PD follower REST组、Gremlin/HStore白名单组按既有通用问题独立跟进 |
-| P4 JNI获取与许可证 | core来源已补证，插件闭包/材料仍缺 | 当前JAR SHA256 86eb1bd3d9f84ef0dddd3fe95c640a6f145ca2d5a26a5ba628f1f298a2031fae，只有linux64 native且无LICENSE/NOTICE/POM；producer构建日志与binary内嵌core SHA一致，固定rockside/boost许可已读取；自动clone其他插件的精确版本与最终链接许可闭包未齐，已异步向用户询问生产方材料 |
-| P4代码与发布验证 | 109文件候选，审查修复已完成，标准干净编译通过，unit执行中 | 修复truncate提交pending写、SST truncate静默无效、Compose全局pull policy丢失、打包发布失败损坏旧输出；三人增量复审通过，shell故障注入通过，全仓38模块clean compile通过、格式前后无代码变化；Java红绿/完整测试/native仍待完成。许可证文件随包交付仍开放 |
+| P4 JNI获取与许可证 | core及四插件版本已补证，许可闭包核查中 | 当前JAR SHA256 86eb1bd3d9f84ef0dddd3fe95c640a6f145ca2d5a26a5ba628f1f298a2031fae，只有linux64 native且无LICENSE/NOTICE/POM；producer构建日志与binary内嵌core SHA一致，固定rockside/boost许可已读取；四个auto-cloned插件精确版本已从当前ELF的命名版本函数定位并gh核验；固定版本第三方许可闭包正在补齐，尚不能宣称可再分发 |
+| P4代码与发布验证 | 109文件候选，审查修复已完成，编译/unit/清表红绿通过，core执行中 | 修复truncate提交pending写、SST truncate静默无效、Compose全局pull policy丢失、打包发布失败损坏旧输出；三人增量复审通过，shell故障注入通过，全仓38模块clean compile通过、格式前后无代码变化；unit797项0失败0错误1既有skip；新增清表green5通过，原代码真实断言失败且标准对照通过；core/其他相关模块/native仍待完成。许可证文件随包交付仍开放 |
 | org子PR | P1/P2/P3已发布，CI进行中 | P1 #262 head28a7d653；P2 #261 head7d1472b8，均非Draft、独立base176fb。P1 rocksdb-upgrade、P2 store-stop-shell-test CI通过，其余CI尚未结束；当前head验证和剩余门槛在PR中逐项列明；P3 #263 head d3cf073c 基于P2，P4按完成步骤及时提交，不auto-merge |
-| 网站配套文档 | 独立候选准备中 | apache/hugegraph-doc master e6389aa7，现有Topling页面与P4当前实现对照；8文件双语候选及历史提示已完成轻量检查，完整clone仍下载中；Hugo/搜索验证待重任务槽，先验证再发布 |
+| 网站配套文档 | 独立候选准备中 | apache/hugegraph-doc master e6389aa7，现有Topling页面与P4当前实现对照；8文件双语候选及历史提示完成；全量719文件API源码核验、链接检查通过，Python轻量70通过1skip；冗余clone已终止清理，Hugo/剩余源码/搜索验证待重任务槽 |
 | Apache子PR | 未发布 | 重新核上游base/差异/CI；对应用户确认单独取得；源整合#3134保留 |
 | 最终整合 | 未开始 | 所有所需单元合入Apache、标准/真实TP整合验证、文档许可及三人审查通过 |
 
