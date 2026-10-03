@@ -131,6 +131,11 @@ public class HgStoreStateMachineTest {
             Task task;
 
             @Override
+            public void setAutoCommitPerLog(boolean autoCommit) {
+                throw new UnsupportedOperationException("Test iterator does not manage commits");
+            }
+
+            @Override
             public ByteBuffer getData() {
                 return task.getData();
             }

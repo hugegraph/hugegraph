@@ -28,6 +28,44 @@ on:
 
 # TODO: consider merge to one ci.yml file
 jobs:
+  rocksdb-upgrade:
+    permissions:
+      contents: read
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Install Java 11
+        uses: actions/setup-java@v4
+        with:
+          java-version: '11'
+          distribution: 'zulu'
+
+      - name: Resolve standard RocksDB JNI versions
+        run: |
+          for version in 6.29.5 7.7.3 8.10.2; do
+            mvn -B -ntp dependency:get \
+              -Dartifact=org.rocksdb:rocksdbjni:$version -Dtransitive=false
+          done
+
+      - name: Verify old SST and WAL data with the new JNI
+        run: |
+          bash install-dist/scripts/rocksdb-upgrade/run.sh \
+            "$HOME/.m2/repository/org/rocksdb/rocksdbjni/6.29.5/rocksdbjni-6.29.5.jar" \
+            "$HOME/.m2/repository/org/rocksdb/rocksdbjni/7.7.3/rocksdbjni-7.7.3.jar" \
+            "$HOME/.m2/repository/org/rocksdb/rocksdbjni/8.10.2/rocksdbjni-8.10.2.jar" \
+            "$RUNNER_TEMP/rocksdb-upgrade"
+
+      - name: Preserve upgrade logs and synthetic databases
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rocksdb-upgrade-${{ github.sha }}
+          path: ${{ runner.temp }}/rocksdb-upgrade/
+
   struct:
     runs-on: ubuntu-latest
     env:
