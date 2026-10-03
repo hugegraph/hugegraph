@@ -47,7 +47,7 @@ public class HugeFactory {
     public static final String SYS_GRAPH = Graph.Hidden.hide("sys_graph");
     private static final Logger LOG = Log.logger(HugeFactory.class);
     private static final String NAME_REGEX = "^[A-Za-z][A-Za-z0-9_]{0,47}$";
-    private static final Map<String, HugeGraph> GRAPHS = new HashMap<>();
+    private static final Map<String, StandardHugeGraph> GRAPHS = new HashMap<>();
     private static final AtomicBoolean SHUT_DOWN = new AtomicBoolean(false);
     private static final Thread SHUT_DOWN_HOOK = new Thread(() -> {
         LOG.info("HugeGraph is shutting down");
@@ -86,7 +86,7 @@ public class HugeFactory {
         String graphSpace = config.get(CoreOptions.GRAPH_SPACE);
         name = name.toLowerCase();
         String spaceGraphName = graphSpace + "-" + name;
-        HugeGraph graph = GRAPHS.get(spaceGraphName);
+        StandardHugeGraph graph = GRAPHS.get(spaceGraphName);
         if (graph == null || graph.closed()) {
             graph = new StandardHugeGraph(config);
             GRAPHS.put(spaceGraphName, graph);
@@ -113,7 +113,7 @@ public class HugeFactory {
     }
 
     public static void closeCurrentThreadTransactions() {
-        List<HugeGraph> graphs;
+        List<StandardHugeGraph> graphs;
         synchronized (HugeFactory.class) {
             graphs = new ArrayList<>(GRAPHS.values());
         }
@@ -121,11 +121,11 @@ public class HugeFactory {
     }
 
     static void closeCurrentThreadTransactions(
-                Collection<? extends HugeGraph> graphs) {
+                Collection<? extends StandardHugeGraph> graphs) {
         Throwable failure = null;
-        for (HugeGraph graph : graphs) {
+        for (StandardHugeGraph graph : graphs) {
             try {
-                ((StandardHugeGraph) graph).closeCurrentThreadTransaction();
+                graph.closeCurrentThreadTransaction();
             } catch (Throwable e) {
                 if (failure == null) {
                     failure = e;

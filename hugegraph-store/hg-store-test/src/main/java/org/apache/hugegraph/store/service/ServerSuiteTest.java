@@ -25,7 +25,10 @@ import lombok.extern.slf4j.Slf4j;
 
 @RunWith(Suite.class)
 @Suite.SuiteClasses({
-        OrderedMultiPartitionIteratorTest.class
+        OrderedMultiPartitionIteratorTest.class,
+        ContextClosedListenerTest.class,
+        GrpcShutdownBarrierTest.class,
+        ScanShutdownTest.class
 })
 
 @Slf4j

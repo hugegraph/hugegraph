@@ -474,10 +474,15 @@ public class ScanShutdownTest {
         ScanIterator source = mock(ScanIterator.class);
         when(source.hasNext()).thenReturn(true);
         when(source.next()).thenReturn(RocksDBSession.BackendColumn.of(new byte[4], new byte[0]));
-        ParallelScanIterator scan = ParallelScanIterator.of(
-                () -> new KVPair<>(mock(QueryCondition.class), source), () -> Long.MAX_VALUE,
-                ScanQueryRequest.getDefaultInstance(), executor);
+        Field bodySize = ParallelScanIterator.class.getDeclaredField("maxBodySize");
+        bodySize.setAccessible(true);
+        int originalBodySize = bodySize.getInt(null);
+        bodySize.setInt(null, 2);
+        ParallelScanIterator scan = null;
         try {
+            scan = ParallelScanIterator.of(
+                    () -> new KVPair<>(mock(QueryCondition.class), source), () -> Long.MAX_VALUE,
+                    ScanQueryRequest.getDefaultInstance(), executor);
             // One worker fills its output allowance and pauses while retaining its iterator.
             executor.submit(() -> { }).get(2, TimeUnit.SECONDS);
             verify(source, atLeastOnce()).next();
@@ -488,7 +493,10 @@ public class ScanShutdownTest {
             executor.shutdown();
             assertTrue(executor.awaitTermination(1, TimeUnit.SECONDS));
         } finally {
-            scan.close();
+            if (scan != null) {
+                scan.close();
+            }
+            bodySize.setInt(null, originalBodySize);
             executor.shutdownNow();
         }
     }

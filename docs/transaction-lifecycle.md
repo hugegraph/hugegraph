@@ -3,8 +3,11 @@
 Server releases the current thread's graph transactions when a REST request
 finishes and when an authenticated context task exits. Cleanup visits every
 registered graph even when one graph fails to close, and reports failures.
-Applications must still finish their own transactions; this cleanup is not a
-commit guarantee for an unfinished request.
+Cleanup explicitly rolls back unfinished writes, including when `onClose(COMMIT)`
+was configured, then releases backend transactions and resets thread-local
+transaction behavior and listeners. Applications must commit successful writes
+before leaving the request/task boundary. Closing an OLTP traverser preserves
+the caller's transaction so that the caller can still commit or roll it back.
 
 The cleanup also applies when schema caches have become cold. Deleting an auth
 project or user must remove its associated access or belong edges while

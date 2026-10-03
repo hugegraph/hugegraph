@@ -341,6 +341,11 @@ jobs:
           mvn test -pl hugegraph-store/hg-store-test -am \
             -P store-core-test -Djacoco.sessionId=store-core-test
 
+      - name: Run server shutdown test
+        run: |
+          mvn test -pl hugegraph-store/hg-store-test -am \
+            -P store-server-test -Djacoco.sessionId=store-server-test
+
       - name: Generate aggregate coverage report
         run: |
           mvn verify -pl hugegraph-store/hg-store-test -am -P jacoco \
@@ -359,6 +364,8 @@ jobs:
             "$TEST_REPORT_DIR/TEST-org.apache.hugegraph.store.raftcore.RaftSuiteTest.xml" \
             --require-test-report \
             "$TEST_REPORT_DIR/TEST-org.apache.hugegraph.store.core.CoreSuiteTest.xml" \
+            --require-test-report \
+            "$TEST_REPORT_DIR/TEST-org.apache.hugegraph.store.service.ServerSuiteTest.xml" \
             --require-covered-group hg-store-common \
             --require-covered-group hg-store-client \
             --require-covered-group hg-store-rocksdb \
@@ -368,6 +375,7 @@ jobs:
             --require-session store-rocksdb-test \
             --require-session store-raftcore-test \
             --require-session store-core-test \
+            --require-session store-server-test \
             "$REPORT_FILE" \
             hg-store-grpc hg-store-common hg-store-client hg-store-rocksdb hg-store-core
 
