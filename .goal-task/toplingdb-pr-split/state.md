@@ -1,7 +1,7 @@
 # ToplingDB PR 拆分任务
 
 更新：2026-10-03（Asia/Singapore）。用户已确认 deep 模式与本文件初始化。
-当前已启动拆分分析及P1本地构造，尚未发布子PR或合入；原 Linux goal 保持暂停。
+当前已发布P1/P2 PR，P3/P4继续并行推进；尚未合入，原 Linux goal 保持暂停。
 
 ## 入口与依据
 
@@ -30,14 +30,14 @@
 
 ## 当前执行材料
 
-任务记录已提交到org的`task/topling-split-records-20261003`，最近已确认提交`5c82517bf63534f4d872526a844fc68f8c4174c0`；已复核仅4份清单/状态文档，不进入功能PR，不改变代码或源分支。此后本地新增状态在下一里程碑同步。
+任务记录已提交到org的`task/topling-split-records-20261003`，最近已确认提交`edaac33c4ffdfa5ae8d5de5ca94e72f0074334db`；已复核仅4份清单/状态文档，不进入功能PR，不改变代码或源分支。此后本地新增状态在下一里程碑同步。
 
 - [拆分方案](design.md)、[逐文件/修改块归属](split-map.tsv)：198文件、404项（392个patch块、12个binary/no-patch）；P1独立，P2独立，P3依赖P2无副作用开库查询，P4依赖必要前置。
 - 完整只读来源：`/Users/zhu/github/hugegraph-topling-split-source`；通过gh clone获取，与固定head的2712个blob哈希全部一致。
 - P1隔离构造：`/Users/zhu/github/hugegraph-topling-split-runtime`；gh clone org/master后逐blob核验基线，再修改POM/metrics/LICENSE/清单。PDStore JRaft按实测ABI错误升至1.3.14，Server保留1.3.11。
 - 以下绝对路径为本机/专属主机证据索引，未随记录分支上传，不是公开附件。
 - 原始API/源码核验证据：`/Users/zhu/github/hugegraph-topling-split-evidence`；来源清单、base/source完整Git tree、源码哈希核验JSON均已保存。
-- P1远程目标为`hugegraph/hugegraph:task/topling-split-runtime`；先仅创建指向org基线的空分支，不发布未验证候选、不触碰master或原toplingdb。候选通过适用验证后再以非强制更新发布提交。
+- P1已发布[PR #262](https://github.com/hugegraph/hugegraph/pull/262)，head `28a7d6531aaee6c00cc21a746895c3c3ba7c10c1`；P2已发布[PR #261](https://github.com/hugegraph/hugegraph/pull/261)，head `7d1472b80a878ab83154a4daee9bf5060775da99`。均基于org/master独立提交，不触碰master或原toplingdb。按用户最新要求，完成可审查步骤及适用提交前检查后及时非强制提交并创建PR，后续服务/CI门槛在PR中明确保留。
 - 本机Darwin arm64，Docker linux aarch64/10 CPU/约12.6GB，初次预检时无运行容器；Docker已恢复，原容器确认exit1非OOM，未重启；独立v3干净编译及标准打包已通过。真实Linux x86_64 TP能力待核实；不能将ARM测试当原生x86验收。
 - 本地主要checkout与org/master的blob差异仅Struct AuthOptions及TokenGenerator删除，符合Apache新增提交内容；未触碰这些文件，不把blob比较当索引状态。
 - 已发现Apache同源PR #3134，head同源、OPEN，保留不改。org现有toplingdb-auth-cascade分支不是拆分分支；随后已创建P1空分支task/topling-split-runtime，仅指向org基线，尚未发布候选提交。
@@ -72,7 +72,8 @@ TP 适配及来源 PR 新增共用代码引入或放大的回归在范围内；�
 - 每个 PR 验证通过后逐个交用户 review，提供仓库、URL、head、证据与剩余风险。org 和 Apache 的合入各自需要该 PR 的明确确认，不能跨仓库沿用确认。
 - 不 auto-merge，不直接推送 master，不绕过必需检查或使用管理员强合。保留原 toplingdb 和 #179，不 force-push、不重写历史、不提前关闭。
 - 上游提交重新核对 base、真实前置、完整 diff 和 CI；org 绿灯或前置已合入 org 不证明 Apache 就绪。合入后记录 merge SHA，刷新后续依赖及受影响验证。
-- 通过适用验证和审查后及时提交；代码与验收记录分别提交。提交遵循 `类型(范围): 动词开头的简短描述`，范围可省略，body 列 3–5 个核心改动。
+- 用户最新明确：每个可审查步骤完成后及时提交、创建或更新PR，不等四个单元或完整最终验收结束；未完成验证逐项写在PR中，不能将创建PR视为验收通过。独立单元使用多agent并行推进。用户进一步明确所有PR使用非Draft状态；ready仅表示开放评审，未完成验收仍须显式列明，不能自动合入。
+- 通过适用提交前验证和审查后及时提交；代码与验收记录分别提交。提交遵循 `类型(范围): 动词开头的简短描述`，范围可省略，body 列 3–5 个核心改动。
 - 任务记录保存在本地或专用记录分支，不混入功能 PR；不提交大日志、数据库和镜像。`.goal-task/`、历史 `.specs/` 和绘图资料默认不搬入上游，必要产品文档、有效测试和许可证随实现。
 - 根 AGENTS 和 CONTRIBUTING 的产品文档要求适用：网站文档受影响时准备配套 `apache/hugegraph-doc` PR 并协调合入，不能仅留后续 issue。
 - 远程变更前记录确切目标及影响。JNI 交付、不可逆迁移、默认行为变更或已有支持删除先给出具体证据与方案，交用户判断；不擅自扩展范围。
@@ -86,7 +87,7 @@ TP 适配及来源 PR 新增共用代码引入或放大的回归在范围内；�
 - 真实 TP 验证核查实际加载 JAR 来源、唯一 JNI、native maps 与哈希；标准 JNI 下 adapter 测试或 provider 变量不足以证明。覆盖实际服务、重启、关闭及拒绝路径。
 - 发布前按仓库要求运行 `mvn editorconfig:format`、`mvn clean compile -Dmaven.javadoc.skip=true` 和相关模块测试；Commons 必须显式 `-DskipCommonsTests=false`。精确测试命令从相应模块指导/当前源码取得。
 - 文档核查链接、路径及补丁空白；仓库给出的 `git diff --check` 按用户 gh-only 约束改用 gh 获取补丁后等效检查，记录方法，不直接执行 git。
-- 同一时间只运行一个重任务、一批测试服务。启动脚本的进程/端口/cron 清理只在专属测试容器内执行；仅清理本任务所有资源。
+- 同一时间只运行一个重任务、一批测试服务。启动脚本的进程/端口/cron 清理只在专属测试容器内执行；仅清理本任务所有资源。用户进一步要求及时释放测试容器：成功结束且证据已保存的容器立即删除，失败容器完成诊断及必要样本归档后删除；保留仍需使用的镜像、缓存和数据。
 - 保留首次失败证据，不删 pending/checkpoint/锁文件强行启动，不减弱断言或忽略退出码。修复根因后运行受影响测试，阶段冻结时做广泛验证，避免无理由反复重跑。
 - 每个生产行为/持久化子 PR 及最终整合重大阶段由恰好 3 名独立只读审查者检查：先看全局风险，再分别侧重正确性/测试、设计/边界、安全/可维护性。小 diff 则各自全量审查。实施者自查不替代独立审查。
 - 修正后复审受影响 diff 并实测；默认最多 3 轮修复/复审，未通过则记录依赖、后移该项，不宣称完成。纯文档或分析交付默认 1 名独立审查者。缺少审查能力时保留未满足门槛并继续独立工作。
@@ -105,7 +106,7 @@ TP 适配及来源 PR 新增共用代码引入或放大的回归在范围内；�
 
 ## 当前门槛与下一步
 
-逐项状态仅维护在[todo.md](todo.md)。当前已构造P1/P2/P3及P4累积候选、发布0个子PR；重任务串行推进。PD测试证实旧JRaft与8.10.2存在API不兼容，正在定位最小升级；P4外部输入实现及许可核查并行推进。
+逐项状态仅维护在[todo.md](todo.md)。当前已构造P1/P2/P3及P4累积候选、发布2个子PR；重任务串行推进。PD测试证实旧JRaft与8.10.2存在API不兼容，正在定位最小升级；P4外部输入实现及许可核查并行推进。
 
 - 全部必要功能单元合入 Apache、最终验证及审查通过、产品文档/许可证到位且无未解决高严重性发现后，才可完成任务；保留原 PR/分支，关闭或清理另经用户确认。
 - 下一步：修正有实测依据的P1 JRaft依赖，串行完成模块及旧数据服务验证；同步完成P4显式JNI路径/哈希输入和相关文档，再做三人独立复审。

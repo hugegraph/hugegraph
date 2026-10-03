@@ -1,0 +1,2 @@
+Built-in image_gen; infographic-diagram for the Store shutdown PR.
+White landscape technical illustration. Before: storage may close while scans and callbacks remain active. After: stop new RPCs, cancel active work, wait for workers and callbacks, then close storage. Still-busy work keeps shutdown pending. English labels, navy/teal with orange warnings; no hashes, logs, test counts, performance or atomicity claims.
