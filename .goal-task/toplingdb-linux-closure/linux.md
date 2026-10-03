@@ -4,7 +4,7 @@
 
 更新于 2026-10-03。当前门禁仅覆盖 ToplingDB（TP）适配自身引入或放大的问题；
 本 PR 新增共用代码的回归也必须修复。详细旧命令与首次失败在
-[精简前完整记录](linux-history-20261002.md)，旧门禁归属不覆盖本页。
+[精简前完整记录](https://github.com/hugegraph/hugegraph/blob/4720da91b5a3c99b426c2ac035533ebc84d4e4cb/.goal-task/toplingdb-linux-closure/linux-history-20261002.md)，旧门禁归属不覆盖本页。
 用户确认 #252 性能为可选项，#213 正式发布流程/发行链独立后置，均不阻塞当前任务。
 本轮先完成 TP 引入或放大问题的故障安全、真实服务验证及必要修复交付。
 
@@ -156,7 +156,7 @@ s 成员重试后 g/m checkpoint 残留不能声称全图恢复完成；该原�
 首次失败原样保留：启动容器缺 compiler/预建目录，脚本端口/断言错误，SIGKILL 过早 GET
 连接重置，JNI 路径遗漏导致重复加载 exit 134，merge 服务 4 CPU 下 17×200/3×503。
 后者日志明确 maxWorkerThreads=8 的负载保护；16 CPU 后续成功不覆盖首轮失败。
-详见 [历史完整记录](linux-history-20261002.md)，私有 native 日志不直接公开环境内容。
+详见 [历史完整记录](https://github.com/hugegraph/hugegraph/blob/4720da91b5a3c99b426c2ac035533ebc84d4e4cb/.goal-task/toplingdb-linux-closure/linux-history-20261002.md)，私有 native 日志不直接公开环境内容。
 
 ## 独立调查与隔离候选
 

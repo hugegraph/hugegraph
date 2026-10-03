@@ -29,5 +29,5 @@
 | 临时端口 / HStore 联合索引 | 组织 #216/#217，按原 issue 跟进。 |
 
 父汇总为 [#240](https://github.com/hugegraph/hugegraph/issues/240)，#214 仅作历史里程碑。
-旧完整索引保留在 [同期归档](state-history-20261002.md#todomd-同期原始索引) 与
-[todo-history-20260926.md](todo-history-20260926.md)；不将旧授权、状态或门禁作为当前安排。
+旧完整索引保留在 [同期归档](https://github.com/hugegraph/hugegraph/blob/4720da91b5a3c99b426c2ac035533ebc84d4e4cb/.goal-task/toplingdb-linux-closure/state-history-20261002.md#todomd-同期原始索引) 与
+[todo-history-20260926.md](https://github.com/hugegraph/hugegraph/blob/4720da91b5a3c99b426c2ac035533ebc84d4e4cb/.goal-task/toplingdb-linux-closure/todo-history-20260926.md)；不将旧授权、状态或门禁作为当前安排。

@@ -80,34 +80,18 @@ belong。最终实现仅排除特殊 OLAP 标签；不要恢复旧候选或仅�
 
 ## 已有验证与不能外推的结论
 
-详细 Linux 证据权威位置为 [linux.md](linux.md)，问题归属见 [todo.md](todo.md)。
-此处只给新环境选择回归范围所需的摘要：
+实测结论、运行产物身份与原始证据位置只维护在 [linux.md](linux.md)，Mac 对照见 [mac.md](mac.md)。
+源码重组或变更 base 后，按实际影响复测；源 PR 绿灯不能证明拆分后的中间树安全。
+已有新库结果不证明 PD/Store 旧数据升级或降级兼容，这是单元 1 需要补齐的边界。
 
-- 冻结基线：标准 session/helper 43 项；真实 TP helper 27 项；真实 adapter truncate 1 项。
-  三组件标准/TP 构建、身份、配置、启动、信号、CRUD/重启及单宿主分布式部署已有记录。
-- 993ff6fe：标准/TP 服务的 g 成员 WAL 发布失败保留材料、冷启恢复及 pending 恢复并发对照通过。
-  使用真实同库 WAL fixture，不声称默认 checkpoint 自然含 WAL 或全图原子恢复完成。
-- 最后代码 3aa44152：三人最终复审；标准 55 项、真实 TP 5 项、分批删边每 provider 1 项通过。
-  标准/TP 真实服务的项目/用户删除重建、无关关系保留、CRUD、首次重启及两次关闭均通过。
-  完整标准 API 161 项无失败、14 assumption skip（13 项 HStore GraphSpace、1 项共享存储 Gremlin）。
-- 源 PR 的绿色 CI 和这些实测都不证明拆分后的任意中间树安全。重新组合、变更 base 或依赖后，按实际变化复测。
-- 已有新库实测不证明 PD/Store 旧版本数据库升级或降级兼容；这属于单元 1 必须明确的新边界。
-
-真实 TP 固定输入（仅本轮 Linux x86_64）：
-
-- JAR SHA-256：`86eb1bd3d9f84ef0dddd3fe95c640a6f145ca2d5a26a5ba628f1f298a2031fae`
-- native SHA-256：`c25ff6e676290db6db47df0954640aa609c391450ec90e1a8eec1f87e174dd38`
-
-新机器先核架构、ABI、CPU 与权限；不能把 x86_64 身份套到其他架构。
-原始私有证据可能只在旧机器 `/home/soc-baidu/.codex/validation-runtime/toplingdb-linux-closure/`
-下可用。新环境不应依赖这些绝对路径或 `/tmp/topling-*.py`；用仓库内测试、CI workflow 和
-linux.md 重建必要验证。缺失原始材料时明确写“旧记录”，不要伪造已独立复核。
-首轮失败必须保留，原始数据库、镜像、凭据和大日志不提交。
+新环境先核架构、ABI、CPU 与权限，不能将 Linux x86_64 native 身份套到其他架构。
+旧 evidence 绝对路径和 /tmp 脚本可能不可用；用仓库测试、CI 与 linux.md 重建必要验证。
+未取得原始材料时标明“旧记录”，不宣称独立复核。首次失败保留，大日志/数据库/镜像不提交。
 
 ## 新会话启动与执行顺序
 
-1. 先读根 `AGENTS.md` 和本文；state 用于确认简要状态，linux/todo 按待拆分范围取用，
-   再读相应模块 AGENTS 和 CONTRIBUTING。默认不读 Mac 文档和 history 长日志。
+1. 默认只读根 `AGENTS.md`、state.md 和本文；linux/mac/todo/lessons 按待拆分范围取用，
+   再读相应模块 AGENTS 和 CONTRIBUTING。不递归加载任务目录；历史材料仅在具体取证时从固定提交读取。
    检查已有本地改动/分支/资源及 org 和上游现有 PR，不覆盖其他会话的工作。
 2. 用 gh 刷新源 PR、org master、Apache master 和检查结果，记录不可变 SHA。需要新源码时使用完整 checkout；
    GitHub archive 的 export-ignore 曾漏掉 install-dist 文件，不能直接拿不完整归档构建。

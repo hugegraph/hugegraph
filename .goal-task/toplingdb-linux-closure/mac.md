@@ -233,5 +233,5 @@ Linux 待验项与可执行命令见 [linux.md](linux.md)，Mac 完成不关闭�
 
 文档拆分提交为 7c7519b79；四份历史档案与 4e1db45215 基线原文逐字节一致。
 初始化阶段 59 个链接/锚点及一名只读审查通过，不是代码验证。
-旧 master 同步、Raft 测试和通用指标 patch 见 [历史开发交接](development-handoff-history-20260926.md)，
+旧 master 同步、Raft 测试和通用指标 patch 见 [历史开发交接](https://github.com/hugegraph/hugegraph/blob/4720da91b5a3c99b426c2ac035533ebc84d4e4cb/.goal-task/toplingdb-linux-closure/development-handoff-history-20260926.md)，
 它们没有被移入此次 TP 代码交付，也不作为本次功能通过证据。
