@@ -28,6 +28,21 @@ on:
 
 # TODO: consider merge to one ci.yml file
 jobs:
+  store-stop-shell-test:
+    permissions:
+      contents: read
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Verify Store stop failure propagation and PID retention
+        run: |
+          docker run --rm -v "$GITHUB_WORKSPACE:/work:ro" -w /work ubuntu:24.04 \
+            bash hugegraph-server/hugegraph-dist/src/assembly/travis/test-stop-hugegraph-store.sh
+
   struct:
     runs-on: ubuntu-latest
     env:
