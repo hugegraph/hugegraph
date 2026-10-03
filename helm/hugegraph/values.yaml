@@ -377,6 +377,12 @@ server:
   service:
     type: ClusterIP
     annotations: {}
+    # A non-ClusterIP type publishes the plain-HTTP Server API, and with it
+    # Basic-auth credentials and JWTs in cleartext, outside the cluster. The
+    # render refuses it unless this acknowledgement is set and reachability
+    # is restricted by other means (NetworkPolicy, load balancer allowlist,
+    # firewall). Prefer an HTTPS-terminating Ingress.
+    allowInsecureExposure: false
   ingress:
     enabled: false
     className: ""

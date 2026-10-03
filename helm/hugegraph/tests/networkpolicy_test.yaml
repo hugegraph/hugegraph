@@ -481,6 +481,7 @@ tests:
       - ../values-cluster.yaml
     set:
       server.service.type: LoadBalancer
+      server.service.allowInsecureExposure: true
       networkPolicy.server.extraIngress:
         - from:
             - ipBlock:
@@ -591,6 +592,7 @@ tests:
       pd.service.type: LoadBalancer
       pd.service.allowInsecureExposure: true
       server.service.type: NodePort
+      server.service.allowInsecureExposure: true
       server.advertiseUrl: http://hg.example.com:8080
       hubble.service.type: NodePort
       hubble.service.allowInsecureExposure: true

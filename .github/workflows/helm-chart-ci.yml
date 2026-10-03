@@ -174,9 +174,13 @@ jobs:
           must_fail --set-string "server.auth.admin.password=review-secret "
           must_fail --set-string "$(printf 'server.auth.admin.password=review-secret\t')"
           must_fail --set-string "pd.auth.value=review-secret "
-          # An inner space stays legal: only the trimmed ends are the problem.
+          # An inner space in the admin password fails too: the image
+          # entrypoint stores it with a backslash before each space, so the
+          # account would answer 401 to the configured value. The PD secret
+          # is not written by that encoder, so its inner space stays legal.
+          must_fail --set-string "server.auth.admin.password=review secret"
           helm template ci helm/hugegraph \
-            --set-string "server.auth.admin.password=review secret" >/dev/null
+            --set-string "pd.auth.value=review secret" >/dev/null
           # The Server decodes Basic-auth credentials as ASCII, so a non-ASCII
           # admin password would be applied and then answer 401 to every
           # request; the schema refuses it before install, as it already
@@ -210,6 +214,13 @@ jobs:
           must_fail "${A[@]}" --set hubble.mode=bogus
           must_fail "${A[@]}" --set hubble.image.tag=""
           must_fail "${A[@]}" --set hubble.ingress.enabled=true
+          # A NodePort or LoadBalancer Server Service publishes the plain-HTTP
+          # API, credentials and JWTs included; same acknowledgement.
+          must_fail --set server.service.type=NodePort
+          must_fail --set server.service.type=LoadBalancer
+          helm template ci helm/hugegraph \
+            --set server.service.type=LoadBalancer \
+            --set server.service.allowInsecureExposure=true > /dev/null
           # A TLS-less Server Ingress needs the explicit plain-HTTP opt-in
           must_fail --set server.ingress.enabled=true
           helm template ci helm/hugegraph \
@@ -264,6 +275,42 @@ jobs:
           # skip auto heap sizing and drop the chart's JAVA_OPTS entirely
           must_fail --set 'pd.extraEnv[0].name=JAVA_OPTIONS' \
             --set 'pd.extraEnv[0].value=-Xmx1g'
+
+      - name: server credential wrapper behaviour
+        shell: bash
+        run: |
+          # An existingSecret is only seen when the container starts, so run
+          # the rendered Server wrapper against Secret values. A valid value
+          # passes the checks and stops at the missing properties file; an
+          # unsupported one stops earlier with its own message.
+          set -euo pipefail
+          helm template ci helm/hugegraph -s templates/server-deployment.yaml \
+            --set server.auth.admin.existingSecret=ci-byo > /tmp/srv.yaml
+          python3 - <<'PY'
+          import yaml
+          d = yaml.safe_load(open('/tmp/srv.yaml'))
+          open('/tmp/srv.sh', 'w').write(d['spec']['template']['spec']['containers'][0]['args'][0])
+          PY
+          mkdir -p /tmp/srv-run
+          run() {
+            (cd /tmp/srv-run && PASSWORD="$1" bash /tmp/srv.sh 2>&1) || true
+          }
+          expect() {
+            local out
+            out=$(run "$1")
+            if ! grep -qF -- "$2" <<<"$out"; then
+              printf 'password %q: expected "%s", got:\n%s\n' "$1" "$2" "$out" >&2
+              exit 1
+            fi
+          }
+          expect 'review-secret_42!' 'missing or unreadable ./conf/rest-server.properties'
+          expect 'ASCII inner space 123!?' 'must not contain spaces'
+          expect ' leading' 'must not contain spaces'
+          expect 'trailing ' 'must not contain spaces'
+          expect 'review:secret' 'must not contain a colon'
+          expect 'review\secret' 'must not contain backslashes'
+          expect "$(printf 'review\tsecret')" 'must be printable ASCII'
+          expect 'café' 'must be printable ASCII'
 
       - name: helm test hook behaviour
         shell: bash

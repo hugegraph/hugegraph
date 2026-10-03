@@ -58,9 +58,10 @@ Pod for exactly that.
 Chart-generated credentials are in use: {{ join ", " $generated }}.
 They are stable only while Helm renders against the cluster. A template-only
 pipeline (helm template, Argo CD, Flux in template mode) cannot see the live
-Secret and generates a new value on every render, which changes the Secret
-without rolling the Pods and strands the admin account. For such a pipeline,
-pre-create the Secrets and set the existingSecret values (README, Upgrading).
+Secret and generates a new value on every render, so every sync changes the
+Secret, rolls the Pods that read it, and leaves the admin account created at
+first start out of step with the Secret. For such a pipeline, pre-create the
+Secrets and set the existingSecret values (README, Template-only pipelines).
 {{- end }}
 
 Reach the Server API:

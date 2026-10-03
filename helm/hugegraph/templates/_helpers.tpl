@@ -811,6 +811,9 @@ keys for releases stored before the values existed.
 {{- if and (get $svc "nodePort") (not (has (get $svc "type" | default "ClusterIP") (list "NodePort" "LoadBalancer"))) -}}
 {{- fail "server.service.nodePort requires server.service.type to be NodePort or LoadBalancer" -}}
 {{- end -}}
+{{- if and (ne (get $svc "type" | default "ClusterIP") "ClusterIP") (not (get $svc "allowInsecureExposure" | default false)) -}}
+{{- fail "server.service.type NodePort or LoadBalancer publishes the plain-HTTP Server API outside the cluster, so Basic-auth credentials and JWTs cross the network in cleartext; keep ClusterIP behind a port-forward or an HTTPS-terminating Ingress (server.ingress.tls), or set server.service.allowInsecureExposure=true once reachability is restricted by other means (NetworkPolicy, load balancer allowlist, firewall)" -}}
+{{- end -}}
 {{- $advertiseUrl := trim (default "" .Values.server.advertiseUrl) -}}
 {{- if and $advertiseUrl (not (or (hasPrefix "http://" $advertiseUrl) (hasPrefix "https://" $advertiseUrl))) -}}
 {{- fail "server.advertiseUrl must be an absolute http:// or https:// URL when set" -}}

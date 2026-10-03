@@ -80,9 +80,9 @@ so operators do not have to:
   `kubectl -n <namespace> rollout restart deployment/<fullname>-server` so
   every replica's auth cache drops the old password at once (the caches
   otherwise expire per replica over minutes). The Secret value lands in
-  `rest-server.properties` (mode 600) and must not contain newlines, carriage
-  returns, or backslashes; the wrapper refuses to start if it does. The
-  rotation caveats are also on the
+  `rest-server.properties` (mode 600) and must be printable ASCII with no
+  spaces, colons or backslashes; the wrapper refuses to start if it is not.
+  The rotation caveats are also on the
   [deployment page](https://hugegraph.apache.org/docs/quickstart/hugegraph/hugegraph-helm/#4-authentication-and-secrets).
 
 ## Installing the Chart
@@ -128,11 +128,12 @@ kubectl -n hugegraph create secret generic my-hugegraph-admin \
 ```
 
 Then add `--set-string server.auth.admin.existingSecret=my-hugegraph-admin` to
-the install command. The Secret must contain a `password` key with no newlines,
-carriage returns, backslashes, or surrounding whitespace (a properties read
-trims padding, so a padded Secret creates the account under a different
-password than it holds; the schema rejects padding on inline values but
-cannot see a bring-your-own Secret). The JWT signing key uses the same shape
+the install command. The Secret must contain a `password` key of printable
+ASCII with no spaces, colons or backslashes (the image stores a space with a
+backslash before it, so a password with a space creates the account under a
+different password than the Secret holds; the schema rejects these on inline
+values, and the Server wrapper refuses them in a bring-your-own Secret at Pod
+start). The JWT signing key uses the same shape
 under `server.auth.token` (`value`, `existingSecret`, `autoGenerate`), and
 its value must be at least 32 bytes.
 Read the password and exercise the API:
@@ -241,8 +242,10 @@ Any upgrade that changes a Pod template rolls that workload once.
 A release created before the exposure gates existed can hit them on its
 next upgrade, `--reuse-values` included: a non-ClusterIP `pd.service.type`
 now needs `pd.service.allowInsecureExposure=true`, a non-ClusterIP
-`hubble.service.type` needs `hubble.service.allowInsecureExposure=true`,
-and a TLS-less Server Ingress needs `server.ingress.allowPlainHttp=true`.
+`server.service.type` needs `server.service.allowInsecureExposure=true`, a
+non-ClusterIP `hubble.service.type` needs
+`hubble.service.allowInsecureExposure=true`, and a TLS-less Server Ingress
+needs `server.ingress.allowPlainHttp=true`.
 The render error names the value to set.
 
 PD and Store storage sizes live in the StatefulSet `volumeClaimTemplates`,
@@ -566,7 +569,7 @@ default values.
 | `server.testResources` | Resources for the Helm test hook container | requests `25m`/`32Mi`, limits `250m`/`64Mi` |
 | `server.initStoreEnabled` | Must remain `false` for distributed HStore | `false` |
 | `server.auth.enabled` | Enable admin authentication | `true` |
-| `server.auth.admin.password` | Optional inline admin password; prefer a Secret in shared clusters. Printable ASCII, no backslashes, no colons, no leading or trailing space; an `existingSecret` value is held to the same contract when the Pod starts (see Validation) | `""` |
+| `server.auth.admin.password` | Optional inline admin password; prefer a Secret in shared clusters. Printable ASCII, no spaces, no backslashes, no colons; an `existingSecret` value is held to the same contract when the Pod starts (see Validation) | `""` |
 | `server.auth.admin.existingSecret` | Pre-created Secret name (key defaults to `password`); takes priority | `""` |
 | `server.auth.admin.key` | Key inside the admin password Secret | `password` |
 | `server.auth.admin.autoGenerate` | Create and keep a random release-admin Secret when password and existingSecret are empty | `true` |
@@ -578,7 +581,8 @@ default values.
 | `server.ingress.className` | IngressClass name | `""` |
 | `server.ingress.annotations` | Ingress annotations (cert-manager, nginx, ALB) | `{}` |
 | `server.advertiseUrl` | Absolute Server URL registered with PD (`server.urls_to_pd`). Empty registers each Server Pod IP for in-cluster discovery | `""` |
-| `server.service.type` | Server Service type | `ClusterIP` |
+| `server.service.type` | Server Service type. A non-ClusterIP type requires `server.service.allowInsecureExposure` | `ClusterIP` |
+| `server.service.allowInsecureExposure` | Acknowledgement that a NodePort or LoadBalancer Service publishes the plain-HTTP Server API, so Basic-auth credentials and JWTs cross the network in cleartext; prefer a TLS Ingress, or restrict reachability by other means first | `false` |
 | `server.service.annotations` | Server Service annotations | `{}` |
 | `server.ingress.hosts` | Ingress hosts and paths | see `values.yaml` |
 | `server.ingress.tls` | Ingress TLS configuration. Empty is refused unless `allowPlainHttp` opts in: the Server carries Basic-auth credentials and JWTs | `[]` |
@@ -621,7 +625,10 @@ unless `hubble.service.allowInsecureExposure=true` acknowledges it.
 #### 2 and 3. Outside Hubble (direct Server URL, or PD discovery)
 
 A non-ClusterIP PD Service requires `pd.service.allowInsecureExposure=true`
-(PD gRPC has no authentication; restrict who can reach it first), and a set
+(PD gRPC has no authentication; restrict who can reach it first), a
+non-ClusterIP Server Service requires
+`server.service.allowInsecureExposure=true` (plain HTTP; prefer a TLS
+`server.ingress`), and a set
 `server.advertiseUrl` registers that one URL with PD for every discovery
 client, an in-cluster Hubble included. The walkthrough for both paths is on
 the
@@ -785,20 +792,28 @@ before anything reaches the cluster:
   `existingSecret` is only seen at container start. The ASCII check is
   byte-wise under the C locale, so the image locale cannot widen it.
 - The Server wrapper refuses an admin password that is not printable
-  ASCII, contains backslashes or colons, or starts or ends with whitespace,
-  and the schema puts the same pattern on `server.auth.admin.password`, so
+  ASCII or contains spaces, backslashes or colons, and the schema puts the
+  same pattern on `server.auth.admin.password`, so
   an inline value fails at render and an `existingSecret` fails at Pod
   start with a message naming the Secret. The Server decodes Basic-auth
   credentials as ASCII and splits them on every colon, so a non-ASCII
   password would be applied to the admin account and then answer 401 to
   every request made with it, and a password with a colon would answer
-  400 (measured on `:latest`, 2026-10-03). This guard is temporary: it goes
-  once the Server decodes Basic auth as UTF-8 and splits on the first colon
-  only (the TODO at the decoding site is in apache/hugegraph#3260).
+  400 (measured on `:latest`, 2026-10-03). The image entrypoint writes the
+  password into `rest-server.properties` with a backslash before each space,
+  and the Server keeps that backslash, so a password with a space would be
+  applied with the backslashes and answer 401 to the Secret value (measured
+  on `:latest`, 2026-10-03). This guard is temporary: it goes once the
+  Server decodes Basic auth as UTF-8 and splits on the first colon only, and
+  the entrypoint writes spaces so they read back unchanged (the TODOs at the
+  decoding site and at `encode_prop_value` are in apache/hugegraph#3260).
 - A non-ClusterIP `pd.service.type` requires
-  `pd.service.allowInsecureExposure=true`, and a non-ClusterIP
-  `hubble.service.type` requires `hubble.service.allowInsecureExposure=true`:
-  Hubble serves plain HTTP with no login of its own.
+  `pd.service.allowInsecureExposure=true`, a non-ClusterIP
+  `server.service.type` requires `server.service.allowInsecureExposure=true`
+  (the Server serves plain HTTP, so Basic-auth credentials and JWTs travel
+  in cleartext), and a non-ClusterIP `hubble.service.type` requires
+  `hubble.service.allowInsecureExposure=true`: Hubble serves plain HTTP with
+  no login of its own.
 - With `networkPolicy.enabled`, exposing PD, Server or Hubble (a NodePort
   or LoadBalancer Service, a Server or Hubble Ingress, or a set
   `server.advertiseUrl`) requires a non-empty

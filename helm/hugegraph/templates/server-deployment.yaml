@@ -112,10 +112,23 @@ spec:
               # inject config lines or silently store a password that differs
               # from the Secret.
               case "${PASSWORD}" in
-                *\\* | ' '* | *' ')
-                  echo "auth Secret key 'password' must not contain backslashes" \
-                       "or leading or trailing whitespace; fix the" \
-                       "server.auth.admin Secret value" >&2
+                *' '*)
+                  # Temporary: the image entrypoint writes auth.admin_pa with
+                  # each space escaped as a backslash and a space, and the
+                  # Server keeps that backslash, so the account gets a
+                  # password the Secret does not hold. Drop this case and the
+                  # space exclusion in the schema pattern once the image
+                  # encoder round-trips spaces (TODO at encode_prop_value in
+                  # docker-entrypoint.sh, apache/hugegraph#3260).
+                  echo "auth Secret key 'password' must not contain spaces: the" \
+                       "Server image stores each space in the admin password with" \
+                       "a backslash before it, so the account would answer 401 to" \
+                       "the Secret value; fix the server.auth.admin Secret value" >&2
+                  exit 1
+                  ;;
+                *\\*)
+                  echo "auth Secret key 'password' must not contain backslashes;" \
+                       "fix the server.auth.admin Secret value" >&2
                   exit 1
                   ;;
                 *:*)

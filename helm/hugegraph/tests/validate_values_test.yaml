@@ -78,6 +78,7 @@ tests:
     set:
       networkPolicy.enabled: true
       server.service.type: NodePort
+      server.service.allowInsecureExposure: true
     asserts:
       - failedTemplate:
           errorPattern: "admits nothing from outside the release, so the server exposure"
@@ -86,6 +87,7 @@ tests:
     set:
       networkPolicy.enabled: true
       server.service.type: LoadBalancer
+      server.service.allowInsecureExposure: true
     asserts:
       - failedTemplate:
           errorPattern: "admits nothing from outside the release, so the server exposure"
@@ -145,6 +147,14 @@ tests:
       - failedTemplate:
           errorPattern: "server exposure \\(NodePort/LoadBalancer Service, Ingress, server.advertiseUrl\\)"
 
+  - it: reports the Server acknowledgement before the NetworkPolicy exposure check
+    set:
+      networkPolicy.enabled: true
+      server.service.type: NodePort
+    asserts:
+      - failedTemplate:
+          errorPattern: "server.service.allowInsecureExposure=true"
+
   - it: reports the PD acknowledgement before the NetworkPolicy exposure check
     set:
       networkPolicy.enabled: true
@@ -156,6 +166,7 @@ tests:
   - it: leaves exposure alone while NetworkPolicy is off
     set:
       server.service.type: LoadBalancer
+      server.service.allowInsecureExposure: true
       server.advertiseUrl: http://hg.example.com:8080
     asserts:
       - hasDocuments:
