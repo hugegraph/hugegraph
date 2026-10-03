@@ -22,6 +22,7 @@ import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.net.URI;
 import java.net.URLEncoder;
+import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyStore;
 import java.util.Arrays;
@@ -138,8 +139,10 @@ public abstract class AbstractRestClient implements RestClient {
         } else {
             bodyContent = String.valueOf(body);
         }
-        RequestBody requestBody = RequestBody.create(bodyContent.getBytes(),
-                                                     MediaType.parse(contentType));
+        MediaType mediaType = MediaType.parse(contentType);
+        Charset charset = mediaType == null ? StandardCharsets.UTF_8 :
+                          mediaType.charset(StandardCharsets.UTF_8);
+        RequestBody requestBody = RequestBody.create(bodyContent.getBytes(charset), mediaType);
 
         if (headers != null &&
             "gzip".equals(headers.get(RestHeaders.CONTENT_ENCODING))) {
