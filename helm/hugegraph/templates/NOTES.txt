@@ -41,6 +41,28 @@ Verify the release:
 
   helm test {{ .Release.Name }} --namespace {{ .Release.Namespace }}
 
+Run it again after every upgrade that rolls PD and Server together: a
+Server that started while PD was rolling can pass readiness with a dead
+Gremlin binding (README, Troubleshooting), and the test checks every Server
+Pod for exactly that.
+{{- $pdAuth := get .Values.pd "auth" | default dict }}
+{{- $srvAuth := get .Values.server "auth" | default dict }}
+{{- $adminCfg := get $srvAuth "admin" | default dict }}
+{{- $tokenCfg := get $srvAuth "token" | default dict }}
+{{- $generated := list }}
+{{- if and (not (get $pdAuth "existingSecret" | default "")) (not (get $pdAuth "value" | default "")) }}{{ $generated = append $generated "pd.auth" }}{{ end }}
+{{- if and (get $srvAuth "enabled" | default false) (not (get $adminCfg "existingSecret" | default "")) (not (get $adminCfg "password" | default "")) }}{{ $generated = append $generated "server.auth.admin" }}{{ end }}
+{{- if and (get $srvAuth "enabled" | default false) (not (get $tokenCfg "existingSecret" | default "")) (not (get $tokenCfg "value" | default "")) }}{{ $generated = append $generated "server.auth.token" }}{{ end }}
+{{- if $generated }}
+
+Chart-generated credentials are in use: {{ join ", " $generated }}.
+They are stable only while Helm renders against the cluster. A template-only
+pipeline (helm template, Argo CD, Flux in template mode) cannot see the live
+Secret and generates a new value on every render, which changes the Secret
+without rolling the Pods and strands the admin account. For such a pipeline,
+pre-create the Secrets and set the existingSecret values (README, Upgrading).
+{{- end }}
+
 Reach the Server API:
 
   kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "hugegraph.server.name" . }} {{ .Values.server.port }}:{{ .Values.server.port }}

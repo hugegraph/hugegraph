@@ -240,9 +240,10 @@ Any upgrade that changes a Pod template rolls that workload once.
 
 A release created before the exposure gates existed can hit them on its
 next upgrade, `--reuse-values` included: a non-ClusterIP `pd.service.type`
-now needs `pd.service.allowInsecureExposure=true`, and a TLS-less Server
-Ingress needs `server.ingress.allowPlainHttp=true`. The render error names
-the value to set.
+now needs `pd.service.allowInsecureExposure=true`, a non-ClusterIP
+`hubble.service.type` needs `hubble.service.allowInsecureExposure=true`,
+and a TLS-less Server Ingress needs `server.ingress.allowPlainHttp=true`.
+The render error names the value to set.
 
 PD and Store storage sizes live in the StatefulSet `volumeClaimTemplates`,
 which Kubernetes forbids changing, so an upgrade with a new size is
@@ -291,29 +292,34 @@ Two cases are worth knowing about in advance:
   prove, and the closer per-group check on the Store's own REST port, are on
   the
   [operations page](https://hugegraph.apache.org/docs/quickstart/hugegraph/hugegraph-helm-operations/#6-rolling-store-images-safely).
-- **Server** rolls once on the first `helm upgrade` after a fresh install,
-  when the `checksum/auth` annotation first observes the install-created
-  Secrets. Template-only pipelines (`helm template`, GitOps renderers) never
-  see live Secrets, so there the annotation is a constant and Secret rotation
-  does not roll pods.
-- **PD and Hubble** roll once on the first `helm upgrade` after a fresh
-  install as well, when the `checksum/pd-auth` annotation first observes the
-  install-created PD REST Secret; Store is untouched. A PD roll is a raft
-  rolling restart, one pod at a time. Rotating the PD REST Secret later
-  rolls PD, Server and Hubble together, which keeps their copies in step.
+- **A no-change upgrade rolls nothing.** The `checksum/auth` and
+  `checksum/pd-auth` annotations hash the Secret name, key and a revision
+  input chosen by credential source: the digest of the value for an inline
+  value or a chart-generated Secret (the install renders the value it is
+  about to write, every later render reads the live Secret, so the two
+  agree), and the live `resourceVersion` for an operator-supplied
+  `existingSecret`. Rotating a credential rolls the Pods that read it
+  exactly once: PD, Server and Hubble together for the PD REST Secret,
+  Server for the admin password or JWT key. An out-of-band `kubectl` edit
+  of a Secret applies on the next `helm upgrade`. Earlier chart revisions
+  hashed the generated Secrets' `resourceVersion`, which the install could
+  not see, so the first no-change upgrade rolled PD and Server together;
+  releases installed with those revisions roll once more on their first
+  upgrade to this one, as the revision input changes.
 - **A Server that starts while PD is rolling can come up without its Gremlin
   binding** and then passes readiness and serves REST while every Gremlin
   request on it fails with `Could not rebind [graph]`, for the life of the
-  Pod. After an upgrade that rolls PD and Server together, check Gremlin on
-  each Server Pod and delete any Pod that fails; the replacement binds
-  normally once PD is stable (see Troubleshooting).
-- **Dropping an inline credential back to the chart-managed Secret rolls PD,
-  Server and Hubble once more, with no credential change.** The rollout
-  checksum takes the inline value's digest while `pd.auth.value` or
-  `server.auth.token.value` is set, and the Secret's `resourceVersion` when it
-  is not, so removing the inline value changes the annotation although the
-  credential is unchanged (the chart never hashes Secret data). Expect one
-  extra roll on that upgrade.
+  Pod ([apache/hugegraph#3228](https://github.com/apache/hugegraph/issues/3228):
+  the Server's startup load never offers the graph to Gremlin again after
+  one failed attempt). The chart no longer rolls PD and Server together on
+  a no-change upgrade, which was the common trigger; any upgrade that does
+  roll both (a PD REST Secret rotation, an image change on both) can still
+  hit it. Run `helm test` after such an upgrade: it checks Gremlin on every
+  Server Pod and names a Pod that fails; delete that Pod and the replacement
+  binds normally once PD is stable (see Troubleshooting).
+- **Dropping an inline credential back to the chart-managed Secret rolls
+  nothing**: the inline digest and the generated-Secret digest are the same
+  function of the same value.
 
 Every optional field stays optional, so a release created by an earlier
 revision continues to render under `--reuse-values`. That flag keeps the old
@@ -334,6 +340,74 @@ The `pd.antiAffinity` and `store.antiAffinity` defaults changed from
 effective value, but installs that relied on the old `required` default
 while supplying their own values files must now pin `antiAffinity: required`
 explicitly.
+
+### Settings by lifecycle
+
+Not every value is an ordinary override. The table says when each kind
+can change and what a rollback does to it.
+
+| Kind | Values | Can change | Rollback |
+|---|---|---|---|
+| Install-time identity | `nameOverride`, `fullnameOverride`, `pd.ports.raft`, `store.ports.raft`, `pd.storage.*`, `store.storage.*`, `persistentVolumeClaimRetentionPolicy` | Never on an initialized release. The chart refuses the override and raft port changes against the live StatefulSet; Kubernetes refuses the `volumeClaimTemplates` change (see above for growing storage). Changing one means a fresh install and a data migration | Must not cross a change in any of these |
+| Bootstrap-only | `pd.partition.defaultShardCount`, `pd.partition.storeMaxShardCount`, `server.auth.admin.*` (the password is applied at first account creation only), chart-generated credentials | The upgrade renders, but an initialized cluster ignores the new value; change it through PD's config API or the Server auth API instead (Partition Sharding, Limitations) | Reverts the rendered value only; the cluster keeps what it has |
+| Routinely mutable | Images, `resources`, `javaOpts`, probes, scheduling, `podAnnotations`, `podLabels`, `extraEnv`, `terminationGracePeriodSeconds`, Services and Ingresses, NetworkPolicy, `server.replicas`, `server.hpa.*`, `pd.auth`, `server.auth.token`, Hubble | Any upgrade; the affected workload rolls once | Safe: a forward upgrade with the earlier values is the same change in reverse |
+| Maintenance-only | `pd.replicas`, `store.replicas` (shrink, and PD growth), Store image rolls under `OnDelete`, Store retirement, the balance tasks | Only through the documented procedure (Scaling, Upgrading, Disaster Recovery); the chart refuses the shortcut it can see | Never: a rollback across a replica change scales the StatefulSet without the procedure |
+
+### Rollback
+
+`helm rollback`, and the automatic rollback a failed `--atomic` upgrade
+performs, reapply the stored manifest of an earlier revision without
+rendering the chart. None of the render-time guards run: the membership
+guards, the identity guards and the exposure acknowledgements are all
+bypassed. A rollback to a revision with a different `pd.replicas` or
+`store.replicas` scales the live StatefulSet straight to that count, which
+removes Pods from raft groups and shard groups that still list them, and
+can drop PD below quorum or a shard below majority; `OnDelete`, retained
+PVCs and PodDisruptionBudgets do not make that safe. Rollback across a
+membership or identity change is therefore unsupported, and the chart adds
+no template guard for it (a template is not rendered during a rollback).
+
+To return to an earlier chart version or image, run a forward upgrade with
+the earlier chart (or the earlier image tags) and the current topology
+values, so the guards run and the live membership is preserved. Keep
+`--atomic` off for upgrades that change `pd.replicas` or `store.replicas`.
+
+After any rollback, compare the live StatefulSets with the membership PD
+holds before doing anything else. A replica count that differs from the
+member or registered-Store count means the rollback moved the topology;
+stop and follow Scaling. Then run `helm test`:
+
+```bash
+kubectl -n <namespace> get statefulset -l app.kubernetes.io/instance=<release> \
+  -o custom-columns='NAME:.metadata.name,REPLICAS:.spec.replicas,READY:.status.readyReplicas'
+# PD members and registered Stores, through the PD port-forward from
+# Disaster Recovery (the credential is required).
+curl -su "hg:${PD_SECRET}" http://127.0.0.1:8620/v1/members | jq '.data.numOfService'
+curl -su "hg:${PD_SECRET}" http://127.0.0.1:8620/v1/stores | jq '.data.numOfNormalService'
+helm test <release> -n <namespace>
+```
+
+### Template-only pipelines (GitOps)
+
+The chart-generated credentials (`pd.auth.autoGenerate`,
+`server.auth.admin.autoGenerate` and `server.auth.token.autoGenerate`, all
+on by default) are produced at render time: the template looks the live
+Secret up and keeps its value, and generates a new random one only when no
+Secret exists. A renderer without cluster access (`helm template`, Argo CD,
+Flux in template mode) never sees the live Secret, so every render produces
+a new credential: the Secret and the rollout checksum change on each sync,
+every Pod that reads the credential rolls on every sync, and the admin
+account created at first start no longer matches the Secret. The chart
+cannot tell a template-only render from an install, so it cannot refuse
+this; the install notes repeat the warning whenever a generated credential
+is in use.
+
+For such a pipeline, manage the three credentials outside the chart: create
+the Secrets first (a sealed or external Secret works) and set
+`pd.auth.existingSecret`, `server.auth.admin.existingSecret` and
+`server.auth.token.existingSecret`. Inline `value` and `password` settings
+sourced from a secret store are stable too, but they land in the rendered
+manifest.
 
 ## Uninstalling the Chart
 
@@ -380,7 +454,7 @@ default values.
 | `pd.partition.storeMaxShardCount` | Maximum shards per Store, seeded at first bootstrap only. Also fixes the initial partition count, `store.replicas x storeMaxShardCount / shardCount` (see Partition Sharding). Empty preserves the image default of `12` | `""` |
 | `pd.ports.grpc` | PD gRPC port | `8686` |
 | `pd.ports.rest` | PD REST port, also used by probes | `8620` |
-| `pd.ports.raft` | PD Raft port | `8610` |
+| `pd.ports.raft` | PD Raft port. Install-time identity: part of every PD's persisted raft address, refused on an initialized release (see Settings by lifecycle) | `8610` |
 | `pd.dataPath` | PD data directory inside the container | `/hugegraph-pd/pd_data` |
 | `pd.storage.size` | PD PersistentVolumeClaim size. Applies at install; see Upgrading for the resize procedure | `10Gi` |
 | `pd.storage.storageClassName` | Empty uses the cluster default StorageClass | `""` |
@@ -426,7 +500,7 @@ default values.
 | `store.image.pullPolicy` | Store image pull policy | `Always` |
 | `store.javaOpts` | Empty preserves the image's automatic JVM sizing | `""` |
 | `store.ports.grpc` | Store gRPC port | `8500` |
-| `store.ports.raft` | Store Raft port | `8510` |
+| `store.ports.raft` | Store Raft port. Install-time identity: part of every Store's persisted shard-group address, refused on an initialized release (see Settings by lifecycle) | `8510` |
 | `store.ports.rest` | Store REST port | `8520` |
 | `store.dataPath` | Store data directory | `/hugegraph-store/storage` |
 | `store.storage.size` | Store PersistentVolumeClaim size. Applies at install; see Upgrading for the resize procedure | `50Gi` |
@@ -492,7 +566,7 @@ default values.
 | `server.testResources` | Resources for the Helm test hook container | requests `25m`/`32Mi`, limits `250m`/`64Mi` |
 | `server.initStoreEnabled` | Must remain `false` for distributed HStore | `false` |
 | `server.auth.enabled` | Enable admin authentication | `true` |
-| `server.auth.admin.password` | Optional inline admin password; prefer a Secret in shared clusters | `""` |
+| `server.auth.admin.password` | Optional inline admin password; prefer a Secret in shared clusters. Printable ASCII, no backslashes, no colons, no leading or trailing space; an `existingSecret` value is held to the same contract when the Pod starts (see Validation) | `""` |
 | `server.auth.admin.existingSecret` | Pre-created Secret name (key defaults to `password`); takes priority | `""` |
 | `server.auth.admin.key` | Key inside the admin password Secret | `password` |
 | `server.auth.admin.autoGenerate` | Create and keep a random release-admin Secret when password and existingSecret are empty | `true` |
@@ -539,8 +613,10 @@ open `http://127.0.0.1:8088` and log in with the chart admin password:
 kubectl -n <namespace> port-forward svc/<fullname>-hubble 8088:8088
 ```
 
-For a shared environment, expose Hubble with `hubble.service.type`
-NodePort/LoadBalancer or `hubble.ingress` instead of port-forward.
+For a shared environment, expose Hubble through `hubble.ingress` with
+`tls` instead of port-forward. A NodePort or LoadBalancer
+`hubble.service.type` publishes the plain-HTTP UI directly and is refused
+unless `hubble.service.allowInsecureExposure=true` acknowledges it.
 
 #### 2 and 3. Outside Hubble (direct Server URL, or PD discovery)
 
@@ -617,7 +693,8 @@ opts in.
 | `hubble.resources` | Hubble resources | `{}` |
 | `hubble.podSecurityContext` | Pod-level securityContext, rendered only when set | `{}` |
 | `hubble.securityContext` | Container-level securityContext, hardened like the other components | see `values.yaml` |
-| `hubble.service.type` | Hubble Service type | `ClusterIP` |
+| `hubble.service.type` | Hubble Service type. A non-ClusterIP type requires `hubble.service.allowInsecureExposure` | `ClusterIP` |
+| `hubble.service.allowInsecureExposure` | Acknowledgement that a NodePort or LoadBalancer Service publishes the plain-HTTP Hubble UI, which has no login of its own; restrict reachability by other means first | `false` |
 | `hubble.service.annotations` | Hubble Service annotations | `{}` |
 | `hubble.service.nodePort` | Requires a `NodePort` or `LoadBalancer` Service type | unset |
 | `hubble.ingress.*` | Same Ingress keys as `server.ingress.*`, including `allowPlainHttp` | `enabled: false` |
@@ -705,15 +782,37 @@ before anything reaches the cluster:
 - In `pd` mode the Hubble wrapper refuses a PD REST secret that is not
   printable ASCII, contains backslashes, or starts or ends with
   whitespace, the same constraint the schema puts on inline values; an
-  `existingSecret` is only seen at container start.
+  `existingSecret` is only seen at container start. The ASCII check is
+  byte-wise under the C locale, so the image locale cannot widen it.
+- The Server wrapper refuses an admin password that is not printable
+  ASCII, contains backslashes or colons, or starts or ends with whitespace,
+  and the schema puts the same pattern on `server.auth.admin.password`, so
+  an inline value fails at render and an `existingSecret` fails at Pod
+  start with a message naming the Secret. The Server decodes Basic-auth
+  credentials as ASCII and splits them on every colon, so a non-ASCII
+  password would be applied to the admin account and then answer 401 to
+  every request made with it, and a password with a colon would answer
+  400 (measured on `:latest`, 2026-10-03). This guard is temporary: it goes
+  once the Server decodes Basic auth as UTF-8 and splits on the first colon
+  only (the TODO at the decoding site is in apache/hugegraph#3260).
 - A non-ClusterIP `pd.service.type` requires
-  `pd.service.allowInsecureExposure=true`.
+  `pd.service.allowInsecureExposure=true`, and a non-ClusterIP
+  `hubble.service.type` requires `hubble.service.allowInsecureExposure=true`:
+  Hubble serves plain HTTP with no login of its own.
 - With `networkPolicy.enabled`, exposing PD, Server or Hubble (a NodePort
   or LoadBalancer Service, a Server or Hubble Ingress, or a set
   `server.advertiseUrl`) requires a non-empty
   `networkPolicy.<component>.extraIngress` naming who may connect.
 - An upgrade may not shrink `pd.replicas` or `store.replicas` below the
-  live StatefulSet; see Scaling for the manual procedure.
+  live StatefulSet, or grow `pd.replicas`; see Scaling for the manual
+  procedure.
+- An upgrade may not change `pd.ports.raft` or `store.ports.raft`, or
+  rename the PD or Store StatefulSet through `nameOverride` or
+  `fullnameOverride`, once the release is initialized: the raft address
+  `<pod>.<statefulset>.<namespace>.svc:<port>` is the identity the
+  persisted membership records, and a Pod restarted under a new one cannot
+  rejoin its group. The guard reads the live StatefulSet, so a fresh
+  install chooses freely and `helm template` never fails on it.
 
 ### NetworkPolicy
 

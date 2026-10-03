@@ -125,9 +125,24 @@ credential. Never used for an external existingSecret.
 {{- if and $secret (hasKey $secret "data") (hasKey (get $secret "data") $key) -}}
 {{- get (get $secret "data") $key -}}
 {{- else -}}
-{{- randAlphaNum 32 | b64enc -}}
+{{- include "hugegraph.generatedCredential" (dict "root" . "name" "server-admin") | b64enc -}}
 {{- end -}}
 {{- end -}}
+{{- end }}
+
+{{/*
+One random credential per render, by name. randAlphaNum returns a different
+value on every call, and the Secret template and the rollout checksum both
+need the value the install is about to write, so the first call generates it
+and later calls read it back from a scratch map kept on .Values for the
+duration of this render (it is not part of the stored release values; the
+next render finds the Secret through lookup instead).
+*/}}
+{{- define "hugegraph.generatedCredential" -}}
+{{- if not (hasKey .root.Values "__generatedCredentials") -}}{{- $_ := set .root.Values "__generatedCredentials" dict -}}{{- end -}}
+{{- $memo := get .root.Values "__generatedCredentials" -}}
+{{- if not (hasKey $memo .name) -}}{{- $_ := set $memo .name (randAlphaNum 32) -}}{{- end -}}
+{{- get $memo .name -}}
 {{- end }}
 
 {{/*
@@ -169,7 +184,7 @@ same signing key.
 {{- if and $secret (hasKey $secret "data") (hasKey (get $secret "data") $key) -}}
 {{- get (get $secret "data") $key -}}
 {{- else -}}
-{{- randAlphaNum 32 | b64enc -}}
+{{- include "hugegraph.generatedCredential" (dict "root" . "name" "server-token") | b64enc -}}
 {{- end -}}
 {{- end -}}
 {{- end }}
@@ -211,36 +226,51 @@ every upgrade, on the same secret.
 {{- if and $secret (hasKey $secret "data") (hasKey (get $secret "data") $key) -}}
 {{- get (get $secret "data") $key -}}
 {{- else -}}
-{{- randAlphaNum 32 | b64enc -}}
+{{- include "hugegraph.generatedCredential" (dict "root" . "name" "pd-auth") | b64enc -}}
 {{- end -}}
 {{- end -}}
 {{- end }}
 
 {{/*
 Checksum for the PD, Server and Hubble pod templates so rotating the PD REST
-Secret rolls the Pods that read it. Never hashes Secret data: it hashes the
-Secret name, its key, and one revision input chosen by where the credential
-comes from.
+Secret rolls the Pods that read it. It hashes the Secret name, its key, and
+one revision input chosen by where the credential comes from.
 
-The revision input is per credential source, because the two sources move at
-different times. An active inline value is known at render time, so its
-digest is the revision and it changes exactly once, on the upgrade that
-rotates it. Mixing the live resourceVersion into that case would roll the
-Pods a second time on the next no-change upgrade, once the rotated Secret had
-been applied and its resourceVersion moved. An external or chart-generated
-Secret has no render-time value to hash, so the live resourceVersion is the
-only signal that it changed; there the lookup is kept and template-only
-renders emit a constant.
+An active inline value is known at render time, so its digest is the
+revision: it changes exactly once, on the upgrade that rotates it. Mixing the
+live resourceVersion into that case would roll the Pods a second time on the
+next no-change upgrade, once the rotated Secret had been applied and its
+resourceVersion moved.
+
+A chart-generated Secret contributes the digest of its value. At install
+that is the value the Secret template is about to write (generated once per
+render, see hugegraph.generatedCredential); on every later render it is the
+live Secret's data, so the first no-change upgrade after an install renders
+the same checksum and rolls nothing. The value is a 32-character random, so
+its digest in a Pod annotation discloses nothing usable. The alternative, the
+live resourceVersion, differs between install (no Secret yet) and the first
+upgrade, which rolled PD and Server together on a no-change upgrade and let
+a Server start against a PD member mid-restart (apache/hugegraph#3228).
+
+An operator-supplied existingSecret keeps the live resourceVersion as its
+revision: its value may be weak enough for a digest to be worth attacking,
+and that Secret exists before the install, so install and upgrade already
+agree. Template-only renders (helm template, GitOps renderers) see no live
+Secret and generate a fresh value on every render; they are unsupported
+with chart-generated credentials, see README, Template-only pipelines.
 */}}
 {{- define "hugegraph.pd.authChecksum" -}}
 {{- $parts := list (include "hugegraph.pd.authSecretName" .) (include "hugegraph.pd.authSecretKey" .) -}}
 {{- $pdAuthCfg := get .Values.pd "auth" | default dict -}}
 {{- $inline := get $pdAuthCfg "value" | default "" -}}
-{{- if and $inline (not (get $pdAuthCfg "existingSecret" | default "")) -}}
+{{- $existing := get $pdAuthCfg "existingSecret" | default "" -}}
+{{- if $existing -}}
+{{- $secret := lookup "v1" "Secret" .Release.Namespace $existing -}}
+{{- if $secret -}}{{- $parts = append $parts (dig "metadata" "resourceVersion" "" $secret) -}}{{- end -}}
+{{- else if $inline -}}
 {{- $parts = append $parts (sha256sum $inline) -}}
 {{- else -}}
-{{- $secret := lookup "v1" "Secret" .Release.Namespace (include "hugegraph.pd.authSecretName" .) -}}
-{{- if $secret -}}{{- $parts = append $parts (dig "metadata" "resourceVersion" "" $secret) -}}{{- end -}}
+{{- $parts = append $parts (include "hugegraph.pd.authSecretValue" . | b64dec | sha256sum) -}}
 {{- end -}}
 {{- join "|" $parts | sha256sum -}}
 {{- end }}
@@ -327,37 +357,39 @@ PD REST endpoints for Server storage-readiness checks.
 
 {{/*
 Checksum for the Server pod template so rotating the referenced auth Secrets
-rolls Server pods. Hashes Secret names and keys, never Secret data, so the
-annotation carries no credential-derived material.
-
-The admin and token credentials pick their revision input independently, by
-source, for the reason given on hugegraph.pd.authChecksum: an active inline
-value contributes its digest and nothing else, so a rotation rolls Server
-once rather than again on the next no-change upgrade; an external or
-chart-generated Secret contributes its live metadata.resourceVersion.
-
-The lookup half is best-effort: plain `helm template` (and template-only
-GitOps renderers) see no live Secrets and emit a constant; the first upgrade
-after a fresh install rolls Server once as the checksum picks up the Secrets
-created by that install; out-of-band rotation of an existingSecret applies on
-the next `helm upgrade`.
+rolls Server pods. The admin and token credentials pick their revision input
+independently, by source, for the reasons given on hugegraph.pd.authChecksum:
+an active inline value and a chart-generated Secret contribute the digest of
+their value (so a rotation rolls Server exactly once, and the first no-change
+upgrade after an install rolls nothing); an operator-supplied existingSecret
+contributes its live metadata.resourceVersion, and its out-of-band rotation
+applies on the next `helm upgrade`. Template-only renders are unsupported
+with chart-generated credentials, see README, Template-only pipelines.
 */}}
 {{- define "hugegraph.server.authChecksum" -}}
 {{- $parts := list (include "hugegraph.server.authSecretName" .) (include "hugegraph.server.authSecretKey" .) (include "hugegraph.server.authTokenSecretName" .) (include "hugegraph.server.authTokenSecretKey" .) -}}
 {{- $srvAuth := get .Values.server "auth" | default dict -}}
 {{- $adminCfg := get $srvAuth "admin" | default dict -}}
 {{- $inlineAdmin := get $adminCfg "password" | default "" -}}
-{{- if and $inlineAdmin (not (get $adminCfg "existingSecret" | default "")) -}}{{- $parts = append $parts (sha256sum $inlineAdmin) -}}{{- end -}}
+{{- $existingAdmin := get $adminCfg "existingSecret" | default "" -}}
 {{- $tokenCfg := get $srvAuth "token" | default dict -}}
 {{- $inlineToken := get $tokenCfg "value" | default "" -}}
-{{- if and $inlineToken (not (get $tokenCfg "existingSecret" | default "")) -}}{{- $parts = append $parts (sha256sum $inlineToken) -}}{{- end -}}
-{{- if not (and $inlineAdmin (not (get $adminCfg "existingSecret" | default ""))) -}}
-{{- $admin := lookup "v1" "Secret" .Release.Namespace (include "hugegraph.server.authSecretName" .) -}}
+{{- $existingToken := get $tokenCfg "existingSecret" | default "" -}}
+{{- if $existingAdmin -}}
+{{- $admin := lookup "v1" "Secret" .Release.Namespace $existingAdmin -}}
 {{- if $admin -}}{{- $parts = append $parts (dig "metadata" "resourceVersion" "" $admin) -}}{{- end -}}
+{{- else if $inlineAdmin -}}
+{{- $parts = append $parts (sha256sum $inlineAdmin) -}}
+{{- else -}}
+{{- $parts = append $parts (include "hugegraph.server.authSecretPassword" . | b64dec | sha256sum) -}}
 {{- end -}}
-{{- if not (and $inlineToken (not (get $tokenCfg "existingSecret" | default ""))) -}}
-{{- $token := lookup "v1" "Secret" .Release.Namespace (include "hugegraph.server.authTokenSecretName" .) -}}
+{{- if $existingToken -}}
+{{- $token := lookup "v1" "Secret" .Release.Namespace $existingToken -}}
 {{- if $token -}}{{- $parts = append $parts (dig "metadata" "resourceVersion" "" $token) -}}{{- end -}}
+{{- else if $inlineToken -}}
+{{- $parts = append $parts (sha256sum $inlineToken) -}}
+{{- else -}}
+{{- $parts = append $parts (include "hugegraph.server.authTokenSecretValue" . | b64dec | sha256sum) -}}
 {{- end -}}
 {{- join "|" $parts | sha256sum -}}
 {{- end }}
@@ -685,6 +717,50 @@ Growing Store is ordinary scale-out and stays allowed.
 {{- if and (eq $comp "pd") (gt $liveReplicas 0) (gt $desired $liveReplicas) -}}
 {{- fail (printf "pd.replicas cannot grow from %d to %d through a helm upgrade: the rendered peer list reaches raft only as the initial configuration, so new Pods would start without joining the voting configuration. Change the persisted membership through PD first, then scale the live StatefulSet, then upgrade with the matching value; the README (Scaling) has the procedure and its limits. A fresh install at any replica count is unaffected" $liveReplicas $desired) -}}
 {{- end -}}
+{{/*
+Raft identity. Every PD and Store names itself to its peers as
+<pod>.<statefulset>.<namespace>.svc:<raft port>, and that address is what the
+persisted membership records (PD's voting configuration, each Store shard
+group's peer list). The port reaches raft only through the bootstrap
+configuration, and the StatefulSet name is the DNS name, so a Pod restarted
+on a changed port is a stranger to the group it belongs to: it cannot rejoin,
+and once enough Pods have been replaced the group has no quorum. The live
+StatefulSet carries the port it was initialized with, so a change is refused
+there; a fresh install chooses freely.
+*/}}
+{{- $desiredRaft := int (get (get (get $.Values $comp) "ports" | default dict) "raft") -}}
+{{- range $container := dig "spec" "template" "spec" "containers" list $live -}}
+{{- if eq (get $container "name" | default "") $comp -}}
+{{- range $port := get $container "ports" | default list -}}
+{{- if and (eq (get $port "name" | default "") "raft") (ne (int (get $port "containerPort")) $desiredRaft) -}}
+{{- fail (printf "%s.ports.raft cannot change from %d to %d on an initialized release: the raft address <pod>.%s.<namespace>.svc:<port> is the identity the persisted raft membership records, and a Pod restarted on the new port cannot rejoin its group%s. Keep the value; changing the port needs a fresh install, or a migration of the persisted membership before the upgrade" $comp (int (get $port "containerPort")) $desiredRaft $stsName (ternary " (a single PD loses service outright)" "" (eq $comp "pd"))) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{/*
+nameOverride also feeds the app.kubernetes.io/name selector label. A
+StatefulSet selector is immutable, so an override that keeps the name (one
+contained in the release name) but changes that label is refused by the API
+server mid-upgrade; refuse it here with the reason instead.
+*/}}
+{{- $liveName := dig "spec" "selector" "matchLabels" "app.kubernetes.io/name" "" $live -}}
+{{- if and $liveName (ne $liveName (include "hugegraph.name" $)) -}}
+{{- fail (printf "nameOverride changes the app.kubernetes.io/name selector label of the %s StatefulSet %s from %s to %s, which Kubernetes forbids on an existing StatefulSet. Restore the previous override; a rename needs a fresh install and a data migration" $comp $stsName $liveName (include "hugegraph.name" $)) -}}
+{{- end -}}
+{{- end -}}
+{{/*
+The same identity is carried by the StatefulSet name, which nameOverride and
+fullnameOverride change. The renamed StatefulSet does not exist yet, so it
+cannot be looked up by name; the release's existing StatefulSets are found by
+the instance and component labels instead, which do not depend on the name.
+*/}}
+{{- $released := lookup "apps/v1" "StatefulSet" $.Release.Namespace "" -}}
+{{- range $sts := get $released "items" | default list -}}
+{{- $labels := dig "metadata" "labels" dict $sts -}}
+{{- if and (eq (get $labels "app.kubernetes.io/instance" | default "") $.Release.Name) (eq (get $labels "app.kubernetes.io/component" | default "") $comp) (ne (dig "metadata" "name" "" $sts) $stsName) -}}
+{{- fail (printf "release %s already owns the %s StatefulSet %s, but the values now name it %s (nameOverride or fullnameOverride changed): the StatefulSet name is the raft address of every Pod and the prefix of every PersistentVolumeClaim, so the rename would start empty Pods under new identities and leave the data volumes detached. Restore the previous override; a rename needs a fresh install and a data migration" $.Release.Name $comp (dig "metadata" "name" "" $sts) $stsName) -}}
+{{- end -}}
 {{- end -}}
 {{- end -}}
 {{/*
@@ -790,6 +866,9 @@ start-hugegraph-pd.sh, start-hugegraph-store.sh, and hugegraph-server.sh).
 {{- $hubbleSvc := get $hubble "service" | default dict -}}
 {{- if and (get $hubbleSvc "nodePort") (not (has (get $hubbleSvc "type" | default "ClusterIP") (list "NodePort" "LoadBalancer"))) -}}
 {{- fail "hubble.service.nodePort requires hubble.service.type to be NodePort or LoadBalancer" -}}
+{{- end -}}
+{{- if and (ne (get $hubbleSvc "type" | default "ClusterIP") "ClusterIP") (not (get $hubbleSvc "allowInsecureExposure" | default false)) -}}
+{{- fail "hubble.service.type NodePort or LoadBalancer publishes the plain-HTTP Hubble UI outside the cluster, with no login of its own and the graph credentials typed into it; keep ClusterIP behind a port-forward or an HTTPS-terminating Ingress, or set hubble.service.allowInsecureExposure=true once reachability is restricted by other means (NetworkPolicy, load balancer allowlist, firewall)" -}}
 {{- end -}}
 {{- $hubbleImage := get $hubble "image" | default dict -}}
 {{- if and (eq (trim (get $hubbleImage "tag" | default "")) "") (eq (trim (get $hubbleImage "digest" | default "")) "") -}}

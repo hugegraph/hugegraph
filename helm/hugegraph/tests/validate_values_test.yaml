@@ -112,6 +112,7 @@ tests:
       networkPolicy.enabled: true
       hubble.enabled: true
       hubble.service.type: NodePort
+      hubble.service.allowInsecureExposure: true
     asserts:
       - failedTemplate:
           errorPattern: "admits nothing from outside the release, so the hubble exposure"
@@ -121,6 +122,7 @@ tests:
       networkPolicy.enabled: true
       hubble.enabled: true
       hubble.service.type: LoadBalancer
+      hubble.service.allowInsecureExposure: true
     asserts:
       - failedTemplate:
           errorPattern: "admits nothing from outside the release, so the hubble exposure"

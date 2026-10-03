@@ -26,7 +26,11 @@ metadata:
     app.kubernetes.io/component: test
   annotations:
     "helm.sh/hook": test
-    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+    # Not hook-succeeded: Helm deletes a succeeded hook Pod before
+    # `helm test --logs` reads it, which turns a passing release check into
+    # exit 1 with "pods not found". The completed Pod stays until the next
+    # run replaces it, so both forms exit 0 and a failed Pod keeps its logs.
+    "helm.sh/hook-delete-policy": before-hook-creation
 spec:
   {{- with .Values.imagePullSecrets }}
   imagePullSecrets:
@@ -108,18 +112,28 @@ spec:
           # not misread as a broken Pod.
           echo "helm test: Gremlin on every Server Pod via ${HEADLESS} (floor ${FLOOR})"
           START=$(date +%s)
-          PASSED=" "
           while :; do
-            IPS=$(getent ahosts "${HEADLESS}" 2>/dev/null | awk '{print $1}' | sort -u) || IPS=""
+            # The headless Service answers with every Ready Pod's addresses,
+            # one per address family on a dual-stack cluster, so counting
+            # addresses would count each Pod twice and let two Pods satisfy
+            # a floor of three. Keep one family per Pod: IPv4 when any Pod
+            # publishes one, otherwise IPv6.
+            ALL=$(getent ahosts "${HEADLESS}" 2>/dev/null | awk '{print $1}' | sort -u) || ALL=""
+            IPS=$(printf '%s\n' ${ALL} | grep -v ':' || true)
+            if [ -z "${IPS}" ]; then
+              IPS=$(printf '%s\n' ${ALL} | grep ':' || true)
+            fi
             COUNT=$(printf '%s\n' ${IPS} | grep -c . || true)
+            # Every attempt is a complete sweep. A Pod that answered in an
+            # earlier attempt is queried again, so the test passes only when
+            # one attempt sees every Pod healthy at the same time, never by
+            # adding up successes from different attempts.
             FAILED=""
             for IP in ${IPS}; do
-              case "${PASSED}" in *" ${IP} "*) continue ;; esac
               case "${IP}" in *:*) TARGET="[${IP}]" ;; *) TARGET="${IP}" ;; esac
               OUT=$(gremlin "http://${TARGET}:${PORT}/gremlin") || true
               CODE=$(printf '%s\n' "${OUT}" | grep -E '^[0-9][0-9][0-9]$' | tail -1) || CODE=""
               if [ "${CODE}" = "200" ]; then
-                PASSED="${PASSED}${IP} "
                 echo "helm test: Gremlin OK on ${IP}"
               else
                 FAILED="${FAILED}${IP}(${CODE:-no-response}) "

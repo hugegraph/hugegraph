@@ -111,6 +111,27 @@ jobs:
           # server stores the key as a boolean and the pods cannot find it.
           helm template ci helm/hugegraph --set-string server.auth.admin.key=on \
             | grep -qF '"on":'
+          # The install render must hash the generated credentials it writes:
+          # the rollout checksums equal sha256(name|key|sha256(value)) over
+          # the rendered Secret data, so the first upgrade, which reads the
+          # same values back through lookup, renders the same checksums and
+          # rolls nothing.
+          python3 - <<'PY'
+          import hashlib, base64, subprocess, yaml
+          out = subprocess.check_output(['helm', 'template', 'ci', 'helm/hugegraph'])
+          docs = [d for d in yaml.safe_load_all(out) if d]
+          h = lambda s: hashlib.sha256(s.encode()).hexdigest()
+          sec = {d['metadata']['name']: d['data'] for d in docs if d['kind'] == 'Secret'}
+          val = lambda n, k: base64.b64decode(sec[n][k]).decode()
+          pd = next(d for d in docs if d['kind'] == 'StatefulSet' and d['metadata']['name'] == 'ci-hugegraph-pd')
+          srv = next(d for d in docs if d['kind'] == 'Deployment' and d['metadata']['name'] == 'ci-hugegraph-server')
+          ann = lambda d, k: d['spec']['template']['metadata']['annotations'][k]
+          assert ann(pd, 'checksum/pd-auth') == h('ci-pd-auth|secret-key|' + h(val('ci-pd-auth', 'secret-key')))
+          assert ann(srv, 'checksum/pd-auth') == ann(pd, 'checksum/pd-auth')
+          assert ann(srv, 'checksum/auth') == h('ci-admin|password|ci-auth-token|token_secret|'
+                                               + h(val('ci-admin', 'password')) + '|' + h(val('ci-auth-token', 'token_secret')))
+          print('install-time checksums match the generated Secret values')
+          PY
 
       - name: reject invalid values
         run: |
@@ -156,6 +177,19 @@ jobs:
           # An inner space stays legal: only the trimmed ends are the problem.
           helm template ci helm/hugegraph \
             --set-string "server.auth.admin.password=review secret" >/dev/null
+          # The Server decodes Basic-auth credentials as ASCII, so a non-ASCII
+          # admin password would be applied and then answer 401 to every
+          # request; the schema refuses it before install, as it already
+          # does for the PD REST secret. Backslashes and tabs go the same way.
+          must_fail --set-string "server.auth.admin.password=密码abc"
+          must_fail --set-string "server.auth.admin.password=café"
+          must_fail --set-string 'server.auth.admin.password=review\secret'
+          must_fail --set-string "$(printf 'server.auth.admin.password=review\tsecret')"
+          must_fail --set-string "pd.auth.value=密码abc"
+          # The Server splits the decoded credential on every colon (400).
+          must_fail --set-string 'server.auth.admin.password=review:secret'
+          helm template ci helm/hugegraph \
+            --set-string "server.auth.admin.password=review-secret_42!" >/dev/null
           # Auth defaults to on, so Hubble alone is valid; refuse Hubble only
           # when authentication is explicitly disabled.
           must_fail --set hubble.enabled=true --set server.auth.enabled=false
@@ -165,6 +199,13 @@ jobs:
             --set hubble.persistence.enabled=true \
             --set hubble.persistence.size=""
           must_fail "${A[@]}" --set hubble.service.nodePort=30080
+          # A NodePort or LoadBalancer Hubble Service publishes the plain-HTTP
+          # UI directly; it needs the same explicit acknowledgement as PD.
+          must_fail "${A[@]}" --set hubble.service.type=NodePort
+          must_fail "${A[@]}" --set hubble.service.type=LoadBalancer
+          helm template ci helm/hugegraph "${A[@]}" \
+            --set hubble.service.type=NodePort \
+            --set hubble.service.allowInsecureExposure=true > /dev/null
           must_fail "${A[@]}" --set hubble.mode=bogus
           must_fail "${A[@]}" --set hubble.image.tag=""
           must_fail "${A[@]}" --set hubble.ingress.enabled=true
@@ -246,6 +287,7 @@ jobs:
           chmod +x /tmp/stub/getent
           cat > /tmp/fixture.py <<'PY'
           import http.server, os, sys, threading, time
+          calls = {}
           class H(http.server.BaseHTTPRequestHandler):
               def _send(self, code, body):
                   self.send_response(code)
@@ -257,7 +299,18 @@ jobs:
                   self._send(200, b'{"versions":{}}')
               def do_POST(self):
                   self.rfile.read(int(self.headers.get('Content-Length', 0)))
-                  if os.path.exists('/tmp/broken-' + self.server.server_address[0]):
+                  ip = self.server.server_address[0]
+                  # broken-<ip>: every Gremlin call fails. flip-odd-<ip> /
+                  # flip-even-<ip>: the odd or even calls fail, counted from
+                  # the first call made while the file exists, so two Pods
+                  # on opposite phases are never healthy in the same sweep.
+                  odd = os.path.exists('/tmp/flip-odd-' + ip)
+                  even = os.path.exists('/tmp/flip-even-' + ip)
+                  n = calls[ip] = (calls.get(ip, 0) + 1) if (odd or even) else 0
+                  broken = (os.path.exists('/tmp/broken-' + ip)
+                            or (odd and n % 2 == 1)
+                            or (even and n % 2 == 0))
+                  if broken:
                       self._send(400, b'{"exception":"Could not rebind [graph]"}')
                   else:
                       self._send(200, b'{"result":{"data":[0]}}')
@@ -288,6 +341,25 @@ jobs:
             echo "expected the hook to fail below the replica floor" >&2
             exit 1
           fi
+          # Alternating health: sweep 1 sees A ok, B broken; sweep 2 sees A
+          # broken, B ok; and so on. No single sweep is clean, so the hook
+          # must fail. A hook that remembered earlier successes per Pod would
+          # pass here after the second sweep.
+          touch /tmp/flip-even-127.0.0.1 /tmp/flip-odd-127.0.0.2
+          if run_hook "127.0.0.1 127.0.0.2 127.0.0.3"; then
+            echo "expected the hook to fail when no sweep is completely healthy" >&2
+            exit 1
+          fi
+          rm /tmp/flip-even-127.0.0.1 /tmp/flip-odd-127.0.0.2
+          # Dual-stack: each Pod publishes an IPv4 and an IPv6 address. Two
+          # Pods give four addresses, which must not satisfy a floor of
+          # three; three Pods must pass without the IPv6 addresses being
+          # queried (nothing listens on them, so a query would fail).
+          if run_hook "127.0.0.1 127.0.0.2 ::1 ::2"; then
+            echo "expected the hook to count Pods, not addresses, on dual-stack" >&2
+            exit 1
+          fi
+          run_hook "127.0.0.1 127.0.0.2 127.0.0.3 ::1 ::2 ::3"
           # The auth-off render must carry no credentials.
           if helm template ci helm/hugegraph -s templates/tests/test-connection.yaml \
               --set server.auth.enabled=false | grep -q 'Authorization'; then

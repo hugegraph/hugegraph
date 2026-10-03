@@ -563,6 +563,7 @@ tests:
     set:
       hubble.enabled: true
       hubble.service.type: NodePort
+      hubble.service.allowInsecureExposure: true
       networkPolicy.hubble.extraIngress:
         - from:
             - ipBlock:
@@ -592,6 +593,7 @@ tests:
       server.service.type: NodePort
       server.advertiseUrl: http://hg.example.com:8080
       hubble.service.type: NodePort
+      hubble.service.allowInsecureExposure: true
       networkPolicy.pd.extraIngress:
         - from:
             - ipBlock:

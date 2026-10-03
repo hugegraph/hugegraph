@@ -27,10 +27,10 @@
 # value is set there too, and it must not reach the annotation, because the
 # Pods do not read it.
 #
-# A render has no live Secret, so these cases cover the inline half only. The
-# lookup half, where mixing a live resourceVersion into an inline rotation
-# caused a second rollout on the following no-change upgrade, is observable
-# only against a cluster and belongs to the lifecycle run.
+# These cases cover the inline half; auth_checksum_lookup_test.yaml renders
+# the lookup half against fake live Secrets (generated: value digest;
+# existingSecret: resourceVersion). The live rollout counts belong to the
+# lifecycle run.
 suite: Rollout checksum revision source
 release:
   name: t

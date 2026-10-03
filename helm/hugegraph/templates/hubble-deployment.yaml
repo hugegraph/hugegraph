@@ -118,13 +118,24 @@ spec:
               # the Secret. Inline pd.auth values are schema-checked; an
               # external existingSecret is only seen here.
               case "${HG_HUBBLE_PD_PASSWORD}" in
-                *$'\n'* | *$'\r'* | *$'\t'* | *\\* | *[![:print:]]* | ' '* | *' ')
-                  echo "the PD REST secret must be printable ASCII with no" \
-                       "backslashes and no leading or trailing whitespace;" \
-                       "fix the pd.auth Secret value" >&2
+                *\\* | ' '* | *' ')
+                  echo "the PD REST secret must not contain backslashes or" \
+                       "leading or trailing whitespace; fix the pd.auth" \
+                       "Secret value" >&2
                   exit 1
                   ;;
               esac
+              # Byte check under the C locale, independent of the image
+              # locale: in a UTF-8 locale a POSIX print class accepts
+              # multibyte characters, which the ISO-8859-1 properties reader
+              # then decodes into a credential PD never received. Anything
+              # outside 0x20-0x7E (tabs, newlines, non-ASCII) is refused.
+              if (( $(printf '%s' "${HG_HUBBLE_PD_PASSWORD}" | LC_ALL=C tr -d '\040-\176' | wc -c) > 0 )); then
+                echo "the PD REST secret must be printable ASCII (bytes 0x20-0x7E:" \
+                     "no tabs, newlines or non-ASCII characters); fix the" \
+                     "pd.auth Secret value" >&2
+                exit 1
+              fi
               {{- end }}
               TMP=$(mktemp)
               FOUND_PD_ENABLED=false

@@ -108,17 +108,42 @@ spec:
               : "${PASSWORD:?auth Secret key 'password' must not be empty}"
               # The value is written into a Java properties file, whose parser
               # treats CR as a line terminator, unescapes backslashes, and
-              # skips whitespace after the separator, so these shapes would
+              # trims whitespace around the value, so these shapes would
               # inject config lines or silently store a password that differs
               # from the Secret.
               case "${PASSWORD}" in
-                *$'\n'* | *$'\r'* | *\\* | ' '* | $'\t'*)
-                  echo "auth Secret key 'password' must not contain newlines," \
-                       "carriage returns, or backslashes, or start with" \
-                       "whitespace" >&2
+                *\\* | ' '* | *' ')
+                  echo "auth Secret key 'password' must not contain backslashes" \
+                       "or leading or trailing whitespace; fix the" \
+                       "server.auth.admin Secret value" >&2
+                  exit 1
+                  ;;
+                *:*)
+                  echo "auth Secret key 'password' must not contain a colon: the" \
+                       "Server splits the decoded Basic-auth credential on every" \
+                       "colon and answers 400 to such a password; fix the" \
+                       "server.auth.admin Secret value" >&2
                   exit 1
                   ;;
               esac
+              # Printable ASCII only, checked byte-wise under the C locale so
+              # the image locale cannot widen it. The Server decodes the
+              # Basic-auth header as ASCII, so a non-ASCII password is
+              # accepted here, applied to the admin account, and then answers
+              # 401 to every request made with it. Temporary: drop this check,
+              # the colon case above and the matching schema pattern once the
+              # Server decodes Basic auth as UTF-8 and splits the credential on
+              # its first colon only (TODO in AuthenticationFilter,
+              # apache/hugegraph#3260).
+              if (( $(printf '%s' "${PASSWORD}" | LC_ALL=C tr -d '\040-\176' | wc -c) > 0 )); then
+                echo "auth Secret key 'password' must be printable ASCII (bytes" \
+                     "0x20-0x7E: no tabs, newlines or non-ASCII characters): the" \
+                     "Server decodes Basic-auth credentials as ASCII, so a" \
+                     "non-ASCII password would be applied and then rejected" \
+                     "with 401 on every request; fix the server.auth.admin" \
+                     "Secret value" >&2
+                exit 1
+              fi
               {{- end }}
               CONF=./conf/rest-server.properties
               if [[ ! -r "${CONF}" ]]; then

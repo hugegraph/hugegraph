@@ -820,8 +820,8 @@
               "properties": {
                 "password": {
                   "type": "string",
-                  "pattern": "^([^ \\t\\f\\r\\n\\\\]([^\\r\\n\\\\]*[^ \\t\\f\\r\\n\\\\])?)?$",
-                  "description": "Inline admin password. Empty defers to existingSecret or autoGenerate. The Server wrapper rejects newlines, carriage returns and backslashes, so the schema rejects them before install. Leading and trailing whitespace is rejected too: Commons Configuration trims a properties value, so the Secret would hold the padded string while the account was created with the trimmed one."
+                  "pattern": "^([\\x21-\\x39\\x3b-\\x5b\\x5d-\\x7e]([\\x20-\\x39\\x3b-\\x5b\\x5d-\\x7e]*[\\x21-\\x39\\x3b-\\x5b\\x5d-\\x7e])?)?$",
+                  "description": "Inline admin password. Empty defers to existingSecret or autoGenerate. Printable ASCII with no backslash, no colon and no leading or trailing space, the same contract the Server wrapper enforces on an existingSecret: the Server decodes Basic-auth credentials as ASCII and splits them on every colon, so a non-ASCII password would be applied to the admin account and then answer 401 on every request, and a password with a colon would answer 400; Commons Configuration trims a properties value and unescapes backslashes, so padding or a backslash would make the stored password and the effective one differ."
                 },
                 "existingSecret": {
                   "type": "string"
@@ -1108,6 +1108,10 @@
         },
         "annotations": {
           "type": "object"
+        },
+        "allowInsecureExposure": {
+          "type": "boolean",
+          "description": "Required acknowledgement for a non-ClusterIP Hubble Service: the exposed UI is plain HTTP with no login of its own."
         },
         "nodePort": {
           "type": [
