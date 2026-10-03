@@ -14,15 +14,16 @@
 | 容器清理 | 23个本任务容器已清理 | 失败日志及必要临时数据归档E/cleanup-20261003；未触碰其他任务容器；后续成功任务自动删除容器，镜像/缓存保留继续测试 |
 | 本机Docker | 已恢复并复核 | OrbStack详情和Docker API均确认旧构建exited(1)，句柄已结束；未重启旧容器，失败日志保留，新v3是独立重跑 |
 | 原生Linux备用环境 | 只读预检完成 | do：x86_64、Java11、glibc2.42、39GiB空闲，总RAM约2GiB且有用户服务；独立目录/root/hugegraph-topling-pr-split-20261003/source完整clone并核2635个base blobs，P1 12文件补丁逐hash一致；仅低负载JNI验证，不改变旧服务 |
-| P1服务与包验收 | 标准包初稿通过，服务未完成 | 最终三组件package exit0；各包恰一份标准8.10.2 JNI，PDStore恰一份JRaft1.3.14、Server1.3.11。旧基线包也已完整构建。服务驱动已编译、旧PDStore真实启动；首次seed表名不受支持已修正，旧Store停止超时证据保留，升级/重启/metrics尚未通过 |
+| P1服务与包验收 | 标准包初稿通过，服务未完成 | 最终三组件package exit0；各包恰一份标准8.10.2 JNI，PDStore恰一份JRaft1.3.14、Server1.3.11。旧基线包也已完整构建。服务驱动已编译、旧PDStore真实启动；首次seed表名不受支持已修正，旧Store停止超时证据保留，升级/重启/metrics尚未通过；修正表名后的fresh run3已准备并核对四服务包hash，未启动 |
 | P2候选 | 本地43文件，完整验收待完成 | 完整事务/auth/schema、Store回调排空、stop和文档；三名静态审查及回调修复复审通过；格式+全仓cleancompile、node29项通过；Server unit755项754通过1既有skip |
 | P2 stream回归修复 | 定向红绿与三人复审通过 | 拒绝/异步失败只发错误终态，响应回调串行，避免自中断，正常取消先确立完成；新增5项测试。精确目标类+缓存peer probe：来源5失败、当前5通过，不能替代干净reactor；stop脚本已接入专属容器CI |
-| P3候选 | 格式、干净编译及恢复/WAL定向测试通过 | 10文件增量；三名静态审查及遗漏修复复审通过；恢复27+Sessions13项全通过无skip；MultiGraphs正在执行，之后真实bind mount拒绝验证及非Draft stacked PR |
-| P2/P3运行验收 | P2 core非root全量通过；P3串行执行中 | P2首次root权限失败与tmpfs noexec首次失败均保留，未改断言；完整非root822项、0失败、0错误、45skip、exit0，成功容器已删除。P2 API/真实关闭仍待补；P3恢复/WAL通过，多图和挂载验证进行中 |
+| P3候选 | 格式、干净编译及恢复/WAL定向测试通过 | 10文件增量；三名静态审查及遗漏修复复审通过；恢复27+Sessions13项全通过无skip；MultiGraphs11项中2skip、其余通过，双真实bind mount均拒绝；#263非Draft已发布 |
+| P2/P3运行验收 | P2 core非root全量通过；P3定向及挂载验证通过 | P2首次root权限失败与tmpfs noexec首次失败均保留，未改断言；完整非root822项、0失败、0错误、45skip、exit0，成功容器已删除。P2 API/真实关闭仍待补；P3恢复/WAL、多图及两个真实挂载别名拒绝均通过；探针classpath首次失败已保留 |
 | P4通用生产修复分组 | 已排除，实测回归可重开 | base/source调用链和依赖对照无新增TP必要性；PD follower REST组、Gremlin/HStore白名单组按既有通用问题独立跟进 |
 | P4 JNI获取与许可证 | core来源已补证，插件闭包/材料仍缺 | 当前JAR SHA256 86eb1bd3d9f84ef0dddd3fe95c640a6f145ca2d5a26a5ba628f1f298a2031fae，只有linux64 native且无LICENSE/NOTICE/POM；producer构建日志与binary内嵌core SHA一致，固定rockside/boost许可已读取；自动clone其他插件的精确版本与最终链接许可闭包未齐，已异步向用户询问生产方材料 |
-| P4代码与发布验证 | 109文件候选，审查修复已完成，待实测 | 修复truncate提交pending写、SST truncate静默无效、Compose全局pull policy丢失、打包发布失败损坏旧输出；三人增量复审通过，shell故障注入通过，Java红绿/完整构建/native仍待完成。许可证文件随包交付仍开放 |
-| org子PR | P1/P2 已发布，CI启动 | P1 #262 head28a7d653；P2 #261 head7d1472b8，均非Draft、独立base176fb。P1 rocksdb-upgrade、P2 store-stop-shell-test CI通过，其余CI尚未结束；当前head验证和剩余门槛在PR中逐项列明；P3/P4按完成步骤及时提交，不auto-merge |
+| P4代码与发布验证 | 109文件候选，审查修复已完成，标准干净编译通过，测试待续 | 修复truncate提交pending写、SST truncate静默无效、Compose全局pull policy丢失、打包发布失败损坏旧输出；三人增量复审通过，shell故障注入通过，全仓38模块clean compile通过、格式前后无代码变化；Java红绿/完整测试/native仍待完成。许可证文件随包交付仍开放 |
+| org子PR | P1/P2/P3已发布，CI进行中 | P1 #262 head28a7d653；P2 #261 head7d1472b8，均非Draft、独立base176fb。P1 rocksdb-upgrade、P2 store-stop-shell-test CI通过，其余CI尚未结束；当前head验证和剩余门槛在PR中逐项列明；P3 #263 head d3cf073c 基于P2，P4按完成步骤及时提交，不auto-merge |
+| 网站配套文档 | 独立候选准备中 | apache/hugegraph-doc master e6389aa7，现有Topling页面与P4当前实现对照；中英对齐，先验证再发布 |
 | Apache子PR | 未发布 | 重新核上游base/差异/CI；对应用户确认单独取得；源整合#3134保留 |
 | 最终整合 | 未开始 | 所有所需单元合入Apache、标准/真实TP整合验证、文档许可及三人审查通过 |
 
