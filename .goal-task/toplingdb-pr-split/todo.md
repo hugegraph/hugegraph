@@ -6,6 +6,7 @@
 | --- | --- | --- |
 | 拆分归属与依赖 | 分析完成，P4部分必要性待证 | 198文件/404清单项无漏项；P1、P2独立，P3依赖P2，P4依赖必要前置 |
 | P1候选 | 本地已构造 | 14文件含依赖、metrics、旧数据fixture、文档、CI和Iterator测试适配；PDStore JRaft改1.3.14修复实测旧API调用，Server暂保留1.3.11 |
+| P1兼容测试收敛 | 已提交f550935e，兼容CI通过 | 长期测试移入src/test/rocksdb-compatibility，Maven实际版本比较及去重；两真实兼容路径6 JVM通过，未变/JRaft-only跳过，去重及未解析版本失败验证通过；format+全仓clean compile通过，P4同步，未合入 |
 | P1代码审查 | 最终14文件三人复审通过 | JRaft ABI修正及README旧版本修正后，三名独立审查者无未解决静态发现；Store meter实测仍待补 |
 | P1 Mac跨版本JNI | 旧候选通过 | 2组/6JVM/0 skip/exit0；最终fixture加入TP标志拒绝后重跑；三版JAR与Central SHA1相符 |
 | P1原生Linux跨版本JNI | 当前候选通过 | do专属目录，最终12文件payload哈希一致；2组/6JVM/0 skip/exit0，CodeSource/nativeVersion/哈希已记录；仅轻量JNI，不是完整服务验收 |
@@ -20,11 +21,13 @@
 | P3候选 | 格式、干净编译及恢复/WAL定向测试通过 | 10文件增量；三名静态审查及遗漏修复复审通过；恢复27+Sessions13项全通过无skip；MultiGraphs11项中2skip、其余通过，双真实bind mount均拒绝；#263非Draft已发布 |
 | P2/P3运行验收 | P2 core非root全量通过；P3定向及挂载验证通过 | P2首次root权限失败与tmpfs noexec首次失败均保留，未改断言；完整非root822项、0失败、0错误、45skip、exit0，成功容器已删除。P2 API及扫描/TTL真实关闭harness已准备、未执行（需先打包P2三组件）；P3恢复/WAL、多图及两个真实挂载别名拒绝均通过；探针classpath首次失败已保留 |
 | P4通用生产修复分组 | 已排除，实测回归可重开 | base/source调用链和依赖对照无新增TP必要性；PD follower REST组、Gremlin/HStore白名单组按既有通用问题独立跟进 |
-| P4 JNI获取与许可证 | core及四插件版本已补证，许可闭包核查中 | 当前JAR SHA256 86eb1bd3d9f84ef0dddd3fe95c640a6f145ca2d5a26a5ba628f1f298a2031fae，只有linux64 native且无LICENSE/NOTICE/POM；producer构建日志与binary内嵌core SHA一致，固定rockside/boost许可已读取；四个auto-cloned插件精确版本已从当前ELF的命名版本函数定位并gh核验；固定版本第三方许可闭包正在补齐，尚不能宣称可再分发 |
-| P4代码与发布验证 | 109文件候选，审查修复已完成，编译/unit/清表红绿通过，core执行中 | 修复truncate提交pending写、SST truncate静默无效、Compose全局pull policy丢失、打包发布失败损坏旧输出；三人增量复审通过，shell故障注入通过，全仓38模块clean compile通过、格式前后无代码变化；unit797项0失败0错误1既有skip；新增清表green5通过，原代码真实断言失败且标准对照通过；core/其他相关模块/native仍待完成。许可证文件随包交付仍开放 |
-| org子PR | P1/P2/P3已发布，CI进行中 | P1 #262 head28a7d653；P2 #261 head7d1472b8，均非Draft、独立base176fb。P1 rocksdb-upgrade、P2 store-stop-shell-test CI通过，其余CI尚未结束；当前head验证和剩余门槛在PR中逐项列明；P3 #263 head d3cf073c 基于P2，P4按完成步骤及时提交，不auto-merge |
+| P4 JNI获取与许可证 | 来源已补证；许可材料TODO（用户延期） | 当前JAR SHA256 86eb1bd3d9f84ef0dddd3fe95c640a6f145ca2d5a26a5ba628f1f298a2031fae，只有linux64 native且无LICENSE/NOTICE/POM；producer构建日志与binary内嵌core SHA一致，固定rockside/boost许可已读取；四个auto-cloned插件精确版本已从当前ELF的命名版本函数定位并gh核验；许可/发版材料由用户明确单列后续TODO，本轮不再追查或作为功能交付阻塞，不宣称已通过许可审查 |
+| P4代码与发布验证 | 109文件候选，审查修复已完成，编译/unit/清表红绿通过，core已通过 | 修复truncate提交pending写、SST truncate静默无效、Compose全局pull policy丢失、打包发布失败损坏旧输出；三人增量复审通过，shell故障注入通过，全仓38模块clean compile通过、格式前后无代码变化；unit797项0失败0错误1既有skip；新增清表green5通过，原代码真实断言失败且标准对照通过；core822项0失败45skip及相关Store/cluster13项通过；本次继承fixture后的format+clean compile再次通过且无漂移；native与服务尚未完成。JNI许可/随包材料已按用户决定移至后续发版TODO |
+| org子PR | P1/P2/P3已发布，CI进行中 | P1 #262 headf550935e；P2 #261 head7d1472b8，均非Draft、独立base176fb。P1兼容测试收敛已追加提交、本地相关验证通过，新head rocksdb-compatibility CI通过，其他CI待刷新；P2原stop CI通过，其余CI待刷新；当前head验证和剩余门槛在PR中逐项列明；P3 #263 head d3cf073c 基于P2，P4按完成步骤及时提交，不auto-merge |
 | 网站配套文档 | 独立候选准备中 | apache/hugegraph-doc master e6389aa7，现有Topling页面与P4当前实现对照；8文件双语候选及历史提示完成；全量719文件API源码核验、链接检查通过，Python轻量70通过1skip；冗余clone已终止清理，Hugo/剩余源码/搜索验证待重任务槽 |
 | Apache子PR | 未发布 | 重新核上游base/差异/CI；对应用户确认单独取得；源整合#3134保留 |
-| 最终整合 | 未开始 | 所有所需单元合入Apache、标准/真实TP整合验证、文档许可及三人审查通过 |
+| 最终整合 | 未开始 | 所有所需单元合入Apache、标准/真实TP整合验证、产品文档及三人审查通过；JNI发版合规按用户最新指示后续处理 |
 
 单项等待后移，不阻止独立分析、候选构造及文档/许可核查；上述任何历史或静态结论均不替代最终head实测。
+
+当前按用户要求暂停以切换模型；没有运行中的本任务构建或服务，不启动新任务。

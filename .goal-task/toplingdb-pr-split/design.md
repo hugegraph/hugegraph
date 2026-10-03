@@ -10,7 +10,7 @@
 
 | 单元 | 构造基线 | 行为和配套验证 |
 | --- | --- | --- |
-| P1 标准RocksDB版本对齐 | org master | PD 6.29.5、Store 7.7.3统一8.10.2，Server版本不变；移除已删除metrics枚举；同步LICENSE/清单，新增跨版本旧数据验证和升级/监控说明 |
+| P1 标准RocksDB版本对齐 | org master | PD 6.29.5、Store 7.7.3统一8.10.2，Server版本不变；移除已删除metrics枚举；同步LICENSE/清单，新增仅在真实版本变化时执行的SST/WAL兼容性测试和升级/监控说明 |
 | P2 事务及关闭 | org master | FINISHED清理、auth冷schema关联删除、index当前schema、线程session最后关闭；Store gRPC/TTL排空及stop状态契约；标准Core/API、并发和真实关闭验证 |
 | P3 Snapshot/WAL | P2（真实依赖） | databaseOpened接口来自P2；recoveryLock、native关闭/重开移交、pending/WAL发布恢复完整保留；标准故障矩阵和挂载说明 |
 | P4 完整TP接入 | 必要P1/P2/P3前置 | provider选择/truncate、所有根预检、JNI/ABI、三组件包、Docker/CI、真实TP验收及产品文档 |
@@ -35,7 +35,7 @@ P2 Server与Store生命周期互不直接依赖，如后续review确需减小PR�
 - P2的请求清理必须配套project/user关联删除与无关对象保留测试；Store关闭移除旧leader transfer等待，需要真实多节点/重启验证，不能只看mock。
 - P3的Java开库拒绝单DB挂载影响默认RocksDB，应在该PR提供通用恢复/挂载说明。JVM前全graph预检尚在P4时不得提前宣称具备它。
 - P3不承诺全图原子恢复、断电持久性或不合作旧进程的互斥保护；pending/checkpoint/锁材料不得通过删文件绕过。
-- P4保留精确known-CF-assertion边界，其它native失败必须失败；真实JAR/native maps/hash独立核验。实验JNI交付及许可证闭包需在PR review中明确，正式发布流水线后置。
+- P4保留精确known-CF-assertion边界，其它native失败必须失败；真实JAR/native maps/hash独立核验。实验JNI来源与功能验证需在PR review中明确；用户后续明确许可证闭包与发版合规单列TODO，不阻塞本轮，正式发布流水线仍后置。
 
 ## 交付顺序
 
@@ -51,7 +51,7 @@ Apache master当前比org多`02628ed5`（Struct TokenGenerator/AuthOptions去重
 ## P4依赖交付待审方案
 
 当前精确JNI SHA256为`86eb1bd3d9f84ef0dddd3fe95c640a6f145ca2d5a26a5ba628f1f298a2031fae`，本机解包确认仅linux64 native、无LICENSE/NOTICE/POM。固定producer `31afa28f...` 的README明确core可选Apache2/GPLv2，POM同时列两者；workflow会动态取得SidePlugin，所以不能把core许可直接当精确binary闭包。
-P4已实现上游源码不检入opaque JNI、由显式路径和校验和输入构造可选TP包/镜像；标准发行保持不带TP，原org整合分支保留实验产物。外部输入与打包失败保全修复已通过静态复审及shell故障注入，全仓干净编译通过；完整测试和真实native验收尚未结束。此方式不免除精确二进制的来源与许可证门槛，缺少完整材料时不发布可再分发产物。正式producer发布链继续独立后置。
+P4已实现上游源码不检入opaque JNI、由显式路径和校验和输入构造可选TP包/镜像；标准发行保持不带TP，原org整合分支保留实验产物。外部输入与打包失败保全修复已通过静态复审及shell故障注入，全仓干净编译通过；完整测试和真实native验收尚未结束。用户后续明确精确二进制的许可/授权及发版合规材料单列TODO另行处理，不阻塞本轮功能交付；此延期不代表材料已齐备。真实JNI身份与功能验证继续完成。正式producer发布链继续独立后置。
 
 ## 构造后已确认修正
 

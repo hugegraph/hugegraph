@@ -1,7 +1,7 @@
 # ToplingDB PR 拆分任务
 
-更新：2026-10-03（Asia/Singapore）。用户已确认 deep 模式与本文件初始化。
-当前已发布P1/P2/P3 PR，P3/P4继续并行推进；尚未合入，原 Linux goal 保持暂停。
+更新：2026-10-04（Asia/Singapore）。用户已确认 deep 模式与本文件初始化。
+当前按用户要求暂存并暂停，等待切换模型后继续；已发布P1/P2/P3 PR，尚未合入，原 Linux goal 保持暂停。
 
 ## 入口与依据
 
@@ -37,7 +37,7 @@
 - P1隔离构造：`/Users/zhu/github/hugegraph-topling-split-runtime`；gh clone org/master后逐blob核验基线，再修改POM/metrics/LICENSE/清单。PDStore JRaft按实测ABI错误升至1.3.14，Server保留1.3.11。
 - 以下绝对路径为本机/专属主机证据索引，未随记录分支上传，不是公开附件。
 - 原始API/源码核验证据：`/Users/zhu/github/hugegraph-topling-split-evidence`；来源清单、base/source完整Git tree、源码哈希核验JSON均已保存。
-- P1已发布[PR #262](https://github.com/hugegraph/hugegraph/pull/262)，head `28a7d6531aaee6c00cc21a746895c3c3ba7c10c1`；P2已发布[PR #261](https://github.com/hugegraph/hugegraph/pull/261)，head `7d1472b80a878ab83154a4daee9bf5060775da99`。均基于org/master独立提交，不触碰master或原toplingdb。按用户最新要求，完成可审查步骤及适用提交前检查后及时非强制提交并创建PR，后续服务/CI门槛在PR中明确保留。
+- P1已发布[PR #262](https://github.com/hugegraph/hugegraph/pull/262)，head `f550935eae208ba0ba46761143969e60243919fb`；P2已发布[PR #261](https://github.com/hugegraph/hugegraph/pull/261)，head `7d1472b80a878ab83154a4daee9bf5060775da99`。均基于org/master独立提交，不触碰master或原toplingdb。按用户最新要求，完成可审查步骤及适用提交前检查后及时非强制提交并创建PR，后续服务/CI门槛在PR中明确保留。
 - P3已发布[PR #263](https://github.com/hugegraph/hugegraph/pull/263)，head `d3cf073cde09b825f3556fa11f94b16c636d3805`，基于P2，仅10个增量文件；非Draft，远端10份文件与已验证源码一致。P4正在进行标准构建。
 - 本机Darwin arm64，Docker linux aarch64/10 CPU/约12.6GB，初次预检时无运行容器；Docker已恢复，原容器确认exit1非OOM，未重启；独立v3干净编译及标准打包已通过。真实Linux x86_64 TP能力待核实；不能将ARM测试当原生x86验收。
 - 本地主要checkout与org/master的blob差异仅Struct AuthOptions及TokenGenerator删除，符合Apache新增提交内容；未触碰这些文件，不把blob比较当索引状态。
@@ -62,7 +62,7 @@
 `RocksDBStore`、`RocksDBSessionsTest` 等跨单元文件按修改块/测试目的归属；当前标准 runtime CI 也依赖 `preload-topling.sh`，脚本、配置和 workflow 必须在对应中间树齐备。
 优先独立 PR，仅真实依赖使用 stack；不按旧提交机械拆分，不为行数均衡破坏完整修复，不先合入已知不安全中间树。
 TP 适配及来源 PR 新增共用代码引入或放大的回归在范围内；此前已有通用问题独立跟进，不扩大为所有平台修复。
-性能 #252 可选，正式 JNI 发布链 #213 独立后置；上游依赖获取方式和许可证仍为必需门槛。
+性能 #252 可选，正式 JNI 发布链 #213 独立后置；上游依赖获取方式与真实JNI身份/功能验证仍需完成。用户后续明确JNI许可证与发版合规材料单列TODO另行处理，不阻塞本轮功能PR提交、验收与交付；不得把延期描述成已通过许可审查。
 
 ## 仓库、提交与合入约定
 
@@ -75,7 +75,7 @@ TP 适配及来源 PR 新增共用代码引入或放大的回归在范围内；�
 - 上游提交重新核对 base、真实前置、完整 diff 和 CI；org 绿灯或前置已合入 org 不证明 Apache 就绪。合入后记录 merge SHA，刷新后续依赖及受影响验证。
 - 用户最新明确：每个可审查步骤完成后及时提交、创建或更新PR，不等四个单元或完整最终验收结束；未完成验证逐项写在PR中，不能将创建PR视为验收通过。独立单元使用多agent并行推进。用户进一步明确所有PR使用非Draft状态；ready仅表示开放评审，未完成验收仍须显式列明，不能自动合入。
 - 通过适用提交前验证和审查后及时提交；代码与验收记录分别提交。提交遵循 `类型(范围): 动词开头的简短描述`，范围可省略，body 列 3–5 个核心改动。
-- 任务记录保存在本地或专用记录分支，不混入功能 PR；不提交大日志、数据库和镜像。`.goal-task/`、历史 `.specs/` 和绘图资料默认不搬入上游，必要产品文档、有效测试和许可证随实现。
+- 任务记录保存在本地或专用记录分支，不混入功能 PR；不提交大日志、数据库和镜像。`.goal-task/`、历史 `.specs/` 和绘图资料默认不搬入上游，必要产品文档、有效测试和许可证随实现；当前JNI发版合规材料按下方用户明确延期条款处理。
 - 根 AGENTS 和 CONTRIBUTING 的产品文档要求适用：网站文档受影响时准备配套 `apache/hugegraph-doc` PR 并协调合入，不能仅留后续 issue。
 - 远程变更前记录确切目标及影响。JNI 交付、不可逆迁移、默认行为变更或已有支持删除先给出具体证据与方案，交用户判断；不擅自扩展范围。
 - 不记录、输出、提交凭证值；仅记录脱敏的动作及结果。
@@ -107,11 +107,25 @@ TP 适配及来源 PR 新增共用代码引入或放大的回归在范围内；�
 
 ## 当前门槛与下一步
 
-逐项状态仅维护在[todo.md](todo.md)。当前已构造P1/P2/P3及P4累积候选、发布3个子PR；重任务串行推进。PD测试证实旧JRaft与8.10.2存在API不兼容，P1已采用实测通过的最小升级；P4外部输入实现已完成，许可闭包仍待齐备。
+逐项状态仅维护在[todo.md](todo.md)。当前已构造P1/P2/P3及P4累积候选、发布3个子PR；重任务串行推进。PD测试证实旧JRaft与8.10.2存在API不兼容，P1已采用实测通过的最小升级；P4外部输入实现已完成；JNI发版合规材料按用户决定单列后续TODO。
 
-- 全部必要功能单元合入 Apache、最终验证及审查通过、产品文档/许可证到位且无未解决高严重性发现后，才可完成任务；保留原 PR/分支，关闭或清理另经用户确认。
-- 下一步：执行P4标准构建及回归测试；并行准备P2真实关闭harness与独立网站文档候选。P1旧数据服务升级、P2 API/真实关闭与P4真实TP及许可门槛继续保留。
+- 全部必要功能单元合入 Apache、最终验证及审查通过、产品文档到位且无未解决高严重性功能发现后，才可完成任务；保留原 PR/分支，关闭或清理另经用户确认。
+- 下一步：执行P4标准构建及回归测试；并行准备P2真实关闭harness与独立网站文档候选。P1旧数据服务升级、P2 API/真实关闭与P4真实TP功能验证继续保留；JNI许可/发版合规按用户最新决定列为后续TODO，不阻塞本轮。
 
 ## PR 描述规则（用户最新要求）
 
 描述突出 before → after 的核心行为差异，通俗精炼；按内容选择对照表、ASCII、Mermaid或有用的生成配图。不在正文堆放提交哈希、日志、测试计数和排错流水账；详细证据保存在任务记录与CI，只保留简短验证结论及必要未完成项。所有PR保持非Draft。用户要求功能PR标题末尾标注 `(1/4)` 至 `(4/4)` 以便识别；编号代表功能单元，不代表线性依赖。
+
+## JNI 发版材料后续 TODO（用户明确延期）
+
+用户明确当前JNI许可/授权与发版合规问题之后单独处理，不影响本轮功能交付。本轮保留已查证的来源、固定版本和原始许可文本，不继续追查或以此等待/阻塞功能PR。后续发版任务需处理topling-dcompact许可授予、cspp_memtable.o与top_zip_table_builder.o预编译对象的授权及对应源码、其余传递依赖归属与随包声明；延期不代表这些材料已齐备。真实JNI来源/哈希/唯一加载、服务、重启及关闭验证不在延期范围。
+
+## P1 兼容性测试边界（用户最新要求）
+
+P1在现有非Draft #262上以正常新提交调整，不合入、不force-push。长期保留最小Java兼容夹具、薄脚本与一个CI job，位置为`hugegraph-server/hugegraph-test/src/test/rocksdb-compatibility/`，不进入生产二进制。用Maven effective POM读取Server/PD/Store真实RocksDB版本，PR比较base/head，push比较before/after；只执行发生变化且去重后的版本对，不维护历史矩阵，无法确定时硬失败。本次仅PD 6.29.5到8.10.2、Store 7.7.3到8.10.2，Server不变跳过。修改测试/CI需实测变化执行、未变跳过及兼容路径；真实服务、Raft、集群与TP仍单独验收。P4同步继承路径与CI；不要把此测试扩成升级工具或平台。
+
+## 暂存检查点：用户切换模型
+
+用户已要求先不要启动新任务。P1/#262本次兼容测试调整全部完成，正常追加提交`f550935eae208ba0ba46761143969e60243919fb`，非Draft且标题保留(1/4)，PR说明已更新；新head的rocksdb-compatibility CI已成功。未执行任何合入。P4受影响路径、文档、前置计划已同步；已启动的格式检查及全仓clean compile自然结束成功、源码无漂移、容器已清理，未开始新任务。
+
+恢复时先刷新三个PR的head/CI，再继续原goal的服务与真实TP验收以及P4/网站PR交付。P1的两组兼容、跳过/去重/错误路径已完成，不要重复旧固定版本矩阵。P4此前unit/core/清表红绿/相关模块验证已通过，本次继承测试改动后的干净编译也已通过；细节见本机证据`p4/inherited-fixture-pause-state.json`与`p1/compatibility-validation/validation-summary.json`。P1旧服务fresh run3、P2真实API/扫描TTL关闭、P3服务故障演练的准备均保留，尚未运行；不要把准备当通过。P4尚未发布，临时前置组合分支仅有计划，所需P1 head已更新为f550935e。JNI许可/发版合规仍按用户明确决定单列后续TODO，不阻塞功能交付。
