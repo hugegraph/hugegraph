@@ -16,7 +16,10 @@
 
 ---
 
-**Quick Navigation:** [Architecture](#architecture) • [Quick Start](#quick-start) • [Module Map](#module-map) • [Ecosystem](#ecosystem) • [For Contributors](#for-contributors) • [Community](#community)
+**Quick Navigation:** [Architecture](#architecture) • [Quick Start](#quick-start) •
+[ToplingDB](docs/toplingdb/README.md) • [Module Map](#module-map) •
+[Ecosystem](#ecosystem) • [For Contributors](#for-contributors) •
+[Community](#community)
 
 ---
 
@@ -31,7 +34,12 @@ achieved through the powerful [Gremlin](https://tinkerpop.apache.org/gremlin.htm
 
 - **Schema Metadata Management**: VertexLabel, EdgeLabel, PropertyKey, and IndexLabel
 - **Multi-type Indexes**: Exact query, range query, and complex conditions combination query
-- **Plug-in Backend Store Framework**: RocksDB powers standalone deployments and HStore powers distributed clusters. See the [backend evolution guide](hugegraph-server/README.md#backend-evolution-and-compatibility) for compatibility details.
+- **Plug-in Backend Store Framework**: RocksDB powers standalone deployments
+  and HStore powers distributed clusters. ToplingDB is an optional
+  RocksDB-compatible runtime; see the
+  [ToplingDB documentation](docs/toplingdb/README.md). See the
+  [backend evolution guide](hugegraph-server/README.md#backend-evolution-and-compatibility)
+  for compatibility details.
 - **Big Data Integration**: Seamless integration with `Flink`/`Spark`/`HDFS`
 - **Complete Graph Ecosystem**: In/out-memory Graph Computing + Graph Visualization & Tools + Graph Learning & AI
 - **Dual Query Language Support**: [Gremlin](https://tinkerpop.apache.org/gremlin.html) (via [Apache TinkerPop 3](https://tinkerpop.apache.org/)) and [Cypher](https://en.wikipedia.org/wiki/Cypher_(query_language)) (OpenCypher)
@@ -296,11 +304,9 @@ gremlin> :> g.V().limit(5)
 
 For comprehensive documentation, visit the [HugeGraph Documentation](https://hugegraph.apache.org/docs/).
 
-See [RocksDB upgrade guidance](docs/rocksdb-upgrade.md) before upgrading an existing deployment.
-
-See [standalone RocksDB snapshot recovery](docs/rocksdb-recovery.md) before restoring data or mounting store directories.
-
-See [request transactions and Store shutdown](docs/transaction-lifecycle.md) for cleanup and maintenance behavior.
+Read the [RocksDB upgrade guidance](docs/rocksdb-upgrade.md),
+[request and shutdown behavior](docs/transaction-lifecycle.md), and
+[standalone snapshot recovery](docs/rocksdb-recovery.md) before changing an existing deployment.
 
 </details>
 

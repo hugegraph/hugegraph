@@ -60,6 +60,7 @@ import org.apache.hugegraph.backend.store.BackendTable;
 import org.apache.hugegraph.config.CoreOptions;
 import org.apache.hugegraph.config.HugeConfig;
 import org.apache.hugegraph.exception.ConnectionException;
+import org.apache.hugegraph.exception.NotSupportException;
 import org.apache.hugegraph.type.HugeType;
 import org.apache.hugegraph.util.Consumers;
 import org.apache.hugegraph.util.E;
@@ -103,6 +104,7 @@ public abstract class RocksDBStore extends AbstractBackendStore<RocksDBSessions.
      */
     private static final int OPEN_POOL_THREADS = 8;
     private boolean isGraphStore;
+    private boolean toplingProvider;
 
     public RocksDBStore(final BackendStoreProvider provider,
                         final String database, final String store) {
@@ -115,6 +117,7 @@ public abstract class RocksDBStore extends AbstractBackendStore<RocksDBSessions.
         this.tableDiskMapping = new HashMap<>();
         this.dbs = new ConcurrentHashMap<>();
         this.storeLock = new ReentrantReadWriteLock();
+        this.toplingProvider = false;
 
         this.registerMetaHandlers();
     }
@@ -212,6 +215,8 @@ public abstract class RocksDBStore extends AbstractBackendStore<RocksDBSessions.
         E.checkNotNull(config, "config");
         String graphStore = config.get(CoreOptions.STORE_GRAPH);
         this.isGraphStore = this.store.equals(graphStore);
+        this.toplingProvider = "topling".equals(
+                config.get(RocksDBOptions.PROVIDER));
         this.dataPath = config.get(RocksDBOptions.DATA_PATH);
 
         if (this.sessions != null && !this.sessions.closed()) {
@@ -639,13 +644,37 @@ public abstract class RocksDBStore extends AbstractBackendStore<RocksDBSessions.
         try {
             this.checkOpened();
 
-            this.clear(false);
-            this.init();
-            // Clear write-batch
+            if (this.toplingProvider && !(this.sessions instanceof RocksDBStdSessions)) {
+                throw new NotSupportException("Topling does not support truncate for SST generation");
+            }
+
+            // Discard pending writes before clearTables() commits its deletions.
             this.dbs.values().forEach(BackendSessionPool::forceResetSessions);
+            if (this.toplingProvider) {
+                this.clearTables();
+            } else {
+                this.clear(false);
+                this.init();
+            }
             LOG.debug("Store truncated: {}", this.store);
         } finally {
             writeLock.unlock();
+        }
+    }
+
+    private void clearTables() {
+        this.sessions.clearTables(this.tableNames());
+
+        Map<String, RocksDBSessions> tableDBMap = this.tableDBMapping();
+        for (Map.Entry<String, RocksDBSessions> entry :
+                tableDBMap.entrySet()) {
+            Collection<String> tables;
+            if (entry.getKey().equals(HugeType.OLAP.string())) {
+                tables = this.olapTables();
+            } else {
+                tables = Collections.singletonList(entry.getKey());
+            }
+            entry.getValue().clearTables(tables);
         }
     }
 

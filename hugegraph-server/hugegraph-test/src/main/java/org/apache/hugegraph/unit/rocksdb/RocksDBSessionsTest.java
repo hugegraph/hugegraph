@@ -23,15 +23,21 @@ import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.apache.commons.io.FileUtils;
 import org.apache.hugegraph.backend.store.rocksdb.RocksDBMetrics;
 import org.apache.hugegraph.backend.store.rocksdb.RocksDBOptions;
 import org.apache.hugegraph.backend.store.rocksdb.RocksDBSessions;
 import org.apache.hugegraph.backend.store.rocksdb.RocksDBStdSessions;
+import org.apache.hugegraph.backend.store.rocksdb.RocksDBStore;
+import org.apache.hugegraph.backend.store.rocksdb.RocksDBStoreProvider;
 import org.apache.hugegraph.backend.store.rocksdbsst.RocksDBSstSessions;
+import org.apache.hugegraph.backend.store.rocksdbsst.RocksDBSstStore;
 import org.apache.hugegraph.config.HugeConfig;
+import org.apache.hugegraph.exception.NotSupportException;
 import org.apache.hugegraph.testutil.Assert;
 import org.apache.hugegraph.testutil.Whitebox;
 import org.apache.hugegraph.unit.FakeObjects;
@@ -42,6 +48,157 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
 public class RocksDBSessionsTest extends BaseRocksDBUnitTest {
+
+    @Test
+    public void testAdapterToplingTruncateWithMultipleKeys() throws Exception {
+        this.assertAdapterTruncate(true);
+    }
+
+    @Test
+    public void testAdapterStandardTruncateWithMultipleKeys() throws Exception {
+        this.assertAdapterTruncate(false);
+    }
+
+    @Test
+    public void testAdapterToplingTruncateDiscardsPendingWritesInEmptyTable() throws Exception {
+        this.assertAdapterTruncateDiscardsPendingWrites(true, false);
+    }
+
+    @Test
+    public void testAdapterToplingTruncateDiscardsPendingWritesOutsideRange() throws Exception {
+        this.assertAdapterTruncateDiscardsPendingWrites(true, true);
+    }
+
+    @Test
+    public void testAdapterStandardTruncateDiscardsPendingWritesInEmptyTable() throws Exception {
+        this.assertAdapterTruncateDiscardsPendingWrites(false, false);
+    }
+
+    @Test
+    public void testAdapterStandardTruncateDiscardsPendingWritesOutsideRange() throws Exception {
+        this.assertAdapterTruncateDiscardsPendingWrites(false, true);
+    }
+
+    private void assertAdapterTruncateDiscardsPendingWrites(boolean topling,
+                                                          boolean committedRange) throws Exception {
+        if (committedRange) {
+            this.put("m", "committed first");
+            this.put("n", "committed last");
+        }
+        RocksDBSessions.Session session = this.rocks.session();
+        // Both inserts fall outside the committed range; an empty CF has no range at all.
+        session.put(TABLE, getBytes("a"), getBytes("pending first"));
+        session.put(TABLE, getBytes("z"), getBytes("pending last"));
+        Assert.assertTrue(session.hasChanges());
+
+        RocksDBStore store = this.adapterStore(topling, ImmutableList.of(TABLE));
+        store.truncate();
+
+        Assert.assertFalse(session.hasChanges());
+        Assert.assertNull(session.keyRange(TABLE));
+        Assert.assertNull(session.get(TABLE, getBytes("a")));
+        Assert.assertNull(session.get(TABLE, getBytes("z")));
+        // The retained session must not replay pending writes after truncate either.
+        session.commit();
+        Assert.assertNull(session.keyRange(TABLE));
+        this.put("new", "after truncate");
+        Assert.assertEquals("after truncate", this.get("new"));
+    }
+
+    private void assertAdapterTruncate(boolean topling) throws Exception {
+        List<String> tables = ImmutableList.of(TABLE, "single", "empty", "multiple");
+        this.rocks.createTable("single", "empty", "multiple");
+        // Deliberately unordered, including empty and unsigned byte boundaries.
+        byte[][] keys = {new byte[]{(byte) 0xff}, new byte[]{0}, new byte[]{},
+                         new byte[]{(byte) 0x80}, new byte[]{0, (byte) 0xff}, new byte[]{0x7f}};
+        for (String table : ImmutableList.of(TABLE, "multiple")) {
+            for (byte[] key : keys) {
+                this.rocks.session().put(table, key, new byte[]{42});
+            }
+        }
+        this.rocks.session().put("single", new byte[]{(byte) 0xff}, new byte[]{43});
+        this.commit();
+        AtomicReference<?> shared = Whitebox.getInternalState(this.rocks, "rocksdb");
+        Object opened = shared.get();
+        Map<String, ?> handles = Whitebox.getInternalState(opened, "cfHandles");
+        Map<String, ?> before = new HashMap<>(handles);
+        RocksDBStore store = this.adapterStore(topling, tables);
+        store.truncate();
+        for (String table : tables) {
+            Assert.assertTrue(this.rocks.existsTable(table));
+            Assert.assertNull(this.rocks.session().keyRange(table));
+            for (byte[] key : keys) {
+                Assert.assertNull(this.rocks.session().get(table, key));
+            }
+            if (topling) {
+                Assert.assertSame(before.get(table), handles.get(table));
+            } else {
+                Assert.assertNotSame(before.get(table), handles.get(table));
+            }
+        }
+        for (String table : tables) {
+            this.rocks.session().put(table, new byte[]{(byte) 0xff}, new byte[]{44});
+        }
+        this.commit();
+        for (String table : tables) {
+            Assert.assertArrayEquals(new byte[]{44}, this.rocks.session().get(table, new byte[]{(byte) 0xff}));
+        }
+        // A second truncate covers the single-key path for every formerly empty CF.
+        store.truncate();
+        for (String table : tables) {
+            Assert.assertNull(this.rocks.session().keyRange(table));
+        }
+    }
+
+    private RocksDBStore adapterStore(boolean topling, List<String> tables) {
+        RocksDBStore store = new RocksDBStore.RocksDBGraphStore(new RocksDBStoreProvider(), "db", "store") {
+            @Override
+            protected List<String> tableNames() {
+                return tables;
+            }
+        };
+        Whitebox.setInternalState(store, "sessions", this.rocks);
+        Map<String, RocksDBSessions> databases = Whitebox.getInternalState(store, "dbs");
+        databases.put(DB_PATH, this.rocks);
+        // Select the actual adapter branch, independently of the loaded JNI.
+        // This fixture also runs unchanged with the externally loaded TP JNI on Linux.
+        Whitebox.setInternalState(store, "toplingProvider", topling);
+        return store;
+    }
+
+    @Test
+    public void testClearTablesWithoutRecreatingColumnFamilies()
+            throws RocksDBException, InterruptedException {
+        final String table2 = "test-table2";
+        this.rocks.createTable(table2);
+        this.rocks.session().put(TABLE, getBytes("person:1"),
+                                 getBytes("James"));
+        this.rocks.session().put(table2, getBytes("person:2"),
+                                 getBytes("Tom"));
+        this.commit();
+
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        Thread thread = new Thread(() -> {
+            try {
+                this.rocks.clearTables(ImmutableList.of(TABLE, table2));
+            } catch (Throwable e) {
+                failure.set(e);
+            }
+        });
+        thread.start();
+        thread.join();
+
+        Assert.assertNull(failure.get());
+        Assert.assertNull(this.rocks.session().get(TABLE,
+                                                  getBytes("person:1")));
+        Assert.assertNull(this.rocks.session().get(table2,
+                                                  getBytes("person:2")));
+        Assert.assertTrue(this.rocks.existsTable(TABLE));
+        Assert.assertTrue(this.rocks.existsTable(table2));
+        AtomicInteger sessionCount =
+                Whitebox.getInternalState(this.rocks, "sessionCount");
+        Assert.assertEquals(1, sessionCount.get());
+    }
 
     @Test
     public void testDatabaseOpenedDoesNotCreateSession() throws RocksDBException {
@@ -450,6 +607,52 @@ public class RocksDBSessionsTest extends BaseRocksDBUnitTest {
         copy.close();
         Assert.assertTrue(copy.closed());
         Assert.assertFalse(this.rocks.closed());
+    }
+
+    @Test
+    public void testAdapterToplingSstTruncateRejectsWithoutLosingWrites() throws RocksDBException {
+        HugeConfig config = FakeObjects.newConfig();
+        String sstPath = DB_PATH + "/sst-truncate-rejection";
+        String table = "truncate-table";
+        config.addProperty(RocksDBOptions.SST_PATH.name(), sstPath);
+        RocksDBSstSessions sstSessions = new RocksDBSstSessions(config, "sst", "store", sstPath);
+        sstSessions.createTable(table);
+        RocksDBSessions.Session session = sstSessions.session();
+        try {
+            session.put(table, getBytes("a"), getBytes("committed"));
+            session.commit();
+            session.put(table, getBytes("z"), getBytes("pending"));
+            Assert.assertTrue(session.hasChanges());
+
+            RocksDBStore store = new RocksDBSstStore.RocksDBSstGraphStore(
+                    new RocksDBStoreProvider(), "db", "store") {
+                @Override
+                protected List<String> tableNames() {
+                    return ImmutableList.of(table);
+                }
+            };
+            Whitebox.setInternalState(store, "sessions", sstSessions);
+            Map<String, RocksDBSessions> databases = Whitebox.getInternalState(store, "dbs");
+            databases.put(sstPath, sstSessions);
+            // Exercise the real SST subtype; provider selection is independent of JNI identity.
+            Whitebox.setInternalState(store, "toplingProvider", true);
+            Assert.assertThrows(NotSupportException.class, store::truncate);
+            Assert.assertTrue(session.hasChanges());
+            Assert.assertTrue(sstSessions.existsTable(table));
+            session.commit();
+        } finally {
+            sstSessions.close();
+        }
+
+        // Finishing and ingesting the real SstFileWriter output proves both writes survived.
+        RocksDBSessions ingested = new RocksDBStdSessions(config, "db", "store", sstPath, sstPath);
+        try {
+            ingested.createTable(table);
+            Assert.assertArrayEquals(getBytes("committed"), ingested.session().get(table, getBytes("a")));
+            Assert.assertArrayEquals(getBytes("pending"), ingested.session().get(table, getBytes("z")));
+        } finally {
+            ingested.close();
+        }
     }
 
     @Test

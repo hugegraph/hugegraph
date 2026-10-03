@@ -31,6 +31,10 @@ variable "SOURCE_REVISION" {
   default = "local"
 }
 
+variable "SOURCE_URL" {
+  default = "https://github.com/apache/hugegraph"
+}
+
 variable "IMAGE_TAG" {
   default = "local"
 }
@@ -43,6 +47,41 @@ variable "EXPORT_CACHE" {
   default = false
 }
 
+variable "RUNTIME_VARIANT" {
+  default = "standard"
+  validation {
+    condition     = contains(["standard", "topling"], RUNTIME_VARIANT)
+    error_message = "RUNTIME_VARIANT must be standard or topling"
+  }
+}
+
+# External input is only required by native Topling targets. Keep it outside
+# the source context and pass it through a BuildKit file secret.
+variable "TOPLING_JNI_JAR" {
+  default = ""
+  validation {
+    condition     = RUNTIME_VARIANT != "topling" || can(regex("^/", TOPLING_JNI_JAR))
+    error_message = "Topling builds require an absolute TOPLING_JNI_JAR path"
+  }
+}
+
+variable "TOPLING_JNI_SHA256" {
+  default = ""
+  validation {
+    condition     = RUNTIME_VARIANT != "topling" || can(regex("^[0-9a-fA-F]{64}$", TOPLING_JNI_SHA256))
+    error_message = "Topling builds require TOPLING_JNI_SHA256"
+  }
+}
+
+target "_topling-input" {
+  args = {
+    TOPLING_JNI_SHA256 = RUNTIME_VARIANT == "topling" ? TOPLING_JNI_SHA256 : null
+  }
+  secret = RUNTIME_VARIANT == "topling" ? [
+    "type=file,id=topling_jni,src=${TOPLING_JNI_JAR}",
+  ] : []
+}
+
 target "_common" {
   context = "."
   args = {
@@ -50,8 +89,11 @@ target "_common" {
     MAVEN_PROJECTS     = MAVEN_PROJECTS
     RUNTIME_DEPS_EPOCH = RUNTIME_DEPS_EPOCH
     SOURCE_REVISION    = SOURCE_REVISION
+    SOURCE_REPOSITORY = SOURCE_URL
   }
-  platforms = [
+  platforms = RUNTIME_VARIANT == "topling" ? [
+    "linux/amd64",
+  ] : [
     "linux/amd64",
     "linux/arm64",
   ]
@@ -75,8 +117,9 @@ target "build-cache" {
 # workflow enables the containerd image store, verifies both loaded platforms,
 # runs functional checks against these exact tags, and only then pushes them.
 target "pd" {
-  inherits   = ["_common"]
+  inherits   = ["_common", "_topling-input"]
   dockerfile = "hugegraph-pd/Dockerfile"
+  target     = RUNTIME_VARIANT
   tags       = ["hugegraph/pd:${IMAGE_TAG}"]
   output     = ["type=docker"]
   cache-from = [
@@ -89,8 +132,9 @@ target "pd" {
 }
 
 target "store" {
-  inherits   = ["_common"]
+  inherits   = ["_common", "_topling-input"]
   dockerfile = "hugegraph-store/Dockerfile"
+  target     = RUNTIME_VARIANT
   tags       = ["hugegraph/store:${IMAGE_TAG}"]
   output     = ["type=docker"]
   cache-from = [
@@ -117,8 +161,9 @@ target "server-hstore" {
 }
 
 target "server-standalone" {
-  inherits   = ["_common"]
+  inherits   = ["_common", "_topling-input"]
   dockerfile = "hugegraph-server/Dockerfile"
+  target     = RUNTIME_VARIANT
   tags       = ["hugegraph/hugegraph:${IMAGE_TAG}"]
   output     = ["type=docker"]
   cache-from = [
