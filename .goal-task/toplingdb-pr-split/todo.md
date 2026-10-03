@@ -26,7 +26,7 @@
 | org子PR | 四个非Draft PR已发布 | #262 169d09bf、#261 976ecc29、#263 2eb60f03、#264 9af9d14；全部保留编号，不自动合入；前置组合f7428943；current CI未全完成 |
 | 网站配套文档 | apache/hugegraph-doc #510已发布 | b2e9a633；9文件，真实latest assembly/artifact、213 source/render、24既有ranking、12指南浏览器验证通过；14 Git fixture按gh-only明确未跑；当前CI成功或预期skip |
 | Apache子PR | 仅网站#510已发布；功能PR待交付 | 四功能单元按各自CI、服务gate及org/Apache逐PR授权交付；源#3134保留 |
-| 评论反馈闭环 | 原14+P2两条闭环；P4四条新功能闭环 | P4五功能修复已提交实测；standard镜像默认根仍等actual image startup再resolve；JNI合规线程按用户后续TODO关闭，未claim合规。每个里程碑刷新所有5PR |
+| 评论反馈闭环 | 原14+P2两条闭环；P4四条新功能闭环 | P4五功能修复已提交实测；standard镜像默认根actual anonymous-volume startup通过并resolve；新四条启动/dump/JDK/docs仍open；JNI合规线程按用户后续TODO关闭，未claim合规。每个里程碑刷新所有5PR |
 | Store package CI回归 | P2/P3已提交并实际package通过 | ordinary library+exec classifier，Dist选exec且旧文件名不变；P3 typedcause fixture只修测试；最新CI继续刷新，勿沿用旧失败/旧成功 |
 | 原有快照/查询迭代器生命周期 | 独立后续TODO；未修复 | P2固定基线、原P3与本轮scan/query/native关闭路径相同，不是本轮引入；需延长CF借用至iterator close并协调恢复，不把本轮锁修复测试当该并发边界通过 |
 | 原有GremlinJob失败时finally提交 | 独立后续TODO；未修复 | 已有execute finally会先提交，事务边界cleanup不能撤回；本轮仅覆盖ContextTask残余开放事务清理，不声称修复此旧行为 |
@@ -37,3 +37,11 @@
 用户已恢复手动执行。当前无heavy运行，准备三类runtime harness后串行执行；最新heads/证据与恢复入口见state.md。P1旧服务关闭失败、P2 API/TTL关闭、P3服务故障与P4真实JNI/native、服务重启、镜像匿名volume和集群gate均保留。
 
 RISC-V旧head smoke完成后EXIT关闭失败原证据保留；976只让stop诊断可见，最新RISC-V CI已成功但不能替代服务gate。100ms channel轮询开销仍为待负载验证项。历史本机验证、当前CI、实际服务及合入交付分别记录，不互相替代。
+
+| 新运行门槛 | 当前状态 | 下一动作 |
+| --- | --- | --- |
+| P4标准匿名volume镜像 | 三组件PASS，五旧feedback闭环 | runtime目标以clean包替换Mavenstage；不是完整Dockerfilebuild，专属资源已清理 |
+| P4真实Server | Linux/amd64模拟actual PASS | 3 JVM身份/CRUD/restart/normalstop/拒绝材料保全通过；physical x86及额外truncate还需 |
+| P4 PD/Store actual | JNI/128数据/metadata/partition及Storeclose PASS，PDclose FAIL | PD native db-not-closed SIGABRT，9文件限定候选与3review/实际RED-GREEN；restarts未做 |
+| P4新4条反馈 | 全部确认，candidate尚未整合 | bare actualSpring config guards、dump single-selectedconfig、major版解析、Dockerexternal-input例子；实测后正常追加resolve |
+| P1 current cluster CI | 超5hr沉默后任务内取消取日志，不是PASS | 旧无界startup/NOP已证，具体阻塞unknown；隔离重现取node logs/stacks后再actual复测 |

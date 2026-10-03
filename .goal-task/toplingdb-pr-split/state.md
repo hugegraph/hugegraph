@@ -145,3 +145,19 @@ P4新反馈修复9af：PD unclassified executable JAR恢复打包；Compose volu
 仅一个heavy batch。准备harness分别在E/p4/runtime-server-acceptance、runtime-pdstore-acceptance、runtime-standard-images，尚未开始实际服务。当前可复用local/hg-topling-split-validation:20261004（JDK11/Python3/rsync/unzip/flock）；本机ARM64下linux/amd64属模拟，不当原生physical x86结论。重任务随进程caffeinate -i；成功证据保存后立即删专属容器，失败先诊断归档再exact删，镜像/缓存保留。不重启清理他人资源，不删pending/checkpoint/lock绕过失败。
 
 上述E为/Users/zhu/github/hugegraph-topling-split-evidence，F为E/feedback-20261004，P4为/Users/zhu/github/hugegraph-topling-split-provider；绝对本机证据不随记录分支上传，远端状态仅为恢复索引。
+
+## 本轮实际运行与新反馈检查点
+
+P4 head仍9af9d14，未改产品，所有旧五条功能feedback现已resolve。三标准runtime Docker目标原样Dockerfile、named build context替换已验证Maven包，以native ARM64执行；匿名root volumes/defaultdata/provider marker/标准JNI/健康均通过。first标准harness先起Store导致PD尚未ready，原FAIL保留；只加PD readiness barrier的新环境通过。所有专属容器、匿名volumes、network及builder已exact清理，镜像保留。这不是完整Dockerfile Maven build，也不是正常关闭验收。
+
+Topling Server server-gzip-corrected实际PASS：三服务JVM CodeSource、8.10.2 getters、唯一mapped native/hash、真实REST/Gremlin schema/vertex/edge读写、独立重启、修改删除再次重启、3次产品normalstop exit0+JVM143+PID清除，以及wrongprovider/真实旧标准库拒绝、材料不变。Linux/amd64模拟执行，不能冒称physical x86。首轮urllib未处理gzip身份应答FAILED，保存harness/raw logs/maps/stacks/data，精确修正parser和getter后fresh run通过。旧synthetic CF lifecycle仍exact known assertion134单列，不是service waiver；实际service没有abort waiver。
+
+PDStore top-pdstore-native-wait-002实际部分通过：两actual服务JVM native身份、128KV digest、PD metadata及partition身份passed，Store产品stop0/JVM143/PID消失passed；PD产品stop0但JVM SIGABRT(-6)，native SidePluginRepo db-not-closed，重启未执行。首轮身份observer过早读null cachedversion的FAIL保留，getter只在原120s期限内等待app真实loadLibrary完成，没主动loadJNI/开DB/伪造版本。两轮failure容器已exact删，真实data/logs/maps/stacks/seed manifest保留。PD缺有序Raft/metadata关闭被TP放大，9文件限定candidate准备中，不往旧并行JVMhook盲加两行、不豁免nativeabort；owned请求/后台drain、Raftjoin与snapshotpool顺序、唯一finalclose、iterator/Slice/Options均需review和RED/GREEN。
+
+P4新4条review4175351859/61/64/68已核，仍open：barePD/Store漏实际Spring config的ownership；dump选默认StdJNI而非selected positional graph；JDK dotted字符串算术校验；Server Docker README误称checked-in JAR且漏external secret/digest。bare/dump候选仅E/p4/new-runtime-feedback；root-candidates含JDKmajor与README，12 actual Bash解析cases+syntax通过但未产品整合/完整launcher验证，不能resolve。PDStore Spring EnvironmentPrepared有PD远端addFirst配置源，禁止awk猜data root，选actual initializer阶段；bareCLI此前未forward不擅称CLI override有效。dump按真正positional文件，不新增通用解析框架。
+
+真实Topling truncate追加harness在E/p4/runtime-server-acceptance/truncate-preparation。first新增graph共用live meta/data/m被P3 lock正确拒绝，未进clear，FAIL原样留证及容器exact清理，没有删锁/放宽。追加gate收敛用全新专属环境的默认hugegraph，clear204→schema/data空→重建→独立JVM重启；候选修改中，未执行修正后版本。
+
+P1 current cluster CI37141983744连续simple阶段超过5hr，root核exact169d09bf/PR262后取消以获得日志，取消不算PASS。运行用merge e0ff07c8包含currentP1，15选定blob同字节。日志仅到SimpleClusterSuiteTest+SLF4J NOP，此后沉默，无child logs/stacks/artifacts，不能认定底层rootcause；实际current P1/P2/P3旧AbstractEnv无界startup等待（本地P4已有5min不能替代）。P2/P3运行未取消。P1仍要独立隔离复现并取得node logs/stacks，不能盲rerun或降低simple/multi gate。E/F/ci-cluster-pending-analysis保存完整取消原因/源码及不足。
+
+后续P2 service harness只准备：exact976三组件需actual fresh package；API upstream需要3个既有下载资产（JaCoCo agent/CLI及ikanalyzer），不得skip report。reaper、PID strict、API cleanup failure、TTL propertykeys精确202已证据层修正，真实API/TTL还没跑。P3 F/p3/service-fault-acceptance有6case prepared plan，但exact2eb Server包缺，不能借P4包；恢复internal切点仍42native，服务不冒称全图原子。
