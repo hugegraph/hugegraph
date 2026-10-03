@@ -26,6 +26,13 @@ mkdir -p "${DOCKER_FOLDER}"
 
 log() { echo "[hugegraph-server-entrypoint] $*"; }
 
+# TODO: write values so the Server reads them back unchanged. A space is escaped as "\ " here,
+# which java.util.Properties would unescape, but the Server reads these files through Commons
+# Configuration's PropertiesConfiguration, which keeps the backslash before a space: PASSWORD
+# "a b" becomes auth.admin_pa "a\ b" and the admin login with "a b" answers 401. Emit interior
+# spaces as-is (they round-trip) and add a write-then-read test through HugeConfig for the keys
+# this script sets. The Helm chart (helm/hugegraph) refuses admin passwords containing spaces in
+# its schema and Server wrapper; drop that guard once this is fixed.
 encode_prop_value() {
     local value="$1" encoded="" char
     local i
