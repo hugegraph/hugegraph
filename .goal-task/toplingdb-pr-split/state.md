@@ -1,7 +1,7 @@
 # ToplingDB PR 拆分任务
 
 更新：2026-10-04（Asia/Singapore）。用户已确认 deep 模式与本文件初始化。
-当前按用户要求暂存并暂停，等待切换模型后继续；已发布P1/P2/P3 PR，尚未合入，原 Linux goal 保持暂停。
+用户已明确恢复执行；已发布P1/P2/P3 PR，尚未合入，原 Linux goal 保持暂停。
 
 ## 入口与依据
 
@@ -30,15 +30,15 @@
 
 ## 当前执行材料
 
-任务记录已提交到org的`task/topling-split-records-20261003`，最近已确认提交`89e8cc74cf8209fd838385bd09886ddabf5b463c`；包含4份清单/状态文档及PR说明配图/提示词，不进入功能PR，不改变代码或源分支。此后本地新增状态在下一里程碑同步。
+任务记录已提交到org的`task/topling-split-records-20261003`，最近已确认提交`9318c37cecaf16a1665b663b836c4f4aa7421a68`；包含4份清单/状态文档及PR说明配图/提示词，不进入功能PR，不改变代码或源分支。此后本地新增状态在下一里程碑同步。
 
 - [拆分方案](design.md)、[逐文件/修改块归属](split-map.tsv)：198文件、404项（392个patch块、12个binary/no-patch）；P1独立，P2独立，P3依赖P2无副作用开库查询，P4依赖必要前置。
 - 完整只读来源：`/Users/zhu/github/hugegraph-topling-split-source`；通过gh clone获取，与固定head的2712个blob哈希全部一致。
 - P1隔离构造：`/Users/zhu/github/hugegraph-topling-split-runtime`；gh clone org/master后逐blob核验基线，再修改POM/metrics/LICENSE/清单。PDStore JRaft按实测ABI错误升至1.3.14，Server保留1.3.11。
 - 以下绝对路径为本机/专属主机证据索引，未随记录分支上传，不是公开附件。
 - 原始API/源码核验证据：`/Users/zhu/github/hugegraph-topling-split-evidence`；来源清单、base/source完整Git tree、源码哈希核验JSON均已保存。
-- P1已发布[PR #262](https://github.com/hugegraph/hugegraph/pull/262)，head `f550935eae208ba0ba46761143969e60243919fb`；P2已发布[PR #261](https://github.com/hugegraph/hugegraph/pull/261)，head `7d1472b80a878ab83154a4daee9bf5060775da99`。均基于org/master独立提交，不触碰master或原toplingdb。按用户最新要求，完成可审查步骤及适用提交前检查后及时非强制提交并创建PR，后续服务/CI门槛在PR中明确保留。
-- P3已发布[PR #263](https://github.com/hugegraph/hugegraph/pull/263)，head `d3cf073cde09b825f3556fa11f94b16c636d3805`，基于P2，仅10个增量文件；非Draft，远端10份文件与已验证源码一致。P4正在进行标准构建。
+- P1已发布[PR #262](https://github.com/hugegraph/hugegraph/pull/262)，head `169d09bfae7edb15a713d0170534c9e0b9ea0480`；P2已发布[PR #261](https://github.com/hugegraph/hugegraph/pull/261)，head `ffe1e54053aa904aa2b4305f3be51968153ec4c4`。均基于org/master独立提交，不触碰master或原toplingdb。按用户最新要求，完成可审查步骤及适用提交前检查后及时非强制提交并创建PR，后续服务/CI门槛在PR中明确保留。
+- P3已发布[PR #263](https://github.com/hugegraph/hugegraph/pull/263)，head `6910e301e1528a4dc5232f369d5a5c11ef3ca9f6`，基于P2，仅10个增量文件；非Draft，远端10份文件与已验证源码一致。P4正在进行标准构建。
 - 本机Darwin arm64，Docker linux aarch64/10 CPU/约12.6GB，初次预检时无运行容器；Docker已恢复，原容器确认exit1非OOM，未重启；独立v3干净编译及标准打包已通过。真实Linux x86_64 TP能力待核实；不能将ARM测试当原生x86验收。
 - 本地主要checkout与org/master的blob差异仅Struct AuthOptions及TokenGenerator删除，符合Apache新增提交内容；未触碰这些文件，不把blob比较当索引状态。
 - 已发现Apache同源PR #3134，head同源、OPEN，保留不改。org现有toplingdb-auth-cascade分支不是拆分分支；P1/P2候选已发布，当前PR链接及head见上文。
@@ -110,7 +110,7 @@ TP 适配及来源 PR 新增共用代码引入或放大的回归在范围内；�
 逐项状态仅维护在[todo.md](todo.md)。当前已构造P1/P2/P3及P4累积候选、发布3个子PR；重任务串行推进。PD测试证实旧JRaft与8.10.2存在API不兼容，P1已采用实测通过的最小升级；P4外部输入实现已完成；JNI发版合规材料按用户决定单列后续TODO。
 
 - 全部必要功能单元合入 Apache、最终验证及审查通过、产品文档到位且无未解决高严重性功能发现后，才可完成任务；保留原 PR/分支，关闭或清理另经用户确认。
-- 下一步：执行P4标准构建及回归测试；并行准备P2真实关闭harness与独立网站文档候选。P1旧数据服务升级、P2 API/真实关闭与P4真实TP功能验证继续保留；JNI许可/发版合规按用户最新决定列为后续TODO，不阻塞本轮。
+- 下一步：完成P3最新继承树补充复测，再执行P4反馈同步后的验证、真实JNI与服务验收；P2真实关闭harness与独立网站文档候选继续推进。P1旧数据服务升级、P2 API/真实关闭与P4真实TP功能验证继续保留；JNI许可/发版合规按用户最新决定列为后续TODO，不阻塞本轮。
 
 ## PR 描述规则（用户最新要求）
 
@@ -124,8 +124,30 @@ TP 适配及来源 PR 新增共用代码引入或放大的回归在范围内；�
 
 P1在现有非Draft #262上以正常新提交调整，不合入、不force-push。长期保留最小Java兼容夹具、薄脚本与一个CI job，位置为`hugegraph-server/hugegraph-test/src/test/rocksdb-compatibility/`，不进入生产二进制。用Maven effective POM读取Server/PD/Store真实RocksDB版本，PR比较base/head，push比较before/after；只执行发生变化且去重后的版本对，不维护历史矩阵，无法确定时硬失败。本次仅PD 6.29.5到8.10.2、Store 7.7.3到8.10.2，Server不变跳过。修改测试/CI需实测变化执行、未变跳过及兼容路径；真实服务、Raft、集群与TP仍单独验收。P4同步继承路径与CI；不要把此测试扩成升级工具或平台。
 
-## 暂存检查点：用户切换模型
+## 模型切换后的恢复检查点
 
-用户已要求先不要启动新任务。P1/#262本次兼容测试调整全部完成，正常追加提交`f550935eae208ba0ba46761143969e60243919fb`，非Draft且标题保留(1/4)，PR说明已更新；新head的rocksdb-compatibility CI已成功。未执行任何合入。P4受影响路径、文档、前置计划已同步；已启动的格式检查及全仓clean compile自然结束成功、源码无漂移、容器已清理，未开始新任务。
+用户切换模型前的P1/#262兼容测试调整已完成，正常追加提交`f550935eae208ba0ba46761143969e60243919fb`，非Draft且标题保留(1/4)，PR说明已更新；新head的rocksdb-compatibility CI已成功。未执行任何合入。P4受影响路径、文档、前置计划已同步；已启动的格式检查及全仓clean compile自然结束成功、源码无漂移、容器已清理，未开始新任务。
 
-恢复时先刷新三个PR的head/CI，再继续原goal的服务与真实TP验收以及P4/网站PR交付。P1的两组兼容、跳过/去重/错误路径已完成，不要重复旧固定版本矩阵。P4此前unit/core/清表红绿/相关模块验证已通过，本次继承测试改动后的干净编译也已通过；细节见本机证据`p4/inherited-fixture-pause-state.json`与`p1/compatibility-validation/validation-summary.json`。P1旧服务fresh run3、P2真实API/扫描TTL关闭、P3服务故障演练的准备均保留，尚未运行；不要把准备当通过。P4尚未发布，临时前置组合分支仅有计划，所需P1 head已更新为f550935e。JNI许可/发版合规仍按用户明确决定单列后续TODO，不阻塞功能交付。
+恢复时先刷新三个PR的head/CI，再继续原goal的服务与真实TP验收以及P4/网站PR交付。P1的两组兼容、跳过/去重/错误路径已完成，不要重复旧固定版本矩阵。P4此前unit/core/清表红绿/相关模块验证已通过，本次继承测试改动后的干净编译也已通过；细节见本机证据`p4/inherited-fixture-pause-state.json`与`p1/compatibility-validation/validation-summary.json`。P1旧服务fresh run3已实际运行：旧PD/Store的128条数据、元数据及分区身份核验通过，但旧Store正常关闭超时，升级阶段未执行，失败证据与旧库保留。P2真实API/扫描TTL关闭和P3服务故障演练仍待运行。P4尚未发布，临时前置组合分支仅有计划，所需P1 head已更新为f550935e。JNI许可/发版合规仍按用户明确决定单列后续TODO，不阻塞功能交付。
+
+## 里程碑评论闭环（用户最新要求）
+
+用户切换模型后已明确恢复执行。每个里程碑刷新已提交PR的当前head、CI、issue/review评论与未resolve讨论；按当前源码确认问题，确认存在后修复、实测、正常追加提交，再及时resolve对应线程。旧/误报/与用户既定边界冲突的建议记录依据，不把未修复问题当已解决。本次刷新P1/P2/P3分别有4/4/6个未resolve线程，P2事务边界与P3共享恢复锁反馈优先核查，未合入任何PR。
+
+## 本轮反馈修复验证
+
+P1三项低风险反馈修复已本地完成，待串行格式/编译、Iterator及兼容实测。P2修复遍历器关闭误伤调用方事务、边界清理受onClose(COMMIT)影响以及Store测试目录/CI漏跑，已同步P3/P4，实测进行中。P3修复所有副本共享恢复后的数据库、恢复锁移交、只读checkpoint副作用及错误cause；本轮格式/clean compile和42项真实RocksDB测试全部通过、无skip、源文件无漂移，容器已清理，尚未发布本轮提交。
+
+恰好三名独立只读审查者已完成。两人无发现，第三人指出快照恢复与活跃懒查询迭代器的原有生命周期漏洞。固定P2基线与原P3源码对照确认并非本轮或P3引入/放大；独立跟进，不在此goal扩展通用租约框架，也不宣称已修复或已验证该并发边界。恢复锁反馈自身仍按本轮实测验收。另有GremlinJob原有finally提交行为，同样未在本轮改动或声称修复。详见本机E/feedback-20261004/independent-review-disposition.json。
+
+## 评论修复交付里程碑
+
+本轮正常追加P1 `169d09bfae7edb15a713d0170534c9e0b9ea0480`、P2 `ffe1e54053aa904aa2b4305f3be51968153ec4c4`、P3 `6910e301e1528a4dc5232f369d5a5c11ef3ca9f6`；均保持非Draft和编号后缀，未合入。P3新提交同时以旧P3和最新P2为父，普通合并保留双方历史，不force-push。P1/P2/P3原有讨论均已处理并resolve或核实已resolve；误报/既定边界建议在回复中说明依据，没有当作代码修复。每个新里程碑仍须重新拉取新反馈。
+
+P1本轮格式/clean compile及10项StateMachine测试通过；两组旧版本6 JVM兼容与未变跳过再次通过。首次兼容启动镜像缺Python，保留失败后复用已有服务镜像，未加依赖。P2本轮全仓格式/clean compile通过；RocksDB完整core825项、0失败0错误、45已有skip；新事务3项全执行，memory下3项也通过；集中Store suite24项全部通过无skip。测试首轮遗留损坏数据与有限查询/暂停扫描器夹具错误均留证并按根因修正；没改生产断言或扩展历史矩阵。P3本轮恢复代码和42项原生测试证书匹配；继承的P2文件逐字节匹配，最新整体树补充重放已通过：全仓格式/clean compile、42恢复加3继承事务测试，0失败0错误0skip，无源文件漂移，容器已清理。
+
+P4源路径、CI、测试套件、3项反馈与文档已同步，前置计划采用上述最新heads；109份增量清单匹配当前源文件，仍未创建P4分支/PR。JNI输入JAR/native哈希已复核，真实加载/服务仍待执行。记录E/feedback-20261004和E/p4/feedback-prerequisite-sync.json。
+
+环境恢复：本机系统sleep后OrbStack VM未wake，app显示Running但Docker /_ping及状态查询超时；只终止本任务挂起CLI，随后短时caffeinate用户活动信号使VM wake和ping=OK，没有重启/清理其他资源。挂起容器已确认不存在。后续重任务用随进程退出的caffeinate -i防闲置睡眠；成功容器仍立即清理，失败证据保留。
+
+最新CI反馈：Struct失败定位为既有JaCoCo配置契约未包含新store-server-test。只更新测试契约的profile/报告/session及顺序，保留严格校验；Linux下P2/P3/P4的JaCoCo与Codecov两个完整契约实际运行通过，生产Java未变。P2/P3已正常追加此修正，当前heads见上文，P4继续继承；CI待新head结果。P4反馈整合后的format/clean compile和定向标准验证为当前唯一重任务。

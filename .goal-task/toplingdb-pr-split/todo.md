@@ -15,7 +15,7 @@
 | 容器清理 | 23个本任务容器已清理 | 失败日志及必要临时数据归档E/cleanup-20261003；未触碰其他任务容器；后续成功任务自动删除容器，镜像/缓存保留继续测试 |
 | 本机Docker | 已恢复并复核 | OrbStack详情和Docker API均确认旧构建exited(1)，句柄已结束；未重启旧容器，失败日志保留，新v3是独立重跑 |
 | 原生Linux备用环境 | 只读预检完成 | do：x86_64、Java11、glibc2.42、39GiB空闲，总RAM约2GiB且有用户服务；独立目录/root/hugegraph-topling-pr-split-20261003/source完整clone并核2635个base blobs，P1 12文件补丁逐hash一致；仅低负载JNI验证，不改变旧服务 |
-| P1服务与包验收 | 标准包初稿通过，服务未完成 | 最终三组件package exit0；各包恰一份标准8.10.2 JNI，PDStore恰一份JRaft1.3.14、Server1.3.11。旧基线包也已完整构建。服务驱动已编译、旧PDStore真实启动；首次seed表名不受支持已修正，旧Store停止超时证据保留，升级/重启/metrics尚未通过；修正表名后的fresh run3已准备并核对四服务包hash，未启动 |
+| P1服务与包验收 | 标准包初稿通过，服务未完成 | 最终三组件package exit0；各包恰一份标准8.10.2 JNI，PDStore恰一份JRaft1.3.14、Server1.3.11。旧基线包也已完整构建。服务驱动已编译、旧PDStore真实启动；首次seed表名不受支持已修正，旧Store停止超时证据保留，升级/重启/metrics尚未通过；fresh run3已完成旧服务128条数据/元数据/分区身份读写核验；旧Store在ContextClosedListener.wait循环中停止超时，线程栈和数据保留，容器已清理；尚未升级PASS |
 | P2候选 | 本地43文件，完整验收待完成 | 完整事务/auth/schema、Store回调排空、stop和文档；三名静态审查及回调修复复审通过；格式+全仓cleancompile、node29项通过；Server unit755项754通过1既有skip |
 | P2 stream回归修复 | 定向红绿与三人复审通过 | 拒绝/异步失败只发错误终态，响应回调串行，避免自中断，正常取消先确立完成；新增5项测试。精确目标类+缓存peer probe：来源5失败、当前5通过，不能替代干净reactor；stop脚本已接入专属容器CI |
 | P3候选 | 格式、干净编译及恢复/WAL定向测试通过 | 10文件增量；三名静态审查及遗漏修复复审通过；恢复27+Sessions13项全通过无skip；MultiGraphs11项中2skip、其余通过，双真实bind mount均拒绝；#263非Draft已发布 |
@@ -23,11 +23,14 @@
 | P4通用生产修复分组 | 已排除，实测回归可重开 | base/source调用链和依赖对照无新增TP必要性；PD follower REST组、Gremlin/HStore白名单组按既有通用问题独立跟进 |
 | P4 JNI获取与许可证 | 来源已补证；许可材料TODO（用户延期） | 当前JAR SHA256 86eb1bd3d9f84ef0dddd3fe95c640a6f145ca2d5a26a5ba628f1f298a2031fae，只有linux64 native且无LICENSE/NOTICE/POM；producer构建日志与binary内嵌core SHA一致，固定rockside/boost许可已读取；四个auto-cloned插件精确版本已从当前ELF的命名版本函数定位并gh核验；许可/发版材料由用户明确单列后续TODO，本轮不再追查或作为功能交付阻塞，不宣称已通过许可审查 |
 | P4代码与发布验证 | 109文件候选，审查修复已完成，编译/unit/清表红绿通过，core已通过 | 修复truncate提交pending写、SST truncate静默无效、Compose全局pull policy丢失、打包发布失败损坏旧输出；三人增量复审通过，shell故障注入通过，全仓38模块clean compile通过、格式前后无代码变化；unit797项0失败0错误1既有skip；新增清表green5通过，原代码真实断言失败且标准对照通过；core822项0失败45skip及相关Store/cluster13项通过；本次继承fixture后的format+clean compile再次通过且无漂移；native与服务尚未完成。JNI许可/随包材料已按用户决定移至后续发版TODO |
-| org子PR | P1/P2/P3已发布，CI进行中 | P1 #262 headf550935e；P2 #261 head7d1472b8，均非Draft、独立base176fb。P1兼容测试收敛已追加提交、本地相关验证通过，新head rocksdb-compatibility CI通过，其他CI待刷新；P2原stop CI通过，其余CI待刷新；当前head验证和剩余门槛在PR中逐项列明；P3 #263 head d3cf073c 基于P2，P4按完成步骤及时提交，不auto-merge |
+| org子PR | P1/P2/P3已发布，CI进行中 | P1 #262 head169d09bf；P2 #261 headffe1e540，均非Draft、独立base176fb。P1兼容测试收敛已追加提交、本地相关验证通过，新head rocksdb-compatibility CI通过，其他CI待刷新；P2原stop CI通过，其余CI待刷新；当前head验证和剩余门槛在PR中逐项列明；P3 #263 head6910e301 基于P2，P4按完成步骤及时提交，不auto-merge |
 | 网站配套文档 | 独立候选准备中 | apache/hugegraph-doc master e6389aa7，现有Topling页面与P4当前实现对照；8文件双语候选及历史提示完成；全量719文件API源码核验、链接检查通过，Python轻量70通过1skip；冗余clone已终止清理，Hugo/剩余源码/搜索验证待重任务槽 |
 | Apache子PR | 未发布 | 重新核上游base/差异/CI；对应用户确认单独取得；源整合#3134保留 |
+| 评论反馈闭环 | 原有讨论闭环，本轮新heads待继续刷新 | P1/P2/P3已正常追加修复；所有原有线程已回复说明或确认已resolve。P2 core825、集中Store24、memory新事务3均通过；P3最新整体树补充45项通过；新增JaCoCo契约修正三分支Linux实测通过并追加，P4已同步且当前重任务验证中 |
+| 原有快照/查询迭代器生命周期 | 独立后续TODO；未修复 | P2固定基线、原P3与本轮scan/query/native关闭路径相同，不是本轮引入；需延长CF借用至iterator close并协调恢复，不把本轮锁修复测试当该并发边界通过 |
+| 原有GremlinJob失败时finally提交 | 独立后续TODO；未修复 | 已有execute finally会先提交，事务边界cleanup不能撤回；本轮仅覆盖ContextTask残余开放事务清理，不声称修复此旧行为 |
 | 最终整合 | 未开始 | 所有所需单元合入Apache、标准/真实TP整合验证、产品文档及三人审查通过；JNI发版合规按用户最新指示后续处理 |
 
 单项等待后移，不阻止独立分析、候选构造及文档/许可核查；上述任何历史或静态结论均不替代最终head实测。
 
-当前按用户要求暂停以切换模型；没有运行中的本任务构建或服务，不启动新任务。
+用户已恢复执行：当前先处理三个PR评论；P1服务fresh run3因既有停止等待失败已留证；P3反馈修复格式/编译及42项原生定向测试通过，三人独立复审完成；当前唯一重任务为P2事务及集中Store测试验证。
