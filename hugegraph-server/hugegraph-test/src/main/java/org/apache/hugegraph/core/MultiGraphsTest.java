@@ -413,8 +413,9 @@ public class MultiGraphsTest extends BaseCoreTest {
         }, e -> {
             Throwable root = HugeException.rootCause(e);
             Assert.assertInstanceOf(RocksDBException.class, root);
-            Assert.assertContains("While mkdir if missing",
+            Assert.assertContains("Cannot lock database for open/recovery",
                                   root.getMessage());
+            Assert.assertContains("/g", root.getMessage());
         });
 
         destroyGraphs(ImmutableList.of(g1));

@@ -18,6 +18,7 @@
 package org.apache.hugegraph.unit;
 
 import org.apache.hugegraph.HugeFactoryTest;
+import org.apache.hugegraph.backend.store.rocksdb.RocksDBSnapshotRestoreTest;
 import org.apache.hugegraph.api.auth.GraphSpaceAuthPayloadTest;
 import org.apache.hugegraph.api.auth.GraphSpaceGroupAPITest;
 import org.apache.hugegraph.auth.ContextTaskTest;
@@ -208,6 +209,7 @@ import org.junit.runners.Suite;
 
         /* rocksdb */
         RocksDBSessionsTest.class,
+        RocksDBSnapshotRestoreTest.class,
         RocksDBSessionTest.class,
         RocksDBCountersTest.class,
         RocksDBTableQueryByIdsTest.class,
