@@ -30,15 +30,15 @@
 
 ## 当前执行材料
 
-任务记录已提交到org的`task/topling-split-records-20261003`，最近已确认提交`9318c37cecaf16a1665b663b836c4f4aa7421a68`；包含4份清单/状态文档及PR说明配图/提示词，不进入功能PR，不改变代码或源分支。此后本地新增状态在下一里程碑同步。
+任务记录已提交到org的`task/topling-split-records-20261003`，最近已确认提交`d4447618ec3fa5357b53b5dcd244828aa6905b8d`；包含4份清单/状态文档及PR说明配图/提示词，不进入功能PR，不改变代码或源分支。此后本地新增状态在下一里程碑同步。
 
 - [拆分方案](design.md)、[逐文件/修改块归属](split-map.tsv)：198文件、404项（392个patch块、12个binary/no-patch）；P1独立，P2独立，P3依赖P2无副作用开库查询，P4依赖必要前置。
 - 完整只读来源：`/Users/zhu/github/hugegraph-topling-split-source`；通过gh clone获取，与固定head的2712个blob哈希全部一致。
 - P1隔离构造：`/Users/zhu/github/hugegraph-topling-split-runtime`；gh clone org/master后逐blob核验基线，再修改POM/metrics/LICENSE/清单。PDStore JRaft按实测ABI错误升至1.3.14，Server保留1.3.11。
 - 以下绝对路径为本机/专属主机证据索引，未随记录分支上传，不是公开附件。
 - 原始API/源码核验证据：`/Users/zhu/github/hugegraph-topling-split-evidence`；来源清单、base/source完整Git tree、源码哈希核验JSON均已保存。
-- P1已发布[PR #262](https://github.com/hugegraph/hugegraph/pull/262)，head `169d09bfae7edb15a713d0170534c9e0b9ea0480`；P2已发布[PR #261](https://github.com/hugegraph/hugegraph/pull/261)，head `ffe1e54053aa904aa2b4305f3be51968153ec4c4`。均基于org/master独立提交，不触碰master或原toplingdb。按用户最新要求，完成可审查步骤及适用提交前检查后及时非强制提交并创建PR，后续服务/CI门槛在PR中明确保留。
-- P3已发布[PR #263](https://github.com/hugegraph/hugegraph/pull/263)，head `6910e301e1528a4dc5232f369d5a5c11ef3ca9f6`，基于P2，仅10个增量文件；非Draft，远端10份文件与已验证源码一致。P4正在进行标准构建。
+- P1已发布[PR #262](https://github.com/hugegraph/hugegraph/pull/262)，head `169d09bfae7edb15a713d0170534c9e0b9ea0480`；P2已发布[PR #261](https://github.com/hugegraph/hugegraph/pull/261)，head `976ecc29d5c571b25cf96659461ac6e6e0a05dc1`。均基于org/master独立提交，不触碰master或原toplingdb。按用户最新要求，完成可审查步骤及适用提交前检查后及时非强制提交并创建PR，后续服务/CI门槛在PR中明确保留。
+- P3已发布[PR #263](https://github.com/hugegraph/hugegraph/pull/263)，head `2eb60f0378e31d484e0c97660f68078e6deb69ba`，基于P2，仅10个增量文件；非Draft，远端10份文件与已验证源码一致。P4继承反馈后标准53项通过，当前同步新Store扫描/打包修复，最终复测后发布。
 - 本机Darwin arm64，Docker linux aarch64/10 CPU/约12.6GB，初次预检时无运行容器；Docker已恢复，原容器确认exit1非OOM，未重启；独立v3干净编译及标准打包已通过。真实Linux x86_64 TP能力待核实；不能将ARM测试当原生x86验收。
 - 本地主要checkout与org/master的blob差异仅Struct AuthOptions及TokenGenerator删除，符合Apache新增提交内容；未触碰这些文件，不把blob比较当索引状态。
 - 已发现Apache同源PR #3134，head同源、OPEN，保留不改。org现有toplingdb-auth-cascade分支不是拆分分支；P1/P2候选已发布，当前PR链接及head见上文。
@@ -110,7 +110,7 @@ TP 适配及来源 PR 新增共用代码引入或放大的回归在范围内；�
 逐项状态仅维护在[todo.md](todo.md)。当前已构造P1/P2/P3及P4累积候选、发布3个子PR；重任务串行推进。PD测试证实旧JRaft与8.10.2存在API不兼容，P1已采用实测通过的最小升级；P4外部输入实现已完成；JNI发版合规材料按用户决定单列后续TODO。
 
 - 全部必要功能单元合入 Apache、最终验证及审查通过、产品文档到位且无未解决高严重性功能发现后，才可完成任务；保留原 PR/分支，关闭或清理另经用户确认。
-- 下一步：完成P3最新继承树补充复测，再执行P4反馈同步后的验证、真实JNI与服务验收；P2真实关闭harness与独立网站文档候选继续推进。P1旧数据服务升级、P2 API/真实关闭与P4真实TP功能验证继续保留；JNI许可/发版合规按用户最新决定列为后续TODO，不阻塞本轮。
+- 下一步：完成P2新扫描/打包反馈的三路复审及实际package验证，正常追加P2/P3后回复resolve；再执行P4最终继承树验证、发布及真实JNI与服务验收；P2真实关闭harness与独立网站文档候选继续推进。P1旧数据服务升级、P2 API/真实关闭与P4真实TP功能验证继续保留；JNI许可/发版合规按用户最新决定列为后续TODO，不阻塞本轮。
 
 ## PR 描述规则（用户最新要求）
 
@@ -151,3 +151,17 @@ P4源路径、CI、测试套件、3项反馈与文档已同步，前置计划采
 环境恢复：本机系统sleep后OrbStack VM未wake，app显示Running但Docker /_ping及状态查询超时；只终止本任务挂起CLI，随后短时caffeinate用户活动信号使VM wake和ping=OK，没有重启/清理其他资源。挂起容器已确认不存在。后续重任务用随进程退出的caffeinate -i防闲置睡眠；成功容器仍立即清理，失败证据保留。
 
 最新CI反馈：Struct失败定位为既有JaCoCo配置契约未包含新store-server-test。只更新测试契约的profile/报告/session及顺序，保留严格校验；Linux下P2/P3/P4的JaCoCo与Codecov两个完整契约实际运行通过，生产Java未变。P2/P3已正常追加此修正，当前heads见上文，P4继续继承；CI待新head结果。P4反馈整合后的format/clean compile和定向标准验证为当前唯一重任务。
+
+## 2026-10-04 第二轮评论/CI检查点
+
+原14条讨论均已闭环；当前里程碑P1/P3无未resolve，P2新两条扫描错误终结及borrowed receiver中断反馈确认存在，修复尚未提交。#263 cluster CI在package编译失败，真实cluster测试未执行；Node采用普通library主artifact及exec classifier，Dist选exec且输出名保持一致，P3/P4已同步。本轮首测两个失败保留，根因是batch fixture perKeyMax=0未读取iterator；round2修正并新增真实路径验证，完全移除借用回调线程中断，channel关闭可靠排空。当前唯一重任务为P2 round2 format/cleancompile/package及ServerSuite，恰3名独立只读复审进行中。
+
+P4反馈后的标准53项已通过无skip，首次反射测试适配失败与修复均留证，容器已删除；新Store继承树尚需最终验证。网站独立gh API快照719文件和8文件候选、链接、轻量Python及严格Hugo通过，latest assembly/搜索/artifact/内容审查待完成。Docker系统休眠问题用caffeinate -i按任务防休眠；不重启或清理他人服务。所有服务、真实TP、当前head CI及逐PR用户合入授权仍保留，未合入任何PR。
+
+## 最新已提交反馈里程碑
+
+P2/#261正常追加b780352775de6f8464a9108730d05d22d95d099b修复扫描错误终结及Node packaging，最后Store34/Node11、format/cleancompile/package/Distidentity全部通过；恰3名最终复审无重要未修复发现，test-only等待状态TOCTOU也三人确认，相关两review线程已回复resolve。随后976ecc29d5c571b25cf96659461ac6e6e0a05dc1仅让RISC-V退出stop诊断可见，保留失败exit与10s阈值，相关shell隔离验证通过；不能宣称关闭问题已修复。
+
+P3/#263旧6910e301 CI确认异常cause保留后MultiGraphs deepestcause旧断言失配，P3/P4只修测试typedwrapper/原始cause断言并保留失败场景。当前唯一重任务为P3最终整体树验证，native42及MultiGraphs11（2既有skip）已通过、剩余package进行中，尚未提交新P3。P4最终继承树复测与PR发布继续；网站latest真实assembly/artifact通过，独立审查后的最后双语mount范围修正需要最终重建/source/search。三仓库合入仍无授权，不执行合入。
+
+P3最新正常merge提交2eb60f0378e31d484e0c97660f68078e6deb69ba，parents旧6910e301及P2最新976ecc29；10文件恢复增量保持，前置scan/package/CI诊断继承。整体树formatter/cleancompile、native42、transaction3、MultiGraphs11（2原skip）、中央Store34、Node11及actualpackage/Distidentity通过，容器删除。当前唯一heavy为P4最终继承树相同边界验证；P4前置组合计划已更新到上述heads，尚无P4 ref/PR。

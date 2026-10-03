@@ -22,15 +22,18 @@
 | P2/P3运行验收 | P2 core非root全量通过；P3定向及挂载验证通过 | P2首次root权限失败与tmpfs noexec首次失败均保留，未改断言；完整非root822项、0失败、0错误、45skip、exit0，成功容器已删除。P2 API及扫描/TTL真实关闭harness已准备、未执行（需先打包P2三组件）；P3恢复/WAL、多图及两个真实挂载别名拒绝均通过；探针classpath首次失败已保留 |
 | P4通用生产修复分组 | 已排除，实测回归可重开 | base/source调用链和依赖对照无新增TP必要性；PD follower REST组、Gremlin/HStore白名单组按既有通用问题独立跟进 |
 | P4 JNI获取与许可证 | 来源已补证；许可材料TODO（用户延期） | 当前JAR SHA256 86eb1bd3d9f84ef0dddd3fe95c640a6f145ca2d5a26a5ba628f1f298a2031fae，只有linux64 native且无LICENSE/NOTICE/POM；producer构建日志与binary内嵌core SHA一致，固定rockside/boost许可已读取；四个auto-cloned插件精确版本已从当前ELF的命名版本函数定位并gh核验；许可/发版材料由用户明确单列后续TODO，本轮不再追查或作为功能交付阻塞，不宣称已通过许可审查 |
-| P4代码与发布验证 | 109文件候选，审查修复已完成，编译/unit/清表红绿通过，core已通过 | 修复truncate提交pending写、SST truncate静默无效、Compose全局pull policy丢失、打包发布失败损坏旧输出；三人增量复审通过，shell故障注入通过，全仓38模块clean compile通过、格式前后无代码变化；unit797项0失败0错误1既有skip；新增清表green5通过，原代码真实断言失败且标准对照通过；core822项0失败45skip及相关Store/cluster13项通过；本次继承fixture后的format+clean compile再次通过且无漂移；native与服务尚未完成。JNI许可/随包材料已按用户决定移至后续发版TODO |
-| org子PR | P1/P2/P3已发布，CI进行中 | P1 #262 head169d09bf；P2 #261 headffe1e540，均非Draft、独立base176fb。P1兼容测试收敛已追加提交、本地相关验证通过，新head rocksdb-compatibility CI通过，其他CI待刷新；P2原stop CI通过，其余CI待刷新；当前head验证和剩余门槛在PR中逐项列明；P3 #263 head6910e301 基于P2，P4按完成步骤及时提交，不auto-merge |
-| 网站配套文档 | 独立候选准备中 | apache/hugegraph-doc master e6389aa7，现有Topling页面与P4当前实现对照；8文件双语候选及历史提示完成；全量719文件API源码核验、链接检查通过，Python轻量70通过1skip；冗余clone已终止清理，Hugo/剩余源码/搜索验证待重任务槽 |
+| P4代码与发布验证 | 109文件候选，标准回归通过，继承本轮Store修复后待复测 | 原unit797、core822与清表红绿通过；反馈继承后format+cleancompile及Sessions21+Snapshot29+Transaction3共53无失败/无skip，容器删除。首次反射夹具错误已保留并修正。当前同步P2 scan/channel与Store普通/exec打包修复；恰3路复审中，最终候选复测后发布4/4；真实JNI与服务未完成 |
+| org子PR | P1/P2/P3已发布，CI进行中 | P1 #262 head169d09bf；P2 #261 head976ecc29，均非Draft、独立base176fb。P1兼容测试收敛已追加提交、本地相关验证通过，新head rocksdb-compatibility CI通过，其他CI待刷新；P2原stop CI通过，其余CI待刷新；当前head验证和剩余门槛在PR中逐项列明；P3 #263 head2eb60f03 基于P2，P4按完成步骤及时提交，不auto-merge |
+| 网站配套文档 | latest真实变换/artifact验证通过，最终内容待重建搜索 | 9文件双语候选（8篇Markdown+既有route-map两最新页面），API719文件baseline e6389aa7；链接与轻量Python、严格Hugo通过，真实OINK migrate/check+导航+URLscope+security+latestartifact已通过。独立内容审查修正pre-JVM mount说明仅限单机Server，最终此修正的重建、source/render/search检查待串行槽 |
 | Apache子PR | 未发布 | 重新核上游base/差异/CI；对应用户确认单独取得；源整合#3134保留 |
-| 评论反馈闭环 | 原有讨论闭环，本轮新heads待继续刷新 | P1/P2/P3已正常追加修复；所有原有线程已回复说明或确认已resolve。P2 core825、集中Store24、memory新事务3均通过；P3最新整体树补充45项通过；新增JaCoCo契约修正三分支Linux实测通过并追加，P4已同步且当前重任务验证中 |
+| 评论反馈闭环 | 原14条及P2新2条已修复闭环 | P2正常追加b7803527，随后976ecc29仅暴露RISC-V退出关闭诊断；当前P1/P3仍169d09bf/6910e301。新增独立interrupt不部分成功、borrowed线程不被中断、统一CANCELLED。format+cleancompile、中央Store34/Node11、实际package与ordinary/exec/Distidentity通过，恰3名final复审及test-only TOCTOU补充复审均通过，两线程已reply+resolve |
+| Store package CI回归 | 修复已提交P2，P3最终继承树验证中 | 10个当前失败job属Node BOOT-INF替换主artifact导致中央testcompile失败，非cluster已执行。Node普通+exec、Dist选exec保持原文件名与startup，实际packageidentity通过，新head CI仍须完成；另确认P3 macOS多图typedwrapper/rootcause测试契约失配，test-only修正并已通过MultiGraphs11（2既有skip），生产cause保留 |
 | 原有快照/查询迭代器生命周期 | 独立后续TODO；未修复 | P2固定基线、原P3与本轮scan/query/native关闭路径相同，不是本轮引入；需延长CF借用至iterator close并协调恢复，不把本轮锁修复测试当该并发边界通过 |
 | 原有GremlinJob失败时finally提交 | 独立后续TODO；未修复 | 已有execute finally会先提交，事务边界cleanup不能撤回；本轮仅覆盖ContextTask残余开放事务清理，不声称修复此旧行为 |
 | 最终整合 | 未开始 | 所有所需单元合入Apache、标准/真实TP整合验证、产品文档及三人审查通过；JNI发版合规按用户最新指示后续处理 |
 
 单项等待后移，不阻止独立分析、候选构造及文档/许可核查；上述任何历史或静态结论均不替代最终head实测。
 
-用户已恢复执行：当前先处理三个PR评论；P1服务fresh run3因既有停止等待失败已留证；P3反馈修复格式/编译及42项原生定向测试通过，三人独立复审完成；当前唯一重任务为P2事务及集中Store测试验证。
+用户已恢复执行：当前唯一重任务为P3最终继承树format/cleancompile/native42/core事务+MultiGraphs及Storepackage测试。确认CI package阶段Node BOOT-INF主artifact不能供测试编译，已分普通library与exec发行artifact并同步P3/P4；普通JAR及exec布局初查通过，Dist需真实打包核验。P1旧服务关闭失败、P2真实服务及P4真实TP门槛继续保留。
+
+RISC-V旧head native/persist smoke到完成标记后EXIT关闭失败，细因未确定；仅取消诊断吞掉，bash-n与真实脚本隔离故障注入验证before/after均失败exit1/PID保留而after输出stop日志。timeout和生产stop未更改，真实关闭门槛未通过。高并发100ms channel轮询开销单列待负载验证，不把未测性能推算当正确性阻塞。
