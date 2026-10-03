@@ -393,6 +393,19 @@ public class StandardHugeGraph implements HugeGraph {
         }
     }
 
+    void closeCurrentThreadTransaction() {
+        try {
+            if (this.tx.isOpen()) {
+                // Request/task cleanup must never commit unfinished writes.
+                this.tx.rollback();
+            }
+        } finally {
+            this.tx.clearTransactionListeners();
+            this.tx.resetState();
+            this.tx.destroyTransaction();
+        }
+    }
+
     @Override
     public GraphMode mode() {
         return this.mode;

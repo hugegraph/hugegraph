@@ -296,6 +296,8 @@ gremlin> :> g.V().limit(5)
 
 For comprehensive documentation, visit the [HugeGraph Documentation](https://hugegraph.apache.org/docs/).
 
+See [request transactions and Store shutdown](docs/transaction-lifecycle.md) for cleanup and maintenance behavior.
+
 </details>
 
 ## Module Map
