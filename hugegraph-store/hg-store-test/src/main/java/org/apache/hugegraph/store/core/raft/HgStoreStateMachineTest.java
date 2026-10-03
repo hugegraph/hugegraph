@@ -132,7 +132,7 @@ public class HgStoreStateMachineTest {
 
             @Override
             public void setAutoCommitPerLog(boolean autoCommit) {
-                throw new UnsupportedOperationException("Test iterator does not manage commits");
+                // This test iterator does not model commit behavior.
             }
 
             @Override

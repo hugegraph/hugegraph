@@ -17,7 +17,7 @@
 #
 
 set -euo pipefail
-if [[ $# != 3 ]]; then
+if [[ $# -ne 3 ]]; then
     echo "Usage: $0 <before-source-directory> <after-source-directory> <new-output-directory>" >&2
     exit 2
 fi
