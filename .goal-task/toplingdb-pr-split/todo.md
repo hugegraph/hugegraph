@@ -13,8 +13,9 @@
 | 本机Docker | needs input / 核验等待 | vmgr最后18:06:51 sleep，无wake；已询问用户恢复。恢复后先inspect原容器和句柄，不另起重复构建 |
 | 原生Linux备用环境 | 只读预检完成 | do：x86_64、Java11、glibc2.42、39GiB空闲，总RAM约2GiB且有用户服务；独立目录/root/hugegraph-topling-pr-split-20261003/source完整clone并核2635个base blobs，P1 12文件补丁逐hash一致；仅低负载JNI验证，不改变旧服务 |
 | P1服务与包验收 | 待前置环境 | 旧PD元数据、Store图/分区、JRaft日志由新包打开/写入/重启；验证剩余/移除meter；包唯一JNI、依赖许可闭包 |
-| P2候选 | 本地42文件，未测试 | 完整事务/auth/schema、Store回调排空、stop和文档；独立三人静态审查进行中 |
-| P3候选 | 本地10文件增量，未测试 | 已修正拆分漏带的cached-owner检查/锁内注册/typed fallback；一名复审确认修复，其他审查进行中 |
+| P2候选 | 本地43文件，完整验收待完成 | 完整事务/auth/schema、Store回调排空、stop和文档；三名静态审查及回调修复复审通过；局部5项probe完成 |
+| P2 stream回归修复 | 定向红绿与三人复审通过 | 拒绝/异步失败只发错误终态，响应回调串行，避免自中断，正常取消先确立完成；新增5项测试。精确目标类+缓存peer probe：来源5失败、当前5通过，不能替代干净reactor；stop脚本已接入专属容器CI |
+| P3候选 | 本地10文件增量，未测试 | 已修正拆分漏带的cached-owner检查/锁内注册/typed fallback；三名静态审查及遗漏修复复审通过；完整运行仍未执行 |
 | P2/P3运行验收 | waiting在重任务之后 | 串行干净编译/实际suite计数，真实关闭/恢复及Linux挂载故障；三人最终diff复审 |
 | P4通用生产修复分组 | 待对照 | PD follower REST状态组、Gremlin/HStore白名单组无静态TP依赖；先证明本次新增/放大必要性，否则独立跟进 |
 | P4 JNI获取与许可证 | 具体方案待review | 当前JAR SHA256 86eb1bd3d9f84ef0dddd3fe95c640a6f145ca2d5a26a5ba628f1f298a2031fae，只有linux64 native且无LICENSE/NOTICE/POM；producer README明确core可选Apache2/GPLv2，但不能推导动态SidePlugin/精确binary许可闭包 |

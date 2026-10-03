@@ -52,3 +52,8 @@ Apache master当前比org多`02628ed5`（Struct TokenGenerator/AuthOptions去重
 
 当前精确JNI SHA256为`86eb1bd3d9f84ef0dddd3fe95c640a6f145ca2d5a26a5ba628f1f298a2031fae`，本机解包确认仅linux64 native、无LICENSE/NOTICE/POM。固定producer `31afa28f...` 的README明确core可选Apache2/GPLv2，POM同时列两者；workflow会动态取得SidePlugin，所以不能把core许可直接当精确binary闭包。
 优先评估上游源码不检入opaque JNI、由显式路径和校验和输入构造可选TP包/镜像的消费方式；标准发行保持不带TP，原org整合分支保留实验产物。此方案尚未实现或获对应PR review，不宣称免除了许可证门槛，也不把外部依赖缺失当完整TP功能已经交付。正式producer发布链继续独立后置。
+
+## 构造后已确认修正
+
+- P3拆分曾漏掉一个相邻hunk，现已恢复cached-owner存活检查、同锁copy/open/register及typed recovery错误不走CF文字fallback；完整open方法与来源字节一致，三人静态复审完成，运行门槛未完成。
+- P2扫描关闭路径的executor拒绝/异步失败会在onError后继续空页/成功完成；现统一失败终态、串行observer回调、跳过当前线程中断，并在正常取消前先确立完成终态。补5项定向回归及Store stop容器CI入口。来源类5/5失败、当前类5/5通过的probe使用缓存peer类，仅是局部红绿证据；三人静态复审已通过，仍需最终源码完整构建及真实服务验收。

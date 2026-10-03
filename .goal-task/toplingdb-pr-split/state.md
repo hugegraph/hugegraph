@@ -30,7 +30,7 @@
 
 ## 当前执行材料
 
-记录发布目标为org的`task/topling-split-records-20261003`，只提交本任务的4份清单/状态文档，不进入功能PR，不改变代码或源分支。
+任务记录已提交到org的`task/topling-split-records-20261003`，提交`14a0e5787055d95f67c7a3c4f4081ce5f1f1132b`；已复核仅4份清单/状态文档，不进入功能PR，不改变代码或源分支。此后本地新增状态在下一里程碑同步。
 
 - [拆分方案](design.md)、[逐文件/修改块归属](split-map.tsv)：198文件、404项（392个patch块、12个binary/no-patch）；P1独立，P2独立，P3依赖P2无副作用开库查询，P4依赖必要前置。
 - 完整只读来源：`/Users/zhu/github/hugegraph-topling-split-source`；通过gh clone获取，与固定head的2712个blob哈希全部一致。
