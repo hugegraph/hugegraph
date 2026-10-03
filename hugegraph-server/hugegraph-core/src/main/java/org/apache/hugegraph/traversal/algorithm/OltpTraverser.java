@@ -43,7 +43,6 @@ import org.apache.hugegraph.util.Consumers;
 import org.apache.tinkerpop.gremlin.structure.Edge;
 import org.apache.tinkerpop.gremlin.structure.Element;
 import org.apache.tinkerpop.gremlin.structure.Property;
-import org.apache.tinkerpop.gremlin.structure.Transaction;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.apache.tinkerpop.gremlin.structure.util.CloseableIterator;
 
@@ -74,10 +73,7 @@ public abstract class OltpTraverser extends HugeTraverser
 
     @Override
     public void close() {
-        Transaction tx = this.graph().tx();
-        if (tx.isOpen()) {
-            tx.close();
-        }
+        // The graph's thread-local transaction belongs to the caller.
     }
 
     public static void destroy() {

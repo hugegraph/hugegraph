@@ -18,6 +18,7 @@
 package org.apache.hugegraph.core;
 
 import org.apache.hugegraph.HugeGraph;
+import org.apache.hugegraph.auth.TransactionLifecycleTest;
 import org.apache.hugegraph.constant.ServiceConstant;
 import org.apache.hugegraph.dist.RegisterUtil;
 import org.apache.hugegraph.masterelection.GlobalMasterInfo;
@@ -51,6 +52,7 @@ import org.slf4j.Logger;
         TaskAndResultSchedulerTest.class,
         StandardTaskSchedulerTxTest.class,
         AuthTest.class,
+        TransactionLifecycleTest.class,
         MultiGraphsTest.class,
         RamTableTest.class
 })

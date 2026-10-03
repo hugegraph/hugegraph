@@ -19,6 +19,7 @@ package org.apache.hugegraph.unit.rocksdb;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
@@ -276,15 +277,15 @@ public class RocksDBSessionsTest extends BaseRocksDBUnitTest {
             sessions.createTable(TABLE);
             sessions.close();
             open = false;
-            byte[] checkpoint = "checkpoint-tail".getBytes("UTF-8");
-            byte[] live = "live-longer-tail".getBytes("UTF-8");
+            byte[] checkpoint = "checkpoint-tail".getBytes(StandardCharsets.UTF_8);
+            byte[] live = "live-longer-tail".getBytes(StandardCharsets.UTF_8);
             FileUtils.forceMkdir(FileUtils.getFile(dataPath));
             FileUtils.forceMkdir(FileUtils.getFile(walPath));
             FileUtils.writeByteArrayToFile(new File(dataPath, "000123.log"),
                                            checkpoint);
             FileUtils.writeByteArrayToFile(new File(walPath, "000123.log"), live);
             FileUtils.writeByteArrayToFile(new File(walPath, "000124.log"),
-                                           "later".getBytes("UTF-8"));
+                                           "later".getBytes(StandardCharsets.UTF_8));
 
             Whitebox.invoke(RocksDBStdSessions.class,
                             "replaceSeparateWalDirectory", sessions);
@@ -319,17 +320,17 @@ public class RocksDBSessionsTest extends BaseRocksDBUnitTest {
             sessions.createTable(TABLE);
             sessions.close();
             open = false;
-            byte[] checkpoint = "checkpoint-tail".getBytes("UTF-8");
+            byte[] checkpoint = "checkpoint-tail".getBytes(StandardCharsets.UTF_8);
             FileUtils.forceMkdir(FileUtils.getFile(dataPath));
             FileUtils.forceMkdir(FileUtils.getFile(walPath));
             FileUtils.writeByteArrayToFile(new File(dataPath, "000123.log"),
                                            checkpoint);
             FileUtils.writeByteArrayToFile(new File(walPath, "000123.log"),
-                                           "live-longer-tail".getBytes("UTF-8"));
+                                           "live-longer-tail".getBytes(StandardCharsets.UTF_8));
             FileUtils.writeByteArrayToFile(new File(walPath, "000124.log"),
-                                           "later".getBytes("UTF-8"));
+                                           "later".getBytes(StandardCharsets.UTF_8));
             File marker = new File(dataPath, "keep-data.txt");
-            FileUtils.writeByteArrayToFile(marker, "kept".getBytes("UTF-8"));
+            FileUtils.writeByteArrayToFile(marker, "kept".getBytes(StandardCharsets.UTF_8));
 
             Whitebox.invoke(RocksDBStdSessions.class,
                             "replaceSeparateWalDirectory", sessions);
@@ -361,11 +362,11 @@ public class RocksDBSessionsTest extends BaseRocksDBUnitTest {
             sessions.createTable(TABLE);
             sessions.close();
             open = false;
-            byte[] checkpoint = "checkpoint-tail".getBytes("UTF-8");
+            byte[] checkpoint = "checkpoint-tail".getBytes(StandardCharsets.UTF_8);
             FileUtils.writeByteArrayToFile(new File(dataPath, "000123.log"),
                                            checkpoint);
             FileUtils.writeByteArrayToFile(new File(walPath, "000124.log"),
-                                           "later".getBytes("UTF-8"));
+                                           "later".getBytes(StandardCharsets.UTF_8));
 
             Whitebox.invoke(RocksDBStdSessions.class,
                             "replaceSeparateWalDirectory", sessions);

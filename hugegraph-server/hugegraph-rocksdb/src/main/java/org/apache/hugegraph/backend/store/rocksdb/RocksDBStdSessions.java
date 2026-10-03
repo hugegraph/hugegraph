@@ -32,6 +32,7 @@ import java.util.NoSuchElementException;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.lang3.tuple.Pair;
@@ -83,7 +84,8 @@ public class RocksDBStdSessions extends RocksDBSessions {
     private final String dataPath;
     private final String walPath;
 
-    private volatile OpenedRocksDB rocksdb;
+    // Copies share the current native owner as well as its lifetime reference count.
+    private final AtomicReference<OpenedRocksDB> rocksdb;
     private final AtomicInteger refCount;
 
     public RocksDBStdSessions(HugeConfig config, String database, String store,
@@ -94,7 +96,7 @@ public class RocksDBStdSessions extends RocksDBSessions {
         this.dataPath = dataPath;
         this.walPath = walPath;
 
-        this.rocksdb = RocksDBStdSessions.openRocksDB(config, dataPath, walPath);
+        this.rocksdb = new AtomicReference<>(RocksDBStdSessions.openRocksDB(config, dataPath, walPath));
         this.refCount = new AtomicInteger(1);
     }
 
@@ -108,7 +110,7 @@ public class RocksDBStdSessions extends RocksDBSessions {
         this.walPath = walPath;
 
         this.rocksdb =
-                RocksDBStdSessions.openRocksDB(config, cfNames, dataPath, walPath);
+                new AtomicReference<>(RocksDBStdSessions.openRocksDB(config, cfNames, dataPath, walPath));
         this.refCount = new AtomicInteger(1);
 
         this.ingestExternalFile();
@@ -122,7 +124,10 @@ public class RocksDBStdSessions extends RocksDBSessions {
         this.walPath = origin.walPath;
         this.rocksdb = origin.rocksdb;
         this.refCount = origin.refCount;
-        this.refCount.incrementAndGet();
+        synchronized (this.rocksdb) {
+            origin.checkValid();
+            this.refCount.incrementAndGet();
+        }
     }
 
     @Override
@@ -132,12 +137,12 @@ public class RocksDBStdSessions extends RocksDBSessions {
 
     @Override
     protected boolean opened() {
-        return this.rocksdb != null && this.rocksdb.isOwningHandle();
+        return this.rocksdb.get().isOwningHandle();
     }
 
     @Override
     public Set<String> openedTables() {
-        return this.rocksdb.cfs();
+        return this.rocksdb.get().cfs();
     }
 
     @Override
@@ -147,7 +152,7 @@ public class RocksDBStdSessions extends RocksDBSessions {
 
         List<ColumnFamilyDescriptor> cfds = new ArrayList<>();
         for (String table : tables) {
-            if (this.rocksdb.existCf(table)) {
+            if (this.rocksdb.get().existCf(table)) {
                 continue;
             }
             ColumnFamilyDescriptor cfd = new ColumnFamilyDescriptor(
@@ -165,7 +170,7 @@ public class RocksDBStdSessions extends RocksDBSessions {
 
         for (ColumnFamilyHandle cfh : cfhs) {
             String table = decode(cfh.getName());
-            this.rocksdb.addCf(table, new OpenedRocksDB.CFHandle(this.rocksdb(), cfh));
+            this.rocksdb.get().addCf(table, new OpenedRocksDB.CFHandle(this.rocksdb(), cfh));
         }
 
         this.ingestExternalFile();
@@ -182,7 +187,7 @@ public class RocksDBStdSessions extends RocksDBSessions {
          */
         List<ColumnFamilyHandle> cfhs = new ArrayList<>();
         for (String table : tables) {
-            OpenedRocksDB.CFHandle cfh = this.rocksdb.cf(table);
+            OpenedRocksDB.CFHandle cfh = this.rocksdb.get().cf(table);
             if (cfh == null) {
                 continue;
             }
@@ -196,37 +201,41 @@ public class RocksDBStdSessions extends RocksDBSessions {
         this.rocksdb().dropColumnFamilies(cfhs);
 
         for (String table : tables) {
-            OpenedRocksDB.CFHandle cfh = this.rocksdb.cf(table);
+            OpenedRocksDB.CFHandle cfh = this.rocksdb.get().cf(table);
             if (cfh == null) {
                 continue;
             }
             cfh.destroy();
-            this.rocksdb.removeCf(table);
+            this.rocksdb.get().removeCf(table);
         }
     }
 
     @Override
     public boolean existsTable(String table) {
-        return this.rocksdb.existCf(table);
+        return this.rocksdb.get().existCf(table);
     }
 
     @Override
     public synchronized void reloadRocksDB() throws RocksDBException {
-        FileChannel recoveryLock = this.rocksdb.closeForRestore();
-        this.rocksdb = RocksDBStdSessions.openRocksDB(this.config, ImmutableList.of(),
-                                                      this.dataPath, this.walPath, recoveryLock);
+        synchronized (this.rocksdb) {
+            FileChannel recoveryLock = this.rocksdb.get().closeForRestore();
+            this.rocksdb.set(RocksDBStdSessions.openRocksDB(this.config, ImmutableList.of(),
+                                                         this.dataPath, this.walPath, recoveryLock));
+        }
     }
 
     @Override
     public synchronized void forceCloseRocksDB() {
-        this.rocksdb.close();
+        synchronized (this.rocksdb) {
+            this.rocksdb.get().close();
+        }
     }
 
     @Override
     public List<String> property(String property) {
         try {
             if (property.equals(RocksDBMetrics.KEY_DISK_USAGE)) {
-                long size = this.rocksdb.totalSize();
+                long size = this.rocksdb.get().totalSize();
                 return ImmutableList.of(String.valueOf(size));
             }
             List<String> values = new ArrayList<>();
@@ -259,31 +268,33 @@ public class RocksDBStdSessions extends RocksDBSessions {
 
     @Override
     public void createSnapshot(String snapshotPath) {
-        this.rocksdb.createCheckpoint(snapshotPath);
+        this.rocksdb.get().createCheckpoint(snapshotPath);
     }
 
     @Override
     public synchronized void resumeSnapshot(String snapshotPath) {
-        File snapshotDir = new File(snapshotPath);
-        FileChannel recoveryLock = null;
-        boolean transferred = false;
-        try {
-            // Close the native handle before replacing files, but retain the
-            // sibling lock throughout marker creation, installation and reopen.
-            recoveryLock = this.rocksdb.closeForRestore();
-            if (recoveryLock == null) {
-                recoveryLock = lockForOpen(this.dataPath);
-            }
-            RocksDBSnapshotRestore.start(this.dataPath, this.walPath, snapshotPath);
-            this.rocksdb = RocksDBStdSessions.openRocksDB(this.config, ImmutableList.of(),
-                                                          this.dataPath, this.walPath, recoveryLock);
-            transferred = true;
-        } catch (Exception e) {
-            throw new BackendException("Failed to resume snapshot '%s' to '%s'",
-                                       e, snapshotDir, this.dataPath);
-        } finally {
-            if (!transferred) {
-                RocksDBSnapshotRestore.unlock(recoveryLock);
+        synchronized (this.rocksdb) {
+            File snapshotDir = new File(snapshotPath);
+            FileChannel recoveryLock = null;
+            boolean transferred = false;
+            try {
+                // Close the native handle before replacing files, but retain the
+                // sibling lock throughout marker creation, installation and reopen.
+                recoveryLock = this.rocksdb.get().closeForRestore();
+                if (recoveryLock == null) {
+                    recoveryLock = lockForOpen(this.dataPath);
+                }
+                RocksDBSnapshotRestore.start(this.dataPath, this.walPath, snapshotPath);
+                this.rocksdb.set(RocksDBStdSessions.openRocksDB(this.config, ImmutableList.of(),
+                                                             this.dataPath, this.walPath, recoveryLock));
+                transferred = true;
+            } catch (Exception e) {
+                throw new BackendException("Failed to resume snapshot '%s' to '%s'",
+                                           e, snapshotDir, this.dataPath);
+            } finally {
+                if (!transferred) {
+                    RocksDBSnapshotRestore.unlock(recoveryLock);
+                }
             }
         }
     }
@@ -306,7 +317,7 @@ public class RocksDBStdSessions extends RocksDBSessions {
     public String hardLinkSnapshot(String snapshotPath) throws RocksDBException {
         String snapshotLinkPath = this.dataPath + "_temp";
         try (OpenedRocksDB rocksdb = openRocksDB(this.config, ImmutableList.of(),
-                                                 snapshotPath, null)) {
+                                                 snapshotPath, null, null, true)) {
             rocksdb.createCheckpoint(snapshotLinkPath);
         }
         LOG.info("The snapshot {} has been hard linked to {}", snapshotPath, snapshotLinkPath);
@@ -320,23 +331,25 @@ public class RocksDBStdSessions extends RocksDBSessions {
 
     @Override
     protected final Session newSession() {
-        E.checkState(this.rocksdb.isOwningHandle(), "RocksDB has not been initialized");
+        E.checkState(this.rocksdb.get().isOwningHandle(), "RocksDB has not been initialized");
         return new StdSession(this.config());
     }
 
     @Override
     protected synchronized void doClose() {
-        this.checkValid();
+        synchronized (this.rocksdb) {
+            this.checkValid();
 
-        if (this.refCount.decrementAndGet() > 0) {
-            return;
+            if (this.refCount.decrementAndGet() > 0) {
+                return;
+            }
+            assert this.refCount.get() == 0;
+            this.rocksdb.get().close();
         }
-        assert this.refCount.get() == 0;
-        this.rocksdb.close();
     }
 
     private void checkValid() {
-        E.checkState(this.rocksdb.isOwningHandle(), "It seems RocksDB has been closed");
+        E.checkState(this.rocksdb.get().isOwningHandle(), "It seems RocksDB has been closed");
     }
 
     private void replaceSeparateWalDirectory() throws IOException {
@@ -348,11 +361,11 @@ public class RocksDBStdSessions extends RocksDBSessions {
 
     private RocksDB rocksdb() {
         this.checkValid();
-        return this.rocksdb.rocksdb();
+        return this.rocksdb.get().rocksdb();
     }
 
     private OpenedRocksDB.CFHandle cf(String cfName) {
-        OpenedRocksDB.CFHandle cfh = this.rocksdb.cf(cfName);
+        OpenedRocksDB.CFHandle cfh = this.rocksdb.get().cf(cfName);
         if (cfh == null) {
             throw new BackendException("Table '%s' is not opened", cfName);
         }
@@ -367,7 +380,7 @@ public class RocksDBStdSessions extends RocksDBSessions {
         }
         RocksDBIngester ingester = new RocksDBIngester(this.rocksdb());
         // Ingest all *.sst files in each directory named cf name
-        for (String cf : this.rocksdb.cfs()) {
+        for (String cf : this.rocksdb.get().cfs()) {
             Path path = Paths.get(directory, cf);
             if (path.toFile().isDirectory()) {
                 try (OpenedRocksDB.CFHandle cfh = this.cf(cf)) {
@@ -423,9 +436,19 @@ public class RocksDBStdSessions extends RocksDBSessions {
     private static OpenedRocksDB openRocksDB(HugeConfig config, List<String> cfNames,
                                              String dataPath, String walPath,
                                              FileChannel heldLock) throws RocksDBException {
-        FileChannel recoveryLock = heldLock != null ? heldLock : lockForOpen(dataPath);
+        return openRocksDB(config, cfNames, dataPath, walPath, heldLock, false);
+    }
+
+    private static OpenedRocksDB openRocksDB(HugeConfig config, List<String> cfNames,
+                                             String dataPath, String walPath,
+                                             FileChannel heldLock, boolean readOnly) throws RocksDBException {
+        // Checkpoints are immutable sources, not live databases to recover.
+        FileChannel recoveryLock = null;
+        if (!readOnly) {
+            recoveryLock = heldLock != null ? heldLock : lockForOpen(dataPath);
+        }
         try {
-            RocksDBSnapshotRestore restore = RocksDBSnapshotRestore.prepareOpen(dataPath, walPath);
+            RocksDBSnapshotRestore restore = readOnly ? null : RocksDBSnapshotRestore.prepareOpen(dataPath, walPath);
             // Old CFs should always be opened
             Set<String> mergedCFs = RocksDBStdSessions.mergeOldCFs(dataPath,
                                                                    cfNames);
@@ -451,7 +474,8 @@ public class RocksDBStdSessions extends RocksDBSessions {
             // Open RocksDB with CFs
             List<ColumnFamilyHandle> cfhs = new ArrayList<>();
 
-            RocksDB rocksdb = RocksDB.open(options, dataPath, cfds, cfhs);
+            RocksDB rocksdb = readOnly ? RocksDB.openReadOnly(options, dataPath, cfds, cfhs) :
+                             RocksDB.open(options, dataPath, cfds, cfhs);
 
             E.checkState(cfhs.size() == cfs.size(),
                          "Expect same size of cf-handles and cf-names");
@@ -492,7 +516,7 @@ public class RocksDBStdSessions extends RocksDBSessions {
                 String reason = cause == null ? "" : ": " + cause;
                 message = e.getMessage() + reason;
             }
-            throw new RecoveryLockException(message, contention);
+            throw new RecoveryLockException(message, contention, e);
         }
     }
 
@@ -502,9 +526,10 @@ public class RocksDBStdSessions extends RocksDBSessions {
 
         private final boolean contention;
 
-        RecoveryLockException(String message, boolean contention) {
+        RecoveryLockException(String message, boolean contention, Throwable cause) {
             super(message, new Status(Status.Code.IOError, Status.SubCode.None, message));
             this.contention = contention;
+            this.initCause(cause);
         }
 
         boolean isContention() {

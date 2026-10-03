@@ -45,7 +45,7 @@ public class OpenedRocksDB implements AutoCloseable {
     private final RocksDB rocksdb;
     private final Map<String, CFHandle> cfHandles;
     private final SstFileManager sstFileManager;
-    private final FileChannel recoveryLock;
+    private FileChannel recoveryLock;
 
     public OpenedRocksDB(RocksDB rocksdb, Map<String, CFHandle> cfHandles,
                          SstFileManager sstFileManager) {
@@ -109,7 +109,9 @@ public class OpenedRocksDB implements AutoCloseable {
             }
             throw e;
         }
-        return this.recoveryLock != null && this.recoveryLock.isOpen() ? this.recoveryLock : null;
+        FileChannel transferred = this.recoveryLock;
+        this.recoveryLock = null;
+        return transferred != null && transferred.isOpen() ? transferred : null;
     }
 
     private void closeNative() {

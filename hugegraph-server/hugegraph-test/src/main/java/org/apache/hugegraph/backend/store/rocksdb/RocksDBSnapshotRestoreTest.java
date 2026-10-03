@@ -27,6 +27,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 
 import org.apache.commons.io.FileUtils;
@@ -284,6 +285,8 @@ public class RocksDBSnapshotRestoreTest {
                         } catch (RocksDBException expected) {
                             assertTrue(expected.getMessage().contains("No locks available"));
                             assertEquals(Status.Code.IOError, expected.getStatus().getCode());
+                            assertTrue(expected.getCause() instanceof BackendException);
+                            assertNotNull(expected.getCause().getCause());
                         }
                     }
                 } catch (Throwable e) {
@@ -335,6 +338,8 @@ public class RocksDBSnapshotRestoreTest {
             } catch (ConnectionException expected) {
                 assertTrue(expected.getCause() instanceof RocksDBStdSessions.RecoveryLockException);
                 assertFalse(((RocksDBStdSessions.RecoveryLockException) expected.getCause()).isContention());
+                assertTrue(expected.getCause().getCause() instanceof BackendException);
+                assertTrue(expected.getCause().getCause().getCause() instanceof IOException);
                 assertTrue(expected.getCause().getMessage().contains("No locks available"));
                 assertTrue(expected.getCause().getMessage().contains("Column family not found"));
                 assertTrue(owner.databaseOpened());
@@ -408,6 +413,8 @@ public class RocksDBSnapshotRestoreTest {
                 store.resumeSnapshot("snapshot", consume);
                 assertArrayEquals(new byte[]{2}, sessions.session().get("test", key));
                 assertEquals(!consume, new File(snapshot).exists());
+                assertFalse(new File(snapshot + ".resume-lock").exists());
+                assertEquals(!consume, new File(snapshot).getParentFile().exists());
                 assertFalse(new File(data + "_temp").exists());
                 assertFalse(new File(data + ".resume-pending").exists());
             }
@@ -614,7 +621,8 @@ public class RocksDBSnapshotRestoreTest {
             sessions.session().put("test", new byte[]{1}, new byte[]{2});
             sessions.session().commit();
             sessions.createSnapshot(snapshot.toString());
-            OpenedRocksDB old = Whitebox.getInternalState(sessions, "rocksdb");
+            AtomicReference<OpenedRocksDB> shared = Whitebox.getInternalState(sessions, "rocksdb");
+            OpenedRocksDB old = shared.get();
             FileChannel held = old.closeForRestore();
             assertFalse(old.isOwningHandle());
             assertTrue(held.isOpen());
@@ -640,8 +648,14 @@ public class RocksDBSnapshotRestoreTest {
                 assertFalse(new File(data + ".resume-pending").exists());
             }
             RocksDBSnapshotRestore.start(data.toString(), data.toString(), snapshot.toString());
-            sessions.reloadRocksDB();
-            OpenedRocksDB replacement = Whitebox.getInternalState(sessions, "rocksdb");
+            old.close();
+            assertTrue("Closing the detached old handle must retain the transferred lock", held.isOpen());
+            OpenedRocksDB replacement = Whitebox.invokeStatic(
+                    RocksDBStdSessions.class,
+                    new Class<?>[]{HugeConfig.class, List.class, String.class, String.class, FileChannel.class},
+                    "openRocksDB", FakeObjects.newConfig(), Collections.emptyList(),
+                    data.toString(), data.toString(), held);
+            shared.set(replacement);
             assertSame(held, Whitebox.getInternalState(replacement, "recoveryLock"));
             assertArrayEquals(new byte[]{2}, sessions.session().get("test", new byte[]{1}));
         } finally {
@@ -649,6 +663,96 @@ public class RocksDBSnapshotRestoreTest {
         }
         try (FileChannel available = RocksDBSnapshotRestore.lock(data.toString())) {
             assertTrue(available.isOpen());
+        }
+    }
+
+    @Test
+    public void testCopiesShareReloadedNativeOwnerAndLock() throws Exception {
+        this.checkSharedReplacement(false);
+    }
+
+    @Test
+    public void testCopiesShareRestoredNativeOwnerAndLock() throws Exception {
+        this.checkSharedReplacement(true);
+    }
+
+    private void checkSharedReplacement(boolean restore) throws Exception {
+        for (boolean replaceThroughCopy : new boolean[]{false, true}) {
+            for (boolean closeReplacementFirst : new boolean[]{false, true}) {
+                File data = this.temporary.newFolder();
+                File snapshot = new File(this.temporary.newFolder("snapshot-" + data.getName()), "rocks");
+                HugeConfig config = FakeObjects.newConfig();
+                RocksDBSessions owner = new RocksDBStdSessions(config, "db", "store",
+                                                               data.toString(), data.toString());
+                RocksDBSessions copy = null;
+                try {
+                    owner.createTable("test");
+                    owner.session().put("test", new byte[]{1}, new byte[]{2});
+                    owner.session().commit();
+                    copy = owner.copy(config, "db", "copy");
+                    assertArrayEquals(new byte[]{2}, copy.session().get("test", new byte[]{1}));
+                    AtomicReference<OpenedRocksDB> shared = Whitebox.getInternalState(owner, "rocksdb");
+                    assertSame(shared, Whitebox.getInternalState(copy, "rocksdb"));
+                    OpenedRocksDB old = shared.get();
+                    FileChannel held = Whitebox.getInternalState(old, "recoveryLock");
+                    RocksDBSessions replacing = replaceThroughCopy ? copy : owner;
+                    RocksDBSessions other = replaceThroughCopy ? owner : copy;
+                    if (restore) {
+                        owner.createSnapshot(snapshot.toString());
+                        owner.session().put("test", new byte[]{1}, new byte[]{3});
+                        owner.session().commit();
+                        replacing.resumeSnapshot(snapshot.toString());
+                    } else {
+                        replacing.reloadRocksDB();
+                    }
+                    OpenedRocksDB replacement = shared.get();
+                    assertFalse(old.isOwningHandle());
+                    assertSame(held, Whitebox.getInternalState(replacement, "recoveryLock"));
+                    assertArrayEquals(new byte[]{2}, owner.session().get("test", new byte[]{1}));
+                    assertArrayEquals(new byte[]{2}, copy.session().get("test", new byte[]{1}));
+                    old.close();
+                    assertTrue("The old native wrapper must relinquish its lock", held.isOpen());
+
+                    RocksDBSessions first = closeReplacementFirst ? replacing : other;
+                    RocksDBSessions last = closeReplacementFirst ? other : replacing;
+                    first.close();
+                    assertTrue(last.databaseOpened());
+                    assertTrue(replacement.isOwningHandle());
+                    assertTrue(held.isOpen());
+                    assertArrayEquals(new byte[]{2}, last.session().get("test", new byte[]{1}));
+                    // A pending opener must fail before replacing files under the live last copy.
+                    last.createSnapshot(snapshot.toString());
+                    RocksDBSnapshotRestore.start(data.toString(), data.toString(), snapshot.toString());
+                    byte[] current = Files.readAllBytes(new File(data, "CURRENT").toPath());
+                    try {
+                        new RocksDBStdSessions(config, "db", "contender", data.toString(), data.toString());
+                        fail("The last shared native owner must retain recovery exclusion");
+                    } catch (RocksDBStdSessions.RecoveryLockException expected) {
+                        assertTrue(expected.isContention());
+                        assertArrayEquals(current, Files.readAllBytes(new File(data, "CURRENT").toPath()));
+                        assertTrue(new File(data + ".resume-pending").exists());
+                        assertTrue(snapshot.isDirectory());
+                    }
+                    last.close();
+                    assertFalse(replacement.isOwningHandle());
+                    assertFalse(held.isOpen());
+                    RocksDBSessions fresh = new RocksDBStdSessions(config, "db", "fresh",
+                                                                   data.toString(), data.toString(),
+                                                                   Collections.emptyList());
+                    try {
+                        assertArrayEquals(new byte[]{2}, fresh.session().get("test", new byte[]{1}));
+                        assertFalse(new File(data + ".resume-pending").exists());
+                        assertFalse(snapshot.exists());
+                    } finally {
+                        fresh.forceCloseRocksDB();
+                    }
+                } finally {
+                    owner.forceCloseRocksDB();
+                    if (copy != null) {
+                        copy.forceCloseRocksDB();
+                    }
+                }
+            }
         }
     }
 
