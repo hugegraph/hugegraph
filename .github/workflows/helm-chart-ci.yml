@@ -183,7 +183,8 @@ jobs:
           # does for the PD REST secret. Backslashes and tabs go the same way.
           must_fail --set-string "server.auth.admin.password=密码abc"
           must_fail --set-string "server.auth.admin.password=café"
-          must_fail --set-string 'server.auth.admin.password=review\secret'
+          # --set unescapes a single backslash, so the literal needs two.
+          must_fail --set-string 'server.auth.admin.password=review\\secret'
           must_fail --set-string "$(printf 'server.auth.admin.password=review\tsecret')"
           must_fail --set-string "pd.auth.value=密码abc"
           # The Server splits the decoded credential on every colon (400).
