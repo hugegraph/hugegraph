@@ -20,6 +20,8 @@ package org.apache.hugegraph.unit;
 import org.apache.hugegraph.api.auth.GraphSpaceAuthPayloadTest;
 import org.apache.hugegraph.api.auth.GraphSpaceGroupAPITest;
 import org.apache.hugegraph.api.cypher.CypherClientTest;
+import org.apache.hugegraph.auth.ContextGremlinServerHttpTest;
+import org.apache.hugegraph.auth.HttpGremlinRequestHandlerTest;
 import org.apache.hugegraph.auth.StandardAuthManagerV2Test;
 import org.apache.hugegraph.auth.WsAndHttpBasicAuthHandlerTest;
 import org.apache.hugegraph.backend.page.QueryListTest;
@@ -127,6 +129,8 @@ import org.junit.runners.Suite;
         CypherClientTest.class,
         CypherOpProcessorTest.class,
         WsAndHttpBasicAuthHandlerTest.class,
+        HttpGremlinRequestHandlerTest.class,
+        ContextGremlinServerHttpTest.class,
         GraphSpaceGroupAPITest.class,
         GraphSpaceAuthPayloadTest.class,
         StandardAuthManagerV2Test.class,
