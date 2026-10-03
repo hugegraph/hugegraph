@@ -178,6 +178,8 @@
                 <executions>
                     <execution>
                         <configuration>
+                            <!-- Keep the main artifact usable by hg-pd-test. -->
+                            <classifier>exec</classifier>
                             <mainClass>
                                 org.apache.hugegraph.pd.boot.HugePDServer
                             </mainClass>

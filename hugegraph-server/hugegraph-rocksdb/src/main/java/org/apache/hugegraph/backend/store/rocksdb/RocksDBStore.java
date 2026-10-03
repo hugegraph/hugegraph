@@ -103,6 +103,7 @@ public abstract class RocksDBStore extends AbstractBackendStore<RocksDBSessions.
      */
     private static final int OPEN_POOL_THREADS = 8;
     private boolean isGraphStore;
+    private boolean toplingProvider;
 
     public RocksDBStore(final BackendStoreProvider provider,
                         final String database, final String store) {
@@ -115,6 +116,7 @@ public abstract class RocksDBStore extends AbstractBackendStore<RocksDBSessions.
         this.tableDiskMapping = new HashMap<>();
         this.dbs = new ConcurrentHashMap<>();
         this.storeLock = new ReentrantReadWriteLock();
+        this.toplingProvider = false;
 
         this.registerMetaHandlers();
     }
@@ -212,6 +214,8 @@ public abstract class RocksDBStore extends AbstractBackendStore<RocksDBSessions.
         E.checkNotNull(config, "config");
         String graphStore = config.get(CoreOptions.STORE_GRAPH);
         this.isGraphStore = this.store.equals(graphStore);
+        this.toplingProvider = "topling".equals(
+                config.get(RocksDBOptions.PROVIDER));
         this.dataPath = config.get(RocksDBOptions.DATA_PATH);
 
         if (this.sessions != null && !this.sessions.closed()) {
@@ -313,8 +317,10 @@ public abstract class RocksDBStore extends AbstractBackendStore<RocksDBSessions.
                                             walPath, tableNames);
         } catch (RocksDBException e) {
             RocksDBSessions origin = this.dbs.get(dataPath);
-            if (origin != null) {
-                if (e.getMessage().contains("No locks available")) {
+            if (origin != null &&
+                e instanceof RocksDBStdSessions.RecoveryLockException &&
+                ((RocksDBStdSessions.RecoveryLockException) e).isContention()) {
+                synchronized (origin) {
                     /*
                      * Open twice, copy a RocksDBSessions reference, since from
                      * v0.11.2 release we don't support multi graphs share
@@ -323,11 +329,16 @@ public abstract class RocksDBStore extends AbstractBackendStore<RocksDBSessions.
                      * so each graph has its independent data paths, but multi
                      * CFs may share same optimized disk(or optimized disk path).
                      */
-                    sessions = origin.copy(config, this.database, this.store);
+                    // Keep checking, copying and opening atomic with native restore.
+                    if (origin.databaseOpened()) {
+                        sessions = origin.copy(config, this.database, this.store);
+                        return this.registerOpenedSessions(dataPath, sessions);
+                    }
                 }
             }
 
-            if (e.getMessage().contains("Column family not found")) {
+            if (!(e instanceof RocksDBStdSessions.RecoveryLockException) &&
+                e.getMessage().contains("Column family not found")) {
                 if (this.isSchemaStore()) {
                     LOG.info("Failed to open RocksDB '{}' with database '{}'," +
                              " try to init CF later", dataPath, this.database);
@@ -360,19 +371,21 @@ public abstract class RocksDBStore extends AbstractBackendStore<RocksDBSessions.
             }
         }
 
-        if (sessions != null) {
-            // May override the original session pool
-            this.dbs.put(dataPath, sessions);
-            sessions.session().open();
-            LOG.debug("Store opened: {}", dataPath);
-        }
+        return this.registerOpenedSessions(dataPath, sessions);
+    }
 
+    private RocksDBSessions registerOpenedSessions(String dataPath, RocksDBSessions sessions) {
+        sessions.session().open();
+        // May override the original session pool after the new session opened.
+        this.dbs.put(dataPath, sessions);
+        LOG.debug("Store opened: {}", dataPath);
         return sessions;
     }
 
     protected RocksDBSessions openSessionPool(HugeConfig config,
                                               String dataPath, String walPath,
-                                              List<String> tableNames) throws RocksDBException {
+                                              List<String> tableNames) throws
+                                                                       RocksDBException {
         if (tableNames == null) {
             return new RocksDBStdSessions(config, this.database, this.store, dataPath, walPath);
         } else {
@@ -417,7 +430,7 @@ public abstract class RocksDBStore extends AbstractBackendStore<RocksDBSessions.
     @Override
     public boolean opened() {
         this.checkDbOpened();
-        return this.sessions.session().opened();
+        return this.sessions.databaseOpened();
     }
 
     @Override
@@ -630,13 +643,33 @@ public abstract class RocksDBStore extends AbstractBackendStore<RocksDBSessions.
         try {
             this.checkOpened();
 
-            this.clear(false);
-            this.init();
+            if (this.toplingProvider) {
+                this.clearTables();
+            } else {
+                this.clear(false);
+                this.init();
+            }
             // Clear write-batch
             this.dbs.values().forEach(BackendSessionPool::forceResetSessions);
             LOG.debug("Store truncated: {}", this.store);
         } finally {
             writeLock.unlock();
+        }
+    }
+
+    private void clearTables() {
+        this.sessions.clearTables(this.tableNames());
+
+        Map<String, RocksDBSessions> tableDBMap = this.tableDBMapping();
+        for (Map.Entry<String, RocksDBSessions> entry :
+                tableDBMap.entrySet()) {
+            Collection<String> tables;
+            if (entry.getKey().equals(HugeType.OLAP.string())) {
+                tables = this.olapTables();
+            } else {
+                tables = Collections.singletonList(entry.getKey());
+            }
+            entry.getValue().clearTables(tables);
         }
     }
 
@@ -718,8 +751,8 @@ public abstract class RocksDBStore extends AbstractBackendStore<RocksDBSessions.
 
     @Override
     public void resumeSnapshot(String snapshotPrefix, boolean deleteSnapshot) {
-        Lock readLock = this.storeLock.readLock();
-        readLock.lock();
+        Lock writeLock = this.storeLock.writeLock();
+        writeLock.lock();
         try {
             if (!this.opened()) {
                 return;
@@ -754,7 +787,7 @@ public abstract class RocksDBStore extends AbstractBackendStore<RocksDBSessions.
         } catch (RocksDBException | IOException e) {
             throw new BackendException("Failed to resume snapshot", e);
         } finally {
-            readLock.unlock();
+            writeLock.unlock();
         }
     }
 

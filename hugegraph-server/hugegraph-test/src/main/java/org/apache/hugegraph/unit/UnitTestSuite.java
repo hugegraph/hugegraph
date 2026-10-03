@@ -17,8 +17,11 @@
 
 package org.apache.hugegraph.unit;
 
+import org.apache.hugegraph.backend.store.rocksdb.RocksDBSnapshotRestoreTest;
+import org.apache.hugegraph.HugeFactoryTest;
 import org.apache.hugegraph.api.auth.GraphSpaceAuthPayloadTest;
 import org.apache.hugegraph.api.auth.GraphSpaceGroupAPITest;
+import org.apache.hugegraph.auth.ContextTaskTest;
 import org.apache.hugegraph.auth.StandardAuthManagerV2Test;
 import org.apache.hugegraph.auth.WsAndHttpBasicAuthHandlerTest;
 import org.apache.hugegraph.backend.page.QueryListTest;
@@ -44,6 +47,7 @@ import org.apache.hugegraph.unit.cache.CachedSchemaTransactionTest;
 import org.apache.hugegraph.unit.cache.RamTableTest;
 import org.apache.hugegraph.unit.cmd.InitStoreConfigTest;
 import org.apache.hugegraph.unit.core.AnalyzerTest;
+import org.apache.hugegraph.unit.core.BackendSessionPoolTest;
 import org.apache.hugegraph.unit.core.BackendMutationTest;
 import org.apache.hugegraph.unit.core.BackendStoreInfoTest;
 import org.apache.hugegraph.unit.core.ConditionQueryFlattenTest;
@@ -60,6 +64,7 @@ import org.apache.hugegraph.unit.core.HstoreSessionsTest;
 import org.apache.hugegraph.unit.core.IdHolderTest;
 import org.apache.hugegraph.unit.core.LocksTableTest;
 import org.apache.hugegraph.unit.core.PageStateTest;
+import org.apache.hugegraph.unit.core.ConfigPathTest;
 import org.apache.hugegraph.unit.core.QueryResultsTest;
 import org.apache.hugegraph.unit.core.QueryTest;
 import org.apache.hugegraph.unit.core.RangeTest;
@@ -91,6 +96,7 @@ import org.apache.hugegraph.unit.serializer.TableBackendEntryTest;
 import org.apache.hugegraph.unit.serializer.TextBackendEntryTest;
 import org.apache.hugegraph.unit.serializer.TextSerializerTest;
 import org.apache.hugegraph.unit.store.RamIntObjectMapTest;
+import org.apache.hugegraph.unit.traversal.OltpTraverserTest;
 import org.apache.hugegraph.unit.traversal.ShortestPathTraverserTest;
 import org.apache.hugegraph.unit.util.CompressUtilTest;
 import org.apache.hugegraph.unit.util.JsonUtilTest;
@@ -120,6 +126,8 @@ import org.junit.runners.Suite;
         GraphSpaceGroupAPITest.class,
         GraphSpaceAuthPayloadTest.class,
         StandardAuthManagerV2Test.class,
+        ContextTaskTest.class,
+        HugeFactoryTest.class,
         AuthMetaManagerTest.class,
 
         /* api space */
@@ -156,12 +164,14 @@ import org.junit.runners.Suite;
         RowLockTest.class,
         AnalyzerTest.class,
         BackendMutationTest.class,
+        BackendSessionPoolTest.class,
         ConditionTest.class,
         StandardHugeGraphClearBackendTest.class,
         ConditionQueryFlattenTest.class,
         GraphIndexTransactionTest.class,
         GraphTransactionTest.class,
         QueryTest.class,
+        ConfigPathTest.class,
         QueryResultsTest.class,
         QueryListTest.class,
         RangeTest.class,
@@ -182,6 +192,7 @@ import org.junit.runners.Suite;
         TaskSchedulerServerInfoTest.class,
         HugeGraphAuthProxyTest.class,
         SchemaElementTest.class,
+        OltpTraverserTest.class,
         ShortestPathTraverserTest.class,
 
         /* cmd */
@@ -200,6 +211,7 @@ import org.junit.runners.Suite;
 
         /* rocksdb */
         RocksDBSessionsTest.class,
+        RocksDBSnapshotRestoreTest.class,
         RocksDBSessionTest.class,
         RocksDBCountersTest.class,
         RocksDBTableQueryByIdsTest.class,

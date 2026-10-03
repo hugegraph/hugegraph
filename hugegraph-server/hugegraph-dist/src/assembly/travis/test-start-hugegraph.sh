@@ -26,7 +26,7 @@
 #
 # Note: Tests require crontab access. On macOS Catalina+ this may
 #       require Full Disk Access permission in System Preferences.
-# Note: Assumes rocksdb backend. init-store.sh is run automatically if needed.
+# Note: Assumes rocksdb backend. init-store.sh checks initialization on every run.
 
 set -uo pipefail
 
@@ -42,6 +42,8 @@ WAIT_TIMEOUT=30   # seconds for timeout on wait calls
 PASS=0
 FAIL=0
 ERRORS=()
+STARTUP_LOGS_REPORTED=false
+WAIT_TIMED_OUT=false
 
 GREEN='\033[0;32m'
 RED='\033[0;31m'
@@ -57,6 +59,17 @@ fail() {
     echo -e "${RED}  FAIL${NC} $1"
     ERRORS+=("$1")
     FAIL=$((FAIL + 1))
+    if [[ "$STARTUP_LOGS_REPORTED" == false ]]; then
+        local log
+        for log in "$HUGEGRAPH_ROOT/logs/hugegraph-server.log" \
+                   "$HUGEGRAPH_ROOT/logs/hugegraph-server-stdout.log"; do
+            if [[ -f "$log" ]]; then
+                echo "--- $log (last 80 lines) ---"
+                tail -n 80 "$log"
+            fi
+        done
+        STARTUP_LOGS_REPORTED=true
+    fi
 }
 
 info() {
@@ -66,6 +79,12 @@ info() {
 section() {
     echo ""
     echo "── $1 ──"
+    STARTUP_LOGS_REPORTED=false
+}
+
+server_process_running() {
+    [[ "$1" =~ ^[0-9]+$ ]] &&
+        ps -p "$1" -o args= -ww 2>/dev/null | grep -Fq -- '-Dname=HugeGraphServer'
 }
 
 # Kill server, clear pid file, kill ports, clear crontab monitor entry
@@ -133,14 +152,25 @@ wait_for_pid_file() {
 #       bash's built-in wait can track it as a child process
 wait_script_exit() {
     local script_pid="$1"
+    local timeout_marker
+    WAIT_TIMED_OUT=false
+    timeout_marker=$(mktemp) || { WAIT_TIMED_OUT=true; return 1; }
     # background killer fires after timeout if process hasn't exited yet
-    ( sleep "$WAIT_TIMEOUT" && kill "$script_pid" 2>/dev/null ) &
+    (
+        sleep "$WAIT_TIMEOUT"
+        if kill -0 "$script_pid" 2>/dev/null; then
+            printf 'timeout\n' > "$timeout_marker"
+            kill "$script_pid" 2>/dev/null
+        fi
+    ) &
     local killer_pid=$!
     wait "$script_pid" 2>/dev/null
     local exit_code=$?
     # cancel the killer if process already exited
     kill "$killer_pid" 2>/dev/null || true
     wait "$killer_pid" 2>/dev/null || true
+    [[ -s "$timeout_marker" ]] && WAIT_TIMED_OUT=true
+    rm -f "$timeout_marker"
     return $exit_code
 }
 
@@ -189,20 +219,21 @@ if [[ -z "${JAVA_HOME:-}" ]]; then
     echo "       Export JAVA_HOME before running this script"
 fi
 
-# Run init-store.sh once if RocksDB has not been initialized yet
-if [[ ! -d "$HUGEGRAPH_ROOT/rocksdb-data" ]]; then
-    info "RocksDB not initialized — running init-store.sh..."
-    if "$BIN/init-store.sh" >/dev/null 2>&1; then
-        pass "init-store.sh completed successfully"
-    else
-        echo -e "${RED}ERROR:${NC} init-store.sh failed. Cannot run tests."
-        exit 1
-    fi
-else
-    info "RocksDB already initialized, skipping init-store.sh"
-fi
-
 cleanup
+
+# Provider admission can create data roots before the backend has any tables.
+# Let init-store inspect the actual backend; it already handles initialized stores.
+info "Checking backend initialization with init-store.sh..."
+INIT_LOG=$(mktemp)
+if "$BIN/init-store.sh" >"$INIT_LOG" 2>&1; then
+    pass "init-store.sh completed successfully"
+    rm -f "$INIT_LOG"
+else
+    echo -e "${RED}ERROR:${NC} init-store.sh failed. Cannot run tests."
+    cat "$INIT_LOG"
+    rm -f "$INIT_LOG"
+    exit 1
+fi
 
 # ── test 1: daemon mode regression ───────────────────────────────────────────
 
@@ -227,7 +258,7 @@ else
     fail "bin/pid is empty or missing after daemon start"
 fi
 
-if [[ -n "$DAEMON_PID" ]] && ps -p "$DAEMON_PID" >/dev/null 2>&1; then
+if server_process_running "$DAEMON_PID"; then
     pass "Java process is running (pid $DAEMON_PID)"
 else
     fail "Java process not found for pid '$DAEMON_PID'"
@@ -263,7 +294,7 @@ info "Waiting up to ${STARTUP_WAIT}s for server to come up..."
 if wait_for_server; then
     info "Server is up"
 else
-    info "Server did not respond — continuing to check blocking behavior"
+    fail "server did not become ready before the blocking test"
 fi
 
 # Primary assertion: script must still be running while Java is alive
@@ -283,7 +314,7 @@ else
     info "pid file not written in foreground mode (expected before chunk 1 fix)"
 fi
 
-if [[ -n "$FG_PID" ]] && ps -p "$FG_PID" >/dev/null 2>&1; then
+if server_process_running "$FG_PID"; then
     info "Java process running (pid $FG_PID)"
 else
     info "Java PID not available (expected before chunk 1 fix)"
@@ -318,7 +349,7 @@ info "Waiting up to ${STARTUP_WAIT}s for server..."
 if wait_for_server; then
     info "Server is up"
 else
-    info "Server did not respond — continuing"
+    fail "server did not become ready before the exit propagation test"
 fi
 
 wait_for_pid_file
@@ -330,14 +361,14 @@ else
     fail "bin/pid is empty or missing in foreground mode"
 fi
 
-if [[ -n "$FG_PID" ]] && ps -p "$FG_PID" >/dev/null 2>&1; then
+if server_process_running "$FG_PID"; then
     pass "Java process running (pid $FG_PID)"
 else
     fail "Java process not found for pid '$FG_PID'"
 fi
 
-if [[ -z "$FG_PID" ]]; then
-    fail "could not get PID from pid file — skipping exit code check"
+if ! server_process_running "$FG_PID"; then
+    fail "no live Java server — skipping exit code check"
     kill "$SCRIPT_PID" 2>/dev/null || true
 else
     info "Hard-killing Java with SIGKILL (pid $FG_PID)..."
@@ -346,15 +377,17 @@ else
     wait_script_exit "$SCRIPT_PID"
     ACTUAL_EXIT=$?
 
-    if [[ $ACTUAL_EXIT -ne 0 ]]; then
+    if [[ "$WAIT_TIMED_OUT" == true ]]; then
+        fail "wrapper timed out after Java SIGKILL — exit code was not propagated"
+    elif [[ $ACTUAL_EXIT -ne 0 ]]; then
         pass "script exited non-zero ($ACTUAL_EXIT) after SIGKILL — Docker restart will fire"
     else
         fail "script exited 0 after SIGKILL — Docker would NOT restart (exit code lost)"
     fi
 
-    if [[ $ACTUAL_EXIT -eq 137 ]]; then
+    if [[ "$WAIT_TIMED_OUT" == false && $ACTUAL_EXIT -eq 137 ]]; then
         pass "exit code is 137 (128+9 for SIGKILL) — correctly propagated"
-    elif [[ $ACTUAL_EXIT -ne 0 ]]; then
+    elif [[ "$WAIT_TIMED_OUT" == false && $ACTUAL_EXIT -ne 0 ]]; then
         info "exit code was $ACTUAL_EXIT (not 137 — may be shell-wrapped, acceptable if non-zero)"
     fi
 fi
@@ -401,14 +434,14 @@ info "Waiting up to ${STARTUP_WAIT}s for server..."
 if wait_for_server; then
     info "Server is up"
 else
-    info "Server did not respond — continuing"
+    fail "server did not become ready before the signal forwarding test"
 fi
 
 wait_for_pid_file
 FG_PID=$(cat "$PID_FILE" 2>/dev/null || echo "")
 
-if [[ -z "$FG_PID" ]]; then
-    fail "could not get Java PID — skipping signal forwarding check"
+if ! server_process_running "$FG_PID"; then
+    fail "no live Java server — skipping signal forwarding check"
     kill "$SCRIPT_PID" 2>/dev/null || true
 else
     info "Sending SIGTERM to wrapper script (pid $SCRIPT_PID)..."
@@ -426,15 +459,17 @@ else
         kill "$FG_PID" 2>/dev/null || true
     fi
 
-    if [[ $ACTUAL_EXIT -ne 0 ]]; then
+    if [[ "$WAIT_TIMED_OUT" == true ]]; then
+        fail "wrapper timed out after SIGTERM — exit code was not propagated"
+    elif [[ $ACTUAL_EXIT -ne 0 ]]; then
         pass "wrapper script exited non-zero ($ACTUAL_EXIT) after SIGTERM"
     else
         fail "wrapper script exited 0 after SIGTERM — exit code not propagated"
     fi
 
-    if [[ $ACTUAL_EXIT -eq 143 ]]; then
+    if [[ "$WAIT_TIMED_OUT" == false && $ACTUAL_EXIT -eq 143 ]]; then
         pass "exit code is 143 (128+15 for SIGTERM) — correctly propagated"
-    elif [[ $ACTUAL_EXIT -ne 0 ]]; then
+    elif [[ "$WAIT_TIMED_OUT" == false && $ACTUAL_EXIT -ne 0 ]]; then
         info "exit code was $ACTUAL_EXIT (not 143 — may be shell-wrapped, acceptable if non-zero)"
     fi
 fi
