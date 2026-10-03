@@ -151,4 +151,5 @@ RUN cp /opt/hugegraph-docker/*.groovy ./scripts/ \
 ENV HG_SERVER_ROCKSDB_PROVIDER="rocksdb"
 # Preserve the historical root volume so existing anonymous-volume upgrades
 # continue to expose their data. New named-volume examples use rocksdb-data.
+RUN mkdir -p /hugegraph-server/rocksdb-data
 VOLUME /hugegraph-server

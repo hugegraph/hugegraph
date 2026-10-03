@@ -74,13 +74,16 @@ verify_marker() {
         return 0
     fi
 
-    if [ "$PROVIDER" = "rocksdb" ] && [ "$ENFORCE" = "false" ]; then
-        echo "[provider-marker] legacy unmarked RocksDB path accepted: $data_path"
-        return 0
+    if find -H "$pinned_path" -mindepth 1 -maxdepth 1 \
+            -name '.provider-marker.*' -print -quit | grep -q .; then
+        fail "provider marker initialization is in progress in $data_path"
     fi
-
     if find -H "$pinned_path" -mindepth 1 -maxdepth 1 \
             ! -name lost+found -print -quit | grep -q .; then
+        if [ "$PROVIDER" = "rocksdb" ] && [ "$ENFORCE" = "false" ]; then
+            echo "[provider-marker] legacy unmarked RocksDB path accepted: $data_path"
+            return 0
+        fi
         fail "refusing unmarked non-empty data path: $data_path"
     fi
 

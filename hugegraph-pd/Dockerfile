@@ -139,4 +139,5 @@ LABEL org.apache.hugegraph.rocksdb-runtime="standard"
 COPY --from=build /pkg/hugegraph-pd/apache-hugegraph-pd-*/ /hugegraph-pd/
 ENV HG_PD_ROCKSDB_PROVIDER="rocksdb"
 # Preserve the historical root volume for anonymous-volume upgrades.
+RUN mkdir -p /hugegraph-pd/pd_data
 VOLUME /hugegraph-pd

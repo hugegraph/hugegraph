@@ -72,7 +72,6 @@ run_pd() {
         HG_PD_RAFT_PEERS_LIST=pd:8610 \
         HG_PD_INITIAL_STORE_LIST=store:8500 \
         HG_PD_ROCKSDB_PROVIDER="$provider" \
-        HG_PD_ENFORCE_PROVIDER_MARKER=true \
             ./docker-entrypoint.sh >/dev/null
     )
     grep -qx "$provider" "$capture.provider" ||
@@ -103,7 +102,6 @@ run_store() {
         HG_STORE_GRPC_HOST=store \
         HG_STORE_RAFT_ADDRESS=store:8510 \
         HG_STORE_ROCKSDB_PROVIDER="$provider" \
-        HG_STORE_ENFORCE_PROVIDER_MARKER=true \
             ./docker-entrypoint.sh >/dev/null
     )
     grep -qx "$provider" "$capture.provider" ||
@@ -152,6 +150,23 @@ expect_invalid_provider() {
             <<<"$output" || fail "Store invalid-provider error is not actionable"
     fi
 }
+
+# The standard image's historical root volume copies its existing contents.
+# Default storage roots must therefore exist in the image before VOLUME.
+for component in server pd store; do
+    case "$component" in
+        server) data_root=rocksdb-data ;;
+        pd) data_root=pd_data ;;
+        store) data_root=storage ;;
+    esac
+    awk -v expected="RUN mkdir -p /hugegraph-$component/$data_root" '
+        /^FROM runtime AS standard$/ { standard = 1 }
+        standard && $0 == expected { created = 1 }
+        standard && /^VOLUME / { if (!created) exit 1; volume = 1 }
+        END { if (!volume) exit 1 }
+    ' "$PROJECT_ROOT/hugegraph-$component/Dockerfile" ||
+        fail "$component standard image omits its default data root before VOLUME"
+done
 
 prepare_fixture \
     pd \

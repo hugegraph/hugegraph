@@ -117,6 +117,73 @@ grep -qx provider=topling "$TEST_ROOT/race/.hugegraph-rocksdb-provider"
 echo "PASS: standard loses cleanly when Topling claims after its empty scan"
 
 if [ "$(uname -s)" = Linux ]; then
+    for component in pd store; do
+        root="$TEST_ROOT/$component-empty"
+        mkdir "$root"
+        bash "$MARKER_HELPER" "$component" rocksdb "$root" false >/dev/null
+        grep -qx "component=$component" "$root/.hugegraph-rocksdb-provider"
+        grep -qx provider=rocksdb "$root/.hugegraph-rocksdb-provider"
+        printf '%s\n' existing-data > "$root/SENTINEL"
+        if bash "$MARKER_HELPER" "$component" topling "$root" false > "$TEST_ROOT/output" 2>&1; then
+            fail "$component switched provider after an unenforced standard startup"
+        fi
+        grep -Fq 'provider marker mismatch' "$TEST_ROOT/output"
+        grep -qx existing-data "$root/SENTINEL"
+        echo "PASS: $component unenforced empty standard root is owned before first data write"
+
+        root="$TEST_ROOT/$component-legacy"
+        mkdir "$root"
+        printf '%s\n' existing-data > "$root/SENTINEL"
+        bash "$MARKER_HELPER" "$component" rocksdb "$root" false >/dev/null
+        [ ! -e "$root/.hugegraph-rocksdb-provider" ] || fail "$component legacy root was relabeled"
+        if bash "$MARKER_HELPER" "$component" topling "$root" false > "$TEST_ROOT/output" 2>&1; then
+            fail "$component accepted unmarked legacy data for Topling"
+        fi
+        grep -qx existing-data "$root/SENTINEL"
+        echo "PASS: $component nonempty legacy standard root remains unchanged"
+
+        root="$TEST_ROOT/$component-lost-found"
+        mkdir -p "$root/lost+found"
+        bash "$MARKER_HELPER" "$component" rocksdb "$root" false >/dev/null
+        grep -qx provider=rocksdb "$root/.hugegraph-rocksdb-provider"
+        [ -d "$root/lost+found" ] || fail "$component lost+found was changed"
+        echo "PASS: $component empty filesystem root is claimed with lost+found intact"
+
+        root="$TEST_ROOT/$component-pending"
+        mkdir "$root"
+        touch "$root/.provider-marker.pending"
+        if bash "$MARKER_HELPER" "$component" rocksdb "$root" false > "$TEST_ROOT/output" 2>&1; then
+            fail "$component treated interrupted ownership initialization as legacy data"
+        fi
+        grep -Fq 'initialization is in progress' "$TEST_ROOT/output"
+        [ -f "$root/.provider-marker.pending" ] || fail "$component pending evidence was removed"
+        [ ! -e "$root/.hugegraph-rocksdb-provider" ] || fail "$component pending root was relabeled"
+        echo "PASS: $component interrupted marker claim remains fail-closed"
+
+        root="$TEST_ROOT/$component-race"
+        mkdir "$root"
+        bash "$MARKER_HELPER" "$component" rocksdb "$root" false > "$TEST_ROOT/standard.log" 2>&1 &
+        standard_pid=$!
+        bash "$MARKER_HELPER" "$component" topling "$root" false > "$TEST_ROOT/topling.log" 2>&1 &
+        topling_pid=$!
+        standard_status=0
+        topling_status=0
+        wait "$standard_pid" || standard_status=$?
+        standard_pid=""
+        wait "$topling_pid" || topling_status=$?
+        topling_pid=""
+        if [ "$standard_status" = 0 ] && [ "$topling_status" = 0 ]; then
+            fail "$component admitted both providers for an empty root"
+        fi
+        if [ "$standard_status" != 0 ] && [ "$topling_status" != 0 ]; then
+            cat "$TEST_ROOT/standard.log" "$TEST_ROOT/topling.log"
+            fail "$component did not admit either provider for an empty root"
+        fi
+        if [ "$standard_status" = 0 ]; then provider=rocksdb; else provider=topling; fi
+        grep -qx "provider=$provider" "$root/.hugegraph-rocksdb-provider"
+        echo "PASS: $component real helper serializes competing provider claims"
+    done
+
     rm -rf "$TEST_ROOT/race" "$TEST_ROOT/barrier"
     mkdir "$TEST_ROOT/race" "$TEST_ROOT/barrier"
     run_standard_actor > "$TEST_ROOT/standard.log" 2>&1 &

@@ -125,6 +125,9 @@ rsync --archive \
       --exclude='/pd_data' \
       --exclude='/rocksdb-data' \
       --exclude='/storage' \
+      --exclude='/topling-data' \
+      --exclude='/topling-pd-data' \
+      --exclude='/topling-storage' \
       "$STANDARD_DIR/" "$STAGING_DIR/"
 
 for runtime_path in \
@@ -133,7 +136,10 @@ for runtime_path in \
     logs \
     pd_data \
     rocksdb-data \
-    storage; do
+    storage \
+    topling-data \
+    topling-pd-data \
+    topling-storage; do
     if [ -e "$STAGING_DIR/$runtime_path" ] ||
        [ -L "$STAGING_DIR/$runtime_path" ]; then
         echo "Error: runtime state leaked into staging: $runtime_path" >&2

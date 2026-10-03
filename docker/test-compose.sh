@@ -156,13 +156,18 @@ assert_common() {
     local services="$2"
     local volumes="$3"
 
+    # Compose may retain all declared volumes or prune unused ones. Accept
+    # exactly either shape; mounted sources must still belong to the declaration.
     jq -e \
        --arg password "${PASSWORD}" \
        --arg secret "${SECRET}" \
        --argjson services "${services}" \
        --argjson volumes "${volumes}" '
+        ([.services[].volumes[]? | select(.type == "volume") | .source] | unique) as $used_volumes |
         (.services | keys) == $services and
-        (.volumes | keys) == $volumes and
+        ($used_volumes - $volumes | length) == 0 and
+        ((.volumes | keys) == $volumes or
+         (.volumes | keys) == $used_volumes) and
         (.networks | keys) == ["hg-net"] and
         all(.networks[]; .external != true) and
         all(.volumes[]; .external != true) and
@@ -246,7 +251,7 @@ assert_standalone() {
     local rendered="$1"
     assert_common "${rendered}" \
                   '["hubble","server"]' \
-                  '["hubble-data","server-data"]'
+                  '["hubble-data","server-data","server-topling-data"]'
     assert_hubble "${rendered}" "standalone.properties" server
     jq -e '
         .services.server.image == "hugegraph/hugegraph:ci-version" and
@@ -267,7 +272,7 @@ assert_hstore() {
     local rendered="$1"
     assert_common "${rendered}" \
                   '["hubble","pd","server","store"]' \
-                  '["hubble-data","pd-data","store-data"]'
+                  '["hubble-data","pd-data","pd-topling-data","store-data","store-topling-data"]'
     assert_hubble "${rendered}" "hstore.local.properties" server
     assert_hubble_bind_pinned "${DOCKER_DIR}/docker-compose-hstore.yml" \
                               "hstore.local.properties"
@@ -298,11 +303,42 @@ assert_hstore() {
                          "operations.store.allowed_targets=[http://store:8520]"
 }
 
+# Pin every node independently: distinct declared volumes alone do not prove
+# that each service mounts its own provider-specific data volume.
+assert_ha_data_volumes() {
+    local rendered="$1" suffix="$2" pd_path="$3" store_path="$4" provider="$5" marker="$6"
+    jq -e --arg suffix "$suffix" --arg pd_path "$pd_path" \
+       --arg store_path "$store_path" --arg provider "$provider" --arg marker "$marker" '
+        . as $model |
+        all(range(0; 3); tostring as $i |
+            $model.services["pd" + $i] as $pd |
+            $model.services["store" + $i] as $store |
+            ($pd.volumes | length) == 1 and
+            $pd.volumes[0].type == "volume" and
+            $pd.volumes[0].source == ("hg-pd" + $i + $suffix) and
+            $pd.volumes[0].target == $pd_path and
+            $pd.environment.HG_PD_DATA_PATH == $pd_path and
+            $pd.environment.HG_PD_ROCKSDB_PROVIDER == $provider and
+            $pd.environment.HG_PD_ENFORCE_PROVIDER_MARKER == $marker and
+            ($store.volumes | length) == 1 and
+            $store.volumes[0].type == "volume" and
+            $store.volumes[0].source == ("hg-store" + $i + $suffix) and
+            $store.volumes[0].target == $store_path and
+            $store.environment.HG_STORE_DATA_PATH == $store_path and
+            $store.environment.HG_STORE_ROCKSDB_PROVIDER == $provider and
+            $store.environment.HG_STORE_ENFORCE_PROVIDER_MARKER == $marker)
+    ' "${rendered}" >/dev/null
+}
+
 assert_ha() {
     local rendered="$1"
+    assert_ha_data_volumes "$rendered" "-data" \
+        /hugegraph-pd/pd_data /hugegraph-store/storage rocksdb false
     assert_common "${rendered}" \
         '["hubble","pd0","pd1","pd2","server0","server1","server2","store0","store1","store2"]' \
-        '["hg-pd0-data","hg-pd1-data","hg-pd2-data","hg-store0-data","hg-store1-data","hg-store2-data","hubble-data"]'
+        '["hg-pd0-data","hg-pd0-topling-data","hg-pd1-data","hg-pd1-topling-data",
+          "hg-pd2-data","hg-pd2-topling-data","hg-store0-data","hg-store0-topling-data",
+          "hg-store1-data","hg-store1-topling-data","hg-store2-data","hg-store2-topling-data","hubble-data"]'
     assert_hubble "${rendered}" "hstore-ha.local.properties" \
                   server0 server1 server2
     assert_hubble_bind_pinned \
@@ -351,7 +387,7 @@ assert_dev_override() {
     local override="$2"
     assert_common "${rendered}" \
                   '["hubble","pd","server","store"]' \
-                  '["hubble-data","pd-data","store-data"]'
+                  '["hubble-data","pd-data","pd-topling-data","store-data","store-topling-data"]'
     jq -e '
         .services.pd.image == "hugegraph/pd:dev" and
         .services.store.image == "hugegraph/store:dev" and
@@ -409,6 +445,8 @@ assert_topling_hstore() {
 
 assert_topling_ha() {
     local rendered="$1"
+    assert_ha_data_volumes "$rendered" "-topling-data" \
+        /hugegraph-pd/topling-pd-data /hugegraph-store/topling-storage topling true
     jq -e '
         .name == "hugegraph-3x3" and
         ([.services.pd0, .services.pd1, .services.pd2] |

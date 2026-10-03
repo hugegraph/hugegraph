@@ -81,6 +81,8 @@ jobs:
             touch "$SERVER_DIR/bin/pid"
             mkdir -p "$SERVER_DIR/logs"
             touch "$SERVER_DIR/logs/topling-ci-marker"
+            mkdir -p "$SERVER_DIR/topling-data"
+            printf '%s\n' 'topling-ci-server-data' > "$SERVER_DIR/topling-data/topling-ci-marker"
             install-dist/scripts/build-topling-distribution.sh server "$VERSION"
             SERVER_DIR="$SERVER_DIR-topling"
           else

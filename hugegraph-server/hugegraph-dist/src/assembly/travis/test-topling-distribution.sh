@@ -47,16 +47,22 @@ if [ "${TOPLING_EXPECT_DIRTY_STANDARD:-false}" = "true" ]; then
         server)
             [ -e "$STANDARD_DIR/logs/topling-ci-marker" ] ||
                 fail "standard Server has no logs test fixture"
+            DIRTY_TOPLING_DATA="$STANDARD_DIR/topling-data"
             ;;
         pd)
             [ -L "$STANDARD_DIR/pd_data" ] ||
                 fail "standard PD has no pd_data symlink test fixture"
+            DIRTY_TOPLING_DATA="$STANDARD_DIR/topling-pd-data"
             ;;
         store)
             [ -e "$STANDARD_DIR/storage" ] ||
                 fail "standard Store has no storage test fixture"
+            DIRTY_TOPLING_DATA="$STANDARD_DIR/topling-storage"
             ;;
     esac
+    [ -f "$DIRTY_TOPLING_DATA/topling-ci-marker" ] &&
+        grep -qx "topling-ci-$COMPONENT-data" "$DIRTY_TOPLING_DATA/topling-ci-marker" ||
+        fail "standard distribution has no Topling data test fixture: $DIRTY_TOPLING_DATA"
 fi
 
 for helper in common-topling.sh prepare-topling.sh preload-topling.sh \
@@ -71,6 +77,18 @@ if [ "$COMPONENT" = server ]; then
     for distribution in "$STANDARD_DIR" "$TOPLING_DIR"; do
         [ -r "$distribution/bin/rocksdb-server-config.sh" ] ||
             fail "Server distribution is missing rocksdb-server-config.sh"
+    done
+fi
+
+if [ "$COMPONENT" = pd ]; then
+    for distribution in "$STANDARD_DIR" "$TOPLING_DIR"; do
+        PD_JARS=("$distribution"/lib/hg-pd-service-*.jar)
+        [ "${#PD_JARS[@]}" -eq 1 ] && [ -r "${PD_JARS[0]}" ] ||
+            fail "PD distribution must contain one executable service JAR: $distribution"
+        PD_JAR_ENTRIES=$(unzip -Z1 "${PD_JARS[0]}") ||
+            fail "cannot read PD executable service JAR: ${PD_JARS[0]}"
+        grep -qx 'BOOT-INF/classes/org/apache/hugegraph/pd/boot/HugePDServer.class' \
+            <<<"$PD_JAR_ENTRIES" || fail "PD service JAR contains no application entry point"
     done
 fi
 
@@ -92,7 +110,8 @@ grep -qx 'provider=topling' "$TOPLING_DIR/lib/topling/runtime.properties" ||
 grep -Eq '^[[:space:]]*(rocksdb\.provider=|provider:[[:space:]]*)topling([[:space:]]|$)' \
     "$CONFIG_FILE" || fail "Topling provider is not selected in $CONFIG_FILE"
 
-for runtime_path in bin/pid logs pd_data rocksdb-data storage; do
+for runtime_path in bin/pid logs pd_data rocksdb-data storage \
+                    topling-data topling-pd-data topling-storage; do
     if [ -e "$TOPLING_DIR/$runtime_path" ] ||
        [ -L "$TOPLING_DIR/$runtime_path" ]; then
         fail "runtime state leaked into Topling directory: $runtime_path"
@@ -101,7 +120,7 @@ done
 
 [ -r "$TOPLING_TAR" ] || fail "Topling archive not found: $TOPLING_TAR"
 ARCHIVE_LIST=$(tar -tzf "$TOPLING_TAR")
-if grep -Eq '/(bin/pid|logs|pd_data|rocksdb-data|storage)(/|$)' \
+if grep -Eq '/(bin/pid|logs|pd_data|rocksdb-data|storage|topling-data|topling-pd-data|topling-storage)(/|$)' \
         <<<"$ARCHIVE_LIST"; then
     fail "runtime state leaked into Topling archive"
 fi

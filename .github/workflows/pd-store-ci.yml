@@ -204,8 +204,12 @@ jobs:
             touch "$COMPONENT_DIR/bin/pid"
             if [ "${{ matrix.component }}" = "pd" ]; then
               ln -s /missing/topling-ci-pd-data "$COMPONENT_DIR/pd_data"
+              mkdir -p "$COMPONENT_DIR/topling-pd-data"
+              printf '%s\n' 'topling-ci-pd-data' > "$COMPONENT_DIR/topling-pd-data/topling-ci-marker"
             else
               touch "$COMPONENT_DIR/storage"
+              mkdir -p "$COMPONENT_DIR/topling-storage"
+              printf '%s\n' 'topling-ci-store-data' > "$COMPONENT_DIR/topling-storage/topling-ci-marker"
             fi
             install-dist/scripts/build-topling-distribution.sh \
                 "${{ matrix.component }}" "$VERSION"
