@@ -64,7 +64,6 @@ public class ScanStreamResponse implements StreamObserver<ScanStreamReq> {
     private final Object cancellationLock = new Object();
     private final Object responseLock = new Object();
     private Thread worker;
-    private Thread receiver;
 
     private void cancel() {
         this.isStop.set(true);
@@ -73,9 +72,6 @@ public class ScanStreamResponse implements StreamObserver<ScanStreamReq> {
         synchronized (this.cancellationLock) {
             if (this.worker != null && this.worker != current) {
                 this.worker.interrupt();
-            }
-            if (this.receiver != null && this.receiver != current) {
-                this.receiver.interrupt();
             }
         }
     }
@@ -190,11 +186,23 @@ public class ScanStreamResponse implements StreamObserver<ScanStreamReq> {
                         }
                         dataBuilder.addData(toKv(kvBuilder, iterator.next(), iterator.position()));
                     }
+                    if (this.isStop.get()) {
+                        return;
+                    }
+                    if (Thread.currentThread().isInterrupted()) {
+                        this.failServer(HgGrpc.toErr(Status.Code.CANCELLED, "Scanning interrupted"));
+                        return;
+                    }
                     this.channel.send(dataBuilder);
                 } catch (Throwable t) {
+                    if (this.isStop.get()) {
+                        return;
+                    }
                     String msg = "an exception occurred while scanning data:";
-                    StatusRuntimeException ex =
-                            HgGrpc.toErr(Status.INTERNAL, msg + t.getMessage(), t);
+                    Status status = t instanceof InterruptedException ||
+                                    Thread.currentThread().isInterrupted() ?
+                                    Status.CANCELLED : Status.INTERNAL;
+                    StatusRuntimeException ex = HgGrpc.toErr(status, msg + t.getMessage(), t);
                     this.failServer(ex);
                 } finally {
                     try {
@@ -239,23 +247,20 @@ public class ScanStreamResponse implements StreamObserver<ScanStreamReq> {
         KvPageRes.Builder resBuilder;
 
         try {
-            synchronized (this.cancellationLock) {
-                if (this.isStop.get()) {
-                    return;
-                }
-                this.receiver = Thread.currentThread();
+            if (this.isStop.get()) {
+                return;
             }
             resBuilder = this.channel.receive();
             times++;
         } catch (Exception e) {
-            String msg = "failed to poll a page of data, cause by:";
-            log.error(msg, e);
-            this.failServer(HgGrpc.toErr(msg + e.getMessage()));
-            return;
-        } finally {
-            synchronized (this.cancellationLock) {
-                this.receiver = null;
+            if (this.isStop.get()) {
+                return;
             }
+            String msg = "failed to poll a page of data, cause by:";
+            Status status = Thread.currentThread().isInterrupted() ? Status.CANCELLED : Status.INTERNAL;
+            log.error(msg, e);
+            this.failServer(HgGrpc.toErr(status, msg + e.getMessage(), e));
+            return;
         }
         boolean isOver = false;
         if (resBuilder == null || resBuilder.getDataList() == null ||

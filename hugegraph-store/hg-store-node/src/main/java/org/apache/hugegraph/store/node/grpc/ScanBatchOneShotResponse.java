@@ -94,6 +94,10 @@ public class ScanBatchOneShotResponse {
             if (Context.current().isCancelled()) {
                 return;
             }
+            if (Thread.currentThread().isInterrupted()) {
+                responseObserver.onError(HgGrpc.toErr(Status.Code.CANCELLED, "Scanning interrupted"));
+                return;
+            }
             responseObserver.onNext(resBuilder.build());
             responseObserver.onCompleted();
 
