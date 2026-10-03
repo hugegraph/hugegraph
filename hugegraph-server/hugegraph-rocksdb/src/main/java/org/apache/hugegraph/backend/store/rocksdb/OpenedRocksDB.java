@@ -19,6 +19,7 @@ package org.apache.hugegraph.backend.store.rocksdb;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.channels.FileChannel;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Map;
@@ -44,9 +45,16 @@ public class OpenedRocksDB implements AutoCloseable {
     private final RocksDB rocksdb;
     private final Map<String, CFHandle> cfHandles;
     private final SstFileManager sstFileManager;
+    private FileChannel recoveryLock;
 
     public OpenedRocksDB(RocksDB rocksdb, Map<String, CFHandle> cfHandles,
                          SstFileManager sstFileManager) {
+        this(rocksdb, cfHandles, sstFileManager, null);
+    }
+
+    OpenedRocksDB(RocksDB rocksdb, Map<String, CFHandle> cfHandles,
+                 SstFileManager sstFileManager, FileChannel recoveryLock) {
+        this.recoveryLock = recoveryLock;
         this.rocksdb = rocksdb;
         this.cfHandles = cfHandles;
         this.sstFileManager = sstFileManager;
@@ -82,6 +90,31 @@ public class OpenedRocksDB implements AutoCloseable {
 
     @Override
     public void close() {
+        try {
+            this.closeNative();
+        } finally {
+            if (!this.isOwningHandle()) {
+                RocksDBSnapshotRestore.unlock(this.recoveryLock);
+            }
+        }
+    }
+
+    // Transfer the existing lock to the replacement DB without an unlocked gap.
+    FileChannel closeForRestore() {
+        try {
+            this.closeNative();
+        } catch (RuntimeException | Error e) {
+            if (!this.isOwningHandle()) {
+                RocksDBSnapshotRestore.unlock(this.recoveryLock);
+            }
+            throw e;
+        }
+        FileChannel transferred = this.recoveryLock;
+        this.recoveryLock = null;
+        return transferred != null && transferred.isOpen() ? transferred : null;
+    }
+
+    private void closeNative() {
         if (!this.isOwningHandle()) {
             return;
         }
@@ -89,7 +122,6 @@ public class OpenedRocksDB implements AutoCloseable {
             cf.close();
         }
         this.cfHandles.clear();
-
         this.rocksdb.close();
     }
 
