@@ -1,0 +1,405 @@
+path	source_hunk	unit	reason
+.dockerignore	@@ -22,6 +22,7 @@	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+.github/configs/settings.xml	@@ -27,6 +27,13 @@	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+.github/workflows/check-dependencies.yml	@@ -25,8 +25,10 @@ jobs:	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+.github/workflows/cluster-test-ci.yml	@@ -30,7 +30,9 @@ jobs:	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+.github/workflows/codeql-analysis.yml	@@ -12,7 +12,9 @@ on:	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+.github/workflows/commons-ci.yml	@@ -9,16 +9,22 @@ on:	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+.github/workflows/docker-build-ci.yml	@@ -64,7 +64,9 @@ jobs:	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+.github/workflows/docker-build-ci.yml	@@ -89,7 +91,11 @@ jobs:	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+.github/workflows/docker-build-ci.yml	@@ -101,42 +107,276 @@ jobs:	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+.github/workflows/licence-checker.yml	@@ -11,7 +11,9 @@ jobs:	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+.github/workflows/pd-store-ci.yml	@@ -26,8 +26,154 @@ on:	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+.github/workflows/pd-store-ci.yml	@@ -86,11 +232,13 @@ jobs:	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+.github/workflows/pd-store-ci.yml	@@ -117,10 +265,15 @@ jobs:	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+.github/workflows/pd-store-ci.yml	@@ -224,11 +377,13 @@ jobs:	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+.github/workflows/pd-store-ci.yml	@@ -255,10 +410,15 @@ jobs:	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+.github/workflows/pd-store-ci.yml	@@ -368,11 +528,13 @@ jobs:	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+.github/workflows/pd-store-ci.yml	@@ -393,6 +555,10 @@ jobs:	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+.github/workflows/pd-store-ci.yml	@@ -403,6 +569,9 @@ jobs:	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+.github/workflows/server-ci.yml	@@ -9,6 +9,117 @@ on:	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+.github/workflows/server-ci.yml	@@ -24,8 +135,11 @@ jobs:	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+.github/workflows/server-ci.yml	@@ -35,6 +149,8 @@ jobs:	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+.github/workflows/server-ci.yml	@@ -55,16 +171,16 @@ jobs:	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+.github/workflows/server-ci.yml	@@ -78,9 +194,14 @@ jobs:	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+.github/workflows/server-ci.yml	@@ -132,6 +253,8 @@ jobs:	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+.goal-task/toplingdb-linux-closure/lessons.md	@@ -0,0 +1,57 @@	EXCLUDE	来源审计/规划/绘图材料，不进入功能PR
+.goal-task/toplingdb-linux-closure/linux.md	@@ -0,0 +1,309 @@	EXCLUDE	来源审计/规划/绘图材料，不进入功能PR
+.goal-task/toplingdb-linux-closure/mac.md	@@ -0,0 +1,237 @@	EXCLUDE	来源审计/规划/绘图材料，不进入功能PR
+.goal-task/toplingdb-linux-closure/pr-split-handoff.md	@@ -0,0 +1,135 @@	EXCLUDE	来源审计/规划/绘图材料，不进入功能PR
+.goal-task/toplingdb-linux-closure/state.md	@@ -0,0 +1,34 @@	EXCLUDE	来源审计/规划/绘图材料，不进入功能PR
+.goal-task/toplingdb-linux-closure/todo.md	@@ -0,0 +1,33 @@	EXCLUDE	来源审计/规划/绘图材料，不进入功能PR
+.specs/hugegraph-server/ToplingDB/design.md	@@ -0,0 +1,159 @@	EXCLUDE	来源审计/规划/绘图材料，不进入功能PR
+.specs/hugegraph-server/ToplingDB/requirements.md	@@ -0,0 +1,48 @@	EXCLUDE	来源审计/规划/绘图材料，不进入功能PR
+.specs/hugegraph-server/ToplingDB/task.md	@@ -0,0 +1,32 @@	EXCLUDE	来源审计/规划/绘图材料，不进入功能PR
+README.md	@@ -16,7 +16,10 @@	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+README.md	@@ -31,7 +34,12 @@ achieved through the powerful [Gremlin](https://tinkerpop.apache.org/gremlin.htm	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+docker/README.md	@@ -18,6 +18,15 @@ cd docker	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+docker/README.md	@@ -206,6 +215,147 @@ HUGEGRAPH_VERSION=1.7.0 \	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+docker/README.md	@@ -273,6 +423,75 @@ HUBBLE_PULL_POLICY=never \	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+docker/bake.hcl	"@@ -31,6 +31,10 @@ variable ""SOURCE_REVISION"" {"	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+docker/bake.hcl	"@@ -43,15 +47,26 @@ variable ""EXPORT_CACHE"" {"	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+docker/bake.hcl	"@@ -77,6 +92,7 @@ target ""build-cache"" {"	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+docker/bake.hcl	"@@ -91,6 +107,7 @@ target ""pd"" {"	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+docker/bake.hcl	"@@ -119,6 +136,7 @@ target ""server-hstore"" {"	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+docker/docker-compose-3pd-3store-3server.yml	@@ -23,17 +23,23 @@ networks:	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+docker/docker-compose-3pd-3store-3server.yml	@@ -44,8 +50,8 @@ x-pd-common: &pd-common	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+docker/docker-compose-3pd-3store-3server.yml	@@ -77,8 +83,8 @@ x-server-environment: &server-environment	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+docker/docker-compose-3pd-3store-3server.yml	@@ -110,12 +116,14 @@ services:	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+docker/docker-compose-3pd-3store-3server.yml	@@ -129,12 +137,14 @@ services:	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+docker/docker-compose-3pd-3store-3server.yml	@@ -148,12 +158,14 @@ services:	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+docker/docker-compose-3pd-3store-3server.yml	@@ -166,10 +178,12 @@ services:	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+docker/docker-compose-3pd-3store-3server.yml	@@ -181,10 +195,12 @@ services:	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+docker/docker-compose-3pd-3store-3server.yml	@@ -196,10 +212,12 @@ services:	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+docker/docker-compose-hstore.yml	@@ -22,13 +22,15 @@ networks:	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+docker/docker-compose-hstore.yml	@@ -38,12 +40,14 @@ services:	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+docker/docker-compose-hstore.yml	@@ -52,8 +56,8 @@ services:	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+docker/docker-compose-hstore.yml	@@ -65,11 +69,13 @@ services:	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+docker/docker-compose-hstore.yml	@@ -78,8 +84,8 @@ services:	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+docker/docker-compose.dev.yml	@@ -17,26 +17,28 @@	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+docker/docker-compose.yml	@@ -22,26 +22,30 @@ networks:	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+docker/test-compose.sh	@@ -52,6 +52,66 @@ compose_auth() {	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+docker/test-compose.sh	@@ -313,6 +373,60 @@ assert_dev_override() {	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+docker/test-compose.sh	@@ -400,12 +514,22 @@ run_render() {	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+docs/toplingdb/README.md	@@ -0,0 +1,33 @@	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+docs/toplingdb/images/issues/v1/README.md	@@ -0,0 +1,29 @@	EXCLUDE	来源审计/规划/绘图材料，不进入功能PR
+docs/toplingdb/images/issues/v1/assets.json	@@ -0,0 +1,148 @@	EXCLUDE	来源审计/规划/绘图材料，不进入功能PR
+docs/toplingdb/images/issues/v1/index.html	@@ -0,0 +1,19 @@	EXCLUDE	来源审计/规划/绘图材料，不进入功能PR
+docs/toplingdb/images/issues/v1/issue-212-cf-lifecycle.png	[binary/no patch]	EXCLUDE	来源审计/规划/绘图材料，不进入功能PR
+docs/toplingdb/images/issues/v1/issue-213-jni-provenance.png	[binary/no patch]	EXCLUDE	来源审计/规划/绘图材料，不进入功能PR
+docs/toplingdb/images/issues/v1/issue-240-overview.png	[binary/no patch]	EXCLUDE	来源审计/规划/绘图材料，不进入功能PR
+docs/toplingdb/images/issues/v1/issue-248-restart-investigation.png	[binary/no patch]	EXCLUDE	来源审计/规划/绘图材料，不进入功能PR
+docs/toplingdb/images/issues/v1/issue-249-wal-recovery.png	[binary/no patch]	EXCLUDE	来源审计/规划/绘图材料，不进入功能PR
+docs/toplingdb/images/issues/v1/issue-250-provider-source.png	[binary/no patch]	EXCLUDE	来源审计/规划/绘图材料，不进入功能PR
+docs/toplingdb/images/issues/v1/issue-251-graphs-directory.png	[binary/no patch]	EXCLUDE	来源审计/规划/绘图材料，不进入功能PR
+docs/toplingdb/images/issues/v1/issue-252-benchmark-plan.png	[binary/no patch]	EXCLUDE	来源审计/规划/绘图材料，不进入功能PR
+docs/toplingdb/images/issues/v1/issue-253-all-data-roots.png	[binary/no patch]	EXCLUDE	来源审计/规划/绘图材料，不进入功能PR
+docs/toplingdb/images/issues/v1/issue-254-truncate-coverage.png	[binary/no patch]	EXCLUDE	来源审计/规划/绘图材料，不进入功能PR
+docs/toplingdb/images/issues/v1/issue-255-diagnostic-gates.png	[binary/no patch]	EXCLUDE	来源审计/规划/绘图材料，不进入功能PR
+docs/toplingdb/images/issues/v1/prompts.json	@@ -0,0 +1,100 @@	EXCLUDE	来源审计/规划/绘图材料，不进入功能PR
+docs/toplingdb/toplingdb-development.md	@@ -0,0 +1,315 @@	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+docs/toplingdb/toplingdb-hstore-integration.md	@@ -0,0 +1,95 @@	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+docs/toplingdb/toplingdb-operations.md	@@ -0,0 +1,105 @@	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+docs/toplingdb/toplingdb-quickstart.md	@@ -0,0 +1,346 @@	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+docs/toplingdb/toplingdb-security.md	@@ -0,0 +1,90 @@	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+docs/toplingdb/toplingdb-troubleshooting.md	@@ -0,0 +1,104 @@	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+docs/toplingdb/toplingdb.md	@@ -0,0 +1,134 @@	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-cluster-test/README.md	@@ -0,0 +1,22 @@	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-cluster-test/hugegraph-clustertest-dist/src/assembly/static/conf/rest-server.properties.template	@@ -19,10 +19,13 @@	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-cluster-test/hugegraph-clustertest-minicluster/pom.xml	@@ -51,7 +51,8 @@	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-cluster-test/hugegraph-clustertest-minicluster/src/main/java/org/apache/hugegraph/ct/config/ClusterConfig.java	@@ -59,6 +59,7 @@ public ClusterConfig(int pdCnt, int storeCnt, int serverCnt) {	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-cluster-test/hugegraph-clustertest-minicluster/src/main/java/org/apache/hugegraph/ct/config/ServerConfig.java	@@ -24,6 +24,7 @@	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-cluster-test/hugegraph-clustertest-minicluster/src/main/java/org/apache/hugegraph/ct/config/ServerConfig.java	@@ -32,16 +33,23 @@ public class ServerConfig extends AbstractConfig {	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-cluster-test/hugegraph-clustertest-minicluster/src/main/java/org/apache/hugegraph/ct/config/ServerConfig.java	@@ -51,4 +59,3 @@ public void setRole(String role) {	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-cluster-test/hugegraph-clustertest-minicluster/src/main/java/org/apache/hugegraph/ct/env/AbstractEnv.java	@@ -21,13 +21,16 @@	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-cluster-test/hugegraph-clustertest-minicluster/src/main/java/org/apache/hugegraph/ct/env/AbstractEnv.java	@@ -41,6 +44,8 @@ public abstract class AbstractEnv implements BaseEnv {	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-cluster-test/hugegraph-clustertest-minicluster/src/main/java/org/apache/hugegraph/ct/env/AbstractEnv.java	@@ -71,9 +76,11 @@ protected void init(int pdCnt, int storeCnt, int serverCnt) {	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-cluster-test/hugegraph-clustertest-minicluster/src/main/java/org/apache/hugegraph/ct/env/AbstractEnv.java	@@ -87,47 +94,94 @@ protected void init(int pdCnt, int storeCnt, int serverCnt) {	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-cluster-test/hugegraph-clustertest-minicluster/src/main/java/org/apache/hugegraph/ct/node/AbstractNodeWrapper.java	@@ -28,6 +28,7 @@	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-cluster-test/hugegraph-clustertest-minicluster/src/main/java/org/apache/hugegraph/ct/node/AbstractNodeWrapper.java	@@ -158,29 +159,61 @@ public boolean isStarted() {	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-cluster-test/hugegraph-clustertest-minicluster/src/main/java/org/apache/hugegraph/ct/node/ServerNodeWrapper.java	@@ -40,6 +40,8 @@	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-cluster-test/hugegraph-clustertest-minicluster/src/main/java/org/apache/hugegraph/ct/node/ServerNodeWrapper.java	@@ -49,19 +51,48 @@	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-cluster-test/hugegraph-clustertest-minicluster/src/main/java/org/apache/hugegraph/ct/node/StoreNodeWrapper.java	@@ -39,7 +39,7 @@ public StoreNodeWrapper() {	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-cluster-test/hugegraph-clustertest-minicluster/src/main/java/org/apache/hugegraph/ct/node/StoreNodeWrapper.java	@@ -48,7 +48,7 @@ public StoreNodeWrapper(int clusterId, int index) {	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-cluster-test/hugegraph-clustertest-minicluster/src/test/java/org/apache/hugegraph/ct/env/NodeStartupTest.java	@@ -0,0 +1,180 @@	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-cluster-test/hugegraph-clustertest-minicluster/src/test/java/org/apache/hugegraph/ct/node/NodeProcessTest.java	@@ -0,0 +1,232 @@	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-cluster-test/hugegraph-clustertest-test/src/main/java/org/apache/hugegraph/LoggingBindingTest.java	@@ -0,0 +1,33 @@	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-cluster-test/hugegraph-clustertest-test/src/main/java/org/apache/hugegraph/MultiClusterTest/MultiClusterSuiteTest.java	@@ -17,13 +17,15 @@	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-cluster-test/hugegraph-clustertest-test/src/main/java/org/apache/hugegraph/SimpleClusterTest/BaseSimpleTest.java	@@ -74,7 +74,10 @@ public static void initEnv() {	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-cluster-test/hugegraph-clustertest-test/src/main/java/org/apache/hugegraph/SimpleClusterTest/SimpleClusterDeployTest.java	@@ -19,13 +19,16 @@	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-cluster-test/hugegraph-clustertest-test/src/main/java/org/apache/hugegraph/SimpleClusterTest/SimpleClusterDeployTest.java	@@ -113,4 +116,10 @@ public void testServerNode() {	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-cluster-test/hugegraph-clustertest-test/src/main/java/org/apache/hugegraph/SimpleClusterTest/SimpleClusterFileTest.java	@@ -18,6 +18,10 @@	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-cluster-test/hugegraph-clustertest-test/src/main/java/org/apache/hugegraph/SimpleClusterTest/SimpleClusterFileTest.java	@@ -45,4 +49,17 @@ public void checkServerNodeDir() {	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-cluster-test/hugegraph-clustertest-test/src/main/java/org/apache/hugegraph/SimpleClusterTest/SimpleClusterSuiteTest.java	@@ -17,13 +17,15 @@	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-commons/hugegraph-common/src/test/java/org/apache/hugegraph/unit/license/MachineInfoTest.java	@@ -18,6 +18,7 @@	DEFER	既有行为覆盖增强、JRaft测试整理或纯格式；不机械搬入，若构造实测证实本次必要则重分类
+hugegraph-commons/hugegraph-common/src/test/java/org/apache/hugegraph/unit/license/MachineInfoTest.java	@@ -33,10 +34,6 @@ public class MachineInfoTest {	DEFER	既有行为覆盖增强、JRaft测试整理或纯格式；不机械搬入，若构造实测证实本次必要则重分类
+hugegraph-commons/hugegraph-common/src/test/java/org/apache/hugegraph/unit/license/MachineInfoTest.java	@@ -47,8 +44,7 @@ public class MachineInfoTest {	DEFER	既有行为覆盖增强、JRaft测试整理或纯格式；不机械搬入，若构造实测证实本次必要则重分类
+hugegraph-commons/hugegraph-common/src/test/java/org/apache/hugegraph/unit/license/MachineInfoTest.java	@@ -67,8 +63,47 @@ public void testGetLocalAllInetAddress() {	DEFER	既有行为覆盖增强、JRaft测试整理或纯格式；不机械搬入，若构造实测证实本次必要则重分类
+hugegraph-pd/Dockerfile	@@ -33,9 +33,9 @@ RUN --mount=type=cache,id=hugegraph-maven-${SOURCE_REVISION},target=/root/.m2,sh	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-pd/Dockerfile	@@ -56,21 +56,82 @@ RUN apt-get -q update \	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-pd/docs/development.md	@@ -93,8 +93,13 @@ mvn clean install -DskipTests	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-pd/hg-pd-core/pom.xml	@@ -49,7 +49,7 @@	P1	标准RocksDB统一8.10.2及已删除指标枚举适配
+hugegraph-pd/hg-pd-core/src/main/java/org/apache/hugegraph/pd/StoreNodeService.java	@@ -858,6 +858,10 @@ public synchronized void checkStoreStatus() {	P4-REVIEW	PD follower状态刷新及异常保留完整组；通用生产行为，需baseline对照证明本次必要性，否则独立跟进
+hugegraph-pd/hg-pd-core/src/main/java/org/apache/hugegraph/pd/store/HgKVStoreImpl.java	@@ -67,7 +67,7 @@ public void init(PDConfig config) {	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-pd/hg-pd-dist/docker/docker-entrypoint.sh	"@@ -87,8 +87,30 @@ require_env ""HG_PD_AUTH_SECRET_KEY"""	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-pd/hg-pd-dist/docker/docker-entrypoint.sh	"@@ -119,6 +141,7 @@ SPRING_APPLICATION_JSON=""$(cat <<JSON"	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-pd/hg-pd-dist/docker/docker-entrypoint.sh	"@@ -141,6 +164,7 @@ log ""  raft.peers-list=${HG_PD_RAFT_PEERS_LIST}"""	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-pd/hg-pd-dist/pom.xml	@@ -42,6 +42,7 @@	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-pd/hg-pd-dist/src/assembly/descriptor/server-assembly.xml	@@ -41,6 +41,41 @@	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-pd/hg-pd-dist/src/assembly/descriptor/server-assembly.xml	@@ -49,7 +84,7 @@	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-pd/hg-pd-dist/src/assembly/static/bin/start-hugegraph-pd.sh	"@@ -66,6 +66,13 @@ PID_FILE=""$BIN/pid"""	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-pd/hg-pd-dist/src/assembly/static/bin/start-hugegraph-pd.sh	@@ -83,7 +90,7 @@ fi	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-pd/hg-pd-dist/src/assembly/static/bin/start-hugegraph-pd.sh	@@ -163,22 +170,34 @@ fi	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-pd/hg-pd-dist/src/assembly/static/bin/start-hugegraph-pd.sh	@@ -190,10 +209,11 @@ else	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-pd/hg-pd-dist/src/assembly/static/bin/util.sh	@@ -394,3 +394,21 @@ function kill_process_and_wait() {	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-pd/hg-pd-dist/src/assembly/static/conf/application.yml	@@ -42,6 +42,10 @@ grpc:	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-pd/hg-pd-dist/src/assembly/static/conf/rocksdb_pd.yaml	@@ -0,0 +1,164 @@	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-pd/hg-pd-service/pom.xml	@@ -178,6 +178,8 @@	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-pd/hg-pd-service/src/main/java/org/apache/hugegraph/pd/rest/IndexAPI.java	@@ -22,6 +22,7 @@	P4-REVIEW	PD follower状态刷新及异常保留完整组；通用生产行为，需baseline对照证明本次必要性，否则独立跟进
+hugegraph-pd/hg-pd-service/src/main/java/org/apache/hugegraph/pd/rest/IndexAPI.java	@@ -65,7 +66,7 @@ public BriefStatistics index() throws PDException, ExecutionException, Interrupt	P4-REVIEW	PD follower状态刷新及异常保留完整组；通用生产行为，需baseline对照证明本次必要性，否则独立跟进
+hugegraph-pd/hg-pd-service/src/main/java/org/apache/hugegraph/pd/rest/IndexAPI.java	@@ -99,6 +100,19 @@ public BriefStatistics index() throws PDException, ExecutionException, Interrupt	P4-REVIEW	PD follower状态刷新及异常保留完整组；通用生产行为，需baseline对照证明本次必要性，否则独立跟进
+hugegraph-pd/hg-pd-service/src/main/java/org/apache/hugegraph/pd/rest/IndexAPI.java	@@ -109,13 +123,13 @@ public BriefStatistics index() throws PDException, ExecutionException, Interrupt	P4-REVIEW	PD follower状态刷新及异常保留完整组；通用生产行为，需baseline对照证明本次必要性，否则独立跟进
+hugegraph-pd/hg-pd-test/README.md	@@ -0,0 +1,15 @@	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-pd/hg-pd-test/src/main/java/org/apache/hugegraph/pd/core/PDCoreTestBase.java	@@ -44,7 +44,8 @@	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-pd/hg-pd-test/src/main/java/org/apache/hugegraph/pd/rest/IndexAPIClusterStateTest.java	@@ -0,0 +1,64 @@	P4-REVIEW	PD follower状态刷新及异常保留完整组；通用生产行为，需baseline对照证明本次必要性，否则独立跟进
+hugegraph-server/Dockerfile	@@ -33,9 +33,9 @@ RUN --mount=type=cache,id=hugegraph-maven-${SOURCE_REVISION},target=/root/.m2,sh	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-server/Dockerfile	@@ -49,7 +49,7 @@ WORKDIR /hugegraph-server/	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-server/Dockerfile	@@ -59,24 +59,91 @@ RUN apt-get -q update \	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-server/Dockerfile-hstore	@@ -61,6 +61,12 @@ RUN apt-get -q update \	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-server/hugegraph-api/src/main/java/org/apache/hugegraph/auth/HugeFactoryAuthProxy.java	@@ -185,7 +185,7 @@ private static void registerPrivateActions() {	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-server/hugegraph-api/src/main/java/org/apache/hugegraph/auth/HugeFactoryAuthProxy.java	@@ -203,7 +203,8 @@ private static void registerPrivateActions() {	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-server/hugegraph-api/src/main/java/org/apache/hugegraph/auth/HugeFactoryAuthProxy.java	@@ -298,8 +299,10 @@ private static void registerPrivateActions() {	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-server/hugegraph-api/src/main/java/org/apache/hugegraph/auth/HugeGraphAuthProxy.java	@@ -40,6 +40,7 @@	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-server/hugegraph-api/src/main/java/org/apache/hugegraph/auth/HugeGraphAuthProxy.java	@@ -1289,11 +1290,17 @@ public User user() {	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-server/hugegraph-api/src/main/java/org/apache/hugegraph/auth/HugeGraphAuthProxy.java	@@ -1302,7 +1309,13 @@ public void run() {	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-server/hugegraph-api/src/main/java/org/apache/hugegraph/server/ApplicationConfig.java	@@ -18,11 +18,13 @@	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-server/hugegraph-api/src/main/java/org/apache/hugegraph/server/ApplicationConfig.java	@@ -35,6 +37,7 @@	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-server/hugegraph-api/src/main/java/org/apache/hugegraph/server/ApplicationConfig.java	@@ -64,6 +67,8 @@	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-server/hugegraph-api/src/main/java/org/apache/hugegraph/server/ApplicationConfig.java	@@ -195,7 +200,15 @@ public void onEvent(ApplicationEvent event) {	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-server/hugegraph-core/src/main/java/org/apache/hugegraph/HugeFactory.java	@@ -19,7 +19,10 @@	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-server/hugegraph-core/src/main/java/org/apache/hugegraph/HugeFactory.java	@@ -104,11 +107,39 @@ public static HugeGraph open(URL url) {	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-server/hugegraph-core/src/main/java/org/apache/hugegraph/StandardHugeGraph.java	@@ -393,6 +393,10 @@ private void closeTx() {	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-server/hugegraph-core/src/main/java/org/apache/hugegraph/backend/store/BackendSessionPool.java	@@ -56,14 +56,17 @@ public HugeConfig config() {	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-server/hugegraph-core/src/main/java/org/apache/hugegraph/backend/store/BackendSessionPool.java	@@ -131,7 +134,7 @@ public void forceResetSessions() {	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-server/hugegraph-core/src/main/java/org/apache/hugegraph/backend/tx/GraphIndexTransaction.java	@@ -168,15 +168,15 @@ public void updateVertexIndex(HugeVertex vertex, boolean removed) {	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-server/hugegraph-core/src/main/java/org/apache/hugegraph/backend/tx/GraphIndexTransaction.java	@@ -857,6 +857,9 @@ private MatchedIndex collectMatchedIndex(SchemaLabel schemaLabel,	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-server/hugegraph-core/src/main/java/org/apache/hugegraph/backend/tx/GraphIndexTransaction.java	@@ -1557,13 +1560,27 @@ private static void validateIndexLabel(IndexLabel indexLabel) {	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-server/hugegraph-core/src/main/java/org/apache/hugegraph/backend/tx/GraphIndexTransaction.java	@@ -1870,7 +1887,7 @@ private long processSecondaryOrSearchIndexLeft(ConditionQuery query,	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-server/hugegraph-core/src/main/java/org/apache/hugegraph/backend/tx/GraphTransaction.java	@@ -369,7 +369,12 @@ protected void prepareDeletions(Map<Id, HugeVertex> removedVertices,	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-server/hugegraph-core/src/main/java/org/apache/hugegraph/backend/tx/GraphTransaction.java	@@ -621,7 +626,7 @@ public HugeVertex addVertex(HugeVertex vertex) {	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-server/hugegraph-core/src/main/java/org/apache/hugegraph/backend/tx/GraphTransaction.java	@@ -694,7 +699,7 @@ public void removeVertex(HugeVertex vertex) {	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-server/hugegraph-core/src/main/java/org/apache/hugegraph/backend/tx/GraphTransaction.java	@@ -743,7 +748,7 @@ public Iterator<Vertex> queryTaskInfos(Query query) {	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-server/hugegraph-core/src/main/java/org/apache/hugegraph/backend/tx/GraphTransaction.java	@@ -888,7 +893,7 @@ public HugeEdge addEdge(HugeEdge edge) {	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-server/hugegraph-core/src/main/java/org/apache/hugegraph/backend/tx/GraphTransaction.java	@@ -1827,7 +1832,7 @@ private void lockForUpdateProperty(SchemaLabel schemaLabel,	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-server/hugegraph-core/src/main/java/org/apache/hugegraph/security/HugeSecurityManager.java	@@ -63,7 +63,11 @@ public class HugeSecurityManager extends SecurityManager {	P4-REVIEW	Gremlin到HStore transport属性白名单完整组；需baseline对照证明本次必要性，否则独立跟进
+hugegraph-server/hugegraph-core/src/main/java/org/apache/hugegraph/task/StandardTaskScheduler.java	@@ -596,7 +596,7 @@ private <V> Iterator<HugeTask<V>> queryTask(Map<String, Object> conditions,	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-server/hugegraph-core/src/main/java/org/apache/hugegraph/traversal/algorithm/OltpTraverser.java	@@ -43,6 +43,7 @@	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-server/hugegraph-core/src/main/java/org/apache/hugegraph/traversal/algorithm/OltpTraverser.java	@@ -73,7 +74,10 @@ protected OltpTraverser(HugeGraph graph) {	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-server/hugegraph-core/src/test/java/org/apache/hugegraph/security/HugeSecurityManagerTest.java	@@ -36,5 +36,9 @@ public void testWhiteSystemPropertiesExcludeRemovedBackends() throws Exception {	P4-REVIEW	Gremlin到HStore transport属性白名单完整组；需baseline对照证明本次必要性，否则独立跟进
+hugegraph-server/hugegraph-dist/docker/README.md	@@ -27,6 +27,30 @@ Use Docker to quickly start a standalone HugeGraph Server with RocksDB.	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-server/hugegraph-dist/docker/README.md	@@ -159,3 +183,11 @@ docker run -itd --name=graph -p 8080:8080 -e HG_SERVER_STARTUP_TIMEOUT_S=450 hug	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-server/hugegraph-dist/docker/docker-entrypoint-test.sh	"@@ -22,7 +22,11 @@ TEST_HOME=$(mktemp -d ""${TMPDIR:-/tmp}/hugegraph-entrypoint-test.XXXXXX"")"	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-server/hugegraph-dist/docker/docker-entrypoint-test.sh	"@@ -39,6 +43,19 @@ cat > ""${TEST_HOME}/bin/start-hugegraph.sh"" <<'EOF'"	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-server/hugegraph-dist/docker/docker-entrypoint-test.sh	"@@ -65,6 +82,7 @@ chmod +x ""${TEST_HOME}/bin/""*.sh"	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-server/hugegraph-dist/docker/docker-entrypoint-test.sh	"@@ -76,6 +94,8 @@ chmod +x ""${TEST_HOME}/bin/""*.sh"	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-server/hugegraph-dist/docker/docker-entrypoint-test.sh	@@ -89,6 +109,78 @@ grep -qx 'auth.token_secret=12345678901234567890123456789012' \	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-server/hugegraph-dist/docker/docker-entrypoint-test.sh	@@ -117,15 +209,15 @@ if (	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-server/hugegraph-dist/docker/docker-entrypoint-test.sh	@@ -135,7 +227,7 @@ fi	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-server/hugegraph-dist/docker/docker-entrypoint-test.sh	"@@ -181,7 +273,7 @@ sed -i ""s|^auth\\.token_secret=.*|auth.token_secret  ${rest_secret}|"" \"	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-server/hugegraph-dist/docker/docker-entrypoint-test.sh	@@ -230,12 +322,118 @@ grep -Fqx 'auth.admin_pa=Strong\\Pass\ 9!' \	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-server/hugegraph-dist/docker/docker-entrypoint.sh	@@ -19,8 +19,15 @@ set -euo pipefail	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-server/hugegraph-dist/docker/docker-entrypoint.sh	@@ -55,8 +62,25 @@ set_prop_encoded() {	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-server/hugegraph-dist/docker/docker-entrypoint.sh	@@ -90,6 +114,66 @@ migrate_env() {	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-server/hugegraph-dist/docker/docker-entrypoint.sh	@@ -147,6 +231,11 @@ fi	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-server/hugegraph-dist/docker/docker-entrypoint.sh	@@ -192,6 +281,27 @@ esac	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-server/hugegraph-dist/docker/docker-entrypoint.sh	@@ -240,7 +350,56 @@ else	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-server/hugegraph-dist/docker/docker-entrypoint.sh	"@@ -250,9 +409,8 @@ if [[ ""${ACTUAL_BACKEND}"" == ""hstore"" ]]; then"	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-server/hugegraph-dist/pom.xml	@@ -112,6 +112,9 @@	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-server/hugegraph-dist/src/assembly/descriptor/assembly.xml	@@ -37,6 +37,7 @@	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-server/hugegraph-dist/src/assembly/static/bin/common-topling.sh	@@ -0,0 +1,288 @@	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-server/hugegraph-dist/src/assembly/static/bin/dump-store.sh	"@@ -51,5 +51,5 @@ echo ""Dumping HugeGraph Store($conf)..."""	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-server/hugegraph-dist/src/assembly/static/bin/hugegraph-server.sh	@@ -70,17 +70,18 @@ MIN_JAVA_VERSION=11	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-server/hugegraph-dist/src/assembly/static/bin/hugegraph-server.sh	"@@ -90,6 +91,8 @@ export CLASSPATH=""${CLASSPATH:-}:$CP"""	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-server/hugegraph-dist/src/assembly/static/bin/hugegraph-server.sh	@@ -259,13 +262,13 @@ fi	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-server/hugegraph-dist/src/assembly/static/bin/init-store.sh	"@@ -48,13 +48,19 @@ cd ""${TOP}"" || exit"	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-server/hugegraph-dist/src/assembly/static/bin/preload-topling.sh	@@ -0,0 +1,230 @@	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-server/hugegraph-dist/src/assembly/static/bin/prepare-topling.sh	@@ -0,0 +1,34 @@	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-server/hugegraph-dist/src/assembly/static/bin/rocksdb-server-config.sh	@@ -0,0 +1,352 @@	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-server/hugegraph-dist/src/assembly/static/bin/start-hugegraph.sh	"@@ -99,6 +99,8 @@ if [[ $PRELOAD == ""true"" ]]; then"	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-server/hugegraph-dist/src/assembly/static/bin/util.sh	@@ -24,6 +24,75 @@ function command_available() {	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-server/hugegraph-dist/src/assembly/static/bin/verify-rocksdb-provider.sh	@@ -0,0 +1,156 @@	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-server/hugegraph-dist/src/assembly/static/conf/graphs/hugegraph.properties	@@ -43,6 +43,10 @@ search.text_analyzer_mode=INDEX	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-server/hugegraph-dist/src/assembly/static/conf/toplingdb.yaml	@@ -0,0 +1,164 @@	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-server/hugegraph-dist/src/assembly/static/lib/topling/rocksdbjni-8.10.2-20260725.141011-1.jar	[binary/no patch]	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-server/hugegraph-dist/src/assembly/travis/RocksDBRuntimeSmokeTest.java	@@ -0,0 +1,297 @@	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-server/hugegraph-dist/src/assembly/travis/ToplingDiagnosticResourcesTest.java	@@ -0,0 +1,103 @@	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-server/hugegraph-dist/src/assembly/travis/install-deps.sh	@@ -0,0 +1,24 @@	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-server/hugegraph-dist/src/assembly/travis/install-rocksdb.sh	@@ -0,0 +1,197 @@	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-server/hugegraph-dist/src/assembly/travis/run-api-test.sh	@@ -67,6 +67,9 @@ JACOCO_PORT=36320	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-server/hugegraph-dist/src/assembly/travis/run-core-test.sh	@@ -18,5 +18,9 @@	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-server/hugegraph-dist/src/assembly/travis/run-topling-native-diagnostic.sh	@@ -0,0 +1,96 @@	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-server/hugegraph-dist/src/assembly/travis/run-unit-test.sh	@@ -19,6 +19,9 @@ set -ev	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-server/hugegraph-dist/src/assembly/travis/test-java-security-properties.sh	@@ -74,6 +74,11 @@ fi	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-server/hugegraph-dist/src/assembly/travis/test-java-security-properties.sh	@@ -127,11 +132,12 @@ assert_invalid_security_properties() {	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-server/hugegraph-dist/src/assembly/travis/test-java-security-properties.sh	@@ -229,7 +235,7 @@ assert_launcher_accepts_security_properties() {	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-server/hugegraph-dist/src/assembly/travis/test-java-security-properties.sh	@@ -248,7 +254,7 @@ assert_launcher_skips_security_validation() {	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-server/hugegraph-dist/src/assembly/travis/test-pd-docker-entrypoint.sh	@@ -35,8 +35,11 @@ FAIL=0	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-server/hugegraph-dist/src/assembly/travis/test-rocksdb-runtime.sh	@@ -0,0 +1,122 @@	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-server/hugegraph-dist/src/assembly/travis/test-start-hugegraph.sh	@@ -26,7 +26,7 @@	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-server/hugegraph-dist/src/assembly/travis/test-start-hugegraph.sh	@@ -42,6 +42,8 @@ WAIT_TIMEOUT=30   # seconds for timeout on wait calls	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-server/hugegraph-dist/src/assembly/travis/test-start-hugegraph.sh	@@ -57,6 +59,17 @@ fail() {	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-server/hugegraph-dist/src/assembly/travis/test-start-hugegraph.sh	@@ -66,6 +79,12 @@ info() {	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-server/hugegraph-dist/src/assembly/travis/test-start-hugegraph.sh	@@ -133,14 +152,25 @@ wait_for_pid_file() {	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-server/hugegraph-dist/src/assembly/travis/test-start-hugegraph.sh	"@@ -189,21 +219,22 @@ if [[ -z ""${JAVA_HOME:-}"" ]]; then"	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-server/hugegraph-dist/src/assembly/travis/test-start-hugegraph.sh	@@ -227,7 +258,7 @@ else	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-server/hugegraph-dist/src/assembly/travis/test-start-hugegraph.sh	"@@ -263,7 +294,7 @@ info ""Waiting up to ${STARTUP_WAIT}s for server to come up..."""	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-server/hugegraph-dist/src/assembly/travis/test-start-hugegraph.sh	@@ -283,7 +314,7 @@ else	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-server/hugegraph-dist/src/assembly/travis/test-start-hugegraph.sh	"@@ -318,7 +349,7 @@ info ""Waiting up to ${STARTUP_WAIT}s for server..."""	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-server/hugegraph-dist/src/assembly/travis/test-start-hugegraph.sh	@@ -330,14 +361,14 @@ else	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-server/hugegraph-dist/src/assembly/travis/test-start-hugegraph.sh	@@ -346,15 +377,17 @@ else	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-server/hugegraph-dist/src/assembly/travis/test-start-hugegraph.sh	"@@ -401,14 +434,14 @@ info ""Waiting up to ${STARTUP_WAIT}s for server..."""	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-server/hugegraph-dist/src/assembly/travis/test-start-hugegraph.sh	@@ -426,15 +459,17 @@ else	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-server/hugegraph-dist/src/assembly/travis/test-stop-hugegraph-store.sh	@@ -0,0 +1,42 @@	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-server/hugegraph-dist/src/assembly/travis/test-topling-distribution.sh	@@ -0,0 +1,128 @@	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-server/hugegraph-dist/src/assembly/travis/test-topling-docker-entrypoints.sh	@@ -0,0 +1,243 @@	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-server/hugegraph-dist/src/assembly/travis/test-topling-native-diagnostic.sh	@@ -0,0 +1,158 @@	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-server/hugegraph-dist/src/assembly/travis/test-topling-provider-ownership.sh	@@ -0,0 +1,165 @@	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-server/hugegraph-dist/src/assembly/travis/test-topling-runtime-packaging.sh	@@ -0,0 +1,100 @@	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-server/hugegraph-dist/src/assembly/travis/test-topling-runtime-selection.sh	@@ -0,0 +1,368 @@	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-server/hugegraph-dist/src/assembly/travis/test-topling-server-entrypoint-roots.sh	@@ -0,0 +1,261 @@	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-server/hugegraph-rocksdb/pom.xml	@@ -37,7 +37,7 @@	P1	标准RocksDB统一8.10.2及已删除指标枚举适配
+hugegraph-server/hugegraph-rocksdb/src/main/java/org/apache/hugegraph/backend/store/rocksdb/OpenedRocksDB.java	@@ -19,6 +19,7 @@	P3	恢复、锁移交或相应回归；依赖P2 databaseOpened接口
+hugegraph-server/hugegraph-rocksdb/src/main/java/org/apache/hugegraph/backend/store/rocksdb/OpenedRocksDB.java	@@ -44,9 +45,16 @@ public class OpenedRocksDB implements AutoCloseable {	P3	恢复、锁移交或相应回归；依赖P2 databaseOpened接口
+hugegraph-server/hugegraph-rocksdb/src/main/java/org/apache/hugegraph/backend/store/rocksdb/OpenedRocksDB.java	@@ -82,14 +90,36 @@ public boolean isOwningHandle() {	P3	恢复、锁移交或相应回归；依赖P2 databaseOpened接口
+hugegraph-server/hugegraph-rocksdb/src/main/java/org/apache/hugegraph/backend/store/rocksdb/RocksDBOptions.java	@@ -61,6 +61,14 @@ public static synchronized RocksDBOptions instance() {	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-server/hugegraph-rocksdb/src/main/java/org/apache/hugegraph/backend/store/rocksdb/RocksDBSessions.java	@@ -17,6 +17,9 @@	P2/P4	databaseOpened归P2；clearTables归P4
+hugegraph-server/hugegraph-rocksdb/src/main/java/org/apache/hugegraph/backend/store/rocksdb/RocksDBSessions.java	@@ -59,6 +62,40 @@ public RocksDBSessions(HugeConfig config, String database, String store) {	P2/P4	databaseOpened归P2；clearTables归P4
+hugegraph-server/hugegraph-rocksdb/src/main/java/org/apache/hugegraph/backend/store/rocksdb/RocksDBSnapshotRestore.java	@@ -0,0 +1,400 @@	P3	恢复、锁移交或相应回归；依赖P2 databaseOpened接口
+hugegraph-server/hugegraph-rocksdb/src/main/java/org/apache/hugegraph/backend/store/rocksdb/RocksDBStdSessions.java	@@ -18,6 +18,9 @@	P3	恢复、锁移交或相应回归；依赖P2 databaseOpened接口
+hugegraph-server/hugegraph-rocksdb/src/main/java/org/apache/hugegraph/backend/store/rocksdb/RocksDBStdSessions.java	@@ -64,6 +67,7 @@	P3	恢复、锁移交或相应回归；依赖P2 databaseOpened接口
+hugegraph-server/hugegraph-rocksdb/src/main/java/org/apache/hugegraph/backend/store/rocksdb/RocksDBStdSessions.java	@@ -83,23 +87,28 @@ public class RocksDBStdSessions extends RocksDBSessions {	P3	恢复、锁移交或相应回归；依赖P2 databaseOpened接口
+hugegraph-server/hugegraph-rocksdb/src/main/java/org/apache/hugegraph/backend/store/rocksdb/RocksDBStdSessions.java	@@ -202,17 +211,15 @@ public boolean existsTable(String table) {	P3	恢复、锁移交或相应回归；依赖P2 databaseOpened接口
+hugegraph-server/hugegraph-rocksdb/src/main/java/org/apache/hugegraph/backend/store/rocksdb/RocksDBStdSessions.java	@@ -256,30 +263,28 @@ public void createSnapshot(String snapshotPath) {	P3	恢复、锁移交或相应回归；依赖P2 databaseOpened接口
+hugegraph-server/hugegraph-rocksdb/src/main/java/org/apache/hugegraph/backend/store/rocksdb/RocksDBStdSessions.java	@@ -334,6 +339,13 @@ private void checkValid() {	P3	恢复、锁移交或相应回归；依赖P2 databaseOpened接口
+hugegraph-server/hugegraph-rocksdb/src/main/java/org/apache/hugegraph/backend/store/rocksdb/RocksDBStdSessions.java	@@ -365,61 +377,139 @@ private void ingestExternalFile() throws RocksDBException {	P3	恢复、锁移交或相应回归；依赖P2 databaseOpened接口
+hugegraph-server/hugegraph-rocksdb/src/main/java/org/apache/hugegraph/backend/store/rocksdb/RocksDBStore.java	@@ -103,6 +103,7 @@ public abstract class RocksDBStore extends AbstractBackendStore<RocksDBSessions.	P2/P3/P4	opened归P2；open锁竞争分类/copy-register原子性/resume写锁归P3；provider/truncate归P4
+hugegraph-server/hugegraph-rocksdb/src/main/java/org/apache/hugegraph/backend/store/rocksdb/RocksDBStore.java	@@ -115,6 +116,7 @@ public RocksDBStore(final BackendStoreProvider provider,	P2/P3/P4	opened归P2；open锁竞争分类/copy-register原子性/resume写锁归P3；provider/truncate归P4
+hugegraph-server/hugegraph-rocksdb/src/main/java/org/apache/hugegraph/backend/store/rocksdb/RocksDBStore.java	@@ -212,6 +214,8 @@ public synchronized void open(HugeConfig config) {	P2/P3/P4	opened归P2；open锁竞争分类/copy-register原子性/resume写锁归P3；provider/truncate归P4
+hugegraph-server/hugegraph-rocksdb/src/main/java/org/apache/hugegraph/backend/store/rocksdb/RocksDBStore.java	@@ -313,8 +317,10 @@ protected RocksDBSessions open(HugeConfig config, String dataPath,	P2/P3/P4	opened归P2；open锁竞争分类/copy-register原子性/resume写锁归P3；provider/truncate归P4
+hugegraph-server/hugegraph-rocksdb/src/main/java/org/apache/hugegraph/backend/store/rocksdb/RocksDBStore.java	@@ -323,11 +329,16 @@ protected RocksDBSessions open(HugeConfig config, String dataPath,	P2/P3/P4	opened归P2；open锁竞争分类/copy-register原子性/resume写锁归P3；provider/truncate归P4
+hugegraph-server/hugegraph-rocksdb/src/main/java/org/apache/hugegraph/backend/store/rocksdb/RocksDBStore.java	@@ -360,19 +371,21 @@ protected RocksDBSessions open(HugeConfig config, String dataPath,	P2/P3/P4	opened归P2；open锁竞争分类/copy-register原子性/resume写锁归P3；provider/truncate归P4
+hugegraph-server/hugegraph-rocksdb/src/main/java/org/apache/hugegraph/backend/store/rocksdb/RocksDBStore.java	@@ -417,7 +430,7 @@ public void close() {	P2/P3/P4	opened归P2；open锁竞争分类/copy-register原子性/resume写锁归P3；provider/truncate归P4
+hugegraph-server/hugegraph-rocksdb/src/main/java/org/apache/hugegraph/backend/store/rocksdb/RocksDBStore.java	@@ -630,8 +643,12 @@ public synchronized void truncate() {	P2/P3/P4	opened归P2；open锁竞争分类/copy-register原子性/resume写锁归P3；provider/truncate归P4
+hugegraph-server/hugegraph-rocksdb/src/main/java/org/apache/hugegraph/backend/store/rocksdb/RocksDBStore.java	@@ -640,6 +657,22 @@ public synchronized void truncate() {	P2/P3/P4	opened归P2；open锁竞争分类/copy-register原子性/resume写锁归P3；provider/truncate归P4
+hugegraph-server/hugegraph-rocksdb/src/main/java/org/apache/hugegraph/backend/store/rocksdb/RocksDBStore.java	@@ -718,8 +751,8 @@ public Map<String, String> createSnapshot(String snapshotPrefix) {	P2/P3/P4	opened归P2；open锁竞争分类/copy-register原子性/resume写锁归P3；provider/truncate归P4
+hugegraph-server/hugegraph-rocksdb/src/main/java/org/apache/hugegraph/backend/store/rocksdb/RocksDBStore.java	@@ -754,7 +787,7 @@ public void resumeSnapshot(String snapshotPrefix, boolean deleteSnapshot) {	P2/P3/P4	opened归P2；open锁竞争分类/copy-register原子性/resume写锁归P3；provider/truncate归P4
+hugegraph-server/hugegraph-test/README.md	@@ -0,0 +1,20 @@	P2/P3/P4	按各单元测试命令及验证边界拆分，不提前写不存在的测试
+hugegraph-server/hugegraph-test/src/main/java/org/apache/hugegraph/HugeFactoryTest.java	@@ -0,0 +1,43 @@	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-server/hugegraph-test/src/main/java/org/apache/hugegraph/api/BaseApiTest.java	@@ -59,13 +59,16 @@	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-server/hugegraph-test/src/main/java/org/apache/hugegraph/api/BaseApiTest.java	@@ -181,12 +184,21 @@ protected static void waitTaskStatus(int task, Set<String> expectedStatus) {	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-server/hugegraph-test/src/main/java/org/apache/hugegraph/api/GraphSpaceApiTest.java	@@ -24,6 +24,7 @@	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-server/hugegraph-test/src/main/java/org/apache/hugegraph/api/GraphSpaceApiTest.java	@@ -51,6 +52,32 @@ public void removeSpaces() {	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-server/hugegraph-test/src/main/java/org/apache/hugegraph/api/GraphSpaceApiTest.java	@@ -505,49 +532,60 @@ public void testDefaultRoleMutationRequiresSpaceManager() {	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-server/hugegraph-test/src/main/java/org/apache/hugegraph/auth/ContextTaskTest.java	@@ -0,0 +1,85 @@	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-server/hugegraph-test/src/main/java/org/apache/hugegraph/backend/store/rocksdb/RocksDBSnapshotRestoreTest.java	@@ -0,0 +1,729 @@	P3	恢复、锁移交或相应回归；依赖P2 databaseOpened接口
+hugegraph-server/hugegraph-test/src/main/java/org/apache/hugegraph/backend/tx/GraphTransactionTest.java	@@ -19,6 +19,7 @@	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-server/hugegraph-test/src/main/java/org/apache/hugegraph/backend/tx/GraphTransactionTest.java	@@ -49,6 +50,21 @@	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-server/hugegraph-test/src/main/java/org/apache/hugegraph/core/AuthTest.java	@@ -28,6 +28,7 @@	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-server/hugegraph-test/src/main/java/org/apache/hugegraph/core/AuthTest.java	@@ -45,6 +46,7 @@	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-server/hugegraph-test/src/main/java/org/apache/hugegraph/core/AuthTest.java	@@ -1757,6 +1759,76 @@ public void testDelProject() {	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-server/hugegraph-test/src/main/java/org/apache/hugegraph/core/CoreTestSuite.java	@@ -23,6 +23,7 @@	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-server/hugegraph-test/src/main/java/org/apache/hugegraph/core/CoreTestSuite.java	@@ -48,6 +49,7 @@	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-server/hugegraph-test/src/main/java/org/apache/hugegraph/core/IndexLabelCoreTest.java	@@ -22,6 +22,7 @@	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-server/hugegraph-test/src/main/java/org/apache/hugegraph/core/IndexLabelCoreTest.java	@@ -31,10 +32,12 @@	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-server/hugegraph-test/src/main/java/org/apache/hugegraph/core/IndexLabelCoreTest.java	@@ -1297,6 +1300,81 @@ public void testRemoveIndexLabelOfVertex() {	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-server/hugegraph-test/src/main/java/org/apache/hugegraph/core/MultiGraphsTest.java	@@ -413,8 +413,9 @@ public void testCreateGraphsWithMultiDisksForRocksDB() {	P3	恢复、锁移交或相应回归；依赖P2 databaseOpened接口
+hugegraph-server/hugegraph-test/src/main/java/org/apache/hugegraph/core/VertexCoreTest.java	@@ -5480,10 +5480,35 @@ public void testQueryByJointIndexesWithSearchAndTwoRangeIndexesAndWithin() {	DEFER	既有行为覆盖增强、JRaft测试整理或纯格式；不机械搬入，若构造实测证实本次必要则重分类
+hugegraph-server/hugegraph-test/src/main/java/org/apache/hugegraph/task/StandardTaskSchedulerTxTest.java	@@ -0,0 +1,53 @@	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-server/hugegraph-test/src/main/java/org/apache/hugegraph/testutil/Utils.java	@@ -38,6 +38,10 @@ public class Utils {	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-server/hugegraph-test/src/main/java/org/apache/hugegraph/testutil/Utils.java	@@ -49,7 +53,7 @@ public static HugeGraph open() {	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-server/hugegraph-test/src/main/java/org/apache/hugegraph/testutil/Utils.java	@@ -97,21 +101,7 @@ public static Date date(String rawDate) {	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-server/hugegraph-test/src/main/java/org/apache/hugegraph/unit/UnitTestSuite.java	@@ -17,8 +17,11 @@	P2/P3/P4	按测试注册拆import及suite项：lifecycle P2、SnapshotRestore P3、ConfigPath P4
+hugegraph-server/hugegraph-test/src/main/java/org/apache/hugegraph/unit/UnitTestSuite.java	@@ -44,6 +47,7 @@	P2/P3/P4	按测试注册拆import及suite项：lifecycle P2、SnapshotRestore P3、ConfigPath P4
+hugegraph-server/hugegraph-test/src/main/java/org/apache/hugegraph/unit/UnitTestSuite.java	@@ -60,6 +64,7 @@	P2/P3/P4	按测试注册拆import及suite项：lifecycle P2、SnapshotRestore P3、ConfigPath P4
+hugegraph-server/hugegraph-test/src/main/java/org/apache/hugegraph/unit/UnitTestSuite.java	@@ -91,6 +96,7 @@	P2/P3/P4	按测试注册拆import及suite项：lifecycle P2、SnapshotRestore P3、ConfigPath P4
+hugegraph-server/hugegraph-test/src/main/java/org/apache/hugegraph/unit/UnitTestSuite.java	@@ -120,6 +126,8 @@	P2/P3/P4	按测试注册拆import及suite项：lifecycle P2、SnapshotRestore P3、ConfigPath P4
+hugegraph-server/hugegraph-test/src/main/java/org/apache/hugegraph/unit/UnitTestSuite.java	@@ -156,12 +164,14 @@	P2/P3/P4	按测试注册拆import及suite项：lifecycle P2、SnapshotRestore P3、ConfigPath P4
+hugegraph-server/hugegraph-test/src/main/java/org/apache/hugegraph/unit/UnitTestSuite.java	@@ -182,6 +192,7 @@	P2/P3/P4	按测试注册拆import及suite项：lifecycle P2、SnapshotRestore P3、ConfigPath P4
+hugegraph-server/hugegraph-test/src/main/java/org/apache/hugegraph/unit/UnitTestSuite.java	@@ -200,6 +211,7 @@	P2/P3/P4	按测试注册拆import及suite项：lifecycle P2、SnapshotRestore P3、ConfigPath P4
+hugegraph-server/hugegraph-test/src/main/java/org/apache/hugegraph/unit/core/BackendSessionPoolTest.java	@@ -0,0 +1,231 @@	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-server/hugegraph-test/src/main/java/org/apache/hugegraph/unit/core/ConfigPathTest.java	@@ -0,0 +1,51 @@	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-server/hugegraph-test/src/main/java/org/apache/hugegraph/unit/rocksdb/RocksDBSessionsTest.java	@@ -19,15 +19,24 @@	P2/P3/P4	testDatabaseOpenedDoesNotCreateSession归P2；6个WAL/snapshot及helpers归P3；3个清表/TP测试归P4
+hugegraph-server/hugegraph-test/src/main/java/org/apache/hugegraph/unit/rocksdb/RocksDBSessionsTest.java	@@ -37,6 +46,122 @@	P2/P3/P4	testDatabaseOpenedDoesNotCreateSession归P2；6个WAL/snapshot及helpers归P3；3个清表/TP测试归P4
+hugegraph-server/hugegraph-test/src/main/java/org/apache/hugegraph/unit/rocksdb/RocksDBSessionsTest.java	@@ -135,6 +260,278 @@ public void testSnapshot() throws RocksDBException, IOException {	P2/P3/P4	testDatabaseOpenedDoesNotCreateSession归P2；6个WAL/snapshot及helpers归P3；3个清表/TP测试归P4
+hugegraph-server/hugegraph-test/src/main/java/org/apache/hugegraph/unit/rocksdb/RocksDBSessionsTest.java	@@ -190,7 +587,8 @@ public void testIngestSst() throws RocksDBException {	P2/P3/P4	testDatabaseOpenedDoesNotCreateSession归P2；6个WAL/snapshot及helpers归P3；3个清表/TP测试归P4
+hugegraph-server/hugegraph-test/src/main/java/org/apache/hugegraph/unit/traversal/OltpTraverserTest.java	@@ -0,0 +1,76 @@	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-store/Dockerfile	@@ -33,9 +33,9 @@ RUN --mount=type=cache,id=hugegraph-maven-${SOURCE_REVISION},target=/root/.m2,sh	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-store/Dockerfile	@@ -56,21 +56,82 @@ RUN apt-get -q update \	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-store/README.md	@@ -386,6 +386,20 @@ For Docker and Kubernetes deployment details, see [Deployment Guide](docs/deploy	P2/P4	stop失败和PID保留说明P2；其余TP部署说明P4
+hugegraph-store/hg-store-dist/docker/docker-entrypoint.sh	"@@ -53,11 +53,33 @@ require_env ""HG_STORE_RAFT_ADDRESS"""	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-store/hg-store-dist/docker/docker-entrypoint.sh	"@@ -76,5 +98,6 @@ log ""  grpc.port=${HG_STORE_GRPC_PORT}"""	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-store/hg-store-dist/src/assembly/descriptor/server-assembly.xml	@@ -46,6 +46,41 @@	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-store/hg-store-dist/src/assembly/static/bin/start-hugegraph-store.sh	@@ -64,6 +64,13 @@ else	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-store/hg-store-dist/src/assembly/static/bin/start-hugegraph-store.sh	@@ -136,7 +143,7 @@ fi	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-store/hg-store-dist/src/assembly/static/bin/start-hugegraph-store.sh	"@@ -225,18 +232,28 @@ if [ ""$(ps -ef | grep -v grep | grep java | grep -cE ""${CONF}"")"" -ne 0 ]; then"	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-store/hg-store-dist/src/assembly/static/bin/start-hugegraph-store.sh	@@ -248,12 +265,11 @@ else	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-store/hg-store-dist/src/assembly/static/bin/stop-hugegraph-store.sh	@@ -41,8 +41,8 @@ if [ ! -f ${PID_FILE} ]; then	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-store/hg-store-dist/src/assembly/static/bin/util.sh	@@ -434,3 +434,21 @@ function kill_process_and_wait() {	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-store/hg-store-dist/src/assembly/static/conf/application-pd.yml	@@ -32,3 +32,6 @@ rocksdb:	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-store/hg-store-dist/src/assembly/static/conf/rocksdb_store.yaml	@@ -0,0 +1,164 @@	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-store/hg-store-node/src/main/java/org/apache/hugegraph/store/node/StoreNodeApplication.java	@@ -17,7 +17,6 @@	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-store/hg-store-node/src/main/java/org/apache/hugegraph/store/node/StoreNodeApplication.java	@@ -31,9 +30,6 @@	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-store/hg-store-node/src/main/java/org/apache/hugegraph/store/node/StoreNodeApplication.java	@@ -55,9 +51,7 @@ public static void start() {	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-store/hg-store-node/src/main/java/org/apache/hugegraph/store/node/grpc/GrpcShutdownBarrier.java	@@ -0,0 +1,110 @@	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-store/hg-store-node/src/main/java/org/apache/hugegraph/store/node/grpc/HgStoreStreamImpl.java	@@ -17,7 +17,9 @@	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-store/hg-store-node/src/main/java/org/apache/hugegraph/store/node/grpc/HgStoreStreamImpl.java	@@ -31,6 +33,8 @@	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-store/hg-store-node/src/main/java/org/apache/hugegraph/store/node/grpc/HgStoreStreamImpl.java	@@ -47,6 +51,53 @@ public class HgStoreStreamImpl extends HgStoreStreamGrpc.HgStoreStreamImplBase {	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-store/hg-store-node/src/main/java/org/apache/hugegraph/store/node/grpc/HgStoreStreamImpl.java	@@ -60,20 +111,16 @@ private HgStoreWrapperEx getWrapper() {	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-store/hg-store-node/src/main/java/org/apache/hugegraph/store/node/grpc/HgStoreStreamImpl.java	@@ -95,27 +142,32 @@ public ScanState getState() {	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-store/hg-store-node/src/main/java/org/apache/hugegraph/store/node/grpc/ParallelScanIterator.java	@@ -88,7 +88,12 @@ private ParallelScanIterator(Supplier<KVPair<QueryCondition, ScanIterator>> iter	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-store/hg-store-node/src/main/java/org/apache/hugegraph/store/node/grpc/ParallelScanIterator.java	@@ -144,18 +149,21 @@ public List<KV> next() {	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-store/hg-store-node/src/main/java/org/apache/hugegraph/store/node/grpc/ParallelScanIterator.java	@@ -179,10 +187,15 @@ private void createScanner() {	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-store/hg-store-node/src/main/java/org/apache/hugegraph/store/node/grpc/ParallelScanIterator.java	@@ -195,7 +208,11 @@ private void wakeUpScanner() {	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-store/hg-store-node/src/main/java/org/apache/hugegraph/store/node/grpc/ParallelScanIterator.java	@@ -218,30 +235,43 @@ private void quitScanner(KVScanner scanner) {	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-store/hg-store-node/src/main/java/org/apache/hugegraph/store/node/grpc/ParallelScanIterator.java	@@ -328,12 +358,12 @@ public void scanKV() {	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-store/hg-store-node/src/main/java/org/apache/hugegraph/store/node/grpc/ParallelScanIterator.java	@@ -366,8 +396,14 @@ public void scanKV() {	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-store/hg-store-node/src/main/java/org/apache/hugegraph/store/node/grpc/ParallelScanIterator.java	@@ -381,6 +417,7 @@ public void close() {	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-store/hg-store-node/src/main/java/org/apache/hugegraph/store/node/grpc/ScanBatchOneShotResponse.java	@@ -30,6 +30,7 @@	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-store/hg-store-node/src/main/java/org/apache/hugegraph/store/node/grpc/ScanBatchOneShotResponse.java	@@ -54,6 +55,9 @@ public static void scanOneShot(ScanStreamBatchReq request,	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-store/hg-store-node/src/main/java/org/apache/hugegraph/store/node/grpc/ScanBatchOneShotResponse.java	@@ -70,7 +74,8 @@ public static void scanOneShot(ScanStreamBatchReq request,	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-store/hg-store-node/src/main/java/org/apache/hugegraph/store/node/grpc/ScanBatchOneShotResponse.java	@@ -86,6 +91,9 @@ public static void scanOneShot(ScanStreamBatchReq request,	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-store/hg-store-node/src/main/java/org/apache/hugegraph/store/node/grpc/ScanBatchResponse.java	@@ -20,7 +20,9 @@	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-store/hg-store-node/src/main/java/org/apache/hugegraph/store/node/grpc/ScanBatchResponse.java	@@ -59,7 +61,7 @@ public class ScanBatchResponse implements StreamObserver<ScanStreamBatchReq> {	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-store/hg-store-node/src/main/java/org/apache/hugegraph/store/node/grpc/ScanBatchResponse.java	@@ -72,6 +74,7 @@ public class ScanBatchResponse implements StreamObserver<ScanStreamBatchReq> {	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-store/hg-store-node/src/main/java/org/apache/hugegraph/store/node/grpc/ScanBatchResponse.java	@@ -92,25 +95,30 @@ public ScanBatchResponse(StreamObserver<KvStream> response, HgStoreWrapperEx wra	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-store/hg-store-node/src/main/java/org/apache/hugegraph/store/node/grpc/ScanBatchResponse.java	@@ -125,7 +133,7 @@ public void onNext(ScanStreamBatchReq request) {	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-store/hg-store-node/src/main/java/org/apache/hugegraph/store/node/grpc/ScanBatchResponse.java	@@ -138,29 +146,69 @@ public void onCompleted() {	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-store/hg-store-node/src/main/java/org/apache/hugegraph/store/node/grpc/ScanBatchResponse.java	@@ -169,13 +217,16 @@ private void closeQuery() {	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-store/hg-store-node/src/main/java/org/apache/hugegraph/store/node/grpc/ScanBatchResponse.java	@@ -209,7 +260,7 @@ private void sendEntries() {	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-store/hg-store-node/src/main/java/org/apache/hugegraph/store/node/grpc/ScanBatchResponse.java	@@ -219,14 +270,7 @@ private void sendEntries() {	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-store/hg-store-node/src/main/java/org/apache/hugegraph/store/node/grpc/ScanBatchResponse3.java	@@ -160,24 +160,29 @@ private static class OrderManager {	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-store/hg-store-node/src/main/java/org/apache/hugegraph/store/node/grpc/ScanBatchResponse3.java	@@ -188,6 +193,7 @@ synchronized void finished() {	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-store/hg-store-node/src/main/java/org/apache/hugegraph/store/node/grpc/ScanBatchResponse3.java	@@ -297,7 +303,12 @@ void hereWeGo() {	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-store/hg-store-node/src/main/java/org/apache/hugegraph/store/node/grpc/ScanBatchResponse3.java	@@ -338,7 +349,8 @@ private void working() {	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-store/hg-store-node/src/main/java/org/apache/hugegraph/store/node/grpc/ScanBatchResponse3.java	@@ -353,7 +365,7 @@ private void working() {	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-store/hg-store-node/src/main/java/org/apache/hugegraph/store/node/grpc/ScanOneShotResponse.java	@@ -27,6 +27,7 @@	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-store/hg-store-node/src/main/java/org/apache/hugegraph/store/node/grpc/ScanOneShotResponse.java	@@ -57,12 +58,16 @@ public static void scanOneShot(ScanStreamReq request,	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-store/hg-store-node/src/main/java/org/apache/hugegraph/store/node/grpc/ScanOneShotResponse.java	@@ -78,6 +83,9 @@ public static void scanOneShot(ScanStreamReq request,	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-store/hg-store-node/src/main/java/org/apache/hugegraph/store/node/grpc/ScanStreamResponse.java	@@ -61,6 +61,22 @@ public class ScanStreamResponse implements StreamObserver<ScanStreamReq> {	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-store/hg-store-node/src/main/java/org/apache/hugegraph/store/node/grpc/ScanStreamResponse.java	@@ -91,6 +107,9 @@ public static ScanStreamResponse of(StreamObserver<KvPageRes> responseObserver,	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-store/hg-store-node/src/main/java/org/apache/hugegraph/store/node/grpc/ScanStreamResponse.java	@@ -106,15 +125,15 @@ public void onNext(ScanStreamReq request) {	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-store/hg-store-node/src/main/java/org/apache/hugegraph/store/node/grpc/ScanStreamResponse.java	@@ -123,7 +142,6 @@ private void initIterator(ScanStreamReq request) {	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-store/hg-store-node/src/main/java/org/apache/hugegraph/store/node/grpc/ScanStreamResponse.java	@@ -143,7 +161,15 @@ private void initIterator(ScanStreamReq request) {	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-store/hg-store-node/src/main/java/org/apache/hugegraph/store/node/grpc/ScanStreamResponse.java	@@ -172,10 +198,16 @@ private void initIterator(ScanStreamReq request) {	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-store/hg-store-node/src/main/java/org/apache/hugegraph/store/node/grpc/ScanStreamResponse.java	@@ -184,12 +216,7 @@ private void initIterator(ScanStreamReq request) {	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-store/hg-store-node/src/main/java/org/apache/hugegraph/store/node/grpc/ScanStreamResponse.java	@@ -205,8 +232,7 @@ private Kv toKv(Kv.Builder kvBuilder, RocksDBSession.BackendColumn col,	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-store/hg-store-node/src/main/java/org/apache/hugegraph/store/node/grpc/ScanStreamResponse.java	@@ -225,13 +251,23 @@ private void next(ScanStreamReq request) {	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-store/hg-store-node/src/main/java/org/apache/hugegraph/store/node/listener/ContextClosedListener.java	@@ -17,106 +17,112 @@	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-store/hg-store-node/src/main/java/org/apache/hugegraph/store/node/metrics/RocksDBMetricsConst.java	@@ -54,12 +54,12 @@ public final class RocksDBMetricsConst {	P1	标准RocksDB统一8.10.2及已删除指标枚举适配
+hugegraph-store/hg-store-node/src/main/java/org/apache/hugegraph/store/node/metrics/RocksDBMetricsConst.java	@@ -95,31 +95,31 @@ public final class RocksDBMetricsConst {	P1	标准RocksDB统一8.10.2及已删除指标枚举适配
+hugegraph-store/hg-store-node/src/main/java/org/apache/hugegraph/store/node/metrics/RocksDBMetricsConst.java	@@ -167,12 +167,10 @@ public final class RocksDBMetricsConst {	P1	标准RocksDB统一8.10.2及已删除指标枚举适配
+hugegraph-store/hg-store-node/src/main/java/org/apache/hugegraph/store/node/task/TTLCleaner.java	@@ -299,7 +299,7 @@ private Runnable getTask(	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-store/hg-store-node/src/main/java/org/apache/hugegraph/store/node/task/TTLCleaner.java	@@ -313,7 +313,7 @@ private Runnable getTask(	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-store/hg-store-node/src/test/java/org/apache/hugegraph/store/config/ToplingProfileConfigTest.java	@@ -0,0 +1,64 @@	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-store/hg-store-node/src/test/java/org/apache/hugegraph/store/service/ContextClosedListenerTest.java	@@ -0,0 +1,163 @@	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-store/hg-store-node/src/test/java/org/apache/hugegraph/store/service/GrpcShutdownBarrierTest.java	@@ -0,0 +1,131 @@	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-store/hg-store-node/src/test/java/org/apache/hugegraph/store/service/ScanShutdownTest.java	@@ -0,0 +1,354 @@	P2	事务/请求清理或Store关闭的完整实现及回归；不依赖TP
+hugegraph-store/hg-store-rocksdb/pom.xml	@@ -57,7 +57,7 @@	P1	标准RocksDB统一8.10.2及已删除指标枚举适配
+hugegraph-store/hg-store-rocksdb/src/main/java/org/apache/hugegraph/rocksdb/access/RocksDBOptions.java	@@ -56,7 +56,6 @@ public class RocksDBOptions extends OptionHolder {	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+hugegraph-store/hg-store-rocksdb/src/main/java/org/apache/hugegraph/rocksdb/access/RocksDBSession.java	@@ -450,8 +450,9 @@ private void openRocksDB(String dbDataPath, long version) {	DEFER	既有行为覆盖增强、JRaft测试整理或纯格式；不机械搬入，若构造实测证实本次必要则重分类
+hugegraph-store/hg-store-test/src/main/java/org/apache/hugegraph/store/core/raft/HgStoreStateMachineTest.java	@@ -130,6 +130,21 @@ public void testOnApply() {	DEFER	仅随JRaft 1.3.14新增Iterator.setAutoCommitPerLog API纳入；保留1.3.13时排除
+hugegraph-store/hg-store-test/src/main/java/org/apache/hugegraph/store/core/raft/HgStoreStateMachineTest.java	@@ -155,16 +170,6 @@ public void setErrorAndRollback(long ntail, Status st) {	DEFER	仅随JRaft 1.3.14新增Iterator.setAutoCommitPerLog API纳入；保留1.3.13时排除
+hugegraph-store/hg-store-test/src/main/java/org/apache/hugegraph/store/core/snapshot/HgSnapshotHandlerTest.java	@@ -334,23 +334,29 @@ public void testDbCompactionSkipsWhenRangeLockStillHeldAfterWait() throws Interr	DEFER	既有行为覆盖增强、JRaft测试整理或纯格式；不机械搬入，若构造实测证实本次必要则重分类
+hugegraph-store/hg-store-test/src/main/java/org/apache/hugegraph/store/core/snapshot/HgSnapshotHandlerTest.java	@@ -373,7 +379,7 @@ public void testDbCompactionReleasesPathLockWhenInterruptedWaitingForRangeLock()	DEFER	既有行为覆盖增强、JRaft测试整理或纯格式；不机械搬入，若构造实测证实本次必要则重分类
+hugegraph-store/hg-store-test/src/main/java/org/apache/hugegraph/store/core/snapshot/HgSnapshotHandlerTest.java	@@ -399,8 +405,41 @@ public void testDbCompactionReleasesPathLockWhenInterruptedWaitingForRangeLock()	DEFER	既有行为覆盖增强、JRaft测试整理或纯格式；不机械搬入，若构造实测证实本次必要则重分类
+install-dist/release-docs/LICENSE	@@ -266,8 +266,7 @@ non-Apache-2.0 license text is required for a bundled component.	P1/P4/DEFER	P1删6.29.5/7.7.3；P4核TP许可；JRaft及补录/重复按真实产物另证，不整hunk复制
+install-dist/release-docs/LICENSE	@@ -480,6 +479,11 @@ non-Apache-2.0 license text is required for a bundled component.	P1/P4/DEFER	P1删6.29.5/7.7.3；P4核TP许可；JRaft及补录/重复按真实产物另证，不整hunk复制
+install-dist/release-docs/LICENSE	@@ -654,10 +658,48 @@ non-Apache-2.0 license text is required for a bundled component.	P1/P4/DEFER	P1删6.29.5/7.7.3；P4核TP许可；JRaft及补录/重复按真实产物另证，不整hunk复制
+install-dist/release-docs/licenses/LICENSE-rocksdbjni-8.10.2-SNAPSHOT.txt	@@ -0,0 +1,202 @@	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+install-dist/scripts/build-topling-distribution.sh	@@ -0,0 +1,180 @@	P4	TP完整接入、启动、发行、配套验证或产品文档；构造时核查是否含既有通用问题
+install-dist/scripts/dependency/known-dependencies.txt	@@ -282,8 +282,7 @@ jna-5.5.0.jar	P1/P4/DEFER	P1仅删旧RocksDB；SLF4J跟随cluster验证修复P4；JRaft变动待证
+install-dist/scripts/dependency/known-dependencies.txt	@@ -464,8 +463,6 @@ protostuff-core-1.6.0.jar	P1/P4/DEFER	P1仅删旧RocksDB；SLF4J跟随cluster验证修复P4；JRaft变动待证
+install-dist/scripts/dependency/known-dependencies.txt	@@ -487,7 +484,6 @@ slf4j-api-1.7.21.jar	P1/P4/DEFER	P1仅删旧RocksDB；SLF4J跟随cluster验证修复P4；JRaft变动待证
+pom.xml	@@ -89,15 +89,16 @@	P1/P4/DEFER	P1仅rocksdb.version；JRaft待必要性证据；TP资源RAT归P4；.goal-task排除不进入功能PR
+pom.xml	@@ -203,6 +204,8 @@	P1/P4/DEFER	P1仅rocksdb.version；JRaft待必要性证据；TP资源RAT归P4；.goal-task排除不进入功能PR
+pom.xml	@@ -221,6 +224,9 @@	P1/P4/DEFER	P1仅rocksdb.version；JRaft待必要性证据；TP资源RAT归P4；.goal-task排除不进入功能PR

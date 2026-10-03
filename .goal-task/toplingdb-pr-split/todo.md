@@ -1,0 +1,26 @@
+# 当前执行项
+
+本文件维护逐项状态；执行约定、固定基线与恢复入口见 [state.md](state.md)。
+
+| 项目 | 状态 | 下一动作 / 恢复条件 |
+| --- | --- | --- |
+| 拆分归属与依赖 | 分析完成，P4部分必要性待证 | 198文件/404清单项无漏项；P1、P2独立，P3依赖P2，P4依赖必要前置 |
+| P1候选 | 本地已构造 | 12文件含依赖、metrics、旧数据fixture、文档、CI；不升级JRaft |
+| P1代码审查 | 三人已审，v2增量复审通过 | 无已确认逻辑缺陷；补真实Store meter注册/采集证据，保留整体验收门槛 |
+| P1 Mac跨版本JNI | 旧候选通过 | 2组/6JVM/0 skip/exit0；最终fixture加入TP标志拒绝后重跑；三版JAR与Central SHA1相符 |
+| P1原生Linux跨版本JNI | 当前候选通过 | do专属目录，最终12文件payload哈希一致；2组/6JVM/0 skip/exit0，CodeSource/nativeVersion/哈希已记录；仅轻量JNI，不是完整服务验收 |
+| P1格式与干净编译 | waiting | 原生Linux editorconfig:format exit0；Mac首次protoc架构错误；Linux模拟容器hg-topling-split-p1-build句柄94347停在protoc，本地Docker socket超时，未确认退出，未重启 |
+| 本机Docker | needs input / 核验等待 | vmgr最后18:06:51 sleep，无wake；已询问用户恢复。恢复后先inspect原容器和句柄，不另起重复构建 |
+| 原生Linux备用环境 | 只读预检完成 | do：x86_64、Java11、glibc2.42、39GiB空闲，总RAM约2GiB且有用户服务；独立目录/root/hugegraph-topling-pr-split-20261003/source完整clone并核2635个base blobs，P1 12文件补丁逐hash一致；仅低负载JNI验证，不改变旧服务 |
+| P1服务与包验收 | 待前置环境 | 旧PD元数据、Store图/分区、JRaft日志由新包打开/写入/重启；验证剩余/移除meter；包唯一JNI、依赖许可闭包 |
+| P2候选 | 本地42文件，未测试 | 完整事务/auth/schema、Store回调排空、stop和文档；独立三人静态审查进行中 |
+| P3候选 | 本地10文件增量，未测试 | 已修正拆分漏带的cached-owner检查/锁内注册/typed fallback；一名复审确认修复，其他审查进行中 |
+| P2/P3运行验收 | waiting在重任务之后 | 串行干净编译/实际suite计数，真实关闭/恢复及Linux挂载故障；三人最终diff复审 |
+| P4通用生产修复分组 | 待对照 | PD follower REST状态组、Gremlin/HStore白名单组无静态TP依赖；先证明本次新增/放大必要性，否则独立跟进 |
+| P4 JNI获取与许可证 | 具体方案待review | 当前JAR SHA256 86eb1bd3d9f84ef0dddd3fe95c640a6f145ca2d5a26a5ba628f1f298a2031fae，只有linux64 native且无LICENSE/NOTICE/POM；producer README明确core可选Apache2/GPLv2，但不能推导动态SidePlugin/精确binary许可闭包 |
+| P4代码与发布验证 | 待前置 | 明确可选JNI消费路径、标准包不含TP、TP包/Docker/启动/全部根拒绝路径；原生native身份及服务验收 |
+| org子PR | 未发布 | P1空分支task/topling-split-runtime已创建于176fb56dd，仅分支准备，无候选提交； 适用验证与审查后逐个建PR并核当前head CI，提交用户review，不auto-merge |
+| Apache子PR | 未发布 | 重新核上游base/差异/CI；对应用户确认单独取得；源整合#3134保留 |
+| 最终整合 | 未开始 | 所有所需单元合入Apache、标准/真实TP整合验证、文档许可及三人审查通过 |
+
+单项等待后移，不阻止独立分析、候选构造及文档/许可核查；上述任何历史或静态结论均不替代最终head实测。
