@@ -40,7 +40,7 @@ cleanup() {
     local status=$?
     trap - EXIT
     if [[ "$SERVER_START_ATTEMPTED" == "true" ]]; then
-        "$SERVER_DIR/bin/stop-hugegraph.sh" -m false >/dev/null 2>&1 || status=1
+        "$SERVER_DIR/bin/stop-hugegraph.sh" -m false || status=1
     fi
     rm -rf "$WORK_DIR"
     exit "$status"
