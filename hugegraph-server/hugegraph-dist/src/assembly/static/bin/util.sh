@@ -53,8 +53,8 @@ function canonical_path() {
 }
 
 # Print JAR paths below a component's lib directory except anything whose
-# canonical target lives below its optional Topling subtree. `find -P` keeps
-# directory aliases from being traversed, while direct file aliases are
+# canonical target lives below its optional Topling subtree. `find -H` follows a symlinked lib root but keeps
+# nested directory aliases from being traversed, while direct file aliases are
 # resolved and emitted canonically after the exclusion check.
 function find_standard_lib_jars() {
     local lib_dir="$1"
@@ -89,7 +89,7 @@ function find_standard_lib_jars() {
             "$canonical_top" | "$canonical_top"/*) continue ;;
         esac
         printf '%s\n' "$canonical_jar"
-    done < <(find -P "$lib_dir" -name "$pattern" \
+    done < <(find -H "$lib_dir" -name "$pattern" \
         ! -path "$top_dir/*" -print0)
 }
 
