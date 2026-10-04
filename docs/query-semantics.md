@@ -5,11 +5,13 @@ and edge changes. Only `count()` supports this fallback; other aggregates with
 uncommitted changes are rejected. Queries that combine uncommitted changes with
 pagination, a limit, or an offset remain unsupported.
 
-Unsupported text predicates remain traversal filters. If any condition in a
-`HasStep` cannot be converted, the whole step remains local, including its sibling
-label, ID and property conditions. Count optimization preserves that filter step.
+Unsupported text predicates remain traversal filters. For ordinary GraphStep and
+VertexStep extraction, if any condition in a `HasStep` cannot be converted, the
+whole step remains local, including its sibling label, ID and property conditions.
+Count optimization preserves that filter step. Existing special handling around
+`match()` and connective label filters is inherited from master.
 
-Selective predicate pushdown, predicate-specific local ID/SEARCH matching and
+New generalized selective pushdown, predicate-specific local ID/SEARCH matching and
 candidate-index coverage are outside this upgrade series. They are coordinated
 through [PR #2994](https://github.com/apache/hugegraph/pull/2994),
 [issue #3201](https://github.com/apache/hugegraph/issues/3201) and
