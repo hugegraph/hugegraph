@@ -300,6 +300,8 @@ See [standalone RocksDB snapshot recovery](docs/rocksdb-recovery.md) before rest
 
 See [request transactions and Store shutdown](docs/transaction-lifecycle.md) for cleanup and maintenance behavior.
 
+For an existing deployment, read the [RocksDB upgrade guidance](docs/rocksdb-upgrade.md) before upgrading the storage runtime.
+
 </details>
 
 ## Module Map

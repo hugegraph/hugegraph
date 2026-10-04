@@ -35,7 +35,10 @@ indent_size = 4
 continuation_indent_size = 8
 
 [*.md]
+# Keep paragraphs intact; 160 columns is a visual guide, not a hard limit.
 max_line_length = off
+ij_wrap_on_typing = false
+ij_visual_guides = 160
 
 [*.java]
 ij_java_doc_add_p_tag_on_empty_lines = true
