@@ -232,13 +232,10 @@ lines do not justify unrelated cleanup in a Topling change.
 ## Docker Images
 
 Server, PD, and Store Dockerfiles have explicit `standard` and `topling`
-targets. Build the complete Topling deployment set with Bake:
-
-```bash
-RUNTIME_VARIANT=topling \
-IMAGE_TAG=topling \
-docker buildx bake --file docker/bake.hcl
-```
+targets. Use the [complete Docker build recipe](../../docker/README.md#toplingdb-variants)
+to stage the verified external JNI, build the deployment set with Bake, and clean up the
+private staging directory. It uses a read-only named context rather than a size-limited
+BuildKit file secret; each component still verifies the trusted SHA-256 internally.
 
 The Topling variant is Linux x86_64 only. It builds
 `hugegraph/hugegraph`, `hugegraph/pd`, and `hugegraph/store` from their

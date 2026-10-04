@@ -56,12 +56,12 @@ variable "RUNTIME_VARIANT" {
 }
 
 # External input is only required by native Topling targets. Keep it outside
-# the source context and pass it through a BuildKit file secret.
-variable "TOPLING_JNI_JAR" {
+# the source context and pass its verified staging directory as a named context.
+variable "TOPLING_JNI_CONTEXT" {
   default = ""
   validation {
-    condition     = RUNTIME_VARIANT != "topling" || can(regex("^/", TOPLING_JNI_JAR))
-    error_message = "Topling builds require an absolute TOPLING_JNI_JAR path"
+    condition     = RUNTIME_VARIANT != "topling" || can(regex("^/", TOPLING_JNI_CONTEXT))
+    error_message = "Topling builds require an absolute TOPLING_JNI_CONTEXT directory"
   }
 }
 
@@ -77,9 +77,9 @@ target "_topling-input" {
   args = {
     TOPLING_JNI_SHA256 = RUNTIME_VARIANT == "topling" ? TOPLING_JNI_SHA256 : null
   }
-  secret = RUNTIME_VARIANT == "topling" ? [
-    "type=file,id=topling_jni,src=${TOPLING_JNI_JAR}",
-  ] : []
+  contexts = RUNTIME_VARIANT == "topling" ? {
+    topling_jni = TOPLING_JNI_CONTEXT
+  } : {}
 }
 
 target "_common" {

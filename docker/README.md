@@ -429,15 +429,30 @@ These commands target a source checkout containing the Topling integration;
 existing registry tags may contain a different implementation.
 From the repository root, build the Linux x86_64 Topling images with Bake. Supply the
 external JNI input described in the [Topling build guide](../docs/toplingdb/toplingdb-quickstart.md#build-distributions-from-source).
-Bake passes the JAR as the `topling_jni` BuildKit file secret and includes its
-SHA-256 in the build arguments so a changed checksum invalidates the build cache:
+Stage the external JAR into a private directory using the existing hash and structure checks.
+Bake passes this directory as the read-only `topling_jni` named build context, avoiding
+BuildKit's file-secret size limit. The trusted SHA-256 remains a build argument and is
+verified again when generating each Topling distribution. Standard targets receive no JNI context.
 
 ```bash
-TOPLING_JNI_JAR=/absolute/path/to/rocksdbjni-topling.jar \
-TOPLING_JNI_SHA256='<trusted 64-character SHA-256>' \
-RUNTIME_VARIANT=topling IMAGE_TAG=topling \
-  docker buildx bake --file docker/bake.hcl
+(
+  set -e
+  export TOPLING_JNI_JAR=/absolute/path/to/rocksdbjni-topling.jar
+  export TOPLING_JNI_SHA256='<trusted 64-character SHA-256>'
+  TOPLING_JNI_CONTEXT="$(mktemp -d)"
+  trap 'rm -f "$TOPLING_JNI_CONTEXT/rocksdbjni-topling.jar"; rmdir "$TOPLING_JNI_CONTEXT"' EXIT
+  install-dist/scripts/stage-topling-jni.sh "$TOPLING_JNI_CONTEXT"
+  TOPLING_JNI_CONTEXT="$TOPLING_JNI_CONTEXT" \
+  RUNTIME_VARIANT=topling IMAGE_TAG=topling \
+    docker buildx bake --file docker/bake.hcl
+)
 ```
+
+To build directly instead of Bake, replace the Bake invocation inside the same
+subshell with `docker build --target topling`, adding
+`--build-context topling_jni="$TOPLING_JNI_CONTEXT"` and
+`--build-arg TOPLING_JNI_SHA256="$TOPLING_JNI_SHA256"` for the selected Dockerfile.
+The context must contain the canonical staged filename `rocksdbjni-topling.jar`.
 
 From `docker/`, run the locally built standalone image with its isolated Topling data volume:
 

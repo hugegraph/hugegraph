@@ -91,13 +91,13 @@ RUN apt-get -q update \
 # Build the formal component-local Topling distribution on Linux amd64.
 FROM topling-runtime AS build-topling
 
-# Secret contents do not invalidate BuildKit cache; bind the verified digest.
+# Bind the trusted digest while reading the external, read-only JNI context.
 ARG TOPLING_JNI_SHA256
 
 COPY --from=build /pkg/ /pkg/
 WORKDIR /pkg
-RUN --mount=type=secret,id=topling_jni,required=true \
-    export TOPLING_JNI_JAR=/run/secrets/topling_jni TOPLING_JNI_SHA256; \
+RUN --mount=type=bind,from=topling_jni,source=rocksdbjni-topling.jar,target=/run/topling-jni.jar \
+    export TOPLING_JNI_JAR=/run/topling-jni.jar TOPLING_JNI_SHA256; \
     apt-get -q update \
     && apt-get -q install -y --no-install-recommends --no-install-suggests \
        rsync \

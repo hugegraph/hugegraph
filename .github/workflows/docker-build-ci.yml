@@ -99,8 +99,9 @@ jobs:
           docker buildx bake --file docker/bake.hcl --print \
             > /tmp/hugegraph-bake.json
           # Graph inspection only; real builds below download and verify the jar.
-          touch /tmp/ci-topling.jar
-          RUNTIME_VARIANT=topling TOPLING_JNI_JAR=/tmp/ci-topling.jar \
+          mkdir -p /tmp/ci-topling-input
+          touch /tmp/ci-topling-input/rocksdbjni-topling.jar
+          RUNTIME_VARIANT=topling TOPLING_JNI_CONTEXT=/tmp/ci-topling-input \
             TOPLING_JNI_SHA256=86eb1bd3d9f84ef0dddd3fe95c640a6f145ca2d5a26a5ba628f1f298a2031fae \
             docker buildx bake --file docker/bake.hcl --print \
             > /tmp/hugegraph-bake-topling.json
@@ -120,6 +121,7 @@ jobs:
             .target["server-standalone"].target == "standard" and
             (.target["server-hstore"].target == null) and
             ([.target[] | (.secret // [])] | all(length == 0)) and
+            ([.target[] | (.contexts // {})] | all(length == 0)) and
             ([.target[] | .args.TOPLING_JNI_SHA256] | all(. == null)) and
             .target["build-cache"].output[0].type == "cacheonly" and
             ([.target[] | .args.SOURCE_REPOSITORY] |
@@ -135,21 +137,23 @@ jobs:
             .target["server-standalone"].target == "topling" and
             (.target["server-hstore"].target == null) and
             ([.target.pd, .target.store, .target["server-standalone"]] |
-              all(.secret[0].id == "topling_jni" and
-                  .secret[0].src == "/tmp/ci-topling.jar" and
+              all(.contexts.topling_jni == "/tmp/ci-topling-input" and
+                  (.secret // [] | length) == 0 and
                   .args.TOPLING_JNI_SHA256 == "86eb1bd3d9f84ef0dddd3fe95c640a6f145ca2d5a26a5ba628f1f298a2031fae")) and
             ([.target["build-cache"], .target["server-hstore"]] |
-              all((.secret // [] | length) == 0 and
+              all((.contexts // {} | length) == 0 and
+                  (.secret // [] | length) == 0 and
                   .args.TOPLING_JNI_SHA256 == null)) and
             ([.target[] | .platforms] |
               all(. == ["linux/amd64"]))
           ' /tmp/hugegraph-bake-topling.json
-          if RUNTIME_VARIANT=topling TOPLING_JNI_JAR= TOPLING_JNI_SHA256= \
+          if RUNTIME_VARIANT=topling TOPLING_JNI_CONTEXT= TOPLING_JNI_SHA256= \
               docker buildx bake --file docker/bake.hcl --print; then
             echo "ERROR: Topling graph accepted missing external JNI inputs" >&2
             exit 1
           fi
-          rm /tmp/ci-topling.jar
+          rm /tmp/ci-topling-input/rocksdbjni-topling.jar
+          rmdir /tmp/ci-topling-input
 
       - name: Validate ToplingDB Compose parameters
         env:
@@ -287,8 +291,12 @@ jobs:
             'https://raw.githubusercontent.com/apache/hugegraph/f6ce602cc257ea52ad96aef6b1a7aae05bf666f3/hugegraph-server/hugegraph-dist/src/assembly/static/lib/topling/rocksdbjni-8.10.2-20260725.141011-1.jar' \
             --output "$TOPLING_JNI_JAR"
           printf '%s  %s\n' "$TOPLING_JNI_SHA256" "$TOPLING_JNI_JAR" | sha256sum --check --strict
-          printf 'TOPLING_JNI_JAR=%s\nTOPLING_JNI_SHA256=%s\n' \
-            "$TOPLING_JNI_JAR" "$TOPLING_JNI_SHA256" >> "$GITHUB_ENV"
+          TOPLING_JNI_CONTEXT="$RUNNER_TEMP/topling-jni-input"
+          mkdir -p "$TOPLING_JNI_CONTEXT"
+          TOPLING_JNI_JAR="$TOPLING_JNI_JAR" TOPLING_JNI_SHA256="$TOPLING_JNI_SHA256" \
+            install-dist/scripts/stage-topling-jni.sh "$TOPLING_JNI_CONTEXT"
+          printf 'TOPLING_JNI_CONTEXT=%s\nTOPLING_JNI_SHA256=%s\n' \
+            "$TOPLING_JNI_CONTEXT" "$TOPLING_JNI_SHA256" >> "$GITHUB_ENV"
 
       - name: Build ${{ matrix.dockerfile }}
         run: |
@@ -298,7 +306,7 @@ jobs:
             TARGET_ARGS+=(--target "${{ matrix.target }}")
           fi
           if [[ "${{ matrix.target }}" == "topling" ]]; then
-            TARGET_ARGS+=(--secret "id=topling_jni,src=$TOPLING_JNI_JAR"
+            TARGET_ARGS+=(--build-context "topling_jni=$TOPLING_JNI_CONTEXT"
                           --build-arg "TOPLING_JNI_SHA256=$TOPLING_JNI_SHA256")
           fi
           # Keep Maven build logs visible while recording the image identity.
