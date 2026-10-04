@@ -316,7 +316,7 @@ public class RocksDBStdSessions extends RocksDBSessions {
 
     @Override
     public String hardLinkSnapshot(String snapshotPath) throws RocksDBException {
-        String snapshotLinkPath = this.dataPath + "_temp";
+        String snapshotLinkPath = this.dataPath + "_temp-" + java.util.UUID.randomUUID();
         try (OpenedRocksDB rocksdb = openRocksDB(this.config, ImmutableList.of(),
                                                  snapshotPath, null, null, true)) {
             rocksdb.createCheckpoint(snapshotLinkPath);
@@ -351,13 +351,6 @@ public class RocksDBStdSessions extends RocksDBSessions {
 
     private void checkValid() {
         E.checkState(this.rocksdb.get().isOwningHandle(), "It seems RocksDB has been closed");
-    }
-
-    private void replaceSeparateWalDirectory() throws IOException {
-        if (this.walPath != null && !this.walPath.isEmpty()) {
-            RocksDBSnapshotRestore.installWal(new File(this.dataPath), new File(this.walPath),
-                                              new RocksDBSnapshotRestore.FileOperations());
-        }
     }
 
     private RocksDB rocksdb() {
