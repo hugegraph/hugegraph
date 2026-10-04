@@ -44,6 +44,11 @@ on:
       - '!**/AGENTS.md'
       - '!**/CLAUDE.md'
 
+# Keep the newest PR run; preserve independent push, release and manual runs.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   docker-bake-check:
     runs-on: ubuntu-latest
@@ -296,10 +301,12 @@ jobs:
             TARGET_ARGS+=(--secret "id=topling_jni,src=$TOPLING_JNI_JAR"
                           --build-arg "TOPLING_JNI_SHA256=$TOPLING_JNI_SHA256")
           fi
-          IMAGE_ID=$(docker build -q "${TARGET_ARGS[@]}" \
+          # Keep Maven build logs visible while recording the image identity.
+          docker build --progress=plain --iidfile "$RUNNER_TEMP/iid" "${TARGET_ARGS[@]}" \
                      --build-arg SOURCE_REPOSITORY="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" \
                      --build-arg SOURCE_REVISION="$GITHUB_SHA" \
-                     -f ${{ matrix.dockerfile }} .)
+                     -f ${{ matrix.dockerfile }} .
+          IMAGE_ID=$(cat "$RUNNER_TEMP/iid")
           echo "Built: $IMAGE_ID"
           echo "IMAGE_ID=$IMAGE_ID" >> "$GITHUB_ENV"
           HC=$(docker inspect --format='{{json .Config.Healthcheck}}' "$IMAGE_ID")
