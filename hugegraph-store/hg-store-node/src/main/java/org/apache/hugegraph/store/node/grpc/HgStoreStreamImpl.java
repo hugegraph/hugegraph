@@ -17,10 +17,13 @@
 
 package org.apache.hugegraph.store.node.grpc;
 
-import java.util.Set;
+import java.util.Map;
+import java.util.function.Function;
+import java.util.function.Consumer;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 
 import org.apache.hugegraph.store.grpc.state.ScanState;
 import org.apache.hugegraph.store.grpc.stream.HgStoreStreamGrpc;
@@ -52,7 +55,7 @@ public class HgStoreStreamImpl extends HgStoreStreamGrpc.HgStoreStreamImplBase {
     private HgStoreWrapperEx wrapper;
     private ThreadPoolExecutor executor;
     private boolean closing;
-    private final Set<Runnable> scans = ConcurrentHashMap.newKeySet();
+    private final Map<ScanLifecycle, Runnable> scans = new ConcurrentHashMap<>();
 
     /** Close admission before cancelling the gRPC server. */
     public synchronized void stopAcceptingScans() {
@@ -62,8 +65,12 @@ public class HgStoreStreamImpl extends HgStoreStreamGrpc.HgStoreStreamImplBase {
     /** Cancel streams, then drain queued cleanup tasks. Never discard the queue. */
     public void shutdownScans() {
         stopAcceptingScans();
-        for (Runnable cancel : this.scans.toArray(new Runnable[0])) {
-            cancel.run();
+        for (Runnable cancel : this.scans.values().toArray(new Runnable[0])) {
+            try {
+                cancel.run();
+            } catch (RuntimeException | Error failure) {
+                log.warn("Failed to cancel scan; continuing other cancellations", failure);
+            }
         }
         ThreadPoolExecutor current = getRealExecutor();
         if (current != null) {
@@ -78,25 +85,113 @@ public class HgStoreStreamImpl extends HgStoreStreamGrpc.HgStoreStreamImplBase {
         }
     }
 
-    private <T> StreamObserver<T> register(StreamObserver<T> observer) {
+    /** Wait independently of executor termination: failed native release is sticky. */
+    public void awaitScanCleanup() {
+        boolean interrupted = false;
+        long nextLog = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+        synchronized (this.scans) {
+            while (!this.scans.isEmpty()) {
+                try {
+                    this.scans.wait(5000L);
+                } catch (InterruptedException e) {
+                    interrupted = true;
+                }
+                if (!this.scans.isEmpty() && System.nanoTime() - nextLog >= 0) {
+                    log.warn("Still waiting for {} scans to clean up before closing databases",
+                             this.scans.size());
+                    for (ScanLifecycle scan : this.scans.keySet()) {
+                        Throwable failure = scan.cleanupFailure();
+                        if (failure != null) {
+                            log.warn("Scan cleanup failed; database close stays blocked", failure);
+                        }
+                    }
+                    nextLog = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+                }
+            }
+        }
+        if (interrupted) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    private <T> StreamObserver<T> register(
+            ScanLifecycle lifecycle, Function<ScanLifecycle, StreamObserver<T>> factory) {
         Context context = Context.current();
-        Runnable cancel = new Runnable() {
+        StreamObserver<T> observer = factory.apply(lifecycle);
+        Runnable cancel = () -> {
+            if (lifecycle.tryEnterCancellation()) {
+                try {
+                    observer.onError(Status.CANCELLED.asRuntimeException());
+                } finally {
+                    lifecycle.leave();
+                }
+            }
+        };
+        this.scans.put(lifecycle, cancel);
+        Context.CancellationListener listener = ignored -> cancel.run();
+        lifecycle.onFinished(() -> {
+            this.scans.remove(lifecycle);
+            context.removeListener(listener);
+            synchronized (this.scans) {
+                this.scans.notifyAll();
+            }
+        });
+        context.addListener(listener, Runnable::run);
+        return new StreamObserver<T>() {
             @Override
-            public synchronized void run() {
-                if (scans.contains(this)) {
+            public void onNext(T value) {
+                if (lifecycle.tryEnter()) {
                     try {
-                        observer.onError(Status.CANCELLED.asRuntimeException());
-                    } catch (RuntimeException e) {
-                        log.warn("Failed to cancel scan", e);
+                        observer.onNext(value);
                     } finally {
-                        scans.remove(this);
+                        lifecycle.leave();
+                    }
+                }
+            }
+
+            @Override
+            public void onError(Throwable failure) {
+                if (lifecycle.tryEnterCancellation()) {
+                    try {
+                        observer.onError(failure);
+                    } finally {
+                        lifecycle.leave();
+                    }
+                }
+            }
+
+            @Override
+            public void onCompleted() {
+                if (lifecycle.tryEnter()) {
+                    try {
+                        observer.onCompleted();
+                    } finally {
+                        lifecycle.leave();
                     }
                 }
             }
         };
-        this.scans.add(cancel);
-        context.addListener(ignored -> cancel.run(), Runnable::run);
-        return observer;
+    }
+
+    private void oneShot(Consumer<ScanLifecycle> action) {
+        ScanLifecycle lifecycle = new ScanLifecycle();
+        synchronized (this) {
+            checkAcceptingScans();
+            lifecycle.enter();
+            this.scans.put(lifecycle, lifecycle::tryCancel);
+            lifecycle.onFinished(() -> {
+                this.scans.remove(lifecycle);
+                synchronized (this.scans) {
+                    this.scans.notifyAll();
+                }
+            });
+        }
+        try {
+            action.accept(lifecycle);
+        } finally {
+            lifecycle.finishWithoutResponse();
+            lifecycle.leave();
+        }
     }
 
     private HgStoreWrapperEx getWrapper() {
@@ -144,30 +239,31 @@ public class HgStoreStreamImpl extends HgStoreStreamGrpc.HgStoreStreamImplBase {
     @Override
     public synchronized StreamObserver<ScanStreamReq> scan(StreamObserver<KvPageRes> response) {
         checkAcceptingScans();
-        return register(ScanStreamResponse.of(response, getWrapper(), getExecutor(), appConfig));
+        return register(new ScanLifecycle(), lifecycle ->
+                new ScanStreamResponse(response, getWrapper(), getExecutor(), appConfig, lifecycle));
     }
 
     @Override
     public void scanOneShot(ScanStreamReq request, StreamObserver<KvPageRes> response) {
-        checkAcceptingScans();
-        ScanOneShotResponse.scanOneShot(request, response, getWrapper());
+        oneShot(lifecycle -> ScanOneShotResponse.scanOneShot(request, response, getWrapper(), lifecycle));
     }
 
     @Override
     public synchronized StreamObserver<ScanStreamBatchReq> scanBatch(StreamObserver<KvPageRes> response) {
         checkAcceptingScans();
-        return register(ScanBatchResponse3.of(response, getWrapper(), getExecutor()));
+        return register(new ScanLifecycle(), lifecycle ->
+                ScanBatchResponse3.of(response, getWrapper(), getExecutor(), lifecycle));
     }
 
     @Override
     public synchronized StreamObserver<ScanStreamBatchReq> scanBatch2(StreamObserver<KvStream> response) {
         checkAcceptingScans();
-        return register(ScanBatchResponseFactory.of(response, getWrapper(), getExecutor()));
+        return register(new ScanLifecycle(), lifecycle ->
+                ScanBatchResponseFactory.of(response, getWrapper(), getExecutor(), lifecycle));
     }
 
     @Override
     public void scanBatchOneShot(ScanStreamBatchReq request, StreamObserver<KvPageRes> response) {
-        checkAcceptingScans();
-        ScanBatchOneShotResponse.scanOneShot(request, response, getWrapper());
+        oneShot(lifecycle -> ScanBatchOneShotResponse.scanOneShot(request, response, getWrapper(), lifecycle));
     }
 }

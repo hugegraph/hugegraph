@@ -101,6 +101,9 @@ public class ContextClosedListener implements ApplicationListener<ContextClosedE
             }
         }
         this.grpcBarrier.awaitCallbacks();
+        if (storeStream != null) {
+            storeStream.awaitScanCleanup();
+        }
         log.info("closed gRPC callbacks, scan, aggregate query and TTL workers");
     }
 

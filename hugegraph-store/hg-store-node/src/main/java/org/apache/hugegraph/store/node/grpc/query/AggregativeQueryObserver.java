@@ -73,6 +73,7 @@ public class AggregativeQueryObserver implements StreamObserver<QueryRequest> {
     private final Set<Thread> workers = new HashSet<>();
     private int pendingTasks;
     private boolean finished;
+    private volatile boolean requestCompleted;
     private final Object responseLock = new Object();
     private boolean responseFinished;
     private boolean completeResponse = true;
@@ -106,7 +107,7 @@ public class AggregativeQueryObserver implements StreamObserver<QueryRequest> {
 
     @Override
     public synchronized void onNext(QueryRequest request) {
-        if (this.clientCanceled.get() || this.finished) {
+        if (this.clientCanceled.get() || this.finished || this.requestCompleted) {
             return;
         }
         if (this.queryId == null) {
@@ -154,9 +155,13 @@ public class AggregativeQueryObserver implements StreamObserver<QueryRequest> {
     }
 
     @Override
-    public void onCompleted() {
-        // A normal request half-close stops work and still completes the response after cleanup.
-        cancel();
+    public synchronized void onCompleted() {
+        // Half-close ends feedback, not work already supported by its existing credit.
+        this.requestCompleted = true;
+        if (this.pendingTasks == 0 && !this.finished) {
+            this.finished = true;
+            finishResponse();
+        }
     }
 
     public void cancel() {
@@ -267,6 +272,13 @@ public class AggregativeQueryObserver implements StreamObserver<QueryRequest> {
             while (!this.clientCanceled.get()) {
                 // produces more result than consumer, just waiting
                 if (sendCount.get() - consumeCount.get() >= RESULT_COUNT) {
+                    if (this.requestCompleted) {
+                        sendResponse(errorResponse(getBuilder(), queryId,
+                                                   new IllegalStateException(
+                                                           "Request completed without enough feedback")));
+                        cancel();
+                        return;
+                    }
                     // read timeout, takes long time not to read data
                     if (System.currentTimeMillis() - lastSend > timeout) {
                         sendResponse(errorResponse(getBuilder(), queryId,

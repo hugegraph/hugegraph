@@ -65,6 +65,8 @@ public class CommonKvStreamObserver<R, T> implements StreamObserver<R> {
      * It can be ended by the client to stop receiving redundant data.
      */
     private final AtomicBoolean closed = new AtomicBoolean(false);
+    // Outgoing RPC calls must not hold the monitor used by incoming callbacks.
+    private final Object requestLock = new Object();
 
     @Setter
     private long timeout = 1800 * 1000;
@@ -85,19 +87,24 @@ public class CommonKvStreamObserver<R, T> implements StreamObserver<R> {
      * Send requests
      */
     public void sendRequest() {
-        if (!isServerFinished() && !closed.get()) {
+        synchronized (this.requestLock) {
+            synchronized (this) {
+                if (isServerFinished() || this.closed.get()) {
+                    return;
+                }
+                this.watcher.setState(ResultState.WAITING);
+            }
             this.requestSender.accept(true);
-            this.watcher.setState(ResultState.WAITING);
         }
     }
 
-    public boolean isServerFinished() {
+    public synchronized boolean isServerFinished() {
         return this.watcher.getState() == ResultState.FINISHED
                || this.watcher.getState() == ResultState.ERROR;
     }
 
     @Override
-    public void onNext(R value) {
+    public synchronized void onNext(R value) {
         watcher.setState(ResultState.INNER_BUSY);
         try {
             var state = stateWatcher.apply(value);
@@ -125,14 +132,17 @@ public class CommonKvStreamObserver<R, T> implements StreamObserver<R> {
 
     public Iterator<T> consume() {
         try {
-            while (!Thread.currentThread().isInterrupted() && (!this.queue.isEmpty() ||
-                                                               !isServerFinished())) {
+            while (!Thread.currentThread().isInterrupted()) {
                 var iterator = this.queue.poll(200, TimeUnit.MILLISECONDS);
                 if (iterator != null) {
                     sendRequest();
                     return iterator;
                 }
 
+                // Read terminal state before the queue: a final batch is published with that state.
+                if (isServerFinished() && this.queue.isEmpty()) {
+                    return null;
+                }
                 if ((System.nanoTime() - watcher.current) / 1000_000 > this.timeout) {
                     throw new HgStoreClientException("iterator timeout");
                 }
@@ -146,25 +156,29 @@ public class CommonKvStreamObserver<R, T> implements StreamObserver<R> {
     }
 
     /**
-     * Send onComplete, stop receiving data
+     * Stop feedback and invoke the request stream's completion or cancellation callback.
      */
     public void clear() {
-        if (!this.closed.get()) {
-            this.closed.set(true);
-            this.transferComplete.accept(true);
+        synchronized (this.requestLock) {
+            try {
+                if (this.closed.compareAndSet(false, true)) {
+                    this.transferComplete.accept(true);
+                }
+            } finally {
+                this.queue.clear();
+            }
         }
-        this.queue.clear();
     }
 
     @Override
-    public void onError(Throwable t) {
+    public synchronized void onError(Throwable t) {
         log.error("StreamObserver got error:", t);
         this.queue.offer(new ErrorMessageIterator<>(t.getMessage()));
         this.watcher.setState(ResultState.ERROR);
     }
 
     @Override
-    public void onCompleted() {
+    public synchronized void onCompleted() {
         if (watcher.getState() != ResultState.ERROR) {
             watcher.setState(ResultState.FINISHED);
         }
