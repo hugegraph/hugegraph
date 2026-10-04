@@ -161,3 +161,30 @@ P4新4条review4175351859/61/64/68已核，仍open：barePD/Store漏实际Spring
 P1 current cluster CI37141983744连续simple阶段超过5hr，root核exact169d09bf/PR262后取消以获得日志，取消不算PASS。运行用merge e0ff07c8包含currentP1，15选定blob同字节。日志仅到SimpleClusterSuiteTest+SLF4J NOP，此后沉默，无child logs/stacks/artifacts，不能认定底层rootcause；实际current P1/P2/P3旧AbstractEnv无界startup等待（本地P4已有5min不能替代）。P2/P3运行未取消。P1仍要独立隔离复现并取得node logs/stacks，不能盲rerun或降低simple/multi gate。E/F/ci-cluster-pending-analysis保存完整取消原因/源码及不足。
 
 后续P2 service harness只准备：exact976三组件需actual fresh package；API upstream需要3个既有下载资产（JaCoCo agent/CLI及ikanalyzer），不得skip report。reaper、PID strict、API cleanup failure、TTL propertykeys精确202已证据层修正，真实API/TTL还没跑。P3 F/p3/service-fault-acceptance有6case prepared plan，但exact2eb Server包缺，不能借P4包；恢复internal切点仍42native，服务不冒称全图原子。
+
+
+## 当前检查点：2026-10-04 最终 runtime 反馈收敛
+
+P1/P2/P3/网站当前head和非Draft保持；最近两次全PR核查均仅P4有4条open discussion（4175351859/61/64/68），未以未发布候选resolve。P4远端仍9af9d14，本地frozen003是43文件增量（new9），不属于已发布head；用户已获总体粗估65–70%与P1/P2/P3/网站可review提示。JNI许可发版TODO仍不阻塞功能。
+
+E/p4/runtime-validation/runtime-green-with-dynamic-001全部PASS：format/全cleancompile、dynamic6真实StdJNI、PD16两个fresh-fork executions、Server5跨线程session scope+2版本回归、三Std组件package/三Topo生成与clean检查。其6目录及6tar已保存E同目录/preserved-package-002，原archive绑定仍保留旧原路径与hash，不重写成新产物。frozen002三路审发现CI cleanup旧路径、Servercomma入口不一致/leafsymlink bypass、Meta initrollback close失败误报；frozen003已修，CI完整graphStep实际PASS。
+
+E/p4/runtime-validation/runtime-final-edges-001当前单heavy：新Linux薄shell与dynamic13 PASS，PD20两个executions PASS（新增ownedBolt线程回收/独立JVM自然退）；全package/checks仍在推进。产品禁止被并行改动。最终三路003复审追加两点：前序Raftshutdown错误仍要关独立ownedRPC client；dynamic all-leaf mount preflight必须复用已有P3检测。E/p4/pd-client-finally-fix（root2文件候选）与server-mount-preflight-fix（worker2产品+2测试，dynamic15+真实Dockerbind5）尚未应用。旧storedVersion临时reader假设与bareTopmissingdir按既有契约撤回；不修旧generic、不扩大磁盘解析/升级平台。
+
+真实Std PDStore：E/p4/runtime-pdstore-close-preparation/runs/standard-owned-close-001 128KV/digest/PDmeta/partitionidentity、两restart与update/delete、6正常stop/JVM143/PID消失、每次真实nestedStdJar/唯一SO/hash/version都通过。后续真实8686占用触发context取消/启动异常，Raftjoined+metadata/optionsclosed均有，但ownedRaftRpcClient漏关，唯一nonDaemon Bolt-heal thread使JVM180s不自然退，整个run仍FAIL。failure-cleanup产品TERM143只清理不算PASS；退出容器exact removed无-v，data/logs/maps/stacks/seed保留。frozen003补该owner shutdown与4tests（JRaft1.3.14/Bolt1.6.4实际jar/bytecode身份已存）；仍需后续真实Std与Toping4cycle+失败自然退出+原data重开GREEN。
+
+后续顺序：完成当前单heavy并保存；应用finally/mount候选，真实kernel bind fixtures验证，不加cap/sysadmin或触碰业务库；同原3lane复审final004；fresh全编译相关测试/3包；真实Std→TopPDStore及Serverclear/dynamic/dump/负向与normalstop；normal gh append expected9af/no force，核exacthead后回复resolve4反馈/更新说明与记录。P1旧服务升级/cluster诊断，P2 API/扫描TTL/close，P3真实服务故障/Raft/集群等原gates仍未降低。
+
+## 2026-10-04 出行期间执行约束与 review 通知
+
+用户未来6–7小时在路上，信号不稳定，可能频繁断网；此约束对GitHub操作、下载和CI反馈刷新有显著影响。优先提前缓存不可变源码、已有Maven依赖、测试资产与镜像；本地测试使用Maven offline与Docker network=none，断网不中止已准备的本地批次。网络失败显式记录并排队，恢复后复核head再提交、回复或resolve，不能把离线旧快照说成当前远端状态。不创建新任务、不自动合入。
+
+用户希望及时获知需要自己做的事项与可review内容；每个可review里程碑在当前聊天发送PR链接、重点和剩余验收，关键取舍才向用户提问。目前P1/#262、P2/#261、P3/#263、网站/#510代码可review；真实服务/集群gate尚未完成；P4/#264等下一版收敛提交后再发完整review通知。无需等待全部完成才通知，也不因用户路上未回复停止独立工作。
+
+P4 frozen004为45文件未发布候选，远端仍9af9d14。runtime-final-edges-001已完整PASS并保存3种组件standard/Topling目录与归档；runtime-final-boundaries-001仍是唯一heavy，增加15项dynamic、5项真实kernel-mounted leaf契约和22项PD生命周期测试，最终结果未确认。004三路审发现两处待修：关闭失败后RaftEngine.init须拒绝残留group/server owner；embedded standard optimized disk预检只检查实际映射的store leaf，避免误拒绝unused leaf。服务正常退出/失败自然退出、Serverclear/dynamic/dump仍需fresh最终包实际验收，不提前resolve远端4条反馈。
+
+离线准备目录：/Users/zhu/github/hugegraph-topling-split-evidence/offline-travel-20261004。prepare.py使用gh获取P1/P2/P3固定head源码与已有API套件3个官方资产，并保存sha256/固定commit/本地镜像身份；inputs.json中的ready才代表缓存完成，未验证依赖完整性不声称所有测试均可离线完成。
+
+离线输入已ready：P1/P2/P3固定head源码tar完整可读、3个API资产实际JAR与apache/hugegraph-doc固定commit blob匹配、2本地镜像identity保存。gh raw二进制解码失败原记录保留，改用官方immutable blob核已有缓存成功，不引入依赖。P1 launcher新增显式offline-source/cache receipt，hash错误hard fail；有效缓存preflight进入本地image inspect，未冒称full cluster运行。最新联网comments快照新增P2聚合SCAN_V2关闭、P3同JVM contender OS锁保护、网站WAL/SUMMARY/裸路径三条，P4增加dynamic/customstore两条（已覆盖于未发布候选）；全部仍open等待实际修复验证。P1/P2/P3 current cluster现均CANCELLED，不当PASS；P4 Topling3Docker旧head仍FAIL，新context候选未发布。
+
+P4 runtime-final-boundaries-001完整PASS（receipt exit0/sourcechanges空/container已清理）：format/wholecleancompile、dynamic15、真实kernel-mounted契约5、PD22两个fresh executions、ServerScope5+version2、3标准package+3Topling生成/clean检查。6目录与6tar原样转存该run/preserved-package-004并绑定receipt hash，之后Maven不会覆盖这些产物。Std PD/Store实际服务standard-owned-close-002现为唯一heavy，用此004新包验证4cycle、8正常关闭、8686占用导致partialbootstrap后自然退出与原数据重开。P4产品源码在这些service批次中保持004不变。P4源码tar9af也已完整缓存；离线具备四PR全部固定基线。

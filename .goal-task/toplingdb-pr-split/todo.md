@@ -34,7 +34,7 @@
 
 单项等待后移，不阻止独立分析、候选构造及文档/许可核查；上述任何历史或静态结论均不替代最终head实测。
 
-用户已恢复手动执行。当前无heavy运行，准备三类runtime harness后串行执行；最新heads/证据与恢复入口见state.md。P1旧服务关闭失败、P2 API/TTL关闭、P3服务故障与P4真实JNI/native、服务重启、镜像匿名volume和集群gate均保留。
+用户已恢复手动执行。当前single-heavy为P4 standard-owned-close-002；004编译/测试/打包完整PASS，3标准和3Topling输入已保留。最新heads/证据与恢复入口见state.md。P1旧服务关闭失败、P2 API/TTL关闭、P3服务故障与P4真实JNI/native、服务重启、镜像匿名volume和集群gate均保留。
 
 RISC-V旧head smoke完成后EXIT关闭失败原证据保留；976只让stop诊断可见，最新RISC-V CI已成功但不能替代服务gate。100ms channel轮询开销仍为待负载验证项。历史本机验证、当前CI、实际服务及合入交付分别记录，不互相替代。
 
@@ -42,6 +42,16 @@ RISC-V旧head smoke完成后EXIT关闭失败原证据保留；976只让stop诊�
 | --- | --- | --- |
 | P4标准匿名volume镜像 | 三组件PASS，五旧feedback闭环 | runtime目标以clean包替换Mavenstage；不是完整Dockerfilebuild，专属资源已清理 |
 | P4真实Server | Linux/amd64模拟actual PASS | 3 JVM身份/CRUD/restart/normalstop/拒绝材料保全通过；physical x86及额外truncate还需 |
-| P4 PD/Store actual | JNI/128数据/metadata/partition及Storeclose PASS，PDclose FAIL | PD native db-not-closed SIGABRT，9文件限定候选与3review/实际RED-GREEN；restarts未做 |
-| P4新4条反馈 | 全部确认，candidate尚未整合 | bare actualSpring config guards、dump single-selectedconfig、major版解析、Dockerexternal-input例子；实测后正常追加resolve |
+| P4 PD/Store actual | 原Topo PDclose SIGABRT；Std001前3cycle PASS、bootstrap Bolt未自然退FAIL | 004已补owned client收回，PD22 PASS；Std002唯一heavy实际4cycle/失败自然退/数据重开，后续Topo同gate |
+| P4新反馈 | 原4条+dynamic/customstore两条确认；004候选未发布 | bare/config/dump/JDK/Docker/Java动态guard已整合且focused测试通过；实际services与2边界最终修复后正常提交/resolve |
 | P1 current cluster CI | 超5hr沉默后任务内取消取日志，不是PASS | 旧无界startup/NOP已证，具体阻塞unknown；隔离重现取node logs/stacks后再actual复测 |
+
+### 出行窗口执行队列（2026-10-04）
+
+- [x] P1/P2/P3/P4固定head源码、API现有3个官方固定commit资产已缓存并核hash/JAR；Maven2.7GB与2本地镜像保留。
+- [x] P1离线launcher缓存校验已实际preflight：腐败hash拒绝，有效缓存到本地image检查，不访问GH、不启动heavy；真实cluster另待单heavy。
+- [ ] 只运行一个heavy；完成P4当前批次后保存产物，修两处004确认问题并复审/实测。
+- [ ] 持续本地服务/测试并留证；GH失败排队，联网恢复后复核head并完成提交/comment/resolve。
+- [ ] 每个可review里程碑及时向用户发送链接、重点与未完成验收；无关键取舍不等待用户。
+
+新增反馈待闭环：P2 SCAN_V2 worker/partition drain正在准备最小候选（P2既有查询实现未由本PR引入，缺口属于新增关闭保证）；P3同JVM contender关闭第二fd释放POSIX owner锁已确认，由P3引入，需物理file identity注册和独立JVM/restore窗口实测；网站WAL/SUMMARY/裸路径覆盖3条候选已准备，等待实际验证与正常追加。当前cluster P1/P2/P3均CANCELLED≠PASS；P4旧head3Topling DockerFAIL，修复context输入候选仍未发布。

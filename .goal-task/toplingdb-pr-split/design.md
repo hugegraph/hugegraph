@@ -63,3 +63,9 @@ P4已实现上游源码不检入opaque JNI、由显式路径和校验和输入�
 P4/#264现已基于临时组合前置f7428943发布：P1 169d09bf + P3 2eb60f03，P3已继承P2 976ecc29。后续P1合入master后，P4可在保留祖先历史的正常master合并并核对diff后只以P3为未合入前置；不force-push、不把临时组合分支直接合master。网站#510与P4配对，合入授权分仓库取得。
 
 P4标准与Topling包分别构造；空standard PD/Store根也需原子claim，只有旧非空未标记目录保留unenforced例外。Compose允许精确完整声明集合或精确实际使用集合，不允许任意子集；HA每个节点数据源/目标/provider独立断言。脏输入的三类Topling根必须从directory与tar排除，实际负例已验证。JNI发版合规继续后续TODO，actual唯一加载与服务gate不延期。
+
+## 出行窗口与最新 review 边界
+
+固定输入缓存和证据仅用于原任务，不进入产品或长期CI。网络中断时执行本地单heavy批次并保存源码/产物/脚本身份，GitHub写入待联网后重核head；缓存远端状态有时间范围，不冒称当前CI。可review阶段立即在聊天提供链接、重点与未完成gate，关键取舍才等待用户。
+
+P2新增关闭屏障必须等实际query worker和partition cleanup完成，RPC取消回调返回不是完成证据；P3恢复锁必须在同JVM contention后仍具备跨进程排他，允许parent bind alias用物理file identity识别，注册直到真实owner最终close，不靠文件删除/锁弱化。网站和裸Server示例同时将data/WAL放在发行包树以外的provider专用持久根，generator排除默认root不替代持久化配置。
