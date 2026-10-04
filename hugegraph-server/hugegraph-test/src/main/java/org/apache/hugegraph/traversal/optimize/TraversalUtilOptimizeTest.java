@@ -202,6 +202,13 @@ public class TraversalUtilOptimizeTest {
     }
 
     @Test
+    public void testPartialExtractionKeepsMixedSearchPredicateLocal() {
+        assertPartialIndexExtraction(IndexType.SEARCH,
+                                     ConditionP.textContains("marko")
+                                               .and(P.eq("marko")), false);
+    }
+
+    @Test
     public void testPartialExtractionKeepsTextContainsWithSecondaryIndexLocal() {
         assertPartialIndexExtraction(IndexType.SECONDARY,
                                      ConditionP.textContains("marko"), false);

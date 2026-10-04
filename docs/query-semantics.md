@@ -10,7 +10,8 @@ label and supported indexed conditions to select candidates, then evaluates the
 text predicate locally. A missing required index is still reported as an error.
 
 Partial extraction keeps custom predicates that the backend cannot translate
-in traversal filters. Search conditions use a SEARCH index; UNIQUE indexes are
+in traversal filters. Single search predicates use a SEARCH index; mixed search
+predicates remain local. UNIQUE indexes are
 not used for partial query extraction. For adjacent-edge queries, ordinary
 property filters remain in the traversal when a text filter is evaluated locally.
 

@@ -34,6 +34,7 @@ import org.apache.hugegraph.backend.tx.GraphTransaction;
 import org.apache.hugegraph.exception.NoIndexException;
 import org.apache.hugegraph.schema.SchemaManager;
 import org.apache.hugegraph.testutil.Assert;
+import org.apache.hugegraph.traversal.optimize.ConditionP;
 import org.apache.hugegraph.traversal.optimize.HugeCountStep;
 import org.apache.hugegraph.traversal.optimize.HugeCountStrategy;
 import org.apache.hugegraph.traversal.optimize.HugeGraphStep;
@@ -682,6 +683,24 @@ public class CountStrategyCoreTest extends BaseCoreTest {
         Assert.assertEquals(1L, graph().traversal().V(source.id()).outE("rated")
                                       .has("name", TextP.containing("ar"))
                                       .has("weight", 2).count().next().longValue());
+    }
+
+    @Test
+    public void testPartialGraphFilterKeepsMixedSearchPredicate() {
+        this.initSchema();
+        graph().schema().indexLabel("personByName").onV("person")
+               .by("name").search().create();
+        graph().addVertex(T.label, "person", "name", "marko", "none", "filter");
+        graph().addVertex(T.label, "person", "name", "josh", "none", "filter");
+        commitTx();
+        GraphTraversal<Vertex, Long> traversal = graph().traversal().V()
+                .has("person", "none", TextP.containing("ter"))
+                .has("name", ConditionP.textContains("marko").and(P.eq("marko")))
+                .count();
+        applyAndGetGraphStep(traversal);
+
+        Assert.assertTrue(hasRemainingHasStep(traversal, "name"));
+        Assert.assertEquals(1L, traversal.next().longValue());
     }
 
     @Test

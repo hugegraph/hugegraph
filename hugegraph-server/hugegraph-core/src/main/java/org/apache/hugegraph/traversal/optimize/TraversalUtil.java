@@ -851,6 +851,13 @@ public final class TraversalUtil {
         if (requireRange && requireSearch) {
             return false;
         }
+        if (requireSearch) {
+            List<P<Object>> predicates = new ArrayList<>();
+            collectPredicates(predicates, ImmutableList.of(has.getPredicate()));
+            if (predicates.size() != 1) {
+                return false;
+            }
+        }
         for (Id id : schemaLabel.indexLabels()) {
             IndexLabel indexLabel = indexLabelOrNull(graph, id);
             if (indexLabel == null ||
