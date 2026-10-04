@@ -298,6 +298,8 @@ For comprehensive documentation, visit the [HugeGraph Documentation](https://hug
 
 See [request transactions and Store shutdown](docs/transaction-lifecycle.md) for cleanup and maintenance behavior.
 
+For an existing deployment, read the [RocksDB upgrade guidance](docs/rocksdb-upgrade.md) before upgrading the storage runtime.
+
 </details>
 
 ## Module Map
