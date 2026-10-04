@@ -1,259 +1,219 @@
-# Shared foundations: 1.8.0 migration
+# Shared foundations: preparing for the 1.8.0 migration
 
-The consolidation tracked in [#257](https://github.com/hugegraph/hugegraph/issues/257)
-removes duplicated shared implementations from Server core. Core remains the
-graph engine; struct becomes the canonical shared foundation. The 4.0 fork is
-a reference for composition and delegation, not a replacement for community
-behavior. Differences must be resolved from current callers, persisted data and
-tests rather than choosing whichever implementation is easiest to transplant.
+The planned 1.8.0 consolidation changes Java imports and extension contracts, and requires a coordinated Server, PD and Store upgrade. Use this guide to identify affected code, check historical-data compatibility and prepare your deployment.
 
-## Ownership and dependencies
+Shared implementations move out of Server core so Server and Store can use the same types and codecs. This guide covers the planned 1.8.0 migration.
+
+## What do I need to change?
+
+| If you maintain… | Your next step |
+|------------------|----------------|
+| A REST client, Loader integration or client DTO | Check actual affected Java calls; REST use alone does not require replacing client DTOs with struct types. |
+| Java code importing Server IDs, schema, queries or indexes | Update the imports and affected signatures below, then recompile against matching 1.8.0 artifacts. |
+| A `HugeGraph` implementation, serializer or element subclass | Adapt the API/SPI contracts below; old compiled implementations are not binary-compatible. |
+| Custom Gremlin scripts or `classImports` | Change the `IdGenerator` class name and verify it in the packaged Gremlin service. |
+| Hubble, Toolchain or Computer | Apply the downstream exception/classpath changes and validate the built jars. Use matching downstream artifacts and check their packaged classpaths. |
+| An HStore installation | Check OLAP writes, Store-rebuilt indexes and metadata namespaces before a coordinated upgrade. |
+| PD or Store code | Use the shared owners without importing Server core; keep service-specific execution and resource lifecycle local. |
+
+## Why share these implementations?
+
+Before this change, Server core and struct carry separate implementations of several IDs, schema types, queries, elements and codecs. A fix to one copy can leave the other with different behavior. Consolidating them gives those fixes one owner and gives Server and Store a common implementation to test.
 
 ```text
-Server core ──> struct ──> common
-Store core  ──> struct
-PD service  ──> common
+Before: Core and Struct each maintain shared types and codecs.
+
+After:
+Server core --> Struct --> Common
+Store core  --> Struct
+PD service  -------------> Common
 ```
 
-These arrows describe the shared-foundation boundary, not the complete Maven
-dependency tree. Core still needs PD/Store clients for HStore execution; Store
-still needs its network, PD client and storage libraries. Struct retains shared
-index/analyzer and codec dependencies, including shaded Kryo where required.
+*Shared-foundation ownership, rather than the complete Maven dependency tree.* Server still needs PD/Store clients for HStore; Store still needs its network, PD client and storage libraries. Struct retains its shared index/analyzer and codec dependencies, including shaded Kryo where required.
 
-| Capability | Canonical owner | Caller behavior |
-|------------|-----------------|-----------------|
-| IDs, schema metadata, type codes | struct | Import shared types |
-| Queries, base elements, byte and property codecs | struct | Reuse implementation; adapt engine/backend behavior |
-| Index construction and analyzers | struct | Preserve configured analysis and index results |
-| Graph transactions, traversal, tasks, schema mutation | core | Operate on shared metadata and elements |
-| PD-backed schema access, listeners and cache lifecycle | Store | Own `SchemaGraph`/`SchemaDriver` resources |
-| JWT signing/verification and shared auth constants | common | Supply configuration; translate failures locally |
-| RPC client/server configuration interfaces | common | Preserve existing RPC implementations and signatures |
+| Capability | Owner after migration | What remains with the caller |
+|------------|-----------------------|------------------------------|
+| IDs, schema metadata and type codes | struct | Import and use the shared types |
+| Queries, base elements, byte/property codecs | struct | Adapt graph-engine and backend behavior |
+| Index construction, analyzers and OLAP selection | struct | Supply schema candidates and result sinks; preserve configured analysis and index results |
+| Transactions, traversal, tasks and schema mutation | Server core | Operate on shared metadata and elements |
+| PD-backed schema access | Store | Manage `SchemaGraph`/`SchemaDriver`, listeners and cache lifecycle |
+| JWT signing/verification and auth constants | common | Supply configuration and translate failures into service responses |
+| RPC client/server configuration interfaces | common | Keep existing implementations and configuration values |
 
-`HugeGraphSupplier` is the shared access boundary. Core and Store implement it
-without injecting the graph engine into struct. It currently includes schema,
-configuration and clock capabilities; narrowing this contract is a follow-up,
-not permission to duplicate its consumers.
+`HugeGraphSupplier` lets shared code access schema, configuration and the clock without depending on the graph engine. Core and Store implement it.
 
-Core elements wrap shared base elements. Property mutation, cloning, removal,
-expiration and loading state propagate through that shared state. `BaseVertex`
-owns adjacency; the engine keeps an identity cache of edge wrappers over the
-same base edges, not another adjacency collection. Core serializers retain
-engine/backend adapters and delegate shared encoding.
+Core elements wrap shared base elements: property mutation, cloning, removal, expiration and loading state use that same state. `BaseVertex` owns adjacency; the engine caches edge wrappers by identity over the same base edges. Core serializers retain their engine/backend adapters and delegate shared encoding. Core also retains transaction writes, backend capability checks and index-update orchestration around shared index construction and OLAP selection.
 
-Shared index construction and OLAP selection accept caller-supplied schema
-candidates and result sinks. Core retains transaction writes, backend capability
-checks and index update orchestration. These execution responsibilities do not
-justify a second index model or selection algorithm.
+## Migrate Java code and extensions
 
-## Java API changes
+### Start with the imports
 
-Compile applications and internal integrations against the migrated artifacts.
-There is no general compatibility package containing the removed core classes.
+For example, code that creates an ID changes its imports while keeping the factory call:
 
-| Previous core entry | Shared entry or migration |
-|---------------------|---------------------------|
+**Before**
+
+```java
+import org.apache.hugegraph.backend.id.Id;
+import org.apache.hugegraph.backend.id.IdGenerator;
+
+Id id = IdGenerator.of("alice");
+```
+
+**After**
+
+```java
+import org.apache.hugegraph.id.Id;
+import org.apache.hugegraph.id.IdGenerator;
+
+Id id = IdGenerator.of("alice");
+```
+
+| Previous entry | Shared entry or migration |
+|----------------|---------------------------|
 | `org.apache.hugegraph.backend.id.*` | `org.apache.hugegraph.id.*` |
 | `org.apache.hugegraph.schema.*` metadata | `org.apache.hugegraph.struct.schema.*` |
 | `org.apache.hugegraph.backend.query.*` | `org.apache.hugegraph.query.*` |
 | `org.apache.hugegraph.backend.store.Shard` | `org.apache.hugegraph.backend.Shard` |
 | `org.apache.hugegraph.backend.store.BackendEntry.BackendColumn` | `org.apache.hugegraph.backend.BackendColumn` |
 | `org.apache.hugegraph.structure.HugeIndex` | `org.apache.hugegraph.structure.Index` |
-| `HugeGraph.sameAs(HugeGraph)` | `HugeGraph.sameAs(HugeGraphSupplier)` |
 | Shared bytes/encoding in backend serializers | `org.apache.hugegraph.serializer.*` |
 | Core `HugeException` | `org.apache.hugegraph.exception.HugeException` |
-| `org.apache.hugegraph.SchemaGraph`/`SchemaDriver` | `org.apache.hugegraph.store.schema.*` |
+| `org.apache.hugegraph.SchemaGraph` / `SchemaDriver` | `org.apache.hugegraph.store.schema.*` |
 
-This table identifies ownership changes; it is not a blanket package replacement.
-Relocated types also change method descriptors that expose IDs, schema, queries
-and indexes. Update implementations and call sites, then recompile every affected
-integration against the matching 1.8.0 artifacts; import changes alone do not make
-old compiled clients binary-compatible.
+The table applies to these shared types, not every class in a package. Schema mutation builders and backend-specific serializers remain in core. There is no general compatibility package for removed core classes. Relocated types also change method descriptors that expose IDs, schema, queries and indexes, so update implementations and call sites and recompile every affected integration against matching artifacts. Changing source imports does not make old binaries compatible.
 
-String IDs use Java's UTF-16 string order consistently, including IDs loaded
-from UTF-8 bytes. Decoding an ID lazily no longer changes its comparison result;
-this fixes the inherited Core comparator's inconsistent ordering for supplementary
-Unicode characters. Persisted ID bytes are unchanged.
+### Check API and SPI implementations
 
-External implementations of `org.apache.hugegraph.HugeGraph` must change their
-`sameAs` override parameter from `HugeGraph` to
-`org.apache.hugegraph.HugeGraphSupplier`. Shared schema and queries receive this
-supplier contract without needing a concrete graph engine, so identity comparison
-must accept it too. `StandardHugeGraph` and `HugeGraphAuthProxy` use the same
-signature. There is no compatibility overload for the old descriptor.
-Custom `HugeElement` subclasses must provide shared `BaseElement` state through
-`element()` and adapt shared properties through `wrapProperty`; do not restore
-the removed protected engine state fields or maintain a second adjacency store.
+| Integration point | Required change or preserved contract |
+|-------------------|---------------------------------------|
+| `HugeGraph.sameAs` | Change `sameAs(HugeGraph)` to `sameAs(HugeGraphSupplier)`. External overrides must accept the supplier, as `StandardHugeGraph` and `HugeGraphAuthProxy` now do. There is no old-signature overload. |
+| Custom `HugeElement` subclasses | Provide shared `BaseElement` state through `element()` and adapt `BaseProperty` through `wrapProperty`. Removed protected engine state fields and a second adjacency store must not be restored. |
+| `GraphSerializer.writeIndex` / `readIndex` | Accept/return `org.apache.hugegraph.structure.Index`; update SPI implementations and callers. No long-lived `HugeIndex` wrapper is retained. Hash-ID generation belongs to shared `Index`. |
+| `RpcServiceConfig4Client` / `RpcServiceConfig4Server` | Both now belong to common, with the same `org.apache.hugegraph.rpc` names and signatures. Existing RPC implementations and values need no source migration. Duplicate core/commons-rpc definitions are removed without adding a dependency edge. |
+| `TokenGenerator` | Use common's `org.apache.hugegraph.auth.TokenGenerator`; supply the signing secret and translate JWT failures locally. Common's JWT dependencies are optional, so direct JWT consumers must declare their required JWT libraries. |
+| Engine vertices and edges | `HugeVertex` and `HugeEdge` remain engine adapters; Store uses base elements. |
 
-Schema mutation builders and backend-specific serializers remain in core.
-The shared `Shard` keeps its existing GraphSON type tag and fields; query decoding
-also preserves the legacy fully qualified name. Toolchain
-`org.apache.hugegraph.structure.graph.Shard` remains a separate REST DTO.
-`BackendColumn` retains its mutable `name`/`value` byte-array fields. Its shared
-implementation hashes array contents consistently with equality, replacing the
-old core array-identity hash. Historical Kryo names need decoder aliases and
-fixture verification; the byte fields themselves are unchanged. Store
-`RocksDBSession.BackendColumn` remains a backend-specific adapter.
-`GraphSerializer.writeIndex`/`readIndex` now accept/return shared
-`org.apache.hugegraph.structure.Index`. Migrate implementations of this Java SPI
-and their callers; no long-lived `HugeIndex` compatibility wrapper is retained.
-Index hash-ID generation also belongs to the shared implementation.
-`org.apache.hugegraph.rpc.RpcServiceConfig4Client` and
-`org.apache.hugegraph.rpc.RpcServiceConfig4Server` now have one owner in common.
-Their fully qualified names and signatures are unchanged; RPC implementations
-and configuration values do not need a source migration. The duplicate core and
-commons-rpc definitions are removed without adding a dependency edge.
-`HugeVertex` and `HugeEdge` remain engine adapters; Store uses base elements.
-`TokenGenerator` resides in common under `org.apache.hugegraph.auth`; callers
-supply the signing secret and translate JWT failures into their existing service
-responses. JWT dependencies are optional in common, so direct JWT consumers
-must declare their required JWT libraries explicitly.
+### Update downstream exceptions without changing their meaning
 
-### Downstream classpath and exception migration
+Distinct downstream exception contracts need distinct class names on the shared classpath. Use these replacements with the matching Toolchain artifacts:
 
-Distinct downstream behaviors also need distinct Java class names. The local
-Toolchain handoff addresses these collisions without replacing client REST DTOs:
+| Previous downstream entry | Replacement and contract |
+|---------------------------|--------------------------|
+| Hubble `org.apache.hugegraph.exception.HugeException` | `org.apache.hugegraph.exception.HubbleException`: still a `RuntimeException` with its string constructor |
+| Client `org.apache.hugegraph.exception.NotSupportException` | `org.apache.hugegraph.exception.ClientNotSupportException`: still a `ClientException`, with existing message/cause and message/arguments constructors |
+| Hubble's copy of `org.apache.hugegraph.license.MachineInfo` | Keep the same import; use the implementation supplied by `hugegraph-common` |
 
-| Previous downstream entry | Replacement |
-|---------------------------|-------------|
-| Hubble `org.apache.hugegraph.exception.HugeException` | `org.apache.hugegraph.exception.HubbleException` |
-| Client `org.apache.hugegraph.exception.NotSupportException` | `org.apache.hugegraph.exception.ClientNotSupportException` |
-| Hubble's copy of `org.apache.hugegraph.license.MachineInfo` | Same fully qualified name supplied by `hugegraph-common` |
+Update imports, constructor calls and handlers for these exceptions. Struct's `HugeException` and `NotSupportException` have different contracts and are not substitutes for those catches. Computer's `HgkvDirImpl` must also use `ClientNotSupportException`.
 
-Update imports, constructor calls and exception handlers using these downstream
-classes. `HubbleException` remains a `RuntimeException` with its string constructor;
-`ClientNotSupportException` remains a `ClientException` with the existing
-message/cause and message/arguments constructors. Do not redirect their catches
-to struct's `HugeException` or `NotSupportException`: those are different
-contracts. `MachineInfo` callers retain their imports and use the common
-implementation instead of carrying another class with the same name.
+Rebuild the affected Toolchain and Computer integrations and check their packaged classpaths before deployment. A source scan for duplicate names cannot rule out stale or transitive classes in built jars. Loader's REST boundary and independent client DTOs do not need wholesale conversion to struct.
 
-Computer's `HgkvDirImpl` is an affected client-exception caller and must migrate
-to `org.apache.hugegraph.exception.ClientNotSupportException`. These Toolchain
-and Computer changes are local handoffs in this delivery, not published downstream
-PRs. Their builds and packaged-classpath validation remain required before
-claiming migration readiness. A source scan showing no duplicate fully qualified
-names cannot prove the built jars have no stale or transitive collisions.
+### Check configuration-only class names
 
-Loader's client-based REST boundary and independent client DTOs do not need a
-wholesale conversion to struct. Migrate only the actual affected Java calls.
+Replace `org.apache.hugegraph.backend.id.IdGenerator` with `org.apache.hugegraph.id.IdGenerator` in Gremlin `classImports` and scripts. The bundled default and Raft examples use the shared class. These strings are not checked by Java compilation, so test them in the packaged Gremlin service.
 
-### Gremlin configuration imports
+## Understand data and runtime compatibility
 
-Replace `org.apache.hugegraph.backend.id.IdGenerator` with
-`org.apache.hugegraph.id.IdGenerator` in custom Gremlin `classImports` and
-scripts. The bundled default and Raft example configurations use the shared
-class. Java compilation does not validate configuration-only class names, so
-verify the packaged Gremlin service as well as application source imports.
+The migration preserves existing type codes, ID/property bytes, ordinary Server index keys, TTL formats, query semantics and configuration defaults. It introduces no general data-rewrite operation. The following cases need separate attention:
 
-## Data and runtime compatibility
+| Area | Behavior after migration | Action or limit |
+|------|--------------------------|-----------------|
+| String ID comparison | Uses Java UTF-16 string order even before an ID loaded from UTF-8 bytes is decoded | Persisted bytes stay the same; supplementary Unicode characters no longer compare differently after lazy decoding. |
+| Property values | Preserves schema-driven persisted rows and tagged Store shuffle/aggregation values | Readers choose the mode from the known producer/request plan, not by guessing from bytes. |
+| SYSTEM-label index expiry | Preserves Store's stable key and 13-byte value envelope for positive expiry, and core's existing SYSTEM-label bytes | The bounded legacy envelope is read at the serializer boundary; no key TTL suffix or prefix-deletion change. |
+| Store-rebuilt long-text indexes | Uses the complete value and hash expected by Server queries | Assess old Store rebuilds; shortened historical rows may require rebuilding from graph data. |
+| HStore OLAP physical keys | New writes use `[property ID][vertex ID]` and readers retain a matching legacy-row fallback | Upgrade writers together. Previously overwritten properties cannot be recovered. |
+| Schema map decoding | Retains ordered primary/sort keys and resolves endpoint metadata independent of map field order | Matching or legacy endpoint forms work; conflicting or malformed metadata is rejected. |
+| Metadata namespace | Store uses `pd.cluster` (default `hg`) across schema, configuration, watches and TTL-cleaner metadata | Match the Server/graph namespace and preserve backend graph names. |
+| Historical serialized Java names | Query/Kryo readers retain required legacy names and aliases | Type relocation does not authorize a new wire format. |
 
-### Persisted rows and transient query results
+### Store-rebuilt indexes
 
-Server-persisted property rows use schema-driven values. Temporary Store shuffle
-and aggregation results use tagged values. Shared readers select this mode from
-the known producer/request plan; they do not guess from value bytes. Both modes
-share the scalar codec and must preserve historical samples. Ordinary schema
-index writers use the existing Server key/name-TTL layout. Store SYSTEM-label
-indexes with positive expiry retain their historical stable key plus 13-byte
-value envelope; the core SYSTEM-label writer retains its existing bytes. The
-label-index reader recognizes that precisely bounded legacy expiry envelope.
-This does not add a TTL suffix to those keys or change prefix deletion behavior.
-Shared `Index.hasTtl()` follows the existing engine contract for system indexes;
-the Store envelope is handled at the serializer boundary. Existing unsupported
-index-only element reconstruction is not enabled by this consolidation.
+The old Store `IndexBuilder` shortened long text to 20 characters, while Server queries used the complete value and its hash. The shared builder adopts the Server contract. Frozen producer/query fixtures describe that existing mismatch in the [compatibility README](../hugegraph-struct/src/test/resources/compatibility/2f827d6e8/README.md#existing-indexbuilderquery-mismatch).
 
-Schema map decoding preserves the existing wire field names and ID identity.
-Two decoder defects are corrected separately from type relocation: primary-key
-and edge sort-key lists retain their order and duplicate entries rather than
-passing through a set; redundant edge endpoint metadata is resolved consistently
-regardless of map field order. Matching `links` and source/target fields are
-accepted, legacy source/target-only maps remain readable, and conflicting or
-malformed endpoint metadata is rejected. Ordered-schema and endpoint-map tests
-cover these corrections, including generated vertex/edge IDs and query values.
-These focused tests do not prove all distributed or packaged release gates.
+Old shortened rows remain decodable, but do not automatically match a query using the full value. Check whether your installation used Store-side index rebuilding and rebuild affected indexes from graph data where necessary. The migration neither rebuilds them automatically nor recovers missing historical entries. Ordinary Server-created index keys keep their existing contract.
 
-### Metadata namespace
+### HStore OLAP writes
 
-Store accepts the existing `pd.cluster` metadata namespace setting, defaulting
-to `hg`. In Store `application.yml`, configure it as:
+A vertex-only physical key allowed one OLAP property to overwrite another on the same vertex. The new `[property ID][vertex ID]` key lets those properties coexist. This is a behavior repair beyond package relocation; existing row values remain readable without rewriting them.
+
+Readers try the requested property's compound key first, then the legacy vertex-only key if its value contains the matching property ID. Deleting one property removes its compound row and a matching legacy row while preserving other properties. Values already overwritten by the old writer are lost.
+
+Mixed-version writes can produce stale reads: an old writer may update a legacy row while a new reader prefers an earlier compound row. Upgrade all Server and Store writers before resuming writes.
+
+### Match metadata namespaces
+
+In Store `application.yml`, the existing namespace setting is:
 
 ```yaml
 pd:
   cluster: hg
 ```
 
-The environment equivalent is `PD_CLUSTER`. It must match Server's `cluster`
-when `usePD=true`, or the graph's `pd.cluster` when `usePD=false`. The namespace
-applies to schema, graph configuration, cache watches and TTL-cleaner metadata.
-One Store process cannot reuse its schema driver for conflicting namespaces.
+The environment equivalent is `PD_CLUSTER`. Match Server's `cluster` when `usePD=true`, or the graph's `pd.cluster` when `usePD=false`. One Store process cannot reuse its schema driver across conflicting namespaces.
 
-Backend graph names keep the existing `graphspace/store/table` components, for
-example `DEFAULT/hugegraph/g`; REST identity `DEFAULT-hugegraph` is not a metadata
-key. Preserve these names and configure the namespace consistently on both sides.
+Keep backend graph-name components such as `DEFAULT/hugegraph/g` (`graphspace/store/table`). The REST identity `DEFAULT-hugegraph` is not a metadata key.
 
-### Upgrade contracts
+## Plan a coordinated upgrade
 
-Upgrade Server, PD and Store together to the matching release artifacts.
-Mixed-version rolling upgrades are not a supported acceptance target for this
-change. Back up data and configuration using the existing deployment procedure
-before upgrading; this consolidation introduces no data-rewrite operation.
+```text
+Prepare --> Adapt Java code --> Upgrade matching services --> Verify
 
-Preserve existing type codes, ID and property bytes, index keys, TTL/OLAP layout,
-query semantics and configuration defaults. Java API changes do not authorize
-changes to storage tables or wire contracts.
+HStore OLAP keys:
+Before: vertex ID
+After:  [property ID][vertex ID]
+```
 
-`BaseVertex.TypeContext` makes the legacy classification context explicit:
+*Use matching Server, PD and Store artifacts; mixed-version rolling upgrades are outside this migration's supported upgrade contract.*
 
-- `STORAGE` retains Store's treatment of `~variables` as task data.
-- `ENGINE` retains the engine's treatment of `~server` and `~role_data` as server
-  data, and `~variables` as ordinary vertex data.
-- Both retain `~task` and `~taskresult` as task data.
+1. **Prepare integrations.** Update Java APIs/SPIs and Gremlin class names, recompile affected callers and check downstream delivery. Assess Store-rebuilt long-text indexes and OLAP usage.
+2. **Back up data and configuration.** Use the existing deployment procedure. Record metadata namespaces and backend graph names so they remain consistent.
+3. **Stop writes and upgrade together.** Install the matching Server, PD and Store release artifacts. Upgrade all OLAP writers before allowing writes again.
+4. **Verify the built deployment.** Start the packaged services, check Gremlin imports, authentication, schema access and relevant RocksDB/HStore paths. Validate historical data and the built classpath; compilation alone is not sufficient.
+5. **Rebuild affected indexes and resume writes.** Where old Store rebuilds produced shortened text keys, rebuild from graph data as needed and verify full-value queries. Check OLAP properties and metadata routing before resuming.
 
-Engine wrappers must select `ENGINE`; standalone storage elements retain
-`STORAGE`. This shared classifier preserves existing readers/table routing
-instead of silently changing where system vertices are read or written.
+Validate the packaged deployment and affected integrations before resuming writes, using the compatibility checks below.
 
-Query JSON still contains Java names for some relation values. Decoder mappings
-must read the historical names after type relocation. Replacing those names with
-stable value tags is tracked in [#259](https://github.com/hugegraph/hugegraph/issues/259)
-and requires an explicit compatibility policy; it is not part of a mechanical
-import migration. Keep existing Kryo decoding where historical values require it.
+## Compatibility reference for implementers
 
-## Validation and release prerequisites
+### Codecs and schema
 
-The ownership description above is not a claim that all release gates have
-passed. Review the actual commit, test reports and built distribution before
-releasing. Required evidence includes:
+Persisted property rows and transient tagged results share the scalar codec. Both must retain their historical samples. Ordinary schema index writers keep the Server key/name-TTL layout. `Index.hasTtl()` follows the engine's existing system-index contract; Store's expiry envelope stays at the serializer boundary. Unsupported index-only element reconstruction remains unsupported.
 
-- Canonical shared tests plus frozen pre-migration byte/JSON fixtures, including
-  IDs, schema, properties, indexes, pagination, TTL/OLAP and supported Kryo data.
-- RocksDB and HStore execution, Store filtering/schema access, authentication,
-  element state propagation and affected downstream tests.
-- Resolved dependency trees excluding core from PD/Store and PD client/core from
-  struct; built distribution checks for duplicate HugeGraph classes.
-- Startup of the packaged services, not just source compilation, with no classpath
-  ordering workaround for duplicate classes.
-- Independent review and CI checks preventing reintroduction of duplicate owners
-  or forbidden dependencies.
+Shared `Shard` preserves its GraphSON tag and fields, and query decoding retains its legacy fully qualified name. Toolchain's `org.apache.hugegraph.structure.graph.Shard` stays a separate REST DTO. `BackendColumn` retains mutable `name`/`value` byte arrays. Its hash now uses array contents consistently with equality instead of core's array-identity hash. Historical Kryo names require decoder aliases and fixture checks; the fields retain their bytes. Store's `RocksDBSession.BackendColumn` stays a backend adapter.
 
-Build and test commands and service prerequisites are maintained in
-[BUILDING](BUILDING.md), module guidance and CI. Ensure tests actually run;
-`-DskipTests` is not compatibility evidence.
+Schema maps preserve wire field names and ID identity. Two decoder fixes accompany relocation: primary-key and edge sort-key lists retain order and duplicates rather than passing through a set, and redundant edge endpoints are resolved consistently regardless of map field order. Matching `links` and source/target fields are accepted; legacy source/target-only maps remain readable; conflicting or malformed endpoints are rejected. Ordered-schema and endpoint-map tests cover generated vertex/edge IDs and query values, but do not establish all distributed or packaged release gates.
 
-## Follow-up work and website documentation handoff
+Query JSON still uses Java names for some relation values. Decoder mappings must read historical names, and historical values still require Kryo decoding where applicable. Replacing these Java names with value tags would require a separate wire-format compatibility policy.
 
-[Narrow supplier capabilities](https://github.com/hugegraph/hugegraph/issues/258)
-and [stable query value tags](https://github.com/hugegraph/hugegraph/issues/259)
-have concrete source evidence and acceptance criteria. Code TODOs must reference
-an unambiguous issue and an actionable remaining improvement. They cannot defer
-required de-duplication or historical-data validation.
+### System-vertex classification
 
-Website upgrade/developer documentation needs the Java migration table,
-coordinated Server/PD/Store upgrade requirement, historical-data compatibility
-checks and ownership summary above. This document is the local source for that
-paired update. Publication in this round is restricted to `hugegraph/hugegraph`;
-no `apache/hugegraph-doc` PR is published here. The required paired website PR
-and coordinated merge remain unmet prerequisites for an upstream release/merge,
-even if the fork PR passes its own tests. Do not label it upstream release-ready
-until that documentation gate is satisfied.
+`BaseVertex.TypeContext` makes the existing engine/storage distinction explicit:
+
+| Context | `~variables` | `~server` / `~role_data` | `~task` / `~taskresult` |
+|---------|--------------|------------------------|------------------------|
+| `STORAGE` (standalone storage elements) | Task data | Ordinary vertex data | Task data |
+| `ENGINE` (engine wrappers) | Ordinary vertex data | Server data | Task data |
+
+Engine wrappers must select `ENGINE`; standalone storage elements retain `STORAGE`. Selecting the correct context preserves existing table routing and readers for system vertices.
+
+### Review and release checks
+
+Review behavior alongside the package moves. The key entrypoints and invariants are:
+
+| Area | Main entrypoints | What to verify |
+|------|------------------|----------------|
+| Java API/SPI | `HugeGraphSupplier`, `HugeGraph.sameAs`, `GraphSerializer`, custom `HugeElement` | Caller recompilation and the documented migration |
+| Element state | `BaseElement/BaseVertex/BaseEdge`, `HugeElement/HugeVertex/HugeEdge`, offheap properties | One state owner, callback order, clone/adjacency identity and virtual value reads |
+| Historical codecs | `BytesBuffer`, `BinaryElementSerializer`, `BinarySerializer`, `LegacyClassNames`, `KryoUtil` | Producer-specific bytes and old enum ordinals, with canonical writers preserved |
+| Queries, schema and indexes | `ConditionQuery`, `EdgeLabel.fromMap`, `IndexBuilder`, `Index` | Query behavior, ordered keys, endpoints, full-value hashes and TTL contracts |
+| HStore and metadata | `HstoreTables`, `OlapStage`, `SchemaDriver`, `FilterIterator` | OLAP repair, exact owner reads, batch bounds, namespaces and watch closure |
+| Delivery | Shared-foundation/inventory guards, packaged jars, Gremlin imports, downstream callers | Resolved/shipped dependencies, startup and paired documentation |
+
+Release evidence must include shared tests and frozen pre-migration byte/JSON fixtures for IDs, schema, properties, indexes, pagination, TTL/OLAP and supported Kryo data. It must also cover RocksDB/HStore execution, Store filtering and schema access, authentication, element state propagation and affected downstream tests.
+
+Check resolved dependencies and built distributions: PD/Store must not depend on Server core, struct must not depend on PD client/core, and packaged jars must not contain duplicate HugeGraph classes. Start the packaged services without a classpath-ordering workaround. Independent review and CI guards must prevent new duplicate owners or forbidden dependencies.
+
+Build/test commands and service prerequisites are in [BUILDING](BUILDING.md), module guidance and CI. Ensure tests actually run; `-DskipTests` is not compatibility evidence.
+
+Deploy matching Server, PD, Store and downstream artifacts. Validate both the Java integrations and the packaged services before adopting the migration.
