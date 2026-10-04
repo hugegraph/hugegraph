@@ -173,7 +173,7 @@ public class HgStoreStreamImpl extends HgStoreStreamGrpc.HgStoreStreamImplBase {
         };
     }
 
-    private void oneShot(Consumer<ScanLifecycle> action) {
+    private <T> void oneShot(StreamObserver<T> response, Consumer<ScanLifecycle> action) {
         ScanLifecycle lifecycle = new ScanLifecycle();
         synchronized (this) {
             checkAcceptingScans();
@@ -189,8 +189,18 @@ public class HgStoreStreamImpl extends HgStoreStreamGrpc.HgStoreStreamImplBase {
         try {
             action.accept(lifecycle);
         } finally {
-            lifecycle.finishWithoutResponse();
-            lifecycle.leave();
+            try {
+                // An iterator may close automatically during hasNext(), after which the
+                // scan exits without entering its ordinary response-completion path.
+                if (lifecycle.isCancelled()) {
+                    lifecycle.response(response).onError(Status.CANCELLED
+                            .withDescription("Store scan cancelled before completion")
+                            .asRuntimeException());
+                }
+            } finally {
+                lifecycle.finishWithoutResponse();
+                lifecycle.leave();
+            }
         }
     }
 
@@ -245,7 +255,7 @@ public class HgStoreStreamImpl extends HgStoreStreamGrpc.HgStoreStreamImplBase {
 
     @Override
     public void scanOneShot(ScanStreamReq request, StreamObserver<KvPageRes> response) {
-        oneShot(lifecycle -> ScanOneShotResponse.scanOneShot(request, response, getWrapper(), lifecycle));
+        oneShot(response, lifecycle -> ScanOneShotResponse.scanOneShot(request, response, getWrapper(), lifecycle));
     }
 
     @Override
@@ -264,6 +274,7 @@ public class HgStoreStreamImpl extends HgStoreStreamGrpc.HgStoreStreamImplBase {
 
     @Override
     public void scanBatchOneShot(ScanStreamBatchReq request, StreamObserver<KvPageRes> response) {
-        oneShot(lifecycle -> ScanBatchOneShotResponse.scanOneShot(request, response, getWrapper(), lifecycle));
+        oneShot(response, lifecycle ->
+                ScanBatchOneShotResponse.scanOneShot(request, response, getWrapper(), lifecycle));
     }
 }
