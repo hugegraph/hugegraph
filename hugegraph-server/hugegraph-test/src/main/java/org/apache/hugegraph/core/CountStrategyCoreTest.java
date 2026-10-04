@@ -704,6 +704,24 @@ public class CountStrategyCoreTest extends BaseCoreTest {
     }
 
     @Test
+    public void testPartialGraphFilterKeepsCustomIdPredicate() {
+        this.initSchema();
+        Vertex marko = graph().addVertex(T.label, "person", "name", "marko",
+                                         "none", "filter");
+        graph().addVertex(T.label, "person", "name", "josh", "none", "filter");
+        commitTx();
+        P<Object> custom = new P<>((actual, expected) ->
+                                   actual.equals(expected), marko.id());
+        GraphTraversal<Vertex, Long> traversal = graph().traversal().V()
+                .has("person", "none", TextP.containing("ter"))
+                .hasId(custom).count();
+        applyAndGetGraphStep(traversal);
+
+        Assert.assertTrue(hasRemainingHasStep(traversal, T.id.getAccessor()));
+        Assert.assertEquals(1L, traversal.next().longValue());
+    }
+
+    @Test
     public void testPartialGraphFilterKeepsCustomPredicate() {
         this.initSchema();
         graph().schema().propertyKey("age").asInt().create();

@@ -284,6 +284,28 @@ public class TraversalUtilOptimizeTest {
     }
 
     @Test
+    public void testPartialGraphExtractionKeepsCustomIdPredicateLocal() {
+        HugeGraph graph = Mockito.mock(HugeGraph.class);
+        Mockito.when(graph.propertyKey("name"))
+               .thenReturn(propertyKey(1L, "name", DataType.TEXT));
+        Traversal.Admin<?, ?> traversal = traversal(
+                __.V().has("person", "name", TextP.containing("ar")),
+                graph);
+        HasStep<?> hasStep = (HasStep<?>) traversal.getEndStep();
+        P<Object> custom = new P<>((actual, expected) ->
+                                   actual.equals(expected), IdGenerator.of(1L));
+        hasStep.addHasContainer(new HasContainer(T.id.getAccessor(), custom));
+        HugeGraphStep<?, ?> newStep = replaceGraphStep(traversal);
+
+        TraversalUtil.extractHasContainer(newStep, traversal);
+
+        Assert.assertEquals(0, newStep.getIds().length);
+        Assert.assertFalse(hasContainer(newStep, T.id.getAccessor()));
+        Assert.assertTrue(hasStepExists(traversal, T.id.getAccessor()));
+        Assert.assertTrue(hasStepExists(traversal, "name"));
+    }
+
+    @Test
     public void testPartialEdgeExtractionKeepsOrdinaryPropertyLocal() {
         HugeGraph graph = Mockito.mock(HugeGraph.class);
         Mockito.when(graph.propertyKey("name"))

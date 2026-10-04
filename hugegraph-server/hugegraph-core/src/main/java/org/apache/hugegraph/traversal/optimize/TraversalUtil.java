@@ -659,7 +659,8 @@ public final class TraversalUtil {
 
         List<HasContainer> extracted = new ArrayList<>();
         for (HasContainer has : holder.getHasContainers()) {
-            if (!canExtractHasContainer(graph, has)) {
+            if (!canExtractHasContainer(graph, has) ||
+                hasNonIndexablePredicate(has)) {
                 continue;
             }
             if (!isSysProp(has.getKey()) &&
@@ -751,7 +752,7 @@ public final class TraversalUtil {
                                                  HugeGraphStep<?, ?> step,
                                                  HasContainerHolder holder,
                                                  HasContainer has) {
-        if (graph == null || hasNonIndexablePredicate(has)) {
+        if (graph == null) {
             return false;
         }
 
