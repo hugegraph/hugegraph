@@ -119,12 +119,6 @@
             <artifactId>hg-pd-service</artifactId>
             <version>${revision}</version>
         </dependency>
-        <dependency>
-            <groupId>org.apache.hugegraph</groupId>
-            <artifactId>hg-pd-dist</artifactId>
-            <version>${revision}</version>
-            <scope>compile</scope>
-        </dependency>
 
         <dependency>
             <groupId>com.google.code.gson</groupId>

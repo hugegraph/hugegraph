@@ -60,6 +60,12 @@ The assembled distribution will be available at:
 hugegraph-pd/hg-pd-dist/target/hugegraph-pd-<version>.tar.gz
 ```
 
+The service publishes a regular `hg-pd-service` JAR for Maven compilation and
+an executable JAR with the `exec` classifier. The distribution selects only the
+executable artifact and retains its usual `lib/hg-pd-service-<version>.jar` name;
+launch commands remain the same. Use the regular artifact for Java dependencies,
+and the `exec` classifier when resolving the bootable service directly.
+
 ### Run
 
 Extract the distribution package and start PD:
