@@ -10,6 +10,11 @@ The launch scripts enforce Java 17 as the minimum runtime. This check does not
 qualify later Java releases; build HugeGraph with Java 17 unless another
 release is explicitly listed as supported.
 
+The published `hugegraph-common` and `hugegraph-rpc` libraries use Java 11
+bytecode for downstream compatibility. Their build and tests still run on
+Java 17; this library bytecode target does not lower HugeGraph's runtime
+requirement.
+
 To build without executing tests: `mvn clean package -Dmaven.test.skip=true`
 
 ## Building in IDEA
