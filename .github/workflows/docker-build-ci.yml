@@ -44,6 +44,11 @@ on:
       - '!**/AGENTS.md'
       - '!**/CLAUDE.md'
 
+# Keep the newest PR run; preserve independent push, release and manual runs.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   docker-bake-check:
     runs-on: ubuntu-latest
