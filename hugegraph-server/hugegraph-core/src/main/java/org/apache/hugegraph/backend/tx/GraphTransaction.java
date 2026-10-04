@@ -549,7 +549,8 @@ public class GraphTransaction extends IndexableTransaction {
         boolean hasUpdate = this.hasUpdate();
         Aggregate aggregate = query.aggregateNotNull();
 
-        if (hasUpdate) {
+        if (hasUpdate && (query.resultType() == HugeType.VERTEX ||
+                          query.resultType() == HugeType.EDGE)) {
             E.checkArgument(aggregate.func() == AggregateFunc.COUNT,
                             "The %s operator with uncommitted records " +
                             "is not supported",
