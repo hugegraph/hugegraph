@@ -148,6 +148,18 @@ Please click on "Details" to find the problem if any check does not pass.
 
 If there are checks not passed or changes requested, then continue to modify the code and push again.
 
+### CI runs and automatic retries
+
+PR test workflows keep only the newest run for each workflow and PR. Updating a PR
+cancels its older queued or running checks; push, release and manual runs remain independent.
+Reusable workflows inherit cancellation from their caller and do not add a competing group.
+
+Automatic retries are limited to failed jobs within the existing retry budget. After the
+retry delay, CI checks that the run is still failed and that the PR is open at the same
+head commit, or that the pushed branch still points to that commit. Obsolete runs and
+runs whose state cannot be verified are skipped. This policy applies to YAML workflows;
+GitHub-managed Copilot and automatic dependency submission runs are configured separately.
+
 ## 6. Further changes after review 
 
 If we have not passed the review, don't be discouraged. Usually a commit needs to be reviewed several times before being accepted! Please follow the review comments and make further changes.
