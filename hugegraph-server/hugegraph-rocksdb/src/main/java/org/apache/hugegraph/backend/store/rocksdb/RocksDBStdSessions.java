@@ -908,14 +908,18 @@ public class RocksDBStdSessions extends RocksDBSessions {
                  RocksIterator iter = rocksdb().newIterator(cf.get())) {
                 iter.seekToFirst();
                 if (!iter.isValid()) {
+                    iter.status();
                     return null;
                 }
                 startKey = iter.key();
                 iter.seekToLast();
                 if (!iter.isValid()) {
-                    return Pair.of(startKey, null);
+                    iter.status();
+                    throw new BackendException("Missing last key in table '%s'", table);
                 }
                 endKey = iter.key();
+            } catch (RocksDBException e) {
+                throw new BackendException("Failed to read key range of table '%s'", e, table);
             }
             return Pair.of(startKey, endKey);
         }

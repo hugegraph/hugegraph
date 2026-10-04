@@ -28,6 +28,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.apache.commons.io.FileUtils;
+import org.apache.hugegraph.backend.BackendException;
 import org.apache.hugegraph.backend.store.rocksdb.RocksDBMetrics;
 import org.apache.hugegraph.backend.store.rocksdb.RocksDBOptions;
 import org.apache.hugegraph.backend.store.rocksdb.RocksDBSessions;
@@ -42,10 +43,15 @@ import org.apache.hugegraph.testutil.Assert;
 import org.apache.hugegraph.testutil.Whitebox;
 import org.apache.hugegraph.unit.FakeObjects;
 import org.junit.Test;
+import org.mockito.AdditionalAnswers;
+import org.mockito.Mockito;
+import org.rocksdb.ColumnFamilyHandle;
+import org.rocksdb.RocksDB;
 import org.rocksdb.RocksDBException;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import org.rocksdb.RocksIterator;
 
 public class RocksDBSessionsTest extends BaseRocksDBUnitTest {
 
@@ -148,6 +154,54 @@ public class RocksDBSessionsTest extends BaseRocksDBUnitTest {
         for (String table : tables) {
             Assert.assertNull(this.rocks.session().keyRange(table));
         }
+    }
+
+    @Test
+    public void testTruncatePropagatesFirstKeyReadFailure() throws Exception {
+        this.assertTruncateKeyReadFailure(false);
+    }
+
+    @Test
+    public void testTruncatePropagatesLastKeyReadFailure() throws Exception {
+        this.assertTruncateKeyReadFailure(true);
+    }
+
+    private void assertTruncateKeyReadFailure(boolean lastKey) throws Exception {
+        String brokenTable = "broken";
+        this.rocks.createTable(brokenTable);
+        this.put("healthy", "retained");
+        this.rocks.session().put(brokenTable, getBytes("a"), getBytes("first"));
+        this.rocks.session().put(brokenTable, getBytes("z"), getBytes("last"));
+        this.commit();
+        RocksDBStore store = this.adapterStore(true, ImmutableList.of(TABLE, brokenTable));
+        AtomicReference<?> shared = Whitebox.getInternalState(this.rocks, "rocksdb");
+        Object opened = shared.get();
+        RocksDB realDB = Whitebox.getInternalState(opened, "rocksdb");
+        Map<String, ?> handles = Whitebox.getInternalState(opened, "cfHandles");
+        ColumnFamilyHandle brokenHandle = Whitebox.getInternalState(handles.get(brokenTable), "handle");
+        RocksIterator brokenIterator = Mockito.mock(RocksIterator.class);
+        Mockito.when(brokenIterator.isValid()).thenReturn(lastKey, false);
+        Mockito.when(brokenIterator.key()).thenReturn(getBytes("a"));
+        RocksDBException readFailure = new RocksDBException("injected iterator read failure");
+        Mockito.doThrow(readFailure).when(brokenIterator).status();
+        // Keep a real DB and healthy iterator; replace only the failing native
+        // boundary. The production truncate -> clearTables -> keyRange chain runs.
+        RocksDB faultDB = Mockito.mock(RocksDB.class, AdditionalAnswers.delegatesTo(realDB));
+        Mockito.doReturn(brokenIterator).when(faultDB).newIterator(brokenHandle);
+        Whitebox.setInternalState(opened, "rocksdb", faultDB);
+        try {
+            Throwable failure = Assert.assertThrows(BackendException.class, store::truncate);
+            Assert.assertSame(readFailure, failure.getCause());
+            Mockito.verify(brokenIterator).status();
+            Mockito.verify(brokenIterator).close();
+        } finally {
+            Whitebox.setInternalState(opened, "rocksdb", realDB);
+        }
+        Assert.assertEquals("retained", this.get("healthy"));
+        Assert.assertArrayEquals(getBytes("first"), this.rocks.session().get(brokenTable, getBytes("a")));
+        Assert.assertArrayEquals(getBytes("last"), this.rocks.session().get(brokenTable, getBytes("z")));
+        Assert.assertFalse(this.rocks.session().hasChanges());
+        Assert.assertSame(brokenHandle, Whitebox.getInternalState(handles.get(brokenTable), "handle"));
     }
 
     private RocksDBStore adapterStore(boolean topling, List<String> tables) {
