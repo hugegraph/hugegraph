@@ -690,12 +690,12 @@ public class CountStrategyCoreTest extends BaseCoreTest {
         this.initSchema();
         graph().schema().indexLabel("personByName").onV("person")
                .by("name").search().create();
-        graph().addVertex(T.label, "person", "name", "marko", "none", "filter");
+        graph().addVertex(T.label, "person", "name", "marko graph", "none", "filter");
         graph().addVertex(T.label, "person", "name", "josh", "none", "filter");
         commitTx();
         GraphTraversal<Vertex, Long> traversal = graph().traversal().V()
                 .has("person", "none", TextP.containing("ter"))
-                .has("name", ConditionP.textContains("marko").and(P.eq("marko")))
+                .has("name", ConditionP.textContains("marko").and(P.eq("marko graph")))
                 .count();
         applyAndGetGraphStep(traversal);
 
