@@ -17,4 +17,4 @@
 #
 
 mvn clean test -Dtest=UnitTestSuite \
-    -Dsurefire.failIfNoSpecifiedTests=true
+    -Dsurefire.failIfNoSpecifiedTests=true -DskipCommonsTests=false

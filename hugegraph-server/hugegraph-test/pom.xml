@@ -116,8 +116,8 @@
                 <configuration>
                     <argLine>
                         @{argLine}
-                        @${project.basedir}/../hugegraph-dist/src/assembly/static/bin/jvm-module.options
-                        @${project.basedir}/conf/jvm-test-module.options
+                        "@${project.basedir}/../hugegraph-dist/src/assembly/static/bin/jvm-module.options"
+                        "@${project.basedir}/conf/jvm-test-module.options"
                     </argLine>
                 </configuration>
                 <executions>
@@ -186,9 +186,9 @@
                             <!-- TinkerPop process ReadTest.Traversals.class need write/read disk -->
                             <argLine>
                                 @{argLine}
-                                @${project.basedir}/../hugegraph-dist/src/assembly/static/bin/jvm-module.options
-                                @${project.basedir}/conf/jvm-test-module.options
-                                -Dbuild.dir=${project.build.directory}
+                                "@${project.basedir}/../hugegraph-dist/src/assembly/static/bin/jvm-module.options"
+                                "@${project.basedir}/conf/jvm-test-module.options"
+                                "-Dbuild.dir=${project.build.directory}"
                             </argLine>
                             <testSourceDirectory>${basedir}/src/main/java/
                             </testSourceDirectory>
