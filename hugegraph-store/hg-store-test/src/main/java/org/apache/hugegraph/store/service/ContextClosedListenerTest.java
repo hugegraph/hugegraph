@@ -33,6 +33,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.apache.hugegraph.store.node.grpc.GrpcShutdownBarrier;
 import org.apache.hugegraph.store.node.grpc.HgStoreStreamImpl;
+import org.apache.hugegraph.store.node.grpc.query.AggregativeQueryService;
 import org.apache.hugegraph.store.node.listener.ContextClosedListener;
 import org.apache.hugegraph.store.node.task.TTLCleaner;
 import org.junit.Test;
@@ -84,6 +85,7 @@ public class ContextClosedListenerTest {
             when(cleaner.getExecutor()).thenReturn(ttl);
             when(cleaner.getScheduler()).thenReturn(scheduler);
             context.getBeanFactory().registerSingleton("storeStream", stream);
+            context.getBeanFactory().registerSingleton("queryService", mock(AggregativeQueryService.class));
             context.getBeanFactory().registerSingleton("cleaner", cleaner);
             context.register(ContextClosedListener.class, GrpcShutdownBarrier.class);
             context.refresh();
@@ -136,6 +138,7 @@ public class ContextClosedListenerTest {
         AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext();
         try {
             context.getBeanFactory().registerSingleton("storeStream", mock(HgStoreStreamImpl.class));
+            context.getBeanFactory().registerSingleton("queryService", mock(AggregativeQueryService.class));
             context.getBeanFactory().registerSingleton("cleaner", mock(TTLCleaner.class));
             context.getDefaultListableBeanFactory().registerDisposableBean("database", () -> databaseClosed.set(true));
             context.register(ContextClosedListener.class, GrpcShutdownBarrier.class);
