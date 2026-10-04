@@ -34,6 +34,8 @@ under Upgrading, requires Helm 3.14 or later.
 | Server | Deployment | Gremlin and REST query layer |
 | Hubble | Deployment + optional PVC | Web UI, off by default; enable with `hubble.enabled` |
 
+![HugeGraph HStore architecture and Kubernetes workload types](images/architecture.png)
+
 A distributed HugeGraph cluster has a startup contract that this chart encodes
 so operators do not have to:
 
