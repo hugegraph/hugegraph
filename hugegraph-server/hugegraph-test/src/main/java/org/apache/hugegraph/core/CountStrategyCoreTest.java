@@ -955,6 +955,53 @@ public class CountStrategyCoreTest extends BaseCoreTest {
     }
 
     @Test
+    public void testReaddedVertexShadowsUpdatedVertexBeforeLabelMatching() {
+        SchemaManager schema = graph().schema();
+        schema.propertyKey("name").asText().create();
+        schema.vertexLabel("person").properties("name")
+              .useCustomizeStringId().create();
+        schema.vertexLabel("software").properties("name")
+              .useCustomizeStringId().create();
+        Vertex vertex = graph().addVertex(T.label, "person", T.id, "same",
+                                         "name", "before");
+        commitTx();
+        Object id = vertex.id();
+        vertex = graph().traversal().V(id).next();
+        vertex.property("name", "after");
+        vertex.remove();
+        Vertex replacement = graph().addVertex(T.label, "software", T.id, "same",
+                                               "name", "again");
+
+        Assert.assertEquals(0L, graph().traversal().V(id).hasLabel("person")
+                                      .count().next().longValue());
+        Assert.assertTrue(graph().traversal().V(id).hasLabel("person")
+                                 .toList().isEmpty());
+        Assert.assertEquals(0L, graph().traversal().V().hasLabel("person")
+                                      .count().next().longValue());
+        Assert.assertTrue(graph().traversal().V().hasLabel("person")
+                                 .toList().isEmpty());
+        Assert.assertEquals(1L, graph().traversal().V(id).hasLabel("software")
+                                      .count().next().longValue());
+        Assert.assertEquals(1L, graph().traversal().V().hasLabel("software")
+                                      .count().next().longValue());
+        Assert.assertEquals(Collections.singletonList(replacement),
+                            graph().traversal().V().hasLabel("software").toList());
+        Assert.assertEquals(Collections.singletonList(replacement),
+                            graph().traversal().V(id).toList());
+        Assert.assertEquals(Collections.singletonList(replacement),
+                            graph().traversal().V().toList());
+        Assert.assertEquals(1L, graph().traversal().V().count().next().longValue());
+        Assert.assertEquals("again", graph().traversal().V(id).values("name").next());
+
+        graph().tx().rollback();
+        Assert.assertEquals(1L, graph().traversal().V().hasLabel("person")
+                                      .count().next().longValue());
+        Assert.assertEquals(0L, graph().traversal().V().hasLabel("software")
+                                      .count().next().longValue());
+        Assert.assertEquals("before", graph().traversal().V(id).values("name").next());
+    }
+
+    @Test
     public void testRemovedEdgeCanBeReaddedWithSameId() {
         this.initSchema();
         graph().schema().edgeLabel("rated").link("person", "person")
@@ -976,6 +1023,27 @@ public class CountStrategyCoreTest extends BaseCoreTest {
                             graph().traversal().E().toList());
         Assert.assertEquals("again", graph().traversal().E(replacement.id())
                                            .values("name").next());
+        Assert.assertTrue(graph().traversal().E().hasLabel("rated")
+                                 .has("name", TextP.containing("changed"))
+                                 .toList().isEmpty());
+        Assert.assertEquals(0L, graph().traversal().E().hasLabel("rated")
+                                      .has("name", TextP.containing("changed"))
+                                      .count().next().longValue());
+        Assert.assertEquals(0L, graph().traversal().E(replacement.id())
+                                      .has("name", TextP.containing("changed"))
+                                      .count().next().longValue());
+        Assert.assertEquals(Collections.singletonList(replacement),
+                            graph().traversal().E().hasLabel("rated")
+                                   .has("name", TextP.containing("again")).toList());
+        Assert.assertEquals(1L, graph().traversal().E().hasLabel("rated")
+                                      .has("name", TextP.containing("again"))
+                                      .count().next().longValue());
+
+        graph().tx().rollback();
+        Assert.assertEquals(1L, graph().traversal().E(replacement.id())
+                                      .count().next().longValue());
+        Assert.assertEquals("before", graph().traversal().E(replacement.id())
+                                            .values("name").next());
     }
 
     @Test

@@ -5,6 +5,10 @@ and edge changes. Only `count()` supports this fallback; other aggregates with
 uncommitted changes are rejected. Queries that combine uncommitted changes with
 pagination, a limit, or an offset remain unsupported.
 
+Queries and counts select the current transaction version before applying filters.
+When an element is removed and re-added with the same ID, the new element shadows
+the old updated record, even if only the old record matches the query's label.
+
 A count query that enters an index query path remains unsupported when that index
 transaction has uncommitted changes. It reports `Can't do index query when there
 are changes in transaction`. This includes indexed-property conditions and

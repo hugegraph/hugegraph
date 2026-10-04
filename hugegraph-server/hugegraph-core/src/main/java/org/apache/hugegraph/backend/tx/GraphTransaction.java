@@ -2117,7 +2117,7 @@ public class GraphTransaction extends IndexableTransaction {
             }
         }
         for (V elem : updatedTxRecords.values()) {
-            if (removedTxRecords.containsKey(elem.id())) {
+            if (removedTxRecords.containsKey(elem.id()) || addedTxRecords.containsKey(elem.id())) {
                 continue;
             }
             if (query.reachLimit(txResults.size())) {
