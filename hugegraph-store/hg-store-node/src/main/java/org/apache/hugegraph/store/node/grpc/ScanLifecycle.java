@@ -174,8 +174,13 @@ final class ScanLifecycle {
                 enter();
                 try {
                     synchronized (responseLock) {
-                        if (terminal.getAndSet(2) != 2) {
+                        int previous = terminal.getAndSet(2);
+                        if (previous == 0) {
                             delegate.onCompleted();
+                        } else if (previous == 1) {
+                            delegate.onError(Status.CANCELLED
+                                                   .withDescription("Store scan cancelled before completion")
+                                                   .asRuntimeException());
                         }
                     }
                 } finally {
