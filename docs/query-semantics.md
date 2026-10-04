@@ -5,6 +5,12 @@ and edge changes. Only `count()` supports this fallback; other aggregates with
 uncommitted changes are rejected. Queries that combine uncommitted changes with
 pagination, a limit, or an offset remain unsupported.
 
+A count query that enters an index query path remains unsupported when that index
+transaction has uncommitted changes. It reports `Can't do index query when there
+are changes in transaction`. This includes indexed-property conditions and
+label-only queries on backends that need a label index. Graph-wide and explicit-ID
+counts can still use transaction merging without entering that index path.
+
 Unsupported text predicates remain traversal filters. For ordinary GraphStep and
 VertexStep extraction, if any condition in a `HasStep` cannot be converted, the
 whole step remains local, including its sibling label, ID and property conditions.

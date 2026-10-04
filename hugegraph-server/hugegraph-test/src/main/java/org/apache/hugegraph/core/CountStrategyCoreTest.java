@@ -27,6 +27,7 @@ import java.util.NoSuchElementException;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import org.apache.hugegraph.HugeException;
 import org.apache.hugegraph.backend.query.Aggregate;
 import org.apache.hugegraph.backend.query.Aggregate.AggregateFunc;
 import org.apache.hugegraph.backend.query.Condition;
@@ -790,6 +791,191 @@ public class CountStrategyCoreTest extends BaseCoreTest {
         Assert.assertEquals(1L, graph().traversal().V(source.id()).outE("rated")
                                       .has("name", TextP.containing("ar"))
                                       .has("weight", 2).count().next().longValue());
+    }
+
+    @Test
+    public void testUpdatedThenRemovedVertexIsAbsentFromCounts() {
+        this.initSchema();
+        Vertex vertex = graph().addVertex(T.label, "person", "name", "before");
+        commitTx();
+        Object id = vertex.id();
+        vertex = graph().traversal().V(id).next();
+        vertex.property("name", "after");
+        vertex.remove();
+
+        this.assertRemovedVertexCounts(id);
+        graph().tx().rollback();
+        Assert.assertEquals(1L, graph().traversal().V(id).count().next().longValue());
+        Assert.assertEquals(1L, graph().traversal().V().hasLabel("person")
+                                      .count().next().longValue());
+        Assert.assertEquals("before", graph().traversal().V(id).values("name").next());
+    }
+
+    private void assertRemovedVertexCounts(Object id) {
+        Assert.assertEquals(0L, graph().traversal().V(id).count().next().longValue());
+        Assert.assertEquals(0L, graph().traversal().V().hasLabel("person")
+                                      .count().next().longValue());
+        Assert.assertEquals(0L, graph().traversal().V().count().next().longValue());
+        Assert.assertTrue(graph().traversal().V().toList().isEmpty());
+        Assert.assertEquals(0L, graph().traversal().V()
+                                      .has("name", TextP.containing("after"))
+                                      .count().next().longValue());
+    }
+
+    @Test
+    public void testUpdatedThenRemovedEdgeIsAbsentFromCounts() {
+        this.assertUpdatedThenRemovedEdgeCounts(false);
+    }
+
+    @Test
+    public void testUpdatedThenRemovedSelfLoopIsAbsentFromCounts() {
+        this.assertUpdatedThenRemovedEdgeCounts(true);
+    }
+
+    private void assertUpdatedThenRemovedEdgeCounts(boolean selfLoop) {
+        this.initSchema();
+        graph().schema().edgeLabel("rated").link("person", "person")
+               .properties("name").create();
+        Vertex source = graph().addVertex(T.label, "person", "name", "source");
+        Vertex target = selfLoop ? source :
+                        graph().addVertex(T.label, "person", "name", "target");
+        Edge edge = source.addEdge("rated", target, "name", "before");
+        commitTx();
+        Object id = edge.id();
+        edge = graph().traversal().V(target.id()).inE("rated").next();
+        edge.property("name", "after");
+        edge.remove();
+
+        this.assertRemovedEdgeCounts(id, source, target);
+        graph().tx().rollback();
+        Assert.assertEquals(1L, graph().traversal().E(id).count().next().longValue());
+        Assert.assertEquals(1L, graph().traversal().E().hasLabel("rated")
+                                      .count().next().longValue());
+        Assert.assertEquals(selfLoop ? 2L : 1L,
+                            graph().traversal().V(source.id()).bothE("rated")
+                                   .count().next().longValue());
+        Assert.assertEquals("before", graph().traversal().E(id).values("name").next());
+    }
+
+    private void assertRemovedEdgeCounts(Object id, Vertex source, Vertex target) {
+        Assert.assertEquals(0L, graph().traversal().E(id).count().next().longValue());
+        Assert.assertEquals(0L, graph().traversal().V(source.id()).bothE("rated")
+                                      .count().next().longValue());
+        Assert.assertTrue(graph().traversal().V(source.id()).bothE("rated")
+                                 .toList().isEmpty());
+        Assert.assertEquals(0L, graph().traversal().V(source.id()).outE("rated")
+                                      .count().next().longValue());
+        Assert.assertEquals(0L, graph().traversal().V(target.id()).inE("rated")
+                                      .count().next().longValue());
+        Assert.assertEquals(0L, graph().traversal().E().hasLabel("rated")
+                                      .count().next().longValue());
+        Assert.assertEquals(0L, graph().traversal().E().count().next().longValue());
+        Assert.assertTrue(graph().traversal().E().toList().isEmpty());
+    }
+
+    @Test
+    public void testDirtyVertexIndexCountRemainsUnsupported() {
+        this.initSchema();
+        graph().schema().indexLabel("personByName").onV("person")
+               .by("name").secondary().create();
+        Vertex vertex = graph().addVertex(T.label, "person", "name", "before");
+        commitTx();
+        vertex = graph().traversal().V(vertex.id()).next();
+        vertex.property("name", "after");
+
+        Assert.assertEquals(1L, graph().traversal().V(vertex.id())
+                                      .count().next().longValue());
+        Assert.assertEquals(1L, graph().traversal().V().count().next().longValue());
+        assertDirtyIndexCountUnsupported(graph().traversal().V()
+                .hasLabel("person").has("name", "before").count());
+        this.assertDirtyIndexLabelCount(graph().traversal().V()
+                .hasLabel("person").count());
+    }
+
+    @Test
+    public void testDirtyEdgeIndexCountRemainsUnsupported() {
+        this.initSchema();
+        graph().schema().edgeLabel("rated").link("person", "person")
+               .properties("name").create();
+        graph().schema().indexLabel("ratedByName").onE("rated")
+               .by("name").secondary().create();
+        Vertex source = graph().addVertex(T.label, "person", "name", "source");
+        Vertex target = graph().addVertex(T.label, "person", "name", "target");
+        Edge edge = source.addEdge("rated", target, "name", "before");
+        commitTx();
+        edge = graph().traversal().E(edge.id()).next();
+        edge.property("name", "after");
+
+        Assert.assertEquals(1L, graph().traversal().E(edge.id())
+                                      .count().next().longValue());
+        Assert.assertEquals(1L, graph().traversal().E().count().next().longValue());
+        assertDirtyIndexCountUnsupported(graph().traversal().E()
+                .hasLabel("rated").has("name", "before").count());
+        this.assertDirtyIndexLabelCount(graph().traversal().E()
+                .hasLabel("rated").count());
+    }
+
+    private void assertDirtyIndexLabelCount(GraphTraversal<?, Long> traversal) {
+        if (storeFeatures().supportsQueryByLabel()) {
+            Assert.assertEquals(1L, traversal.next().longValue());
+        } else {
+            assertDirtyIndexCountUnsupported(traversal);
+        }
+    }
+
+    private static void assertDirtyIndexCountUnsupported(GraphTraversal<?, Long> traversal) {
+        Assert.assertThrows(HugeException.class, traversal::next, e -> {
+            Assert.assertContains("Can't do index query when there are " +
+                                  "changes in transaction", e.getMessage());
+        });
+    }
+
+    @Test
+    public void testRemovedVertexCanBeReaddedWithSameId() {
+        this.initSchema();
+        graph().schema().vertexLabel("reused").properties("name")
+               .useCustomizeStringId().create();
+        Vertex vertex = graph().addVertex(T.label, "reused", T.id, "same",
+                                         "name", "before");
+        commitTx();
+        vertex = graph().traversal().V(vertex.id()).next();
+        vertex.property("name", "changed");
+        vertex.remove();
+        Vertex replacement = graph().addVertex(T.label, "reused", T.id, "same",
+                                               "name", "again");
+
+        Assert.assertEquals(1L, graph().traversal().V(replacement.id())
+                                      .count().next().longValue());
+        Assert.assertEquals(1L, graph().traversal().V().hasLabel("reused")
+                                      .count().next().longValue());
+        Assert.assertEquals(Collections.singletonList(replacement),
+                            graph().traversal().V().toList());
+        Assert.assertEquals("again", graph().traversal().V(replacement.id())
+                                           .values("name").next());
+    }
+
+    @Test
+    public void testRemovedEdgeCanBeReaddedWithSameId() {
+        this.initSchema();
+        graph().schema().edgeLabel("rated").link("person", "person")
+               .properties("name").create();
+        Vertex source = graph().addVertex(T.label, "person", "name", "source");
+        Vertex target = graph().addVertex(T.label, "person", "name", "target");
+        Edge edge = source.addEdge("rated", target, "name", "before");
+        commitTx();
+        edge = graph().traversal().E(edge.id()).next();
+        edge.property("name", "changed");
+        edge.remove();
+        Edge replacement = source.addEdge("rated", target, "name", "again");
+        Assert.assertEquals(edge.id(), replacement.id());
+        Assert.assertEquals(1L, graph().traversal().E(replacement.id())
+                                      .count().next().longValue());
+        Assert.assertEquals(1L, graph().traversal().E().hasLabel("rated")
+                                      .count().next().longValue());
+        Assert.assertEquals(Collections.singletonList(replacement),
+                            graph().traversal().E().toList());
+        Assert.assertEquals("again", graph().traversal().E(replacement.id())
+                                           .values("name").next());
     }
 
     @Test

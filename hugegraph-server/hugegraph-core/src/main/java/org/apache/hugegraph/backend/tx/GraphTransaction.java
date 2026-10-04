@@ -2106,6 +2106,9 @@ public class GraphTransaction extends IndexableTransaction {
          * Records in memory have higher priority than a query from backend store
          */
         for (V elem : addedTxRecords.values()) {
+            if (removedTxRecords.containsKey(elem.id())) {
+                continue;
+            }
             if (query.reachLimit(txResults.size())) {
                 break;
             }
@@ -2114,6 +2117,9 @@ public class GraphTransaction extends IndexableTransaction {
             }
         }
         for (V elem : updatedTxRecords.values()) {
+            if (removedTxRecords.containsKey(elem.id())) {
+                continue;
+            }
             if (query.reachLimit(txResults.size())) {
                 break;
             }
