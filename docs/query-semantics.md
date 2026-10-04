@@ -9,6 +9,15 @@ Unsupported text predicates remain traversal filters. HugeGraph can still use
 label and supported indexed conditions to select candidates, then evaluates the
 text predicate locally. A missing required index is still reported as an error.
 
+Partial extraction keeps custom predicates that the backend cannot translate
+in traversal filters. Search conditions use a SEARCH index; UNIQUE indexes are
+not used for partial query extraction. For adjacent-edge queries, ordinary
+property filters remain in the traversal when a text filter is evaluated locally.
+
+A self-loop contributes two occurrences to a vertex's `bothE()` traversal and
+one to each of `outE()`, `inE()` and the graph-wide `E()` traversal. Counts retain
+these multiplicities before and after transaction commit, including edge updates.
+
 Count optimization preserves steps that can filter candidates. Resetting an
 optimized count traversal permits it to execute again. Query-step equality does
 not depend on the result iterator from a previous execution.

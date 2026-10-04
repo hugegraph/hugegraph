@@ -695,6 +695,10 @@ public final class TraversalUtil {
             if (!canExtractHasContainer(graph, has)) {
                 continue;
             }
+            if ((newStep.returnsEdge() && !isSysProp(has.getKey())) ||
+                hasNonIndexablePredicate(has)) {
+                continue;
+            }
             newStep.addHasContainer(has);
             extracted.add(has);
         }
@@ -778,7 +782,9 @@ public final class TraversalUtil {
         collectPredicates(predicates, ImmutableList.of(has.getPredicate()));
         for (P<Object> predicate : predicates) {
             BiPredicate<?, ?> bp = predicate.getBiPredicate();
-            if (bp == Compare.neq || bp == Contains.without) {
+            if (bp == Compare.neq || bp == Contains.without ||
+                !(bp instanceof Compare || bp instanceof Contains ||
+                  bp instanceof Condition.RelationType)) {
                 return true;
             }
         }
@@ -841,6 +847,10 @@ public final class TraversalUtil {
                                                     PropertyKey pkey,
                                                     HasContainer has) {
         boolean requireRange = hasRangePredicate(has);
+        boolean requireSearch = hasSearchPredicate(has);
+        if (requireRange && requireSearch) {
+            return false;
+        }
         for (Id id : schemaLabel.indexLabels()) {
             IndexLabel indexLabel = indexLabelOrNull(graph, id);
             if (indexLabel == null ||
@@ -848,8 +858,10 @@ public final class TraversalUtil {
                 !matchSingleFieldIndex(indexLabel, pkey)) {
                 continue;
             }
-            if (requireRange ? indexLabel.indexType().isNumeric() :
-                !indexLabel.indexType().isSearch()) {
+            if (requireSearch ? indexLabel.indexType().isSearch() :
+                requireRange ? indexLabel.indexType().isNumeric() :
+                !indexLabel.indexType().isSearch() &&
+                !indexLabel.indexType().isUnique()) {
                 return true;
             }
         }
@@ -863,6 +875,19 @@ public final class TraversalUtil {
             BiPredicate<?, ?> bp = predicate.getBiPredicate();
             if (bp == Compare.gt || bp == Compare.gte ||
                 bp == Compare.lt || bp == Compare.lte) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean hasSearchPredicate(HasContainer has) {
+        List<P<Object>> predicates = new ArrayList<>();
+        collectPredicates(predicates, ImmutableList.of(has.getPredicate()));
+        for (P<Object> predicate : predicates) {
+            BiPredicate<?, ?> bp = predicate.getBiPredicate();
+            if (bp instanceof Condition.RelationType &&
+                ((Condition.RelationType) bp).isSearchType()) {
                 return true;
             }
         }

@@ -20,6 +20,7 @@ package org.apache.hugegraph.core;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -644,6 +645,92 @@ public class CountStrategyCoreTest extends BaseCoreTest {
         } finally {
             transaction.close();
         }
+    }
+
+    @Test
+    public void testPartialEdgeFilterKeepsOrdinaryProperty() {
+        this.initSchema();
+        graph().schema().propertyKey("weight").asInt().create();
+        graph().schema().edgeLabel("rated").link("person", "person")
+               .properties("name", "weight").create();
+        Vertex source = graph().addVertex(T.label, "person", "name", "source");
+        Vertex target = graph().addVertex(T.label, "person", "name", "target");
+        source.addEdge("rated", target, "name", "marko", "weight", 1);
+        Vertex other = graph().addVertex(T.label, "person", "name", "other");
+        Edge expected = source.addEdge("rated", other,
+                                       "name", "marko", "weight", 2);
+        commitTx();
+
+        List<Edge> edges = graph().traversal().V(source.id()).outE("rated")
+                                  .has("name", TextP.containing("ar"))
+                                  .has("weight", 2).toList();
+        Assert.assertEquals(1, edges.size());
+        Assert.assertEquals(expected.id(), edges.get(0).id());
+        Assert.assertEquals(1L, graph().traversal().V(source.id()).outE("rated")
+                                      .has("name", TextP.containing("ar"))
+                                      .has("weight", 2).count().next().longValue());
+    }
+
+    @Test
+    public void testPartialGraphFilterKeepsCustomPredicate() {
+        this.initSchema();
+        graph().schema().propertyKey("age").asInt().create();
+        graph().schema().vertexLabel("indexed").properties("name", "age")
+               .create();
+        graph().schema().indexLabel("indexedByAge").onV("indexed")
+               .by("age").secondary().create();
+        graph().addVertex(T.label, "indexed", "name", "marko", "age", 29);
+        graph().addVertex(T.label, "indexed", "name", "marko", "age", 19);
+        commitTx();
+        P<Integer> custom = new P<>((actual, expected) -> actual > expected, 20);
+        GraphTraversal<Vertex, Long> traversal = graph().traversal().V()
+                .has("indexed", "name", TextP.containing("ar"))
+                .has("age", custom).count();
+        HugeGraphStep<?, ?> step = applyAndGetGraphStep(traversal);
+
+        Assert.assertFalse(step.getHasContainers().stream()
+                               .anyMatch(has -> "age".equals(has.getKey())));
+        Assert.assertTrue(hasRemainingHasStep(traversal, "age"));
+        Assert.assertEquals(1L, traversal.next().longValue());
+    }
+
+    @Test
+    public void testAddedSelfLoopCountKeepsBothDirections() {
+        this.initSchema();
+        Vertex vertex = graph().addVertex(T.label, "person", "name", "loop");
+        vertex.addEdge("knows", vertex);
+        this.assertSelfLoopCounts(vertex);
+        commitTx();
+        this.assertSelfLoopCounts(vertex);
+    }
+
+    @Test
+    public void testUpdatedSelfLoopCountKeepsBothDirections() {
+        this.initSchema();
+        graph().schema().edgeLabel("rated").link("person", "person")
+               .properties("name").create();
+        Vertex vertex = graph().addVertex(T.label, "person", "name", "loop");
+        Edge loop = vertex.addEdge("rated", vertex, "name", "before");
+        commitTx();
+        loop.property("name", "after");
+        this.assertSelfLoopCounts(vertex);
+        commitTx();
+        this.assertSelfLoopCounts(vertex);
+        loop.remove();
+        Assert.assertEquals(0L, graph().traversal().V(vertex.id())
+                                      .bothE().count().next().longValue());
+    }
+
+    private void assertSelfLoopCounts(Vertex vertex) {
+        Assert.assertEquals(2L, graph().traversal().V(vertex.id())
+                                      .bothE().count().next().longValue());
+        Assert.assertEquals(2, graph().traversal().V(vertex.id())
+                                     .bothE().toList().size());
+        Assert.assertEquals(1L, graph().traversal().V(vertex.id())
+                                      .outE().count().next().longValue());
+        Assert.assertEquals(1L, graph().traversal().V(vertex.id())
+                                      .inE().count().next().longValue());
+        Assert.assertEquals(1L, graph().traversal().E().count().next().longValue());
     }
 
     @Test

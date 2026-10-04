@@ -191,6 +191,89 @@ public class TraversalUtilOptimizeTest {
     }
 
     @Test
+    public void testPartialExtractionKeepsUniqueIndexLocal() {
+        assertPartialIndexExtraction(IndexType.UNIQUE, P.eq("marko"), false);
+    }
+
+    @Test
+    public void testPartialExtractionUsesSearchIndexForTextContains() {
+        assertPartialIndexExtraction(IndexType.SEARCH,
+                                     ConditionP.textContains("marko"), true);
+    }
+
+    @Test
+    public void testPartialExtractionKeepsTextContainsWithSecondaryIndexLocal() {
+        assertPartialIndexExtraction(IndexType.SECONDARY,
+                                     ConditionP.textContains("marko"), false);
+    }
+
+    @Test
+    public void testPartialExtractionKeepsCustomPredicateLocal() {
+        P<String> custom = new P<>((actual, expected) ->
+                                   actual.startsWith(expected), "m");
+        assertPartialIndexExtraction(IndexType.SECONDARY, custom, false);
+        assertPartialIndexExtraction(IndexType.SECONDARY,
+                                     P.eq("marko").and(custom), false);
+    }
+
+    private static void assertPartialIndexExtraction(IndexType indexType,
+                                                     P<?> predicate,
+                                                     boolean extracted) {
+        HugeGraph graph = Mockito.mock(HugeGraph.class);
+        PropertyKey name = propertyKey(1L, "name", DataType.TEXT);
+        PropertyKey query = propertyKey(2L, "query", DataType.TEXT);
+        VertexLabel person = new VertexLabel(graph, IdGenerator.of(3L),
+                                             "person");
+        person.properties(name.id(), query.id());
+        IndexLabel index = new IndexLabel(graph, IdGenerator.of(4L),
+                                          "personByQuery");
+        index.indexField(query.id());
+        index.indexType(indexType);
+        index.status(SchemaStatus.CREATED);
+        person.addIndexLabel(index.id());
+        Mockito.when(graph.propertyKey("name")).thenReturn(name);
+        Mockito.when(graph.propertyKey("query")).thenReturn(query);
+        Mockito.when(graph.vertexLabel("person")).thenReturn(person);
+        Mockito.when(graph.indexLabel(index.id())).thenReturn(index);
+
+        Traversal.Admin<?, ?> traversal = traversal(
+                __.V().has("person", "name", TextP.containing("ar")),
+                graph);
+        HasStep<?> hasStep = (HasStep<?>) traversal.getEndStep();
+        hasStep.addHasContainer(new HasContainer("query", predicate));
+        HugeGraphStep<?, ?> newStep = replaceGraphStep(traversal);
+
+        TraversalUtil.extractHasContainer(newStep, traversal);
+
+        Assert.assertTrue(hasContainer(newStep, T.label.getAccessor()));
+        Assert.assertEquals(extracted, hasContainer(newStep, "query"));
+        Assert.assertEquals(!extracted, hasStepExists(traversal, "query"));
+        Assert.assertTrue(hasStepExists(traversal, "name"));
+    }
+
+    @Test
+    public void testPartialEdgeExtractionKeepsOrdinaryPropertyLocal() {
+        HugeGraph graph = Mockito.mock(HugeGraph.class);
+        Mockito.when(graph.propertyKey("name"))
+               .thenReturn(propertyKey(1L, "name", DataType.TEXT));
+        Mockito.when(graph.propertyKey("weight"))
+               .thenReturn(propertyKey(2L, "weight", DataType.INT));
+        Traversal.Admin<?, ?> traversal = traversal(
+                __.V().outE().has("knows", "name", TextP.containing("ar")),
+                graph);
+        HasStep<?> hasStep = (HasStep<?>) traversal.getEndStep();
+        hasStep.addHasContainer(new HasContainer("weight", P.eq(2)));
+        HugeVertexStep<?> newStep = replaceVertexStep(traversal);
+
+        TraversalUtil.extractHasContainer(newStep, traversal);
+
+        Assert.assertTrue(hasContainer(newStep, T.label.getAccessor()));
+        Assert.assertFalse(hasContainer(newStep, "weight"));
+        Assert.assertTrue(hasStepExists(traversal, "weight"));
+        Assert.assertTrue(hasStepExists(traversal, "name"));
+    }
+
+    @Test
     public void testExtractHasContainerKeepsTextRangeWithoutGraph() {
         Traversal.Admin<?, ?> traversal = __.V()
                                            .has("name", P.lt("marko"))

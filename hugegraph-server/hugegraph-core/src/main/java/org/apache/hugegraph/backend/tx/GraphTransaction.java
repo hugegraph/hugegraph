@@ -64,6 +64,7 @@ import org.apache.hugegraph.exception.NotFoundException;
 import org.apache.hugegraph.iterator.BatchMapperIterator;
 import org.apache.hugegraph.iterator.ExtendableIterator;
 import org.apache.hugegraph.iterator.FilterIterator;
+import org.apache.hugegraph.iterator.FlatMapperIterator;
 import org.apache.hugegraph.iterator.LimitIterator;
 import org.apache.hugegraph.iterator.MapperIterator;
 import org.apache.hugegraph.job.system.DeleteExpiredJob;
@@ -2052,6 +2053,21 @@ public class GraphTransaction extends IndexableTransaction {
         edges = this.joinTxRecords(query, edges, matchTxFunc,
                                    this.addedEdges, this.removedEdges,
                                    this.updatedEdges);
+        if (query instanceof ConditionQuery &&
+            ((ConditionQuery) query).containsCondition(HugeKeys.OWNER_VERTEX) &&
+            !(this.addedEdges.isEmpty() && this.updatedEdges.isEmpty())) {
+            edges = new FlatMapperIterator<>(edges, edge -> {
+                if (edge.selfLoop() &&
+                    (this.addedEdges.containsKey(edge.id()) ||
+                     this.updatedEdges.containsKey(edge.id()))) {
+                    HugeEdge opposite = edge.switchOwner();
+                    if (query.test(opposite)) {
+                        return ImmutableList.of(edge, opposite).iterator();
+                    }
+                }
+                return ImmutableList.of(edge).iterator();
+            });
+        }
         if (removingVertices.isEmpty()) {
             return edges;
         }
