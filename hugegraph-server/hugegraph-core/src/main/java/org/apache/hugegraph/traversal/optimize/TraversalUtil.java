@@ -555,9 +555,12 @@ public final class TraversalUtil {
             if (value == null) {
                 return true;
             }
-            if (value instanceof Collection &&
-                ((Collection<?>) value).contains(null)) {
-                return true;
+            if (value instanceof Collection) {
+                for (Object label : (Collection<?>) value) {
+                    if (label == null) {
+                        return true;
+                    }
+                }
             }
         }
         return false;

@@ -17,6 +17,8 @@
 
 package org.apache.hugegraph.core;
 
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -662,6 +664,51 @@ public class CountStrategyCoreTest extends BaseCoreTest {
             Assert.assertTrue(vertices.closed());
         } finally {
             transaction.close();
+        }
+    }
+
+    @Test
+    public void testLabelPredicatesWithNullHostileCollections() {
+        this.initSchema();
+        Vertex person = graph().addVertex(T.label, "person", "name", "marko");
+        Vertex software = graph().addVertex(T.label, "software", "name", "market");
+        commitTx();
+
+        List<Collection<String>> values = List.of(List.of("person"), Set.of("person"));
+        for (Collection<String> labels : values) {
+            Assert.assertEquals(Collections.singletonList(person),
+                                graph().traversal().V().hasLabel(P.within(labels)).toList());
+            Assert.assertEquals(1L, graph().traversal().V().hasLabel(P.within(labels))
+                                         .count().next().longValue());
+            GraphTraversal<Vertex, Vertex> without = graph().traversal().V()
+                    .hasLabel(P.without(labels)).has("name", TextP.containing("ar"));
+            without.asAdmin().applyStrategies();
+            Assert.assertTrue(hasRemainingHasStep(without, T.label.getAccessor()));
+            Assert.assertEquals(Collections.singletonList(software), without.toList());
+        }
+    }
+
+    @Test
+    public void testLabelPredicatesWithMutableNullValuesStayLocal() {
+        this.initSchema();
+        Vertex person = graph().addVertex(T.label, "person", "name", "marko");
+        Vertex software = graph().addVertex(T.label, "software", "name", "market");
+        commitTx();
+
+        Collection<String> list = new ArrayList<>(List.of("person"));
+        list.add(null);
+        Collection<String> set = new HashSet<>(list);
+        for (Collection<String> labels : List.of(list, set)) {
+            GraphTraversal<Vertex, Vertex> within = graph().traversal().V()
+                    .hasLabel(P.within(labels));
+            within.asAdmin().applyStrategies();
+            Assert.assertTrue(hasRemainingHasStep(within, T.label.getAccessor()));
+            Assert.assertEquals(Collections.singletonList(person), within.toList());
+            GraphTraversal<Vertex, Vertex> without = graph().traversal().V()
+                    .hasLabel(P.without(labels));
+            without.asAdmin().applyStrategies();
+            Assert.assertTrue(hasRemainingHasStep(without, T.label.getAccessor()));
+            Assert.assertEquals(Collections.singletonList(software), without.toList());
         }
     }
 

@@ -17,7 +17,11 @@
 
 package org.apache.hugegraph.traversal.optimize;
 
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 
 import org.apache.hugegraph.HugeGraph;
@@ -346,6 +350,40 @@ public class TraversalUtilOptimizeTest {
 
         Assert.assertEquals(1, newStep.getHasContainers().size());
         Assert.assertFalse(hasStepExists(traversal));
+    }
+
+    @Test
+    public void testLabelContainersWithImmutableList() {
+        assertNullHostileLabelCollection(List.of("person"));
+    }
+
+    @Test
+    public void testLabelContainersWithImmutableSet() {
+        assertNullHostileLabelCollection(Set.of("person"));
+    }
+
+    private static void assertNullHostileLabelCollection(Collection<String> labels) {
+        HasContainer within = new HasContainer(T.label.getAccessor(), P.within(labels));
+        Assert.assertTrue(TraversalUtil.canExtractHasContainer(null, within));
+        Assert.assertTrue(TraversalUtil.isPositiveLabelContainer(within));
+        HasContainer without = new HasContainer(T.label.getAccessor(), P.without(labels));
+        Assert.assertTrue(TraversalUtil.canExtractHasContainer(null, without));
+        Assert.assertFalse(TraversalUtil.isPositiveLabelContainer(without));
+    }
+
+    @Test
+    public void testLabelContainersWithMutableNullValuesStayLocal() {
+        Collection<String> list = new ArrayList<>(List.of("person"));
+        list.add(null);
+        Collection<String> set = new HashSet<>(list);
+        for (Collection<String> labels : List.of(list, set)) {
+            HasContainer within = new HasContainer(T.label.getAccessor(), P.within(labels));
+            Assert.assertFalse(TraversalUtil.canExtractHasContainer(null, within));
+            Assert.assertFalse(TraversalUtil.isPositiveLabelContainer(within));
+            HasContainer without = new HasContainer(T.label.getAccessor(), P.without(labels));
+            Assert.assertFalse(TraversalUtil.canExtractHasContainer(null, without));
+            Assert.assertFalse(TraversalUtil.isPositiveLabelContainer(without));
+        }
     }
 
     @Test
