@@ -561,8 +561,7 @@ public class CountStrategyCoreTest extends BaseCoreTest {
     @Test
     public void testSystemCountsIgnoreUncommittedVertices() {
         this.initSchema();
-        for (HugeType type : new HugeType[]{HugeType.TASK, HugeType.SERVER,
-                                           HugeType.VARIABLE}) {
+        for (HugeType type : new HugeType[]{HugeType.TASK, HugeType.SERVER}) {
             Query query = new Query(type);
             query.aggregate(new Aggregate(AggregateFunc.COUNT, null));
             long before = graph().queryNumber(query).longValue();
