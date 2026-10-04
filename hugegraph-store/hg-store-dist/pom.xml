@@ -43,6 +43,7 @@
             <artifactId>hg-store-node</artifactId>
             <version>${revision}</version>
             <classifier>exec</classifier>
+            <scope>runtime</scope>
         </dependency>
     </dependencies>
     <build>
