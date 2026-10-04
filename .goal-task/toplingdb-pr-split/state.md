@@ -1,6 +1,17 @@
 # ToplingDB PR 拆分任务
 
-> 最新入口（2026-10-05模型切换）：[handoff-model-switch.md](handoff-model-switch.md)。用户已批准从master用干净新PR拆TP核心，通用P2/P3及发行包/Docker独立后续。当前停止新增工作并保存交接；不要按下方旧大集成范围继续。
+> 当前执行入口：[handoff-current.md](handoff-current.md)。用户已恢复，旧暂停与旧四级大堆叠仅属历史。当前采用 master 上的小 TP 核心 #266，通用生命周期 #261、干净恢复 follow-up、专用包和 Docker 独立推进。
+
+## 当前快照（2026-10-05）
+
+- 核心 #266 已推送到 027cf8dbeab83e2ff71b421f98413a774fc6348c；不依赖 #261/#263。实际 TP PD/Store 和 Server/HStore 最终运行验收进行中。
+- #261 e72b5fcdae07519ae394556986ae7e7734ce3e30：已验证修复及时推送；日志节流评论最新确认已 resolve；ordering 争议保留回复。尚欠 active query/scan/TTL 真实停机验收。
+- #263 最新 f8b29c82f1319894e931218c816165c04f42754a：checkpoint 清理与损坏 savedWal 校验顺序仍未解决，不宣称可合入。
+- 旧 #264 d577cea9bee1379bfe4a2a34c3c76d7700ed3468：保留并发新增修复，准备逐评论映射新核心及独立后续。
+- 网站 #510 7d24a523661287119ea177b63846f199abf4a3e6：已配对新核心收窄并验证推送。
+- 完整 source/编译/测试/包和运行证据详见 handoff-current；source 中旧 docs 在运行结束后同步，不修改正在冻结运行的源码。
+
+## 以下为历史记录，不作为当前 head 或完成状态
 
 更新：2026-10-04（Asia/Singapore）。用户已确认 deep 模式与本文件初始化。
 用户于2026-10-05明确恢复当前任务；原 Linux goal 保持暂停。当前进展以恢复记录为准。
