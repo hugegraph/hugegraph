@@ -19,6 +19,9 @@ package org.apache.hugegraph.unit.rocksdb;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.apache.commons.io.FileUtils;
 import org.apache.hugegraph.backend.store.rocksdb.RocksDBMetrics;
@@ -28,6 +31,7 @@ import org.apache.hugegraph.backend.store.rocksdb.RocksDBStdSessions;
 import org.apache.hugegraph.backend.store.rocksdbsst.RocksDBSstSessions;
 import org.apache.hugegraph.config.HugeConfig;
 import org.apache.hugegraph.testutil.Assert;
+import org.apache.hugegraph.testutil.Whitebox;
 import org.apache.hugegraph.unit.FakeObjects;
 import org.junit.Test;
 import org.rocksdb.RocksDBException;
@@ -36,6 +40,23 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
 public class RocksDBSessionsTest extends BaseRocksDBUnitTest {
+
+    @Test
+    public void testDatabaseOpenedDoesNotCreateSession() throws RocksDBException {
+        HugeConfig config = FakeObjects.newConfig();
+        String path = DB_PATH + "/opened";
+        RocksDBSessions sessions =
+                new RocksDBStdSessions(config, "db", "store", path, path);
+        AtomicInteger sessionCount =
+                Whitebox.getInternalState(sessions, "sessionCount");
+
+        Assert.assertEquals(0, sessionCount.get());
+        Assert.assertTrue(sessions.databaseOpened());
+        Assert.assertEquals(0, sessionCount.get());
+
+        sessions.forceCloseRocksDB();
+        Assert.assertFalse(sessions.databaseOpened());
+    }
 
     @Test
     public void testTable() throws RocksDBException {
@@ -132,6 +153,148 @@ public class RocksDBSessionsTest extends BaseRocksDBUnitTest {
             if (snapshotFile.exists()) {
                 FileUtils.forceDelete(snapshotFile);
             }
+        }
+    }
+
+    @Test
+    public void testSnapshotWithSeparateWalDirectory() throws Exception {
+        String dataPath = DB_PATH + "/separate-data";
+        String walPath = DB_PATH + "/separate-wal";
+        String snapshotPath = SNAPSHOT_PATH + "/separate-rocks";
+        FileUtils.deleteDirectory(FileUtils.getFile(dataPath));
+        FileUtils.deleteDirectory(FileUtils.getFile(walPath));
+        FileUtils.deleteDirectory(FileUtils.getFile(snapshotPath));
+        HugeConfig config = FakeObjects.newConfig();
+        RocksDBSessions sessions = new RocksDBStdSessions(config, "db", "store",
+                                                          dataPath, walPath);
+        try {
+            sessions.createTable(TABLE);
+            sessions.session().put(TABLE, getBytes("person:1gname"),
+                                   getBytes("James"));
+            sessions.session().put(TABLE, getBytes("person:2gname"),
+                                   getBytes("Lisa"));
+            sessions.session().commit();
+
+            sessions.createSnapshot(snapshotPath);
+
+            sessions.session().put(TABLE, getBytes("person:1gname"),
+                                   getBytes("James2"));
+            sessions.session().put(TABLE, getBytes("person:3gname"),
+                                   getBytes("After"));
+            sessions.session().commit();
+            Assert.assertEquals("James2", getString(sessions.session().get(
+                    TABLE, getBytes("person:1gname"))));
+
+            sessions.resumeSnapshot(snapshotPath);
+
+            Assert.assertEquals("James", getString(sessions.session().get(
+                    TABLE, getBytes("person:1gname"))));
+            Assert.assertEquals("Lisa", getString(sessions.session().get(
+                    TABLE, getBytes("person:2gname"))));
+            Assert.assertNull(sessions.session().get(TABLE,
+                                                     getBytes("person:3gname")));
+            Assert.assertEquals(0, readWalLogs(dataPath).size());
+            assertNoResumeResidue(walPath);
+        } finally {
+            sessions.close();
+            FileUtils.deleteDirectory(FileUtils.getFile(dataPath));
+            FileUtils.deleteDirectory(FileUtils.getFile(walPath));
+            FileUtils.deleteDirectory(FileUtils.getFile(walPath + ".resume-aside"));
+            File snapshotFile = FileUtils.getFile(SNAPSHOT_PATH);
+            if (snapshotFile.exists()) {
+                FileUtils.forceDelete(snapshotFile);
+            }
+        }
+    }
+
+
+    @Test
+    public void testResumeWhenDataDirectoryIsInsideWal() throws Exception {
+        String walPath = nestedRoot("parent-wal");
+        String dataPath = walPath + "/nested-data";
+        resumeNestedAndExpectSnapshot(dataPath, walPath);
+    }
+
+    @Test
+    public void testResumeWhenWalDirectoryIsInsideData() throws Exception {
+        String dataPath = nestedRoot("parent-data");
+        String walPath = dataPath + "/nested-wal";
+        resumeNestedAndExpectSnapshot(dataPath, walPath);
+    }
+
+
+    private static String nestedRoot(String name) {
+        return System.getProperty("java.io.tmpdir") + "/nested-wal-closure/" + name;
+    }
+
+    private void resumeNestedAndExpectSnapshot(String dataPath, String walPath)
+                                                throws Exception {
+        String snapshotPath = SNAPSHOT_PATH + "/nested-rocks";
+        FileUtils.deleteDirectory(FileUtils.getFile(dataPath));
+        FileUtils.deleteDirectory(FileUtils.getFile(walPath));
+        FileUtils.forceMkdir(FileUtils.getFile(walPath).getParentFile());
+        FileUtils.forceMkdir(FileUtils.getFile(dataPath).getParentFile());
+        HugeConfig config = FakeObjects.newConfig();
+        RocksDBSessions sessions = new RocksDBStdSessions(config, "db", "store",
+                                                          dataPath, walPath);
+        try {
+            sessions.createTable(TABLE);
+            sessions.session().put(TABLE, getBytes("person:1gname"),
+                                   getBytes("James"));
+            sessions.session().commit();
+            sessions.createSnapshot(snapshotPath);
+            sessions.session().put(TABLE, getBytes("person:1gname"),
+                                   getBytes("James2"));
+            sessions.session().commit();
+            sessions.resumeSnapshot(snapshotPath);
+            Assert.assertEquals("James", getString(sessions.session().get(
+                    TABLE, getBytes("person:1gname"))));
+        } finally {
+            sessions.close();
+            FileUtils.deleteDirectory(FileUtils.getFile(dataPath));
+            FileUtils.deleteDirectory(FileUtils.getFile(walPath));
+            File snapshotFile = FileUtils.getFile(SNAPSHOT_PATH);
+            if (snapshotFile.exists()) {
+                FileUtils.forceDelete(snapshotFile);
+            }
+        }
+    }
+
+    private static Map<String, byte[]> readWalLogs(String directory) throws IOException {
+        Map<String, byte[]> logs = new HashMap<>();
+        File dir = FileUtils.getFile(directory);
+        File[] children = dir.listFiles();
+        if (children == null) {
+            return logs;
+        }
+        for (File child : children) {
+            String name = child.getName();
+            int dot = name.lastIndexOf('.');
+            if (!child.isFile() || dot <= 0 || !".log".equals(name.substring(dot))) {
+                continue;
+            }
+            boolean digits = true;
+            for (int i = 0; i < dot; i++) {
+                if (!Character.isDigit(name.charAt(i))) {
+                    digits = false;
+                    break;
+                }
+            }
+            if (digits) {
+                logs.put(name, FileUtils.readFileToByteArray(child));
+            }
+        }
+        return logs;
+    }
+
+    private static void assertNoResumeResidue(String walPath) {
+        File wal = FileUtils.getFile(walPath);
+        File[] children = wal.getParentFile().listFiles();
+        Assert.assertNotNull(children);
+        for (File child : children) {
+            String name = child.getName();
+            Assert.assertFalse(name.startsWith(wal.getName() + ".resume-aside-"));
+            Assert.assertFalse(name.startsWith(wal.getName() + ".resume-staging-"));
         }
     }
 

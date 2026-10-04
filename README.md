@@ -303,6 +303,8 @@ gremlin> :> g.V().limit(5)
 
 For comprehensive documentation, visit the [HugeGraph Documentation](https://hugegraph.apache.org/docs/).
 
+See [standalone RocksDB snapshot recovery](docs/rocksdb-recovery.md) before restoring data or mounting store directories.
+
 For an existing deployment, read the [RocksDB upgrade guidance](docs/rocksdb-upgrade.md) before upgrading the storage runtime.
 
 </details>
