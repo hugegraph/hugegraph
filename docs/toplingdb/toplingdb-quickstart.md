@@ -151,6 +151,8 @@ policy. No registry publication is implied by these examples.
 ## Build Distributions from Source
 
 Build on Linux x86_64 with Java 11+, Maven 3.5+, `rsync`, `unzip`, and `tar`.
+The current external Topling JNI requires glibc 2.38 or newer (for example, Ubuntu 24.04).
+Preparation checks the actual library dependencies and rejects incompatible hosts.
 Running a Linux Server distribution with local RocksDB also requires
 util-linux 2.37+ `mountpoint` on `PATH` for the database mount preflight.
 
@@ -287,7 +289,6 @@ directory:
 # conf/application.yml
 rocksdb:
   provider: topling
-  option-path: ./conf/rocksdb_pd.yaml
 
 pd:
   data-path: /srv/hugegraph/topling/pd
@@ -324,6 +325,9 @@ bin/start-hugegraph.sh
 Check each PD and Store log for its own Easy Migrate path. PD must use
 `conf/rocksdb_pd.yaml`; Store must use `conf/rocksdb_store.yaml`. The HStore
 Server must not report a local Topling runtime.
+
+The Easy Migrate options file defaults to `conf/rocksdb_pd.yaml` for PD and `conf/rocksdb_store.yaml` for Store.
+Use `TOPLINGDB_EASY_MIGRATE_CONF` for an explicit file override.
 
 ## Topling HTTP Monitor
 

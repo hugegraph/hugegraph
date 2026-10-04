@@ -44,8 +44,8 @@ grpc:
   host: 127.0.0.1
 # rocksdb:
 #   provider: rocksdb
-#   option-path: ./conf/rocksdb_pd.yaml
-#   open-http: true
+# Easy Migrate options: conf/rocksdb_pd.yaml (override with TOPLINGDB_EASY_MIGRATE_CONF).
+# Set http.auto_start_http in that file to enable its HTTP monitor.
 
 server:
   # REST service port number
