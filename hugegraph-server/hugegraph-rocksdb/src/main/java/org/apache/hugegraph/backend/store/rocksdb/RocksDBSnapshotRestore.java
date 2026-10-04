@@ -24,16 +24,16 @@ import java.io.OutputStream;
 import java.nio.channels.FileChannel;
 import java.nio.channels.OverlappingFileLockException;
 import java.nio.charset.StandardCharsets;
-import java.util.stream.Stream;
+import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
-import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Properties;
+import java.util.stream.Stream;
 
 import org.apache.commons.io.FileUtils;
 import org.apache.hugegraph.backend.BackendException;
@@ -104,8 +104,7 @@ final class RocksDBSnapshotRestore {
         return new File(new File(data).getCanonicalPath() + ".resume-pending").toPath();
     }
 
-    static FileChannel lock(String data) {
-        FileChannel channel = null;
+    static RecoveryLock lock(String data) {
         try {
             Path directory = new File(data).getCanonicalFile().toPath();
             Path parent = directory.getParent();
@@ -123,13 +122,8 @@ final class RocksDBSnapshotRestore {
             }
             Path path = new File(directory + ".resume-lock").toPath();
             Files.createDirectories(path.getParent());
-            channel = FileChannel.open(path, StandardOpenOption.CREATE, StandardOpenOption.WRITE);
-            if (channel.tryLock() == null) {
-                throw new IOException("Database is already open or recovering: " + data);
-            }
-            return channel;
+            return RecoveryLock.acquire(path, data);
         } catch (IOException | OverlappingFileLockException e) {
-            unlock(channel);
             throw new BackendException("Cannot lock database for open/recovery: '%s'", e, data);
         }
     }
@@ -152,12 +146,22 @@ final class RocksDBSnapshotRestore {
         return false;
     }
 
-    static void unlock(FileChannel channel) {
+    static void unlock(RecoveryLock channel) {
         if (channel != null) {
             try {
                 channel.close();
             } catch (IOException e) {
                 throw new BackendException("Failed to release database recovery lock", e);
+            }
+        }
+    }
+
+    static void unlock(RecoveryLock channel, Throwable failure) {
+        try {
+            unlock(channel);
+        } catch (RuntimeException | Error closeFailure) {
+            if (closeFailure != failure) {
+                failure.addSuppressed(closeFailure);
             }
         }
     }
