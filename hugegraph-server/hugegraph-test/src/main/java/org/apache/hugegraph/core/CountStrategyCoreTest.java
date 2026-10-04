@@ -34,9 +34,12 @@ import org.apache.hugegraph.backend.tx.GraphTransaction;
 import org.apache.hugegraph.exception.NoIndexException;
 import org.apache.hugegraph.schema.SchemaManager;
 import org.apache.hugegraph.testutil.Assert;
+import org.apache.hugegraph.traversal.optimize.ConditionP;
 import org.apache.hugegraph.traversal.optimize.HugeCountStep;
+import org.apache.hugegraph.traversal.optimize.HugeCountStepStrategy;
 import org.apache.hugegraph.traversal.optimize.HugeCountStrategy;
 import org.apache.hugegraph.traversal.optimize.HugeGraphStep;
+import org.apache.hugegraph.traversal.optimize.HugeGraphStepStrategy;
 import org.apache.hugegraph.type.HugeType;
 import org.apache.hugegraph.type.define.HugeKeys;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
@@ -44,11 +47,13 @@ import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.TextP;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal;
+import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversalSource;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__;
 import org.apache.tinkerpop.gremlin.process.traversal.step.HasContainerHolder;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.RangeGlobalStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.CountGlobalStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.map.GraphStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.OrderGlobalStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.util.HasContainer;
 import org.apache.tinkerpop.gremlin.process.traversal.step.TraversalParent;
@@ -658,6 +663,62 @@ public class CountStrategyCoreTest extends BaseCoreTest {
         } finally {
             transaction.close();
         }
+    }
+
+    @Test
+    public void testMixedTextNativeIdFilterKeepsAllConditionsLocal() {
+        this.initSchema();
+        Vertex josh = graph().addVertex(T.label, "person", "name", "josh");
+        Vertex marko = graph().addVertex(T.label, "person", "name", "marko");
+        commitTx();
+
+        GraphTraversalSource[] sources = {
+                graph().traversal(),
+                graph().traversal().withoutStrategies(HugeGraphStepStrategy.class,
+                                                     HugeCountStepStrategy.class)
+        };
+        for (GraphTraversalSource source : sources) {
+            assertMixedTextNativeIdFilter(source, marko.id(), "ar",
+                                         Collections.singletonList(marko));
+            assertMixedTextNativeIdFilter(source, josh.id(), "ar",
+                                         Collections.emptyList());
+            assertMixedTextNativeIdFilter(source, marko.id(), "osh",
+                                         Collections.emptyList());
+            Assert.assertEquals(Collections.singletonList(marko),
+                                source.V().hasId(marko.id()).toList());
+            Assert.assertEquals(1L, source.V().hasId(P.eq(marko.id()))
+                                         .count().next().longValue());
+        }
+    }
+
+    private static void assertMixedTextNativeIdFilter(GraphTraversalSource source,
+                                                       Object id, String text,
+                                                       List<Vertex> expected) {
+        GraphTraversal<Vertex, Vertex> traversal = nativeIdTextQuery(source, id, text);
+        traversal.asAdmin().applyStrategies();
+        assertMixedTextNativeIdPlan(traversal);
+        Assert.assertEquals(expected, traversal.toList());
+
+        GraphTraversal<Vertex, Long> count = nativeIdTextQuery(source, id, text).count();
+        assertUnoptimizedCount(expected.size(), count);
+        assertMixedTextNativeIdPlan(count);
+        Assert.assertEquals(expected, nativeIdTextQuery(source, id, text)
+                                      .limit(1).toList());
+        Assert.assertEquals(Collections.emptyList(),
+                            nativeIdTextQuery(source, id, text).range(1, 2).toList());
+    }
+
+    private static GraphTraversal<Vertex, Vertex> nativeIdTextQuery(
+            GraphTraversalSource source, Object id, String text) {
+        return source.V().hasId(ConditionP.eq(id))
+                     .has("name", TextP.containing(text));
+    }
+
+    private static void assertMixedTextNativeIdPlan(GraphTraversal<?, ?> traversal) {
+        Assert.assertTrue(hasRemainingHasStep(traversal, T.id.getAccessor()));
+        Assert.assertTrue(hasRemainingHasStep(traversal, "name"));
+        Assert.assertEquals(0, ((GraphStep<?, ?>) traversal.asAdmin()
+                                                       .getStartStep()).getIds().length);
     }
 
     @Test
