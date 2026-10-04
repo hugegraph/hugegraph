@@ -19,16 +19,27 @@ package org.apache.hugegraph.backend.store.rocksdb;
 
 import java.io.File;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
+import java.nio.ByteBuffer;
+import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicReference;
+import java.nio.channels.FileLock;
+import java.nio.channels.OverlappingFileLockException;
+import java.nio.channels.ReadableByteChannel;
+import java.nio.channels.WritableByteChannel;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.FutureTask;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.apache.commons.io.FileUtils;
 import org.apache.hugegraph.backend.BackendException;
@@ -38,6 +49,8 @@ import org.apache.hugegraph.unit.FakeObjects;
 import org.apache.hugegraph.testutil.Whitebox;
 import org.junit.Rule;
 import org.junit.Test;
+import org.rocksdb.Options;
+import org.rocksdb.RocksDB;
 import org.rocksdb.RocksDBException;
 import org.rocksdb.Status;
 import org.junit.rules.TemporaryFolder;
@@ -266,7 +279,7 @@ public class RocksDBSnapshotRestoreTest {
     @Test
     public void testCompetingRecoveryCannotEnterWhileOwnerHoldsLock() throws Exception {
         File data = this.temporary.newFolder("data");
-        try (FileChannel owner = RocksDBSnapshotRestore.lock(data.toString())) {
+        try (RecoveryLock owner = RocksDBSnapshotRestore.lock(data.toString())) {
             CountDownLatch done = new CountDownLatch(1);
             AtomicReference<Throwable> failure = new AtomicReference<>();
             Thread contender = new Thread(() -> {
@@ -302,7 +315,7 @@ public class RocksDBSnapshotRestoreTest {
             }
             assertEquals(0, data.list().length);
         }
-        try (FileChannel retry = RocksDBSnapshotRestore.lock(data.toString())) {
+        try (RecoveryLock retry = RocksDBSnapshotRestore.lock(data.toString())) {
             assertTrue(retry.isOpen());
         }
     }
@@ -458,7 +471,7 @@ public class RocksDBSnapshotRestoreTest {
     public void testRecoveryLockExcludesAnotherProcess() throws Exception {
         File data = this.temporary.newFolder("data");
         String classpath = System.getProperty("surefire.test.class.path", System.getProperty("java.class.path"));
-        try (FileChannel owner = RocksDBSnapshotRestore.lock(data.toString())) {
+        try (RecoveryLock owner = RocksDBSnapshotRestore.lock(data.toString())) {
             Process child = new ProcessBuilder(new File(System.getProperty("java.home"), "bin/java").toString(),
                                                "-cp", classpath, getClass().getName(), data.toString())
                             .redirectErrorStream(true).start();
@@ -512,13 +525,13 @@ public class RocksDBSnapshotRestoreTest {
         } finally {
             child.destroyForcibly();
         }
-        try (FileChannel retry = RocksDBSnapshotRestore.lock(data.toString())) {
+        try (RecoveryLock retry = RocksDBSnapshotRestore.lock(data.toString())) {
             assertTrue(retry.isOpen());
         }
     }
 
     public static void main(String[] args) {
-        try (FileChannel channel = RocksDBSnapshotRestore.lock(args[0])) {
+        try (RecoveryLock channel = RocksDBSnapshotRestore.lock(args[0])) {
             if (args.length == 2) {
                 Files.write(new File(args[1]).toPath(), new byte[]{1});
                 System.in.read();
@@ -616,6 +629,7 @@ public class RocksDBSnapshotRestoreTest {
         File snapshot = new File(this.temporary.newFolder("snapshot-root"), "rocks");
         RocksDBSessions sessions = new RocksDBStdSessions(FakeObjects.newConfig(), "db", "store",
                                                           data.toString(), data.toString());
+        RecoveryLock transferred = null;
         try {
             sessions.createTable("test");
             sessions.session().put("test", new byte[]{1}, new byte[]{2});
@@ -623,7 +637,8 @@ public class RocksDBSnapshotRestoreTest {
             sessions.createSnapshot(snapshot.toString());
             AtomicReference<OpenedRocksDB> shared = Whitebox.getInternalState(sessions, "rocksdb");
             OpenedRocksDB old = shared.get();
-            FileChannel held = old.closeForRestore();
+            transferred = old.closeForRestore();
+            RecoveryLock held = transferred;
             assertFalse(old.isOwningHandle());
             assertTrue(held.isOpen());
             RocksDBStore store = new RocksDBStore.RocksDBGraphStore(new RocksDBStoreProvider(), "db", "store");
@@ -647,22 +662,112 @@ public class RocksDBSnapshotRestoreTest {
                 assertEquals(Status.Code.IOError, expected.getStatus().getCode());
                 assertFalse(new File(data + ".resume-pending").exists());
             }
+            // Native LOCK is gone here: the recovery lease alone must still exclude another JVM,
+            // including after the two same-JVM contender paths above have failed.
+            assertExternalLock(data.toString(), 23);
             RocksDBSnapshotRestore.start(data.toString(), data.toString(), snapshot.toString());
             old.close();
             assertTrue("Closing the detached old handle must retain the transferred lock", held.isOpen());
             OpenedRocksDB replacement = Whitebox.invokeStatic(
                     RocksDBStdSessions.class,
-                    new Class<?>[]{HugeConfig.class, List.class, String.class, String.class, FileChannel.class},
+                    new Class<?>[]{HugeConfig.class, List.class, String.class, String.class, RecoveryLock.class},
                     "openRocksDB", FakeObjects.newConfig(), Collections.emptyList(),
                     data.toString(), data.toString(), held);
             shared.set(replacement);
             assertSame(held, Whitebox.getInternalState(replacement, "recoveryLock"));
             assertArrayEquals(new byte[]{2}, sessions.session().get("test", new byte[]{1}));
         } finally {
-            sessions.close();
+            try {
+                sessions.close();
+            } finally {
+                RocksDBSnapshotRestore.unlock(transferred);
+            }
         }
-        try (FileChannel available = RocksDBSnapshotRestore.lock(data.toString())) {
+        try (RecoveryLock available = RocksDBSnapshotRestore.lock(data.toString())) {
             assertTrue(available.isOpen());
+        }
+    }
+
+    @Test
+    public void testSameJvmAliasesDoNotReleaseIndependentProcessLock() throws Exception {
+        this.checkSameJvmAliases(false);
+    }
+
+    @Test
+    public void testMissingFileKeyUsesPhysicalIdentityWithoutOpeningAnotherDescriptor() throws Exception {
+        this.checkSameJvmAliases(true);
+    }
+
+    private void checkSameJvmAliases(boolean withoutFileKey) throws Exception {
+        File parent = this.temporary.newFolder();
+        File data = new File(parent, "data");
+        Files.createDirectory(data.toPath());
+        Path symlinkParent = new File(this.temporary.getRoot(), "symlink-" + parent.getName()).toPath();
+        Files.createSymbolicLink(symlinkParent, parent.toPath());
+        File hardlinkData = this.temporary.newFolder();
+        List<String> aliases = Arrays.asList(new File(parent, "./data").toString(),
+                                             symlinkParent.resolve("data").toString(),
+                                             hardlinkData.toString());
+        try (RecoveryLock owner = RocksDBSnapshotRestore.lock(data.toString())) {
+            if (withoutFileKey) {
+                // The JDK permits null keys; keep the actual file/channel and exercise isSameFile.
+                Whitebox.setInternalState(owner, "identity", null);
+            }
+            Files.createLink(new File(hardlinkData + ".resume-lock").toPath(),
+                             new File(data + ".resume-lock").toPath());
+            for (String alias : aliases) {
+                assertSameJvmContended(alias);
+                assertTrue(owner.isOpen());
+                assertExternalLock(alias, 23);
+            }
+            assertEquals(0, data.list().length);
+            assertEquals(0, hardlinkData.list().length);
+        }
+        for (String alias : aliases) {
+            assertExternalLock(alias, 0);
+        }
+    }
+
+    /** Explicit external Docker/kernel fixture: bind the same parent at both paths. */
+    @Test
+    public void testParentBindAliasRetainsIndependentProcessExclusion() throws Exception {
+        String original = System.getProperty("hugegraph.test.recovery.parent.original");
+        String alias = System.getProperty("hugegraph.test.recovery.parent.alias");
+        org.junit.Assume.assumeTrue("requires the explicit parent-bind kernel fixture",
+                                   original != null && alias != null);
+        Path data = new File(original, "data").toPath();
+        Files.createDirectories(data);
+        String aliasData = new File(alias, "data").toString();
+        try (RecoveryLock owner = RocksDBSnapshotRestore.lock(data.toString())) {
+            assertSameJvmContended(aliasData);
+            assertTrue(owner.isOpen());
+            assertExternalLock(aliasData, 23);
+        }
+        assertExternalLock(aliasData, 0);
+    }
+
+    private static void assertSameJvmContended(String data) {
+        try (RecoveryLock contender = RocksDBSnapshotRestore.lock(data)) {
+            fail("The physical file already has a same-JVM owner: " + data);
+        } catch (BackendException expected) {
+            assertTrue(expected.getCause() instanceof OverlappingFileLockException);
+        } catch (IOException e) {
+            throw new AssertionError(e);
+        }
+    }
+
+    private static void assertExternalLock(String data, int expectedExit) throws Exception {
+        String classpath = System.getProperty("surefire.test.class.path", System.getProperty("java.class.path"));
+        Process child = new ProcessBuilder(new File(System.getProperty("java.home"), "bin/java").toString(),
+                                           "-cp", classpath, RocksDBSnapshotRestoreTest.class.getName(), data)
+                        .redirectErrorStream(true).start();
+        try {
+            assertTrue("Independent JVM did not finish", child.waitFor(10, TimeUnit.SECONDS));
+            String output = new String(child.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+            assertEquals(output, expectedExit, child.exitValue());
+        } finally {
+            child.destroyForcibly();
+            assertTrue("Independent JVM did not stop", child.waitFor(10, TimeUnit.SECONDS));
         }
     }
 
@@ -694,7 +799,7 @@ public class RocksDBSnapshotRestoreTest {
                     AtomicReference<OpenedRocksDB> shared = Whitebox.getInternalState(owner, "rocksdb");
                     assertSame(shared, Whitebox.getInternalState(copy, "rocksdb"));
                     OpenedRocksDB old = shared.get();
-                    FileChannel held = Whitebox.getInternalState(old, "recoveryLock");
+                    RecoveryLock held = Whitebox.getInternalState(old, "recoveryLock");
                     RocksDBSessions replacing = replaceThroughCopy ? copy : owner;
                     RocksDBSessions other = replaceThroughCopy ? owner : copy;
                     if (restore) {
@@ -786,6 +891,327 @@ public class RocksDBSnapshotRestoreTest {
                 assertTrue(expected.getCause().getMessage().contains("mount point"));
             }
             assertFalse(Files.exists(lock));
+        }
+    }
+
+    @Test
+    public void testDescriptorCloseRetainsAliasesWithoutBlockingOtherDatabases() throws Exception {
+        File data = this.temporary.newFolder("closing-data");
+        File unrelated = this.temporary.newFolder("unrelated-data");
+        RecoveryLock owner = RocksDBSnapshotRestore.lock(data.toString());
+        Path alias = this.temporary.newFolder("alias-data").toPath();
+        Files.createLink(new File(alias + ".resume-lock").toPath(), new File(data + ".resume-lock").toPath());
+        ClosingChannel channel = new ClosingChannel(Whitebox.getInternalState(owner, "channel"), null, true);
+        Whitebox.setInternalState(owner, "channel", channel);
+        FutureTask<Void> close = new FutureTask<>(() -> { owner.close(); return null; });
+        Thread closer = new Thread(close, "descriptor-close-test");
+        FutureTask<Void> probe = new FutureTask<>(() -> {
+            assertSameJvmContended(alias.toString());
+            try (RecoveryLock other = RocksDBSnapshotRestore.lock(unrelated.toString())) {
+                assertTrue(other.isOpen());
+            }
+            return null;
+        });
+        Thread prober = new Thread(probe, "unrelated-open-test");
+        try {
+            closer.start();
+            assertTrue(channel.entered.await(10, TimeUnit.SECONDS));
+            assertFalse("JDK clears isOpen before the descriptor is closed", channel.isOpen());
+            prober.start();
+            probe.get(10, TimeUnit.SECONDS);
+            assertExternalLock(alias.toString(), 23);
+        } finally {
+            channel.release.countDown();
+            closer.join(10000L);
+            prober.join(10000L);
+            owner.close();
+        }
+        close.get(10, TimeUnit.SECONDS);
+        owner.close();
+        assertEquals(1, channel.closes);
+        assertExternalLock(alias.toString(), 0);
+    }
+
+    @Test
+    public void testDescriptorIOExceptionCannotReleaseReservationOnRepeatedClose() throws Exception {
+        this.checkDescriptorCloseFailure(new IOException("injected descriptor close"));
+    }
+
+    @Test
+    public void testDescriptorRuntimeExceptionCannotReleaseReservationOnRepeatedClose() throws Exception {
+        this.checkDescriptorCloseFailure(new IllegalStateException("injected descriptor close"));
+    }
+
+    private void checkDescriptorCloseFailure(Exception failure) throws Exception {
+        File data = this.temporary.newFolder();
+        RecoveryLock owner = RocksDBSnapshotRestore.lock(data.toString());
+        ClosingChannel channel = new ClosingChannel(Whitebox.getInternalState(owner, "channel"), failure, false);
+        Whitebox.setInternalState(owner, "channel", channel);
+        Path alias = this.temporary.newFolder().toPath();
+        Files.createLink(new File(alias + ".resume-lock").toPath(), new File(data + ".resume-lock").toPath());
+        try {
+            for (int i = 0; i < 2; i++) {
+                try {
+                    owner.close();
+                    fail("Failed close must remain failed");
+                } catch (IOException | RuntimeException expected) {
+                    assertSame(failure, expected);
+                }
+                assertSameJvmContended(alias.toString());
+                assertExternalLock(alias.toString(), 23);
+            }
+            assertEquals(1, channel.closes);
+            RuntimeException primary = new IllegalStateException("open failed");
+            RocksDBSnapshotRestore.unlock(owner, primary);
+            assertEquals(1, primary.getSuppressed().length);
+            Throwable suppressed = primary.getSuppressed()[0];
+            assertSame(failure, failure instanceof IOException ? suppressed.getCause() : suppressed);
+        } finally {
+            // The injected failure intentionally left the real descriptor open.
+            // Only the fixture, after real close, may remove its failed reservation.
+            channel.delegate.close();
+            Set<RecoveryLock> owners = Whitebox.getInternalState(RecoveryLock.class, "OWNERS");
+            synchronized (owners) {
+                owners.remove(owner);
+            }
+        }
+        assertExternalLock(alias.toString(), 0);
+    }
+
+    @Test
+    public void testNativeDisposalBlocksCloseAndRetainsLeaseThroughTransfer() throws Exception {
+        File data = this.temporary.newFolder();
+        RecoveryLock owner = RocksDBSnapshotRestore.lock(data.toString());
+        ClosingRocksDB rocksdb = new ClosingRocksDB(data.toString(), null, true);
+        OpenedRocksDB opened = new OpenedRocksDB(rocksdb, new HashMap<>(), null, owner);
+        FutureTask<RecoveryLock> transfer = new FutureTask<>(opened::closeForRestore);
+        FutureTask<Void> close = new FutureTask<>(() -> { opened.close(); return null; });
+        Thread transferring = new Thread(transfer, "native-transfer-test");
+        Thread closing = new Thread(close, "native-close-test");
+        try {
+            transferring.start();
+            assertTrue(rocksdb.entered.await(10, TimeUnit.SECONDS));
+            assertFalse("JNI ownership flips before native disposal finishes", opened.isOwningHandle());
+            assertSameJvmContended(data.toString());
+            assertExternalLock(data.toString(), 23);
+            closing.start();
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+            while (closing.getState() != Thread.State.BLOCKED && System.nanoTime() < deadline) {
+                Thread.sleep(10L);
+            }
+            assertEquals("Concurrent close must reach the owner monitor", Thread.State.BLOCKED, closing.getState());
+            try {
+                close.get(100, TimeUnit.MILLISECONDS);
+                fail("Concurrent close must wait for native disposal and lease transfer");
+            } catch (TimeoutException expected) {
+                assertTrue(owner.isOpen());
+            }
+            rocksdb.release.countDown();
+            assertSame(owner, transfer.get(10, TimeUnit.SECONDS));
+            close.get(10, TimeUnit.SECONDS);
+            assertTrue(owner.isOpen());
+            assertExternalLock(data.toString(), 23);
+        } finally {
+            rocksdb.release.countDown();
+            transferring.join(10000L);
+            closing.join(10000L);
+            opened.close();
+            owner.close();
+        }
+    }
+
+    @Test
+    public void testNativeDisposalFailureCannotReleaseOrTransferLease() throws Exception {
+        File data = this.temporary.newFolder();
+        RuntimeException failure = new IllegalStateException("injected native disposal failure");
+        RecoveryLock owner = RocksDBSnapshotRestore.lock(data.toString());
+        ClosingRocksDB rocksdb = new ClosingRocksDB(data.toString(), failure, false);
+        OpenedRocksDB opened = new OpenedRocksDB(rocksdb, new HashMap<>(), null, owner);
+        try {
+            for (Runnable operation : Arrays.<Runnable>asList(opened::close, opened::close, opened::closeForRestore)) {
+                try {
+                    operation.run();
+                    fail("Native close failure must remain failed");
+                } catch (RuntimeException expected) {
+                    assertSame(failure, expected);
+                }
+                assertFalse(opened.isOwningHandle());
+                assertTrue(owner.isOpen());
+                assertSameJvmContended(data.toString());
+                assertExternalLock(data.toString(), 23);
+            }
+            assertEquals(1, rocksdb.disposals);
+            RuntimeException primary = new IllegalStateException("marker completion failed");
+            Whitebox.invokeStatic(RocksDBStdSessions.class,
+                                 new Class<?>[]{OpenedRocksDB.class, RecoveryLock.class, Throwable.class},
+                                 "closeFailedOpen", opened, owner, primary);
+            assertSame(failure, primary.getSuppressed()[0]);
+            assertTrue(owner.isOpen());
+        } finally {
+            rocksdb.finishDisposal();
+            owner.close();
+        }
+    }
+
+    private static void awaitClose(CountDownLatch release) throws IOException {
+        try {
+            if (!release.await(10, TimeUnit.SECONDS)) {
+                throw new IOException("Timed out waiting for injected close");
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IOException(e);
+        }
+    }
+
+    private static class ClosingRocksDB extends RocksDB {
+
+        private final RuntimeException failure;
+        private final CountDownLatch entered = new CountDownLatch(1);
+        private final CountDownLatch release;
+        private int disposals;
+
+        ClosingRocksDB(String data, RuntimeException failure, boolean block) throws RocksDBException {
+            super(openHandle(data));
+            this.failure = failure;
+            this.release = new CountDownLatch(block ? 1 : 0);
+        }
+
+        private static long openHandle(String data) throws RocksDBException {
+            RocksDB.loadLibrary();
+            try (Options options = new Options().setCreateIfMissing(true)) {
+                RocksDB original = RocksDB.open(options, data);
+                Whitebox.invoke(RocksDB.class, "disOwnNativeHandle", original);
+                return original.getNativeHandle();
+            }
+        }
+
+        @Override
+        protected void disposeInternal(long handle) {
+            this.disposals++;
+            this.entered.countDown();
+            try {
+                awaitClose(this.release);
+            } catch (IOException e) {
+                throw new IllegalStateException(e);
+            }
+            if (this.failure != null) {
+                throw this.failure;
+            }
+            super.disposeInternal(handle);
+        }
+
+        void finishDisposal() {
+            super.disposeInternal(this.nativeHandle_);
+        }
+    }
+
+    private static class ClosingChannel extends FileChannel {
+
+        private final FileChannel delegate;
+        private final Exception failure;
+        private final CountDownLatch entered = new CountDownLatch(1);
+        private final CountDownLatch release;
+        private int closes;
+
+        ClosingChannel(FileChannel delegate, Exception failure, boolean block) {
+            this.delegate = delegate;
+            this.failure = failure;
+            this.release = new CountDownLatch(block ? 1 : 0);
+        }
+
+        @Override
+        protected void implCloseChannel() throws IOException {
+            this.closes++;
+            this.entered.countDown();
+            awaitClose(this.release);
+            if (this.failure instanceof IOException) {
+                throw (IOException) this.failure;
+            }
+            if (this.failure instanceof RuntimeException) {
+                throw (RuntimeException) this.failure;
+            }
+            this.delegate.close();
+        }
+
+        @Override
+        public int read(ByteBuffer dst) throws IOException {
+            return this.delegate.read(dst);
+        }
+
+        @Override
+        public long read(ByteBuffer[] dst, int offset, int length) throws IOException {
+            return this.delegate.read(dst, offset, length);
+        }
+
+        @Override
+        public int write(ByteBuffer src) throws IOException {
+            return this.delegate.write(src);
+        }
+
+        @Override
+        public long write(ByteBuffer[] src, int offset, int length) throws IOException {
+            return this.delegate.write(src, offset, length);
+        }
+
+        @Override
+        public long position() throws IOException {
+            return this.delegate.position();
+        }
+
+        @Override
+        public FileChannel position(long position) throws IOException {
+            return this.delegate.position(position);
+        }
+
+        @Override
+        public long size() throws IOException {
+            return this.delegate.size();
+        }
+
+        @Override
+        public FileChannel truncate(long size) throws IOException {
+            return this.delegate.truncate(size);
+        }
+
+        @Override
+        public void force(boolean metadata) throws IOException {
+            this.delegate.force(metadata);
+        }
+
+        @Override
+        public long transferTo(long position, long count, WritableByteChannel target) throws IOException {
+            return this.delegate.transferTo(position, count, target);
+        }
+
+        @Override
+        public long transferFrom(ReadableByteChannel src, long position, long count) throws IOException {
+            return this.delegate.transferFrom(src, position, count);
+        }
+
+        @Override
+        public int read(ByteBuffer dst, long position) throws IOException {
+            return this.delegate.read(dst, position);
+        }
+
+        @Override
+        public int write(ByteBuffer src, long position) throws IOException {
+            return this.delegate.write(src, position);
+        }
+
+        @Override
+        public MappedByteBuffer map(MapMode mode, long position, long size) throws IOException {
+            return this.delegate.map(mode, position, size);
+        }
+
+        @Override
+        public FileLock lock(long position, long size, boolean shared) throws IOException {
+            return this.delegate.lock(position, size, shared);
+        }
+
+        @Override
+        public FileLock tryLock(long position, long size, boolean shared) throws IOException {
+            return this.delegate.tryLock(position, size, shared);
         }
     }
 

@@ -24,6 +24,7 @@ import java.util.concurrent.TimeUnit;
 
 import org.apache.hugegraph.store.node.grpc.GrpcShutdownBarrier;
 import org.apache.hugegraph.store.node.grpc.HgStoreStreamImpl;
+import org.apache.hugegraph.store.node.grpc.query.AggregativeQueryService;
 import org.apache.hugegraph.store.node.task.TTLCleaner;
 import org.lognet.springboot.grpc.context.GRpcServerInitializedEvent;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -44,6 +45,8 @@ public class ContextClosedListener implements ApplicationListener<ContextClosedE
     @Autowired
     HgStoreStreamImpl storeStream;
     @Autowired
+    AggregativeQueryService queryService;
+    @Autowired
     TTLCleaner cleaner;
     @Autowired
     GrpcShutdownBarrier grpcBarrier;
@@ -61,6 +64,9 @@ public class ContextClosedListener implements ApplicationListener<ContextClosedE
         if (storeStream != null) {
             storeStream.stopAcceptingScans();
         }
+        if (queryService != null) {
+            queryService.stopAcceptingQueries();
+        }
         this.grpcServers.forEach(Server::shutdownNow);
         if (cleaner != null) {
             // The scheduler can create the worker pool while a job is starting.
@@ -71,6 +77,10 @@ public class ContextClosedListener implements ApplicationListener<ContextClosedE
             // Cancelled queued scans must run their finally blocks to release iterators.
             storeStream.shutdownScans();
             awaitWorkers(storeStream.getRealExecutor(), "scan workers");
+        }
+        if (queryService != null) {
+            queryService.shutdownQueries();
+            awaitWorkers(queryService.getThreadPool(), "aggregate query workers");
         }
         boolean interrupted = false;
         try {
@@ -91,7 +101,7 @@ public class ContextClosedListener implements ApplicationListener<ContextClosedE
             }
         }
         this.grpcBarrier.awaitCallbacks();
-        log.info("closed gRPC callbacks, scan and TTL workers");
+        log.info("closed gRPC callbacks, scan, aggregate query and TTL workers");
     }
 
     private static void stopAndWait(ExecutorService executor, String name) {
