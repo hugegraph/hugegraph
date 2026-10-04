@@ -157,6 +157,12 @@
                 <version>${groovy.compat.version}</version>
                 <classifier>indy</classifier>
             </dependency>
+            <!-- Groovy Grape must not inherit the vulnerable Ivy version. -->
+            <dependency>
+                <groupId>org.apache.ivy</groupId>
+                <artifactId>ivy</artifactId>
+                <version>2.6.0</version>
+            </dependency>
             <dependency>
                 <groupId>org.projectlombok</groupId>
                 <artifactId>lombok</artifactId>
