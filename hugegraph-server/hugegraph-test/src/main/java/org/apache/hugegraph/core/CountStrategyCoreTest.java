@@ -712,6 +712,7 @@ public class CountStrategyCoreTest extends BaseCoreTest {
         Vertex vertex = graph().addVertex(T.label, "person", "name", "loop");
         Edge loop = vertex.addEdge("rated", vertex, "name", "before");
         commitTx();
+        loop = graph().traversal().E(loop.id()).next();
         loop.property("name", "after");
         this.assertSelfLoopCounts(vertex);
         commitTx();

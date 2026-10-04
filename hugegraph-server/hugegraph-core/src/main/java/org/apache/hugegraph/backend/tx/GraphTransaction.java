@@ -2057,7 +2057,8 @@ public class GraphTransaction extends IndexableTransaction {
             ((ConditionQuery) query).containsCondition(HugeKeys.OWNER_VERTEX) &&
             !(this.addedEdges.isEmpty() && this.updatedEdges.isEmpty())) {
             edges = new FlatMapperIterator<>(edges, edge -> {
-                if (edge.selfLoop() &&
+                // Rehydrated self-loops may hold distinct vertex objects.
+                if (edge.sourceVertex().id().equals(edge.targetVertex().id()) &&
                     (this.addedEdges.containsKey(edge.id()) ||
                      this.updatedEdges.containsKey(edge.id()))) {
                     HugeEdge opposite = edge.switchOwner();
