@@ -39,7 +39,13 @@ release's PD secret as the Basic-auth password:
 
 Verify the release:
 
-  helm test {{ .Release.Name }} --namespace {{ .Release.Namespace }}
+  helm test {{ .Release.Name }} --namespace {{ .Release.Namespace }} --logs --timeout 5m
+
+Kubernetes Ready and helm --wait cover component probes only.
+{{- if $hubbleEnabled }}
+The hook verifies Server Gremlin, not Hubble login: also confirm a fresh Hubble
+login and graph query after installation or recovery.
+{{- end }}
 
 Run it again after every upgrade that rolls PD and Server together: a
 Server that started while PD was rolling can pass readiness with a dead

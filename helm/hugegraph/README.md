@@ -149,7 +149,7 @@ curl --user "admin:${PASSWORD}" http://127.0.0.1:8080/versions
 
 ```bash
 helm upgrade hugegraph ./helm/hugegraph --namespace hugegraph \
-    --reuse-values --set hubble.enabled=true
+    --reuse-values --set hubble.enabled=true --wait --timeout 15m
 ```
 
 `--reuse-values` keeps the release's existing overrides (presets, images,
@@ -177,8 +177,12 @@ digests) and switch the component pull policies to `IfNotPresent`.
 Verify the release:
 
 ```bash
-helm test hugegraph --namespace hugegraph
+helm test hugegraph --namespace hugegraph --logs --timeout 5m
 ```
+
+`helm --wait` checks Kubernetes readiness; the hook checks Server Gremlin.
+With Hubble enabled, also verify a fresh login and graph query after installation
+or recovery. Hubble health probes and the Server hook do not verify UI access.
 
 Besides the Service checks, the test resolves a headless Server Service and
 requires an authenticated, graph-bound Gremlin answer from every Server Pod
@@ -353,7 +357,8 @@ can change and what a rollback does to it.
 |---|---|---|---|
 | Install-time identity | `nameOverride`, `fullnameOverride`, `pd.ports.raft`, `store.ports.raft`, `pd.storage.*`, `store.storage.*`, `persistentVolumeClaimRetentionPolicy` | Never on an initialized release. The chart refuses the override and raft port changes against the live StatefulSet; Kubernetes refuses the `volumeClaimTemplates` change (see above for growing storage). Changing one means a fresh install and a data migration | Must not cross a change in any of these |
 | Bootstrap-only | `pd.partition.defaultShardCount`, `pd.partition.storeMaxShardCount`, `server.auth.admin.*` (the password is applied at first account creation only), chart-generated credentials | The upgrade renders, but an initialized cluster ignores the new value; change it through PD's config API or the Server auth API instead (Partition Sharding, Limitations) | Reverts the rendered value only; the cluster keeps what it has |
-| Routinely mutable | Images, `resources`, `javaOpts`, probes, scheduling, `podAnnotations`, `podLabels`, `extraEnv`, `terminationGracePeriodSeconds`, Services and Ingresses, NetworkPolicy, `server.replicas`, `server.hpa.*`, `pd.auth`, `server.auth.token`, Hubble | Any upgrade; the affected workload rolls once | Safe: a forward upgrade with the earlier values is the same change in reverse |
+| Routinely mutable | Images, `resources`, `javaOpts`, probes, scheduling, `podAnnotations`, `podLabels`, `extraEnv`, `terminationGracePeriodSeconds`, Services and Ingresses, NetworkPolicy, `server.replicas`, `server.hpa.*`, `server.auth.token`, Hubble | Any upgrade; the affected workload rolls once; joint PD/Server image changes also require the verification below | Re-renders the earlier values; the same joint-rollout verification still applies |
+| Coordinated credential rotation | `pd.auth` | Rolls PD, Server and PD-mode Hubble together. On affected Server images this can leave a Ready Pod without Gremlin bindings. Run `helm test --logs` after the rollout and use the documented recovery if it fails; do not treat this as an unattended routine change | Rolls the same components again and carries the same verification/recovery requirement |
 | Maintenance-only | `pd.replicas`, `store.replicas` (shrink, and PD growth), Store image rolls under `OnDelete`, Store retirement, the balance tasks | Only through the documented procedure (Scaling, Upgrading, Disaster Recovery); the chart refuses the shortcut it can see | Never: a rollback across a replica change scales the StatefulSet without the procedure |
 
 ### Rollback
