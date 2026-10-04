@@ -1,0 +1,19 @@
+{
+  "saved_at": "2026-10-05T04:28:06.901196",
+  "base": "91fd925d4cdcfb6503a5bca3244909dfcf18d57c",
+  "files": {
+    "hugegraph-server/hugegraph-rocksdb/src/main/java/org/apache/hugegraph/backend/store/rocksdb/RocksDBOptions.java": "acb9ce8a879ea3a30fce7039b313572d6c009709c538b98d1e1bc3645f6e58d3",
+    "hugegraph-server/hugegraph-rocksdb/src/main/java/org/apache/hugegraph/backend/store/rocksdb/RocksDBSessions.java": "2235fa327dc6a60c41069e6c5b1337f2058c89a0346ef5e758cef56908445e36",
+    "hugegraph-server/hugegraph-rocksdb/src/main/java/org/apache/hugegraph/backend/store/rocksdb/RocksDBStdSessions.java": "f3c3cfa8ea02b46ffe753bd0123596f1c7987b0c892b6cc564eda5d30a805166",
+    "hugegraph-server/hugegraph-rocksdb/src/main/java/org/apache/hugegraph/backend/store/rocksdb/RocksDBStore.java": "1a62de3768cab94150fccc2e7e9b4bb484275ae1222992cf4a9ff605771a0a7d",
+    "hugegraph-server/hugegraph-test/src/main/java/org/apache/hugegraph/unit/rocksdb/RocksDBSessionsTest.java": "3ca915cefce98f463d31c3f62bc0500a962719243c27f454a6f13f07dd8aab78",
+    "hugegraph-commons/hugegraph-common/src/main/java/org/apache/hugegraph/util/RocksDBRuntime.java": "d6aee0e8918ef4674ba9aa3937ae7eb4dbb7cbf7b917011ca54d8a8a0a5e6e3e",
+    "hugegraph-pd/hg-pd-service/src/main/java/org/apache/hugegraph/pd/boot/HugePDServer.java": "7bf0ade607c4227e779c7e02cce2ac7effb3c4719aa576216664c8a853f16cfa",
+    "hugegraph-store/hg-store-node/src/main/java/org/apache/hugegraph/store/node/StoreNodeApplication.java": "d3cfe1e1241c0d0be2b6e8d6d8c0755a034ab96e0333c766d055d9f6df32f4eb",
+    "hugegraph-store/hg-store-node/src/main/java/org/apache/hugegraph/store/node/grpc/HgStoreNodeService.java": "18d6724deae5108bd1da4a1b7c4c97113e545f2714631aba17156dd924e95e92"
+  },
+  "missing_tracked_baseline_files": 67,
+  "compiled": false,
+  "published": false,
+  "running_or_queued_jobs": false
+}

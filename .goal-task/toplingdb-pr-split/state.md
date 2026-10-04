@@ -1,9 +1,25 @@
 # ToplingDB PR 拆分任务
 
-更新：2026-10-04（Asia/Singapore）。用户已确认 deep 模式与本文件初始化。
-用户已明确暂停当前任务；本轮已发布与未完成门槛见下面的当前状态，原 Linux goal 保持暂停。
+> 最新入口（2026-10-05模型切换）：[handoff-model-switch.md](handoff-model-switch.md)。用户已批准从master用干净新PR拆TP核心，通用P2/P3及发行包/Docker独立后续。当前停止新增工作并保存交接；不要按下方旧大集成范围继续。
 
-## 当前接手状态：用户暂停
+更新：2026-10-04（Asia/Singapore）。用户已确认 deep 模式与本文件初始化。
+用户于2026-10-05明确恢复当前任务；原 Linux goal 保持暂停。当前进展以恢复记录为准。
+
+## 2026-10-05 恢复
+
+已读取新的 ToplingDB_PR_261_263_264_Comments.md，并重新查询全部 PR。证据目录为 /Users/zhu/github/hugegraph-topling-split-evidence/resume-20261005。P2最新head c9b928ba，仅新增CI并发控制；P3/P4/网站head未变。未解决thread数量为3/4/17/2。当前核修P2普通扫描cleanup、正常完成与半关闭、任务拒绝及dist依赖；P3恢复代际和owned staging；P4 truncate status与配置选择及历史guard反馈。功能修复尚未发布或resolve，P2仍不可合入。用户要求优先更新远端master，已完成正常merge：P2 811fc77d、P3 aec1cb47、prerequisites 5d60f570、P4 16b6b57e；四者包含org/master 91fd925d（含Apache 0a3e4ae5）。P4两处CI冲突已保留矩阵/并发/可见Docker日志后发布；三个PR master behind均0。
+
+## 2026-10-05 分批发布与清理
+
+- P2发布打包依赖scope修复52678234，原comment已reply/resolve；下游P3/prerequisites/P4已正常同步。
+- P4发布lib symlink、无效配置项/glibc文档，三条comments已reply/resolve。发布API曾将util.sh的mode置为644，已立即追加恢复为原755，内容不变，后续publisher保留文件mode。
+- 检测到其他会话并发发布Docker named-context修复e8a2fe7并merge为0579ba2；保留并核其7文件更新后，P4再发布独立truncate status修复e9a202a（两个文件，故障注入回归通过并独立审查）。不以这些局部发布宣称整个P4已验收。
+- P2最新完整候选与验证位于E/resume-20261005/p2-lifecycle；客户端提前close需配合新的half-close语义真正取消RPC，是本次直接兼容影响。主服务验收driver位于E/resume-20261005/p2-services，尚未运行。
+- P3 source007真实JVM halt各边界及完整恢复suite/bind通过；source008额外修savedWal布局预校验顺序，待最终验证。
+- P4 source003为当前配置/guard组合定位测试源；其余候选未发布，仍需组合/包/native验收。三名agent各负责P2/P3/P4，并交叉只读审查；root负责统筹、发布、服务验收和评论。
+- 用户要求及时清理。E/cleanup-20261005保存审计、归档、hash验证与删除清单。已移除顶层split-runtime、split-old-runtime、split-source；源/Git状态/日志/诊断保存在同名tar.gz，可重建产物排除清单也保存。移除9个worker确认不再使用的中间source快照。当前三个工作区保留；旧hugegraph-toplingdb及hugegraph-toplingdb-sync属于此前会话的原始worktree，仍保留。E/m2-repository/acceptance镜像和所有在跑/排队源不清理。
+
+## 历史暂停快照
 
 用户要求先收敛已完成事项，然后暂停，不启动新事项。当前没有本地构建、业务测试服务或自动监控；GitHub CI 仍异步运行。恢复时先读 [暂停交接](handoff-pause.md)，再重新查询实际 head、checks 和新评论。
 
