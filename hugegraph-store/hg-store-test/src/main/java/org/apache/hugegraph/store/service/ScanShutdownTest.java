@@ -296,10 +296,14 @@ public class ScanShutdownTest {
             closer.start();
             assertTrue(executor.awaitTermination(2, TimeUnit.SECONDS));
             long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
-            while (closer.getState() != Thread.State.TIMED_WAITING && System.nanoTime() < deadline) {
+            Thread.State observed = closer.getState();
+            while (observed != Thread.State.TIMED_WAITING && System.nanoTime() < deadline) {
                 Thread.yield();
+                observed = closer.getState();
             }
-            assertEquals(Thread.State.TIMED_WAITING, closer.getState());
+            // Assert the captured wait observation: a second state read can see a
+            // notification wakeup even though database destruction remains blocked.
+            assertEquals(Thread.State.TIMED_WAITING, observed);
             assertFalse("terminated workers do not confirm native cleanup", closing.isDone());
             assertFalse(destroyed.get());
             verify(broken).close();
