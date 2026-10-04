@@ -19,7 +19,6 @@ package org.apache.hugegraph.backend.store.rocksdb;
 
 import java.io.File;
 import java.io.IOException;
-import java.nio.channels.FileChannel;
 import java.nio.channels.OverlappingFileLockException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -218,7 +217,7 @@ public class RocksDBStdSessions extends RocksDBSessions {
     @Override
     public synchronized void reloadRocksDB() throws RocksDBException {
         synchronized (this.rocksdb) {
-            FileChannel recoveryLock = this.rocksdb.get().closeForRestore();
+            RecoveryLock recoveryLock = this.rocksdb.get().closeForRestore();
             this.rocksdb.set(RocksDBStdSessions.openRocksDB(this.config, ImmutableList.of(),
                                                          this.dataPath, this.walPath, recoveryLock));
         }
@@ -275,8 +274,7 @@ public class RocksDBStdSessions extends RocksDBSessions {
     public synchronized void resumeSnapshot(String snapshotPath) {
         synchronized (this.rocksdb) {
             File snapshotDir = new File(snapshotPath);
-            FileChannel recoveryLock = null;
-            boolean transferred = false;
+            RecoveryLock recoveryLock = null;
             try {
                 // Close the native handle before replacing files, but retain the
                 // sibling lock throughout marker creation, installation and reopen.
@@ -285,16 +283,19 @@ public class RocksDBStdSessions extends RocksDBSessions {
                     recoveryLock = lockForOpen(this.dataPath);
                 }
                 RocksDBSnapshotRestore.start(this.dataPath, this.walPath, snapshotPath);
+                // openRocksDB owns cleanup once handed the lease; do not release it
+                // again if its newly opened native handle fails to close.
+                RecoveryLock reopenLock = recoveryLock;
+                recoveryLock = null;
                 this.rocksdb.set(RocksDBStdSessions.openRocksDB(this.config, ImmutableList.of(),
-                                                             this.dataPath, this.walPath, recoveryLock));
-                transferred = true;
+                                                             this.dataPath, this.walPath, reopenLock));
             } catch (Exception e) {
+                RocksDBSnapshotRestore.unlock(recoveryLock, e);
                 throw new BackendException("Failed to resume snapshot '%s' to '%s'",
                                            e, snapshotDir, this.dataPath);
-            } finally {
-                if (!transferred) {
-                    RocksDBSnapshotRestore.unlock(recoveryLock);
-                }
+            } catch (Error e) {
+                RocksDBSnapshotRestore.unlock(recoveryLock, e);
+                throw e;
             }
         }
     }
@@ -390,13 +391,22 @@ public class RocksDBStdSessions extends RocksDBSessions {
         }
     }
 
-    private static void finishRestore(RocksDBSnapshotRestore restore, OpenedRocksDB opened) {
+    private static void finishRestore(RocksDBSnapshotRestore restore) {
         if (restore != null) {
-            try {
-                restore.complete();
-            } catch (RuntimeException e) {
-                opened.close();
-                throw e;
+            restore.complete();
+        }
+    }
+
+    private static void closeFailedOpen(OpenedRocksDB opened, RecoveryLock recoveryLock, Throwable failure) {
+        if (opened == null) {
+            RocksDBSnapshotRestore.unlock(recoveryLock, failure);
+            return;
+        }
+        try {
+            opened.close();
+        } catch (RuntimeException | Error closeFailure) {
+            if (closeFailure != failure) {
+                failure.addSuppressed(closeFailure);
             }
         }
     }
@@ -404,7 +414,8 @@ public class RocksDBStdSessions extends RocksDBSessions {
     private static OpenedRocksDB openRocksDB(HugeConfig config, String dataPath,
                                              String walPath) throws
                                                              RocksDBException {
-        FileChannel recoveryLock = lockForOpen(dataPath);
+        RecoveryLock recoveryLock = lockForOpen(dataPath);
+        OpenedRocksDB opened = null;
         try {
             RocksDBSnapshotRestore restore = RocksDBSnapshotRestore.prepareOpen(dataPath, walPath);
             // Init options
@@ -414,14 +425,13 @@ public class RocksDBStdSessions extends RocksDBSessions {
             SstFileManager sstFileManager = new SstFileManager(Env.getDefault());
             options.setSstFileManager(sstFileManager);
 
-            RocksDB rocksdb = RocksDB.open(options, dataPath);
-
             Map<String, OpenedRocksDB.CFHandle> cfs = new ConcurrentHashMap<>();
-            OpenedRocksDB opened = new OpenedRocksDB(rocksdb, cfs, sstFileManager, recoveryLock);
-            finishRestore(restore, opened);
+            RocksDB rocksdb = RocksDB.open(options, dataPath);
+            opened = new OpenedRocksDB(rocksdb, cfs, sstFileManager, recoveryLock);
+            finishRestore(restore);
             return opened;
         } catch (RuntimeException | RocksDBException | Error e) {
-            RocksDBSnapshotRestore.unlock(recoveryLock);
+            closeFailedOpen(opened, recoveryLock, e);
             throw e;
         }
     }
@@ -435,15 +445,16 @@ public class RocksDBStdSessions extends RocksDBSessions {
 
     private static OpenedRocksDB openRocksDB(HugeConfig config, List<String> cfNames,
                                              String dataPath, String walPath,
-                                             FileChannel heldLock) throws RocksDBException {
+                                             RecoveryLock heldLock) throws RocksDBException {
         return openRocksDB(config, cfNames, dataPath, walPath, heldLock, false);
     }
 
     private static OpenedRocksDB openRocksDB(HugeConfig config, List<String> cfNames,
                                              String dataPath, String walPath,
-                                             FileChannel heldLock, boolean readOnly) throws RocksDBException {
+                                             RecoveryLock heldLock, boolean readOnly) throws RocksDBException {
         // Checkpoints are immutable sources, not live databases to recover.
-        FileChannel recoveryLock = null;
+        RecoveryLock recoveryLock = null;
+        OpenedRocksDB opened = null;
         if (!readOnly) {
             recoveryLock = heldLock != null ? heldLock : lockForOpen(dataPath);
         }
@@ -473,27 +484,27 @@ public class RocksDBStdSessions extends RocksDBSessions {
             options.setSstFileManager(sstFileManager);
             // Open RocksDB with CFs
             List<ColumnFamilyHandle> cfhs = new ArrayList<>();
+            Map<String, OpenedRocksDB.CFHandle> cfHandles = new ConcurrentHashMap<>();
 
             RocksDB rocksdb = readOnly ? RocksDB.openReadOnly(options, dataPath, cfds, cfhs) :
                              RocksDB.open(options, dataPath, cfds, cfhs);
+            opened = new OpenedRocksDB(rocksdb, cfHandles, sstFileManager, recoveryLock);
 
             E.checkState(cfhs.size() == cfs.size(),
                          "Expect same size of cf-handles and cf-names");
             // Collect CF Handles
-            Map<String, OpenedRocksDB.CFHandle> cfHandles = new ConcurrentHashMap<>();
             for (int i = 0; i < cfs.size(); i++) {
                 cfHandles.put(cfs.get(i), new OpenedRocksDB.CFHandle(rocksdb, cfhs.get(i)));
             }
-            OpenedRocksDB opened = new OpenedRocksDB(rocksdb, cfHandles, sstFileManager, recoveryLock);
-            finishRestore(restore, opened);
+            finishRestore(restore);
             return opened;
         } catch (RuntimeException | RocksDBException | Error e) {
-            RocksDBSnapshotRestore.unlock(recoveryLock);
+            closeFailedOpen(opened, recoveryLock, e);
             throw e;
         }
     }
 
-    private static FileChannel lockForOpen(String dataPath) throws RocksDBException {
+    private static RecoveryLock lockForOpen(String dataPath) throws RocksDBException {
         try {
             return RocksDBSnapshotRestore.lock(dataPath);
         } catch (BackendException e) {

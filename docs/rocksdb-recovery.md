@@ -17,8 +17,12 @@ A sibling `<data-path>.resume-lock` serializes cooperating opens and restores.
 The OS lock remains held through native close and reopen, and is released when
 the database finally closes. The lock file remains on disk; its presence alone
 does not prove an active owner. Do not delete it to force another opener through.
-Older binaries and unrelated writers do not honor this protocol and must not
-access these directories concurrently.
+Within one JVM, physical-file ownership also covers path aliases. An unrelated
+database can still open while another database is closing. A failed native or
+lock-descriptor close retains recovery ownership and reports the failure; retrying
+close cannot bypass it. Preserve the recovery files and stop the process before
+retrying startup after such a failure. Older binaries and unrelated writers do
+not honor this protocol and must not access these directories concurrently.
 
 Mount the parent data root, such as `rocksdb-data`, rather than an individual
 store directory such as `data/g`. Java opening rejects a store that is itself a
