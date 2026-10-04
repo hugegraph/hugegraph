@@ -259,7 +259,7 @@ The following components are provided under the Apache 2.0 License. See project 
 Per-component LICENSE-[project].txt files are included only when additional
 non-Apache-2.0 license text is required for a bundled component.
 
-    https://central.sonatype.com/artifact/com.alibaba/fastjson/1.2.83 -> Apache 2.0
+    https://central.sonatype.com/artifact/com.alibaba/fastjson/1.2.84 -> Apache 2.0
     https://central.sonatype.com/artifact/com.alipay.sofa.common/sofa-common-tools/1.0.12 -> Apache 2.0
     https://central.sonatype.com/artifact/com.alipay.sofa.lookout/lookout-api/1.4.1 -> Apache 2.0
     https://central.sonatype.com/artifact/com.alipay.sofa/bolt/1.6.2 -> Apache 2.0
