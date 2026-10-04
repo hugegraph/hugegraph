@@ -20,14 +20,17 @@ package org.apache.hugegraph.store.service;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.doAnswer;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -38,11 +41,15 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.FutureTask;
+import java.util.concurrent.SynchronousQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantLock;
@@ -50,34 +57,628 @@ import java.util.concurrent.locks.ReentrantLock;
 import org.apache.hugegraph.pd.common.KVPair;
 import org.apache.hugegraph.rocksdb.access.RocksDBSession;
 import org.apache.hugegraph.rocksdb.access.ScanIterator;
-import org.apache.hugegraph.store.grpc.common.ScanMethod;
 import org.apache.hugegraph.store.grpc.common.Header;
+import org.apache.hugegraph.store.grpc.common.ScanMethod;
 import org.apache.hugegraph.store.grpc.common.ScanOrderType;
+import org.apache.hugegraph.store.grpc.stream.HgStoreStreamGrpc;
 import org.apache.hugegraph.store.grpc.stream.KvPageRes;
 import org.apache.hugegraph.store.grpc.stream.KvStream;
-import org.apache.hugegraph.store.grpc.stream.ScanStreamReq;
-import org.apache.hugegraph.store.grpc.stream.ScanStreamBatchReq;
 import org.apache.hugegraph.store.grpc.stream.ScanQueryRequest;
+import org.apache.hugegraph.store.grpc.stream.ScanStreamBatchReq;
+import org.apache.hugegraph.store.grpc.stream.ScanStreamReq;
 import org.apache.hugegraph.store.node.AppConfig;
+import org.apache.hugegraph.store.node.grpc.GrpcShutdownBarrier;
 import org.apache.hugegraph.store.node.grpc.HgStoreStreamImpl;
 import org.apache.hugegraph.store.node.grpc.HgStoreWrapperEx;
-import org.apache.hugegraph.store.node.grpc.ScanBatchResponse;
 import org.apache.hugegraph.store.node.grpc.ParallelScanIterator;
 import org.apache.hugegraph.store.node.grpc.QueryCondition;
-import org.apache.hugegraph.store.node.grpc.ScanOneShotResponse;
 import org.apache.hugegraph.store.node.grpc.ScanBatchOneShotResponse;
+import org.apache.hugegraph.store.node.grpc.ScanBatchResponse;
 import org.apache.hugegraph.store.node.grpc.ScanBatchResponse3;
+import org.apache.hugegraph.store.node.grpc.ScanOneShotResponse;
 import org.apache.hugegraph.store.node.grpc.ScanStreamResponse;
+import org.apache.hugegraph.store.node.grpc.query.AggregativeQueryService;
+import org.apache.hugegraph.store.node.listener.ContextClosedListener;
+import org.apache.hugegraph.store.node.task.TTLCleaner;
 import org.apache.hugegraph.store.node.util.HgChannel;
 import org.junit.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 
 import io.grpc.Context;
+import io.grpc.ManagedChannel;
+import io.grpc.Server;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
+import io.grpc.inprocess.InProcessChannelBuilder;
+import io.grpc.inprocess.InProcessServerBuilder;
 import io.grpc.stub.StreamObserver;
 
 public class ScanShutdownTest {
+
+    @Test(timeout = 5000)
+    public void testInFlightReceiptDoesNotPublishOverAfterErrorCancellation() throws Exception {
+        ThreadPoolExecutor executor = (ThreadPoolExecutor) Executors.newFixedThreadPool(1);
+        StreamObserver<KvStream> output = mock(StreamObserver.class);
+        ScanBatchResponse response = new ScanBatchResponse(output, mock(HgStoreWrapperEx.class), executor);
+        Field lockField = ScanBatchResponse.class.getDeclaredField("stateLock");
+        lockField.setAccessible(true);
+        Field state = ScanBatchResponse.class.getDeclaredField("state");
+        state.setAccessible(true);
+        Field cancelled = ScanBatchResponse.class.getDeclaredField("cancelled");
+        cancelled.setAccessible(true);
+        AtomicBoolean cancelling = (AtomicBoolean) cancelled.get(response);
+        Object done = Arrays.stream(state.getType().getEnumConstants())
+                            .filter(value -> value.toString().equals("DONE")).findFirst().get();
+        FutureTask<Void> receipt = new FutureTask<>(() -> {
+            response.onNext(ScanStreamBatchReq.newBuilder().setReceiptRequest(
+                    org.apache.hugegraph.store.grpc.stream.ScanReceiptRequest.newBuilder().setTimes(1)).build());
+            return null;
+        });
+        FutureTask<Void> failing = new FutureTask<>(() -> {
+            response.onError(Status.INTERNAL.asRuntimeException());
+            return null;
+        });
+        Thread reader = new Thread(receipt, "receipt-at-terminal-transition");
+        Thread closer = new Thread(failing, "error-at-terminal-transition");
+        try {
+            synchronized (lockField.get(response)) {
+                reader.start();
+                long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(1);
+                while (reader.getState() != Thread.State.BLOCKED && System.nanoTime() < deadline) {
+                    Thread.yield();
+                }
+                assertEquals(Thread.State.BLOCKED, reader.getState());
+                closer.start();
+                deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(1);
+                while (!cancelling.get() && System.nanoTime() < deadline) {
+                    Thread.yield();
+                }
+                assertTrue(cancelling.get());
+                state.set(response, done);
+            }
+            receipt.get(2, TimeUnit.SECONDS);
+            failing.get(2, TimeUnit.SECONDS);
+            verify(output, never()).onNext(any(KvStream.class));
+            verify(output).onError(any(Throwable.class));
+        } finally {
+            executor.shutdownNow();
+            reader.join(1000);
+            closer.join(1000);
+        }
+    }
+
+    @Test(timeout = 10000)
+    public void testOrderedVertexRemainsConsecutiveAcrossBackpressureWithTwoScanners() throws Exception {
+        AtomicBoolean defer = new AtomicBoolean(true);
+        List<Runnable> initial = new ArrayList<>();
+        ThreadPoolExecutor executor = new ThreadPoolExecutor(2, 2, 0, TimeUnit.SECONDS,
+                new java.util.concurrent.LinkedBlockingQueue<>()) {
+            @Override
+            public void execute(Runnable command) {
+                if (defer.get()) {
+                    initial.add(command);
+                } else {
+                    super.execute(command);
+                }
+            }
+        };
+        ScanIterator first = mock(ScanIterator.class);
+        ScanIterator second = mock(ScanIterator.class);
+        AtomicInteger firstRows = new AtomicInteger();
+        AtomicInteger secondRows = new AtomicInteger();
+        CountDownLatch firstBackpressure = new CountDownLatch(1);
+        CountDownLatch secondReading = new CountDownLatch(1);
+        when(first.hasNext()).thenAnswer(ignored -> firstRows.get() < 8);
+        when(first.next()).thenAnswer(ignored -> {
+            if (firstRows.incrementAndGet() == 5) {
+                firstBackpressure.countDown();
+            }
+            return RocksDBSession.BackendColumn.of(new byte[]{1, 0, 0, 0}, new byte[16]);
+        });
+        when(second.hasNext()).thenAnswer(ignored -> secondRows.get() < 2);
+        when(second.next()).thenAnswer(ignored -> {
+            secondRows.incrementAndGet();
+            secondReading.countDown();
+            return RocksDBSession.BackendColumn.of(new byte[]{2, 0, 0, 0}, new byte[16]);
+        });
+        AtomicInteger supplies = new AtomicInteger();
+        Field bodySize = ParallelScanIterator.class.getDeclaredField("maxBodySize");
+        bodySize.setAccessible(true);
+        int previous = bodySize.getInt(null);
+        bodySize.setInt(null, 16);
+        ParallelScanIterator scan = null;
+        try {
+            scan = ParallelScanIterator.of(() -> {
+                int index = supplies.incrementAndGet();
+                return new KVPair<>(mock(QueryCondition.class), index == 1 ? first : index == 2 ? second : null);
+            }, () -> Long.MAX_VALUE,
+                    ScanQueryRequest.newBuilder().setOrderType(ScanOrderType.ORDER_WITHIN_VERTEX).build(), executor);
+            // Force two owned scanners independently of the container's CPU-derived default.
+            Field registry = ParallelScanIterator.class.getDeclaredField("scanners");
+            registry.setAccessible(true);
+            java.util.Queue<Object> scanners = (java.util.Queue<Object>) registry.get(scan);
+            Class<?> scannerType = scanners.peek().getClass();
+            java.lang.reflect.Constructor<?> constructor =
+                    scannerType.getDeclaredConstructor(ParallelScanIterator.class);
+            constructor.setAccessible(true);
+            Object other = constructor.newInstance(scan);
+            scanners.add(other);
+            Method run = scannerType.getDeclaredMethod("scanKV");
+            run.setAccessible(true);
+            defer.set(false);
+            executor.execute(initial.get(0));
+            assertTrue(firstBackpressure.await(2, TimeUnit.SECONDS));
+            executor.execute(() -> {
+                try {
+                    run.invoke(other);
+                } catch (ReflectiveOperationException e) {
+                    throw new AssertionError(e);
+                }
+            });
+            assertTrue(secondReading.await(2, TimeUnit.SECONDS));
+            List<Integer> vertices = new ArrayList<>();
+            while (scan.hasNext()) {
+                for (Object row : scan.next()) {
+                    Field key = row.getClass().getField("key");
+                    key.setAccessible(true);
+                    vertices.add((int) ((byte[]) key.get(row))[0]);
+                }
+            }
+            assertEquals(Arrays.asList(1, 1, 1, 1, 1, 1, 1, 1, 2, 2), vertices);
+            verify(first).close();
+            verify(second).close();
+        } finally {
+            if (scan != null) {
+                scan.close();
+            }
+            executor.shutdownNow();
+            bodySize.setInt(null, previous);
+        }
+    }
+
+    @Test(timeout = 20000)
+    public void testOrdinaryScanCleanupFailureBlocksSpringDestruction() throws Exception {
+        for (int mode = 0; mode < 5; mode++) {
+            assertCleanupBlocksDestruction(mode);
+        }
+    }
+
+    private static void assertCleanupBlocksDestruction(int mode) throws Exception {
+        ThreadPoolExecutor executor = (ThreadPoolExecutor) Executors.newFixedThreadPool(4);
+        HgStoreWrapperEx wrapper = mock(HgStoreWrapperEx.class);
+        ScanIterator broken = mock(ScanIterator.class);
+        ScanIterator healthy = mock(ScanIterator.class);
+        IllegalStateException failure = new IllegalStateException("injected native release failure");
+        doThrow(failure).when(broken).close();
+        when(wrapper.scanAll(anyString(), anyString(), any(byte[].class))).thenReturn(broken, healthy);
+        HgStoreStreamImpl service = scanService(executor, wrapper);
+        AnnotationConfigApplicationContext context =
+                new AnnotationConfigApplicationContext();
+        AtomicBoolean destroyed = new AtomicBoolean();
+        FutureTask<Void> closing = new FutureTask<>(() -> {
+            context.close();
+            return null;
+        });
+        Thread closer = new Thread(closing, "scan-failed-cleanup-context-close");
+        try {
+            context.getBeanFactory().registerSingleton("storeStream", service);
+            context.getBeanFactory().registerSingleton("queryService",
+                    mock(AggregativeQueryService.class));
+            context.getBeanFactory().registerSingleton("cleaner",
+                    mock(TTLCleaner.class));
+            context.getDefaultListableBeanFactory().registerDisposableBean("database", () -> destroyed.set(true));
+            context.register(ContextClosedListener.class,
+                             GrpcShutdownBarrier.class);
+            context.refresh();
+            for (int i = 0; i < 2; i++) {
+                ScanStreamReq request = ScanStreamReq.newBuilder().setMethod(ScanMethod.ALL)
+                                                     .setPageSize(1).setLimit(10).build();
+                switch (mode) {
+                    case 0:
+                        service.scan(mock(StreamObserver.class)).onNext(request);
+                        break;
+                    case 1:
+                        service.scanBatch2(mock(StreamObserver.class)).onNext(batchRequest());
+                        break;
+                    case 2:
+                        service.scanBatch(mock(StreamObserver.class)).onNext(batchRequest());
+                        break;
+                    case 3:
+                        service.scanOneShot(request, mock(StreamObserver.class));
+                        break;
+                    default:
+                        service.scanBatchOneShot(batchRequest(), mock(StreamObserver.class));
+                }
+            }
+            verify(broken, timeout(2000)).close();
+            verify(healthy, timeout(2000)).close();
+            closer.start();
+            assertTrue(executor.awaitTermination(2, TimeUnit.SECONDS));
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+            while (closer.getState() != Thread.State.TIMED_WAITING && System.nanoTime() < deadline) {
+                Thread.yield();
+            }
+            assertEquals(Thread.State.TIMED_WAITING, closer.getState());
+            assertFalse("terminated workers do not confirm native cleanup", closing.isDone());
+            assertFalse(destroyed.get());
+            verify(broken).close();
+            verify(healthy).close();
+            Map<?, ?> pending = scanRegistry(service);
+            assertEquals(1, pending.size());
+            Object retained = pending.keySet().iterator().next();
+            Field cleanupFailure = retained.getClass().getDeclaredField("cleanupFailure");
+            cleanupFailure.setAccessible(true);
+            assertSame(failure, cleanupFailure.get(retained));
+        } finally {
+            // Test-only teardown: production never clears a failed native release.
+            Map<?, ?> pending = scanRegistry(service);
+            synchronized (pending) {
+                pending.clear();
+                pending.notifyAll();
+            }
+            executor.shutdownNow();
+            if (closer.isAlive()) {
+                closing.get(2, TimeUnit.SECONDS);
+            }
+            context.close();
+        }
+    }
+
+    @Test(timeout = 5000)
+    public void testUnsupportedPausedBatchClosesOwnedIteratorAndRetainsFailure() throws Exception {
+        for (boolean fails : new boolean[]{false, true}) {
+            ThreadPoolExecutor executor = (ThreadPoolExecutor) Executors.newFixedThreadPool(1);
+            HgStoreStreamImpl service = scanService(executor, mock(HgStoreWrapperEx.class));
+            StreamObserver<KvStream> output = mock(StreamObserver.class);
+            doThrow(new AssertionError("injected response callback failure"))
+                    .when(output).onError(any(Throwable.class));
+            StreamObserver<ScanStreamBatchReq> input = service.scanBatch2(output);
+            ScanBatchResponse response = null;
+            for (Field field : input.getClass().getDeclaredFields()) {
+                field.setAccessible(true);
+                Object captured = field.get(input);
+                if (captured instanceof ScanBatchResponse) {
+                    response = (ScanBatchResponse) captured;
+                }
+            }
+            org.junit.Assert.assertNotNull(response);
+            ScanIterator iterator = mock(ScanIterator.class);
+            if (fails) {
+                doThrow(new IllegalStateException("paused iterator close failed")).when(iterator).close();
+            }
+            Field resource = ScanBatchResponse.class.getDeclaredField("iterator");
+            resource.setAccessible(true);
+            resource.set(response, iterator);
+            try {
+                // An idle response can retain a native iterator while waiting for receipts.
+                input.onNext(ScanStreamBatchReq.getDefaultInstance());
+                verify(iterator).close();
+                verify(output).onError(any(Throwable.class));
+                verify(output, never()).onCompleted();
+                assertEquals(fails ? 1 : 0, scanRegistry(service).size());
+                service.shutdownScans();
+                input.onCompleted();
+                verify(iterator).close();
+            } finally {
+                scanRegistry(service).clear();
+                executor.shutdownNow();
+            }
+        }
+    }
+
+    @Test(timeout = 5000)
+    public void testFailedCleanupAndResponseCallbackStillClearWorkerOwnership() throws Exception {
+        ThreadPoolExecutor executor = (ThreadPoolExecutor) Executors.newFixedThreadPool(1, task -> {
+            Thread thread = new Thread(task, "scan-close-callback-failure");
+            thread.setUncaughtExceptionHandler((ignored, failure) -> { });
+            return thread;
+        });
+        HgStoreWrapperEx wrapper = mock(HgStoreWrapperEx.class);
+        ScanIterator iterator = mock(ScanIterator.class);
+        when(wrapper.scanAll(anyString(), anyString(), any(byte[].class))).thenReturn(iterator);
+        doThrow(new IllegalStateException("native close failed")).when(iterator).close();
+        StreamObserver<KvPageRes> output = mock(StreamObserver.class);
+        CountDownLatch sending = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        doAnswer(invocation -> {
+            sending.countDown();
+            assertTrue(release.await(2, TimeUnit.SECONDS));
+            return null;
+        }).when(output).onNext(any(KvPageRes.class));
+        doThrow(new AssertionError("error callback failed")).when(output).onError(any(Throwable.class));
+        AppConfig config = mock(AppConfig.class);
+        when(config.getServerWaitTime()).thenReturn(5);
+        ScanStreamResponse response = ScanStreamResponse.of(output, wrapper, executor, config);
+        FutureTask<Void> request = new FutureTask<>(() -> {
+            response.onNext(ScanStreamReq.newBuilder().setMethod(ScanMethod.ALL)
+                                         .setPageSize(1).setLimit(10).build());
+            return null;
+        });
+        Thread caller = new Thread(request, "scan-close-callback-request");
+        try {
+            caller.start();
+            assertTrue(sending.await(1, TimeUnit.SECONDS));
+            Field finished = ScanStreamResponse.class.getDeclaredField("finishFlag");
+            finished.setAccessible(true);
+            AtomicBoolean terminal = (AtomicBoolean) finished.get(response);
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(1);
+            while (!terminal.get() && System.nanoTime() < deadline) {
+                Thread.yield();
+            }
+            assertTrue("cleanup failure must claim error before normal completion", terminal.get());
+            release.countDown();
+            request.get(2, TimeUnit.SECONDS);
+            executor.shutdown();
+            assertTrue(executor.awaitTermination(2, TimeUnit.SECONDS));
+            Field worker = ScanStreamResponse.class.getDeclaredField("worker");
+            worker.setAccessible(true);
+            assertNull(worker.get(response));
+            verify(iterator).close();
+            verify(output).onError(any(Throwable.class));
+            verify(output, never()).onCompleted();
+        } finally {
+            release.countDown();
+            executor.shutdownNow();
+            caller.join(1000);
+        }
+    }
+
+    @Test(timeout = 5000)
+    public void testTerminalAdmissionRejectsRequestWaitingForLifecycleLock() throws Exception {
+        ThreadPoolExecutor executor = (ThreadPoolExecutor) Executors.newFixedThreadPool(1);
+        HgStoreWrapperEx wrapper = mock(HgStoreWrapperEx.class);
+        HgStoreStreamImpl service = scanService(executor, wrapper);
+        StreamObserver<ScanStreamBatchReq> input = service.scanBatch(mock(StreamObserver.class));
+        Object lifecycle = scanRegistry(service).keySet().iterator().next();
+        Method finished = lifecycle.getClass().getDeclaredMethod("finishWithoutResponse");
+        finished.setAccessible(true);
+        FutureTask<Void> request = new FutureTask<>(() -> {
+            input.onNext(batchRequest());
+            return null;
+        });
+        Thread late = new Thread(request, "late-scan-admission");
+        try {
+            synchronized (lifecycle) {
+                late.start();
+                long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(1);
+                while (late.getState() != Thread.State.BLOCKED && System.nanoTime() < deadline) {
+                    Thread.yield();
+                }
+                assertEquals(Thread.State.BLOCKED, late.getState());
+                // Exercise the atomic admission invariant directly, without claiming a native fault.
+                finished.invoke(lifecycle);
+                assertTrue(scanRegistry(service).isEmpty());
+            }
+            request.get(1, TimeUnit.SECONDS);
+            service.shutdownScans();
+            assertTrue(executor.awaitTermination(1, TimeUnit.SECONDS));
+            verifyNoInteractions(wrapper);
+            assertEquals(0, executor.getTaskCount());
+        } finally {
+            executor.shutdownNow();
+            late.join(1000);
+        }
+    }
+
+    @Test(timeout = 10000)
+    public void testInProcessNormalCompletionDoesNotCancelCompletedScan() throws Exception {
+        ThreadPoolExecutor executor = (ThreadPoolExecutor) Executors.newFixedThreadPool(2);
+        HgStoreWrapperEx wrapper = mock(HgStoreWrapperEx.class);
+        ScanIterator iterator = mock(ScanIterator.class);
+        when(wrapper.scanAll(anyString(), anyString(), any(byte[].class))).thenReturn(iterator);
+        HgStoreStreamImpl service = scanService(executor, wrapper);
+        String name = InProcessServerBuilder.generateName();
+        Server server = InProcessServerBuilder.forName(name)
+                .directExecutor().addService(service).build().start();
+        ManagedChannel channel = InProcessChannelBuilder.forName(name)
+                .directExecutor().build();
+        org.apache.logging.log4j.core.Logger logger = (org.apache.logging.log4j.core.Logger)
+                org.apache.logging.log4j.LogManager.getLogger(ScanStreamResponse.class);
+        List<String> messages = new java.util.concurrent.CopyOnWriteArrayList<>();
+        org.apache.logging.log4j.core.appender.AbstractAppender logs =
+                new org.apache.logging.log4j.core.appender.AbstractAppender(
+                        "scan-normal-completion", null, null, false,
+                        org.apache.logging.log4j.core.config.Property.EMPTY_ARRAY) {
+                    @Override
+                    public void append(org.apache.logging.log4j.core.LogEvent event) {
+                        messages.add(event.getMessage().getFormattedMessage());
+                    }
+                };
+        logs.start();
+        logger.addAppender(logs);
+        CountDownLatch completed = new CountDownLatch(1);
+        AtomicInteger errors = new AtomicInteger();
+        try {
+            StreamObserver<ScanStreamReq> request =
+                    HgStoreStreamGrpc.newStub(channel)
+                    .scan(new StreamObserver<KvPageRes>() {
+                        @Override
+                        public void onNext(KvPageRes value) { }
+
+                        @Override
+                        public void onError(Throwable failure) {
+                            errors.incrementAndGet();
+                            completed.countDown();
+                        }
+
+                        @Override
+                        public void onCompleted() {
+                            completed.countDown();
+                        }
+                    });
+            request.onNext(ScanStreamReq.newBuilder().setMethod(ScanMethod.ALL)
+                                       .setPageSize(1).setLimit(10).build());
+            assertTrue(completed.await(2, TimeUnit.SECONDS));
+            service.shutdownScans();
+            assertTrue(executor.awaitTermination(2, TimeUnit.SECONDS));
+            service.awaitScanCleanup();
+            assertEquals(0, errors.get());
+            assertTrue(messages.stream().noneMatch(message -> message.contains("onError from client")));
+            verify(iterator).close();
+            assertTrue(scanRegistry(service).isEmpty());
+        } finally {
+            logger.removeAppender(logs);
+            logs.stop();
+            channel.shutdownNow();
+            server.shutdownNow();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test(timeout = 10000)
+    public void testInProcessClientCancellationDrainsIterator() throws Exception {
+        assertInProcessCancellation(false);
+        assertInProcessCancellation(true);
+    }
+
+    private static void assertInProcessCancellation(boolean completionRace) throws Exception {
+        ThreadPoolExecutor executor = (ThreadPoolExecutor) Executors.newFixedThreadPool(2);
+        HgStoreWrapperEx wrapper = mock(HgStoreWrapperEx.class);
+        ScanIterator iterator = mock(ScanIterator.class);
+        CountDownLatch reading = new CountDownLatch(1);
+        CountDownLatch releaseRead = new CountDownLatch(1);
+        when(wrapper.scanAll(anyString(), anyString(), any(byte[].class))).thenReturn(iterator);
+        when(iterator.hasNext()).thenAnswer(invocation -> {
+            reading.countDown();
+            try {
+                releaseRead.await();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            return false;
+        });
+        HgStoreStreamImpl service = scanService(executor, wrapper);
+        // gRPC 1.39 dispatches context cancellation through the application executor too.
+        // Keep a slot for cancellation while scan.onNext waits for its worker's first page.
+        ExecutorService callbacks = Executors.newFixedThreadPool(2);
+        String name = InProcessServerBuilder.generateName();
+        Server server = InProcessServerBuilder.forName(name)
+                .executor(callbacks).addService(service).build().start();
+        ManagedChannel channel = InProcessChannelBuilder.forName(name)
+                .directExecutor().build();
+        Context.CancellableContext context = Context.current().withCancellation();
+        CountDownLatch ended = new CountDownLatch(1);
+        AtomicInteger terminals = new AtomicInteger();
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        try {
+            context.run(() -> {
+                StreamObserver<ScanStreamReq> request =
+                        HgStoreStreamGrpc.newStub(channel)
+                        .scan(new StreamObserver<KvPageRes>() {
+                            @Override
+                            public void onNext(KvPageRes value) { }
+
+                            @Override
+                            public void onError(Throwable error) {
+                                failure.set(error);
+                                terminals.incrementAndGet();
+                                ended.countDown();
+                            }
+
+                            @Override
+                            public void onCompleted() {
+                                terminals.incrementAndGet();
+                                ended.countDown();
+                            }
+                        });
+                request.onNext(ScanStreamReq.newBuilder().setMethod(ScanMethod.ALL)
+                                           .setPageSize(1).setLimit(10).build());
+            });
+            assertTrue(reading.await(2, TimeUnit.SECONDS));
+            if (completionRace) {
+                CountDownLatch start = new CountDownLatch(1);
+                Thread cancel = new Thread(() -> {
+                    try {
+                        start.await();
+                    } catch (InterruptedException e) {
+                        throw new AssertionError(e);
+                    }
+                    context.cancel(null);
+                }, "scan-completion-cancel-race");
+                cancel.start();
+                start.countDown();
+                releaseRead.countDown();
+                cancel.join(2000);
+                assertFalse(cancel.isAlive());
+            } else {
+                context.cancel(null);
+            }
+            assertTrue(ended.await(2, TimeUnit.SECONDS));
+            verify(iterator, timeout(2000)).close();
+            service.shutdownScans();
+            assertTrue(executor.awaitTermination(2, TimeUnit.SECONDS));
+            service.awaitScanCleanup();
+            assertEquals(1, terminals.get());
+            if (!completionRace || failure.get() != null) {
+                assertEquals(Status.Code.CANCELLED, Status.fromThrowable(failure.get()).getCode());
+            }
+            verify(iterator).close();
+            assertTrue(scanRegistry(service).isEmpty());
+        } finally {
+            releaseRead.countDown();
+            context.cancel(null);
+            channel.shutdownNow();
+            server.shutdownNow();
+            executor.shutdownNow();
+            callbacks.shutdownNow();
+        }
+    }
+
+    @Test(timeout = 5000)
+    public void testBatchRejectionReportsStatusAndClosesUnstartedIterator() throws Exception {
+        for (boolean stopped : new boolean[]{false, true}) {
+            ThreadPoolExecutor executor = new ThreadPoolExecutor(1, 1, 1, TimeUnit.SECONDS,
+                    new SynchronousQueue<>());
+            CountDownLatch release = new CountDownLatch(1);
+            if (stopped) {
+                executor.shutdown();
+            } else {
+                executor.execute(() -> {
+                    try {
+                        release.await();
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                });
+            }
+            HgStoreWrapperEx wrapper = mock(HgStoreWrapperEx.class);
+            HgStoreStreamImpl service = scanService(executor, wrapper);
+            StreamObserver<KvPageRes> output = mock(StreamObserver.class);
+            try {
+                service.scanBatch(output).onNext(batchRequest());
+                ArgumentCaptor<Throwable> error = ArgumentCaptor.forClass(Throwable.class);
+                verify(output).onError(error.capture());
+                assertEquals(stopped ? Status.Code.UNAVAILABLE : Status.Code.RESOURCE_EXHAUSTED,
+                             Status.fromThrowable(error.getValue()).getCode());
+                verify(output, never()).onCompleted();
+                assertTrue(scanRegistry(service).isEmpty());
+                verifyNoInteractions(wrapper);
+            } finally {
+                release.countDown();
+                executor.shutdownNow();
+            }
+        }
+    }
+
+    private static HgStoreStreamImpl scanService(ThreadPoolExecutor executor,
+                                                 HgStoreWrapperEx wrapper) throws Exception {
+        HgStoreStreamImpl service = new HgStoreStreamImpl();
+        AppConfig config = mock(AppConfig.class);
+        when(config.getServerWaitTime()).thenReturn(5);
+        for (String name : new String[]{"executor", "wrapper", "appConfig"}) {
+            Field field = HgStoreStreamImpl.class.getDeclaredField(name);
+            field.setAccessible(true);
+            field.set(service, name.equals("executor") ? executor : name.equals("wrapper") ? wrapper : config);
+        }
+        return service;
+    }
+
+    private static Map<?, ?> scanRegistry(HgStoreStreamImpl service) throws Exception {
+        Field scans = HgStoreStreamImpl.class.getDeclaredField("scans");
+        scans.setAccessible(true);
+        return (Map<?, ?>) scans.get(service);
+    }
 
     @Test
     public void testClosingPreventsLazyExecutorAndStateCreation() {
