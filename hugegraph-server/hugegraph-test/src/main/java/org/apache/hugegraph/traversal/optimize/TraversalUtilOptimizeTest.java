@@ -23,6 +23,7 @@ import java.util.Set;
 import org.apache.hugegraph.HugeGraph;
 import org.apache.hugegraph.backend.id.Id;
 import org.apache.hugegraph.backend.id.IdGenerator;
+import org.apache.hugegraph.backend.query.Condition;
 import org.apache.hugegraph.exception.NotFoundException;
 import org.apache.hugegraph.schema.IndexLabel;
 import org.apache.hugegraph.schema.PropertyKey;
@@ -223,12 +224,36 @@ public class TraversalUtilOptimizeTest {
                                      P.eq("marko").and(custom), false);
     }
 
+
+    @Test
+    public void testPartialExtractionClassifiesRelationPredicates() {
+        for (Condition.RelationType type : Condition.RelationType.values()) {
+            if (type.isSearchType()) {
+                continue;
+            }
+            Object value = type == Condition.RelationType.IN ||
+                           type == Condition.RelationType.NOT_IN ?
+                           Collections.singletonList("marko") : "marko";
+            P<Object> predicate = new P<>(type, value);
+            boolean secondary = type == Condition.RelationType.EQ ||
+                                type == Condition.RelationType.IN;
+            assertPartialIndexExtraction(IndexType.SECONDARY, predicate,
+                                         secondary);
+            if (type.isRangeType()) {
+                assertPartialIndexExtraction(IndexType.RANGE_INT,
+                                             new P<>(type, 29), true);
+            }
+        }
+    }
+
     private static void assertPartialIndexExtraction(IndexType indexType,
                                                      P<?> predicate,
                                                      boolean extracted) {
         HugeGraph graph = Mockito.mock(HugeGraph.class);
         PropertyKey name = propertyKey(1L, "name", DataType.TEXT);
-        PropertyKey query = propertyKey(2L, "query", DataType.TEXT);
+        PropertyKey query = propertyKey(2L, "query",
+                                        indexType.isNumeric() ? DataType.INT :
+                                        DataType.TEXT);
         VertexLabel person = new VertexLabel(graph, IdGenerator.of(3L),
                                              "person");
         person.properties(name.id(), query.id());

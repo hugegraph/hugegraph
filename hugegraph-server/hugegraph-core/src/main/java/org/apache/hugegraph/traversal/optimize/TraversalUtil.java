@@ -787,6 +787,14 @@ public final class TraversalUtil {
                   bp instanceof Condition.RelationType)) {
                 return true;
             }
+            if (bp instanceof Condition.RelationType) {
+                Condition.RelationType type = (Condition.RelationType) bp;
+                if (type != Condition.RelationType.EQ &&
+                    type != Condition.RelationType.IN &&
+                    !type.isRangeType() && !type.isSearchType()) {
+                    return true;
+                }
+            }
         }
         return false;
     }
@@ -881,7 +889,9 @@ public final class TraversalUtil {
         for (P<Object> predicate : predicates) {
             BiPredicate<?, ?> bp = predicate.getBiPredicate();
             if (bp == Compare.gt || bp == Compare.gte ||
-                bp == Compare.lt || bp == Compare.lte) {
+                bp == Compare.lt || bp == Compare.lte ||
+                bp instanceof Condition.RelationType &&
+                ((Condition.RelationType) bp).isRangeType()) {
                 return true;
             }
         }

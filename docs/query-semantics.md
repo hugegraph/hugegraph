@@ -27,3 +27,8 @@ A scan in the middle of a traversal is counted once per incoming traverser,
 including its bulk. It is not replaced by a single backend count. For example,
 with three vertices, `g.V().V().count()` returns `9L`, while `g.V().count()`
 returns `3L` and remains eligible for count optimization.
+
+Partial extraction classifies native `Condition.RelationType` predicates with
+the same index requirements as TinkerPop predicates: equality and membership
+can use secondary indexes, ranges require numeric indexes, and unsupported
+relations (including inequality and negative membership) remain local.
