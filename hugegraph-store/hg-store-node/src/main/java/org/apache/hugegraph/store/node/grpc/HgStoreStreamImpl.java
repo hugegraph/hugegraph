@@ -23,6 +23,7 @@ import java.util.function.Consumer;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 
 import org.apache.hugegraph.store.grpc.state.ScanState;
 import org.apache.hugegraph.store.grpc.stream.HgStoreStreamGrpc;
@@ -87,6 +88,7 @@ public class HgStoreStreamImpl extends HgStoreStreamGrpc.HgStoreStreamImplBase {
     /** Wait independently of executor termination: failed native release is sticky. */
     public void awaitScanCleanup() {
         boolean interrupted = false;
+        long nextLog = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
         synchronized (this.scans) {
             while (!this.scans.isEmpty()) {
                 try {
@@ -94,9 +96,17 @@ public class HgStoreStreamImpl extends HgStoreStreamGrpc.HgStoreStreamImplBase {
                 } catch (InterruptedException e) {
                     interrupted = true;
                 }
-                this.scans.keySet().forEach(scan ->
-                        log.warn("Still waiting for scan cleanup before closing databases",
-                                 scan.cleanupFailure()));
+                if (!this.scans.isEmpty() && System.nanoTime() - nextLog >= 0) {
+                    log.warn("Still waiting for {} scans to clean up before closing databases",
+                             this.scans.size());
+                    for (ScanLifecycle scan : this.scans.keySet()) {
+                        Throwable failure = scan.cleanupFailure();
+                        if (failure != null) {
+                            log.warn("Scan cleanup failed; database close stays blocked", failure);
+                        }
+                    }
+                    nextLog = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+                }
             }
         }
         if (interrupted) {
