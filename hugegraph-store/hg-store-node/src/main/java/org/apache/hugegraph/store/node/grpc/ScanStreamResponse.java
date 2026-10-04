@@ -64,6 +64,7 @@ public class ScanStreamResponse implements StreamObserver<ScanStreamReq> {
     private final Object cancellationLock = new Object();
     private final Object responseLock = new Object();
     private Thread worker;
+    private final ScanLifecycle lifecycle;
 
     private void cancel() {
         this.isStop.set(true);
@@ -86,7 +87,14 @@ public class ScanStreamResponse implements StreamObserver<ScanStreamReq> {
     ScanStreamResponse(StreamObserver<KvPageRes> responseObserver,
                        HgStoreWrapperEx wrapper,
                        ThreadPoolExecutor executor, AppConfig appConfig) {
-        this.responseObserver = responseObserver;
+        this(responseObserver, wrapper, executor, appConfig, new ScanLifecycle());
+    }
+
+    ScanStreamResponse(StreamObserver<KvPageRes> responseObserver,
+                       HgStoreWrapperEx wrapper, ThreadPoolExecutor executor,
+                       AppConfig appConfig, ScanLifecycle lifecycle) {
+        this.lifecycle = lifecycle;
+        this.responseObserver = lifecycle.response(responseObserver);
         this.wrapper = wrapper;
         this.executor = executor;
         this.config = appConfig;
@@ -163,7 +171,7 @@ public class ScanStreamResponse implements StreamObserver<ScanStreamReq> {
                         }
                         this.worker = Thread.currentThread();
                     }
-                    this.iterator = getIterator(request, this.wrapper);
+                    this.iterator = getIterator(request, this.wrapper, this.lifecycle::failedCleanup);
                     while (!this.isStop.get() && !Thread.currentThread().isInterrupted() &&
                            iterator.hasNext()) {
                         if (limit > 0 && ++this.total > limit) {
@@ -206,13 +214,13 @@ public class ScanStreamResponse implements StreamObserver<ScanStreamReq> {
                     this.failServer(ex);
                 } finally {
                     try {
-                        if (this.iterator != null) {
-                            this.iterator.close();
+                        if (!this.lifecycle.close(this.iterator)) {
+                            this.failServer(Status.INTERNAL.withDescription("Failed to close scan iterator")
+                                                           .withCause(this.lifecycle.cleanupFailure())
+                                                           .asRuntimeException());
                         }
-                        this.channel.close();
-                    } catch (Exception e) {
-                        log.warn("Failed to close scan iterator", e);
                     } finally {
+                        this.channel.close();
                         synchronized (this.cancellationLock) {
                             this.worker = null;
                         }
@@ -220,9 +228,10 @@ public class ScanStreamResponse implements StreamObserver<ScanStreamReq> {
                 }
 
             };
-            this.executor.execute(scanning);
+            this.lifecycle.execute(this.executor, scanning);
         } catch (Exception e) {
-            StatusRuntimeException ex = HgGrpc.toErr(Status.INTERNAL, null, e);
+            StatusRuntimeException ex = e instanceof StatusRuntimeException ?
+                                        (StatusRuntimeException) e : HgGrpc.toErr(Status.INTERNAL, null, e);
             this.failServer(ex);
         }
 

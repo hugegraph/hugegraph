@@ -49,6 +49,7 @@ import org.apache.hugegraph.unit.FakeObjects;
 import org.apache.hugegraph.testutil.Whitebox;
 import org.junit.Rule;
 import org.junit.Test;
+import org.rocksdb.Checkpoint;
 import org.rocksdb.Options;
 import org.rocksdb.RocksDB;
 import org.rocksdb.RocksDBException;
@@ -428,7 +429,8 @@ public class RocksDBSnapshotRestoreTest {
                 assertEquals(!consume, new File(snapshot).exists());
                 assertFalse(new File(snapshot + ".resume-lock").exists());
                 assertEquals(!consume, new File(snapshot).getParentFile().exists());
-                assertFalse(new File(data + "_temp").exists());
+                assertEquals(0, data.getParentFile().listFiles(file -> file.isDirectory() &&
+                             file.getName().startsWith("store_temp-")).length);
                 assertFalse(new File(data + ".resume-pending").exists());
             }
         } finally {
@@ -464,6 +466,161 @@ public class RocksDBSnapshotRestoreTest {
             assertTrue(new File(data + ".resume-pending").isFile());
             assertArrayEquals(new byte[]{1, 2, 3},
                               Files.readAllBytes(new File(snapshot, "MANIFEST-000001").toPath()));
+        }
+    }
+
+    @Test
+    public void testInvalidOperationDoesNotReconstructWalAlias() throws Exception {
+        File data = this.temporary.newFolder("data");
+        File snapshot = this.temporary.newFolder("snapshot");
+        fakeCheckpoint(snapshot);
+        Path wal = new File(this.temporary.getRoot(), "wal-link").toPath();
+        Files.createSymbolicLink(wal, this.temporary.newFolder("wal-target").toPath());
+        RocksDBSnapshotRestore.start(data.toString(), wal.toString(), snapshot.toString());
+        Path marker = new File(data + ".resume-pending").toPath();
+        String metadata = Files.readString(marker);
+        Files.writeString(marker, metadata.replaceAll("operation=[^\n]+", "operation=invalid"));
+        Files.delete(wal);
+        try {
+            RocksDBSnapshotRestore.prepareOpen(data.toString(), wal.toString());
+            fail("Invalid operation must fail before restoring any path");
+        } catch (BackendException expected) {
+            assertFalse(Files.exists(wal, java.nio.file.LinkOption.NOFOLLOW_LINKS));
+            assertTrue(Files.exists(marker));
+        }
+    }
+
+    @Test
+    public void testReplacedCheckpointGenerationIsRejectedBeforeTargetChanges() throws Exception {
+        File data = this.temporary.newFolder("data");
+        File snapshot = this.temporary.newFolder("snapshot");
+        fakeCheckpoint(snapshot);
+        Files.write(new File(data, "untouched").toPath(), new byte[]{9});
+        RocksDBSnapshotRestore.start(data.toString(), data.toString(), snapshot.toString());
+        File saved = new File(this.temporary.getRoot(), "saved-generation");
+        Files.move(snapshot.toPath(), saved.toPath());
+        FileUtils.copyDirectory(saved, snapshot);
+        Files.write(new File(snapshot, "MANIFEST-000001").toPath(), new byte[]{4, 5, 6});
+        try {
+            RocksDBSnapshotRestore.prepareOpen(data.toString(), data.toString());
+            fail("A replacement at the same path must not become the pending source");
+        } catch (BackendException expected) {
+            assertArrayEquals(new byte[]{9}, Files.readAllBytes(new File(data, "untouched").toPath()));
+            assertTrue(new File(data + ".resume-pending").exists());
+            assertTrue(saved.exists());
+        }
+    }
+
+    @Test
+    public void testKilledRestoreRetriesSameGenerationAndReclaimsOnlyOwnedStaging() throws Exception {
+        for (String phase : Arrays.asList("stage", "retire", "publish", "reopen")) {
+            File root = this.temporary.newFolder(phase);
+            File data = new File(root, "data");
+            File wal = new File(root, "wal");
+            File snapshot = new File(root, "snapshot");
+            HugeConfig config = FakeObjects.newConfig();
+            RocksDBStdSessions original = new RocksDBStdSessions(config, "db", "store",
+                                                                data.toString(), wal.toString());
+            try {
+                original.createTable("test");
+                original.session().put("test", new byte[]{1}, new byte[]{2});
+                original.session().commit();
+                AtomicReference<OpenedRocksDB> shared = Whitebox.getInternalState(original, "rocksdb");
+                try (Checkpoint checkpoint = Checkpoint.create(shared.get().rocksdb())) {
+                    // A native checkpoint flushes SSTs; append a captured real WAL tail below.
+                    checkpoint.createCheckpoint(snapshot.toString());
+                }
+                original.session().put("test", new byte[]{6}, new byte[]{7});
+                original.session().commit();
+                shared.get().rocksdb().flushWal(true);
+                File[] tails = wal.listFiles(file -> file.getName().matches("[0-9]+\\.log"));
+                assertNotNull(tails);
+                assertTrue("The native database must produce a real WAL tail", tails.length > 0);
+                for (File tail : tails) {
+                    FileUtils.copyFile(tail, new File(snapshot, tail.getName()));
+                }
+                original.session().put("test", new byte[]{1}, new byte[]{3});
+                original.session().commit();
+            } finally {
+                original.close();
+            }
+            File foreign = new File(data + ".resume-staging-foreign");
+            FileUtils.forceMkdir(foreign);
+            Files.write(new File(foreign, "keep").toPath(), new byte[]{7});
+            runRecoveryProcess(data, wal, snapshot, phase, 31);
+            assertTrue(new File(data + ".resume-pending").exists());
+            // Interrupt the SAME operation again; no new staging namespace is allocated.
+            runRecoveryProcess(data, wal, snapshot, "reopen", 31);
+            runRecoveryProcess(data, wal, snapshot, "finish", 0);
+            assertFalse(new File(data + ".resume-pending").exists());
+            assertFalse(snapshot.exists());
+            assertArrayEquals(new byte[]{7}, Files.readAllBytes(new File(foreign, "keep").toPath()));
+            assertEquals(1, root.listFiles(file -> file.getName().startsWith("data.resume-staging-")).length);
+        }
+    }
+
+    private static void runRecoveryProcess(File data, File wal, File snapshot, String phase,
+                                           int expectedExit) throws Exception {
+        String classpath = System.getProperty("surefire.test.class.path", System.getProperty("java.class.path"));
+        File output = new File(data.getParentFile(), "child-" + phase + "-" + System.nanoTime() + ".log");
+        Process child = new ProcessBuilder(new File(System.getProperty("java.home"), "bin/java").toString(),
+                                           "-cp", classpath, RocksDBSnapshotRestoreTest.class.getName(),
+                                           data.toString(), wal.toString(), snapshot.toString(), phase)
+                        .redirectErrorStream(true).redirectOutput(output).start();
+        try {
+            assertTrue("Recovery child timed out: " + output, child.waitFor(30, TimeUnit.SECONDS));
+            assertEquals(Files.readString(output.toPath()), expectedExit, child.exitValue());
+        } finally {
+            child.destroyForcibly();
+        }
+    }
+
+    private static void recoverChild(String[] args) throws Exception {
+        String phase = args[3];
+        if ("finish".equals(phase)) {
+            RocksDBStdSessions fresh = new RocksDBStdSessions(FakeObjects.newConfig(), "db", "store",
+                                                              args[0], args[1], Collections.singletonList("test"));
+            try {
+                assertArrayEquals(new byte[]{2}, fresh.session().get("test", new byte[]{1}));
+                assertArrayEquals(new byte[]{7}, fresh.session().get("test", new byte[]{6}));
+                fresh.session().put("test", new byte[]{4}, new byte[]{5});
+                fresh.session().commit();
+                assertArrayEquals(new byte[]{5}, fresh.session().get("test", new byte[]{4}));
+            } finally {
+                fresh.close();
+            }
+            return;
+        }
+        try (RecoveryLock held = RocksDBSnapshotRestore.lock(args[0])) {
+            RocksDBSnapshotRestore.start(args[0], args[1], args[2]);
+            if ("reopen".equals(phase)) {
+                RocksDBSnapshotRestore.prepareOpen(args[0], args[1]);
+            } else {
+                RocksDBSnapshotRestore restore = new RocksDBSnapshotRestore(args[0], args[1], args[2],
+                        new RocksDBSnapshotRestore.FileOperations() {
+                            @Override
+                            void copyFile(File source, File target) throws IOException {
+                                super.copyFile(source, target);
+                                if ("stage".equals(phase)) {
+                                    Runtime.getRuntime().halt(31);
+                                }
+                            }
+
+                            @Override
+                            void move(Path source, Path target) throws IOException {
+                                super.move(source, target);
+                                if (("retire".equals(phase) && target.toString().endsWith(".aside")) ||
+                                    ("publish".equals(phase) && target.toString().endsWith(".log"))) {
+                                    Runtime.getRuntime().halt(31);
+                                }
+                            }
+                        });
+                restore.begin();
+                restore.install();
+                throw new AssertionError("Did not reach requested kill boundary: " + phase);
+            }
+            // Halt bypasses finally and native reopening: this is a process interruption.
+            Runtime.getRuntime().halt(31);
         }
     }
 
@@ -531,6 +688,14 @@ public class RocksDBSnapshotRestoreTest {
     }
 
     public static void main(String[] args) {
+        if (args.length == 4) {
+            try {
+                recoverChild(args);
+                return;
+            } catch (Exception e) {
+                throw new AssertionError(e);
+            }
+        }
         try (RecoveryLock channel = RocksDBSnapshotRestore.lock(args[0])) {
             if (args.length == 2) {
                 Files.write(new File(args[1]).toPath(), new byte[]{1});

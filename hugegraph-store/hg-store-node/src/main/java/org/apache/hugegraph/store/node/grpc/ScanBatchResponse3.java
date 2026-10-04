@@ -61,7 +61,13 @@ public class ScanBatchResponse3 {
                                     HgStoreWrapperEx wrapper, ThreadPoolExecutor executor) {
         HgAssert.isArgumentNotNull(responseObserver, "responseObserver");
         HgAssert.isArgumentNotNull(wrapper, "wrapper");
-        return new Broker(responseObserver, wrapper, executor);
+        return of(responseObserver, wrapper, executor, new ScanLifecycle());
+    }
+
+    static StreamObserver of(StreamObserver<KvPageRes> responseObserver,
+                             HgStoreWrapperEx wrapper, ThreadPoolExecutor executor,
+                             ScanLifecycle lifecycle) {
+        return new Broker(lifecycle.response(responseObserver), wrapper, executor, lifecycle);
     }
 
     private enum OrderState {
@@ -81,10 +87,12 @@ public class ScanBatchResponse3 {
         private final HgStoreWrapperEx wrapper;
         private final ThreadPoolExecutor executor;
         private final OrderManager manager = new OrderManager();
+        private final ScanLifecycle lifecycle;
         private String graph;
 
         Broker(StreamObserver<KvPageRes> responseObserver, HgStoreWrapperEx wrapper,
-               ThreadPoolExecutor executor) {
+               ThreadPoolExecutor executor, ScanLifecycle lifecycle) {
+            this.lifecycle = lifecycle;
             this.responseObserver = responseObserver;
             this.wrapper = wrapper;
             this.executor = executor;
@@ -101,11 +109,10 @@ public class ScanBatchResponse3 {
                     this.manager.receipt(request.getReceiptRequest().getTimes());
                     break;
                 case CANCEL_REQUEST:
-                    this.manager.finished();
+                    this.onCompleted();
                     break;
                 default:
-                    responseObserver.onError(
-                            HgGrpc.toErr("Unsupported sub-request: [ " + request + " ]"));
+                    this.onError(HgGrpc.toErr("Unsupported sub-request: [ " + request + " ]"));
             }
         }
 
@@ -113,11 +120,13 @@ public class ScanBatchResponse3 {
         public void onError(Throwable t) {
             log.warn(t.getMessage());
             this.manager.breakdown();
+            this.responseObserver.onError(t);
         }
 
         @Override
         public void onCompleted() {
             this.manager.finished();
+            this.responseObserver.onCompleted();
         }
 
         private void handleHeader(ScanStreamBatchReq request) {
@@ -145,9 +154,9 @@ public class ScanBatchResponse3 {
             OrderWorker worker = new OrderWorker(
                     request.getLimit(),
                     request.getPageSize(),
-                    ScanUtil.getIterator(this.graph, request, this.wrapper),
+                    ScanUtil.getIterator(this.graph, request, this.wrapper, this.lifecycle::failedCleanup),
                     deliverer,
-                    this.executor);
+                    this.executor, this.lifecycle);
 
             this.manager.deal(worker, deliverer);
         }
@@ -172,7 +181,7 @@ public class ScanBatchResponse3 {
                 this.worker.hereWeGo();
                 this.state = OrderState.WORKING;
             } else {
-                worker.iterator.close();
+                worker.closeIterator();
             }
         }
 
@@ -270,11 +279,14 @@ public class ScanBatchResponse3 {
         private final AtomicInteger curTimes = new AtomicInteger();
         private final ThreadPoolExecutor executor;
         private final long limit;
+        private final ScanLifecycle lifecycle;
+        private final AtomicBoolean iteratorClosed = new AtomicBoolean();
         private long packageSize;
         private long counter;
 
         OrderWorker(long limit, long packageSize, ScanIterator iterator, OrderDeliverer deliverer,
-                    ThreadPoolExecutor executor) {
+                    ThreadPoolExecutor executor, ScanLifecycle lifecycle) {
+            this.lifecycle = lifecycle;
             this.limit = limit;
             this.packageSize = packageSize;
             this.iterator = iterator;
@@ -307,10 +319,11 @@ public class ScanBatchResponse3 {
             }
 
             try {
-                executor.execute(this::working);
-            } catch (java.util.concurrent.RejectedExecutionException e) {
-                this.iterator.close();
-                throw e;
+                this.lifecycle.execute(executor, this::working);
+            } catch (io.grpc.StatusRuntimeException e) {
+                this.completeFlag.set(true);
+                closeIterator();
+                this.deliverer.error(e.getStatus(), "Store scan task rejected", e);
             }
             Thread.yield();
         }
@@ -336,6 +349,13 @@ public class ScanBatchResponse3 {
             this.breakdown.set(true);
             synchronized (this.iterator) {
                 this.iterator.notify();
+            }
+        }
+
+        private void closeIterator() {
+            if (this.iteratorClosed.compareAndSet(false, true) &&
+                !this.lifecycle.close(this.iterator)) {
+                this.deliverer.error("Failed to close scan iterator", this.lifecycle.cleanupFailure());
             }
         }
 
@@ -410,7 +430,10 @@ public class ScanBatchResponse3 {
                     }
                     this.completeFlag.set(true);
 
-                    deliverer.deliver(dataBuilder, curTimes.incrementAndGet(), true);
+                    closeIterator();
+                    if (this.lifecycle.cleanupFailure() == null) {
+                        deliverer.deliver(dataBuilder, curTimes.incrementAndGet(), true);
+                    }
 
                 }
 
@@ -428,7 +451,7 @@ public class ScanBatchResponse3 {
                 this.deliverer.error("Failed to finish scanning ", t);
             } finally {
                 this.workingLock.unlock();
-                this.iterator.close();
+                closeIterator();
             }
         }
 
