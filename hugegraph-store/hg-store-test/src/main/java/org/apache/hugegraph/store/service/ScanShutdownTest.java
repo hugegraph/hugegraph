@@ -738,6 +738,120 @@ public class ScanShutdownTest {
         }
     }
 
+    @Test(timeout = 10000)
+    public void testInProcessOneShotCancellationDuringCloseReportsCancelled() throws Exception {
+        for (boolean batch : new boolean[]{false, true}) {
+            ThreadPoolExecutor executor = (ThreadPoolExecutor) Executors.newFixedThreadPool(1);
+            HgStoreWrapperEx wrapper = mock(HgStoreWrapperEx.class);
+            ScanIterator iterator = mock(ScanIterator.class);
+            when(wrapper.scanAll(anyString(), anyString(), any(byte[].class))).thenReturn(iterator);
+            when(iterator.hasNext()).thenReturn(false);
+            CountDownLatch closing = new CountDownLatch(1);
+            CountDownLatch release = new CountDownLatch(1);
+            doAnswer(invocation -> {
+                closing.countDown();
+                assertTrue(release.await(5, TimeUnit.SECONDS));
+                return null;
+            }).when(iterator).close();
+            HgStoreStreamImpl service = scanService(executor, wrapper);
+            String name = InProcessServerBuilder.generateName();
+            Server server = InProcessServerBuilder.forName(name).directExecutor()
+                    .addService(service).build().start();
+            ManagedChannel channel = InProcessChannelBuilder.forName(name).directExecutor().build();
+            FutureTask<Status.Code> call = new FutureTask<>(() -> {
+                try {
+                    HgStoreStreamGrpc.HgStoreStreamBlockingStub stub =
+                            HgStoreStreamGrpc.newBlockingStub(channel).withDeadlineAfter(3, TimeUnit.SECONDS);
+                    if (batch) {
+                        stub.scanBatchOneShot(batchRequest());
+                    } else {
+                        stub.scanOneShot(ScanStreamReq.newBuilder().setMethod(ScanMethod.ALL)
+                                                      .setLimit(10).build());
+                    }
+                    fail("cancelled unary scan reported success");
+                    return Status.Code.OK;
+                } catch (StatusRuntimeException error) {
+                    return error.getStatus().getCode();
+                }
+            });
+            Thread caller = new Thread(call, "one-shot-cancellation-client");
+            try {
+                caller.start();
+                assertTrue(closing.await(2, TimeUnit.SECONDS));
+                service.shutdownScans();
+                assertEquals(1, scanRegistry(service).size());
+                assertFalse(call.isDone());
+                release.countDown();
+                assertEquals(Status.Code.CANCELLED, call.get(2, TimeUnit.SECONDS));
+                service.awaitScanCleanup();
+                assertTrue(scanRegistry(service).isEmpty());
+                verify(iterator).close();
+            } finally {
+                release.countDown();
+                channel.shutdownNow();
+                server.shutdownNow();
+                executor.shutdownNow();
+                caller.join(2000);
+                assertFalse(caller.isAlive());
+                assertTrue(channel.awaitTermination(2, TimeUnit.SECONDS));
+                assertTrue(server.awaitTermination(2, TimeUnit.SECONDS));
+            }
+        }
+    }
+
+    @Test(timeout = 10000)
+    public void testOneShotCancelledDuringCloseDoesNotCompleteSuccessfully() throws Exception {
+        for (boolean batch : new boolean[]{false, true}) {
+            ThreadPoolExecutor executor = (ThreadPoolExecutor) Executors.newFixedThreadPool(1);
+            HgStoreWrapperEx wrapper = mock(HgStoreWrapperEx.class);
+            ScanIterator iterator = mock(ScanIterator.class);
+            StreamObserver<KvPageRes> output = mock(StreamObserver.class);
+            when(wrapper.scanAll(anyString(), anyString(), any(byte[].class))).thenReturn(iterator);
+            when(iterator.hasNext()).thenReturn(false);
+            CountDownLatch closing = new CountDownLatch(1);
+            CountDownLatch release = new CountDownLatch(1);
+            doAnswer(invocation -> {
+                closing.countDown();
+                assertTrue(release.await(5, TimeUnit.SECONDS));
+                return null;
+            }).when(iterator).close();
+            HgStoreStreamImpl service = scanService(executor, wrapper);
+            FutureTask<Void> scanning = new FutureTask<>(() -> {
+                if (batch) {
+                    service.scanBatchOneShot(batchRequest(), output);
+                } else {
+                    service.scanOneShot(ScanStreamReq.newBuilder().setMethod(ScanMethod.ALL)
+                                                       .setLimit(10).build(), output);
+                }
+                return null;
+            });
+            Thread caller = new Thread(scanning, "one-shot-close-cancellation");
+            try {
+                caller.start();
+                assertTrue(closing.await(2, TimeUnit.SECONDS));
+                service.shutdownScans();
+                assertEquals(1, scanRegistry(service).size());
+                assertFalse(scanning.isDone());
+                verifyNoInteractions(output);
+                release.countDown();
+                scanning.get(2, TimeUnit.SECONDS);
+                ArgumentCaptor<Throwable> error = ArgumentCaptor.forClass(Throwable.class);
+                verify(output).onError(error.capture());
+                assertEquals(Status.Code.CANCELLED, Status.fromThrowable(error.getValue()).getCode());
+                verify(output, never()).onNext(any(KvPageRes.class));
+                verify(output, never()).onCompleted();
+                verify(iterator).close();
+                assertTrue(scanRegistry(service).isEmpty());
+                assertTrue(executor.awaitTermination(1, TimeUnit.SECONDS));
+            } finally {
+                release.countDown();
+                caller.join(2000);
+                executor.shutdownNow();
+                assertFalse(caller.isAlive());
+            }
+        }
+    }
+
     @Test(timeout = 5000)
     public void testOneShotObservesContextCancellationAndClosesIterator() {
         HgStoreWrapperEx wrapper = mock(HgStoreWrapperEx.class);
