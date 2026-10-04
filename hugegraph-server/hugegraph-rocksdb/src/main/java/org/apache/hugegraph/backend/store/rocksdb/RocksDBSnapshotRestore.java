@@ -30,9 +30,15 @@ import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
+import java.nio.file.attribute.BasicFileAttributes;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Properties;
+import java.util.UUID;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import org.apache.commons.io.FileUtils;
@@ -55,6 +61,8 @@ final class RocksDBSnapshotRestore {
     private final Path marker;
     private final FileOperations files;
     private final Path configuredWal;
+    private String generation;
+    private String operation;
     private final List<Path> walLinks = new ArrayList<>();
     private final List<Path> walLinkTargets = new ArrayList<>();
 
@@ -93,6 +101,63 @@ final class RocksDBSnapshotRestore {
             !Files.isRegularFile(new File(snapshot, manifest).toPath(), LinkOption.NOFOLLOW_LINKS)) {
             throw new IOException("Checkpoint MANIFEST is missing or invalid: " + snapshot);
         }
+    }
+
+    private static String generation(File snapshot) throws IOException {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            Path root = snapshot.toPath();
+            try (Stream<Path> paths = Files.walk(root)) {
+                for (Path path : paths.sorted(Comparator.comparing(Path::toString)).collect(Collectors.toList())) {
+                    BasicFileAttributes attrs = Files.readAttributes(path, BasicFileAttributes.class,
+                                                                     LinkOption.NOFOLLOW_LINKS);
+                    if (!attrs.isDirectory() && !attrs.isRegularFile()) {
+                        throw new IOException("Invalid checkpoint entry: " + path);
+                    }
+                    digest.update((root.relativize(path) + "\n" + attrs.fileKey() + "\n").getBytes(
+                            StandardCharsets.UTF_8));
+                    if (attrs.isDirectory()) {
+                        continue;
+                    }
+                    digest.update((attrs.size() + "\n").getBytes(StandardCharsets.UTF_8));
+                    // SSTs are immutable. Their filesystem identity avoids rereading
+                    // all table data on each retry; filesystems without fileKey use content.
+                    if (path.toString().endsWith(".sst") && attrs.fileKey() != null) {
+                        continue;
+                    }
+                    try (InputStream input = Files.newInputStream(path)) {
+                        byte[] buffer = new byte[8192];
+                        int count;
+                        while ((count = input.read(buffer)) != -1) {
+                            digest.update(buffer, 0, count);
+                        }
+                    }
+                }
+            }
+            StringBuilder value = new StringBuilder();
+            for (byte part : digest.digest()) {
+                value.append(String.format("%02x", part & 0xff));
+            }
+            return value.toString();
+        } catch (NoSuchAlgorithmException e) {
+            throw new AssertionError(e);
+        }
+    }
+
+    private void validateGeneration(Properties state) throws IOException {
+        this.generation = state.getProperty("generation");
+        this.operation = state.getProperty("operation");
+        if (this.generation == null || this.operation == null ||
+            !this.operation.matches("[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}") ||
+            !this.data.toString().equals(state.getProperty("data")) ||
+            !this.generation.equals(generation(this.snapshot))) {
+            throw new IOException("Checkpoint generation changed or recovery identity missing: " + this.marker);
+        }
+    }
+
+    private Path staging() {
+        // A sibling survives every supported nesting of the data and WAL roots.
+        return Paths.get(this.data + ".resume-staging-" + this.operation);
     }
 
     private static boolean overlaps(File first, File second) {
@@ -187,6 +252,11 @@ final class RocksDBSnapshotRestore {
 
     void begin() throws IOException {
         Properties state = new Properties();
+        this.generation = generation(this.snapshot);
+        this.operation = UUID.randomUUID().toString();
+        state.setProperty("generation", this.generation);
+        state.setProperty("operation", this.operation);
+        state.setProperty("data", this.data.toString());
         state.setProperty("snapshot", this.snapshot.toString());
         state.setProperty("wal", this.wal.toString());
         state.setProperty("configured-wal", this.configuredWal.toString());
@@ -205,6 +275,8 @@ final class RocksDBSnapshotRestore {
             try (InputStream input = Files.newInputStream(this.marker)) {
                 pending.load(input);
             }
+            this.validateGeneration(pending);
+            state.setProperty("operation", this.operation);
             if (!state.equals(pending)) {
                 throw new IOException("Another checkpoint restore is pending: " + this.marker, e);
             }
@@ -237,6 +309,20 @@ final class RocksDBSnapshotRestore {
             if (!configuredWal.toString().equals(state.getProperty("configured-wal"))) {
                 throw new IOException("WAL configuration changed: " + marker);
             }
+            String operation = state.getProperty("operation");
+            String generation = state.getProperty("generation");
+            File source = new File(snapshot).getCanonicalFile();
+            File target = new File(data).getCanonicalFile();
+            if (operation == null || !operation.matches("[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}") ||
+                generation == null || !generation.matches("[0-9a-f]{64}") ||
+                !target.toString().equals(state.getProperty("data")) ||
+                !source.toString().equals(snapshot) || overlaps(source, target) ||
+                !new File(savedWal).isAbsolute() ||
+                !Paths.get(savedWal).normalize().toString().equals(savedWal) ||
+                Paths.get(savedWal).startsWith(source.toPath()) ||
+                !generation(source).equals(generation)) {
+                throw new IOException("Checkpoint generation changed or recovery identity invalid: " + marker);
+            }
             int links;
             try {
                 links = Integer.parseInt(state.getProperty("wal-links"));
@@ -246,19 +332,29 @@ final class RocksDBSnapshotRestore {
             if (links < 0 || links > configuredWal.getNameCount()) {
                 throw new IOException("Invalid WAL link count: " + marker);
             }
+            List<Path> recordedLinks = new ArrayList<>();
+            List<Path> recordedTargets = new ArrayList<>();
             for (int i = 0; i < links; i++) {
                 String link = state.getProperty("wal-link-" + i);
-                String target = state.getProperty("wal-link-target-" + i);
-                if (link == null || target == null || !configuredWal.startsWith(new File(link).toPath())) {
+                String linkTarget = state.getProperty("wal-link-target-" + i);
+                if (link == null || linkTarget == null || !Paths.get(link).isAbsolute() ||
+                    !Paths.get(link).normalize().toString().equals(link) ||
+                    !configuredWal.startsWith(Paths.get(link))) {
                     throw new IOException("Invalid WAL link in recovery marker " + marker);
                 }
-                restoreLink(new File(link).toPath(), new File(target).toPath());
+                recordedLinks.add(Paths.get(link));
+                recordedTargets.add(Paths.get(linkTarget));
+            }
+            // Validate every metadata field before reconstructing even the first alias.
+            for (int i = 0; i < links; i++) {
+                restoreLink(recordedLinks.get(i), recordedTargets.get(i));
             }
             RocksDBSnapshotRestore restore =
                     new RocksDBSnapshotRestore(data, wal, snapshot, new FileOperations());
             if (!restore.wal.toString().equals(savedWal)) {
                 throw new IOException("WAL configuration changed during recovery: " + marker);
             }
+            restore.validateGeneration(state);
             restore.install();
             return restore;
         } catch (IOException e) {
@@ -268,6 +364,9 @@ final class RocksDBSnapshotRestore {
     }
 
     void install() throws IOException {
+        if (!this.generation.equals(generation(this.snapshot))) {
+            throw new IOException("Checkpoint generation changed: " + this.snapshot);
+        }
         // Copy, never move: partial data copies and WAL failures must be retryable.
         this.files.deleteDirectory(this.data);
         this.files.copyDirectory(this.snapshot, this.data);
@@ -275,7 +374,7 @@ final class RocksDBSnapshotRestore {
         for (int i = 0; i < this.walLinks.size(); i++) {
             restoreLink(this.walLinks.get(i), this.walLinkTargets.get(i));
         }
-        installWal(this.data, this.wal, this.files);
+        this.installWal();
     }
 
     private static void verifyTree(Path source, Path copy) throws IOException {
@@ -307,6 +406,8 @@ final class RocksDBSnapshotRestore {
 
     void complete() {
         try {
+            // Only this operation's staging is reclaimed, after successful native reopen.
+            FileUtils.deleteDirectory(this.staging().toFile());
             Files.delete(this.marker);
         } catch (IOException e) {
             throw new BackendException("Failed to finish snapshot recovery at '%s'", e, this.marker);
@@ -320,42 +421,46 @@ final class RocksDBSnapshotRestore {
         }
     }
 
-    static void installWal(File data, File wal, FileOperations files) throws IOException {
-        data = data.getCanonicalFile();
-        wal = wal.getCanonicalFile();
-        if (data.equals(wal)) {
+    private void installWal() throws IOException {
+        if (this.data.equals(this.wal)) {
             return;
         }
-        List<File> source = logs(data);
-        FileUtils.forceMkdir(wal);
-        Path staging = Files.createTempDirectory(wal.toPath(), ".resume-staging-");
-        try {
-            for (File log : source) {
-                File staged = staging.resolve(log.getName()).toFile();
-                files.copyFile(log, staged);
-                verify(log, staged);
+        List<File> source = logs(this.data);
+        FileUtils.forceMkdir(this.wal);
+        Path staging = this.staging();
+        if (Files.exists(staging, LinkOption.NOFOLLOW_LINKS) &&
+            !Files.isDirectory(staging, LinkOption.NOFOLLOW_LINKS)) {
+            throw new IOException("Invalid operation staging directory: " + staging);
+        }
+        Files.createDirectories(staging);
+        // The persisted operation UUID names this directory exclusively. Retry
+        // republishes the verified checkpoint; retain all retired WAL until reopen.
+        for (File log : source) {
+            File staged = staging.resolve(log.getName()).toFile();
+            this.files.copyFile(log, staged);
+            verify(log, staged);
+        }
+        for (File old : logs(this.wal)) {
+            Path aside = staging.resolve(old.getName() + ".aside");
+            if (Files.exists(aside, LinkOption.NOFOLLOW_LINKS)) {
+                // An earlier attempt already preserved the original WAL.
+                Files.delete(old.toPath());
+            } else {
+                this.files.move(old.toPath(), aside);
             }
-            // Retire old logs before publishing any checkpoint log. Directory moves
-            // would move nested data or replace the user's WAL symlink.
-            for (File old : logs(wal)) {
-                files.move(old.toPath(), staging.resolve(old.getName() + ".aside"));
-            }
-            for (File log : source) {
-                files.move(staging.resolve(log.getName()), new File(wal, log.getName()).toPath());
-            }
-            List<File> installed = logs(wal);
-            if (installed.size() != source.size()) {
-                throw new IOException("Unexpected WAL files during checkpoint restore: " + wal);
-            }
-            for (File log : source) {
-                verify(log, new File(wal, log.getName()));
-            }
-            for (File log : source) {
-                Files.delete(log.toPath());
-            }
-        } finally {
-            // Source checkpoint is untouched, including when cleanup itself fails.
-            FileUtils.deleteDirectory(staging.toFile());
+        }
+        for (File log : source) {
+            this.files.move(staging.resolve(log.getName()), new File(this.wal, log.getName()).toPath());
+        }
+        List<File> installed = logs(this.wal);
+        if (installed.size() != source.size()) {
+            throw new IOException("Unexpected WAL files during checkpoint restore: " + this.wal);
+        }
+        for (File log : source) {
+            verify(log, new File(this.wal, log.getName()));
+        }
+        for (File log : source) {
+            Files.delete(log.toPath());
         }
     }
 

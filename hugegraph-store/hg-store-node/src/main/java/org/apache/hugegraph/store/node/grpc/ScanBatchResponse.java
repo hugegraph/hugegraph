@@ -20,7 +20,6 @@ package org.apache.hugegraph.store.node.grpc;
 import static org.apache.hugegraph.store.node.grpc.ScanUtil.getParallelIterator;
 
 import java.util.List;
-import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.Lock;
@@ -35,6 +34,7 @@ import org.apache.hugegraph.store.grpc.stream.ScanStreamBatchReq;
 import org.apache.hugegraph.store.node.util.HgGrpc;
 import org.apache.hugegraph.store.node.util.PropertyUtil;
 
+import io.grpc.Status;
 import io.grpc.stub.StreamObserver;
 import lombok.extern.slf4j.Slf4j;
 
@@ -75,10 +75,18 @@ public class ScanBatchResponse implements StreamObserver<ScanStreamBatchReq> {
     private long activeTime;
     private volatile State state;
     private final AtomicBoolean cancelled = new AtomicBoolean();
+    private final ScanLifecycle lifecycle;
+    private boolean iteratorClosed;
 
     public ScanBatchResponse(StreamObserver<KvStream> response, HgStoreWrapperEx wrapper,
                              ThreadPoolExecutor executor) {
-        this.sender = response;
+        this(response, wrapper, executor, new ScanLifecycle());
+    }
+
+    ScanBatchResponse(StreamObserver<KvStream> response, HgStoreWrapperEx wrapper,
+                      ThreadPoolExecutor executor, ScanLifecycle lifecycle) {
+        this.lifecycle = lifecycle;
+        this.sender = lifecycle.response(response);
         this.wrapper = wrapper;
         this.executor = executor;
         this.iterator = null;
@@ -108,7 +116,9 @@ public class ScanBatchResponse implements StreamObserver<ScanStreamBatchReq> {
                 this.clientSeqNo = request.getReceiptRequest().getTimes();
                 if (seqNo - clientSeqNo < maxInFlightCount) {
                     boolean send = false;
+                    boolean done;
                     synchronized (stateLock) {
+                        done = state == State.DONE;
                         if (state == State.IDLE) {
                             state = State.DOING;
                             send = true;
@@ -116,7 +126,7 @@ public class ScanBatchResponse implements StreamObserver<ScanStreamBatchReq> {
                     }
                     if (send) {
                         submit(this::sendEntries);
-                    } else if (state == State.DONE) {
+                    } else if (done) {
                         sendNoDataEntries();
                     }
                 }
@@ -125,8 +135,7 @@ public class ScanBatchResponse implements StreamObserver<ScanStreamBatchReq> {
                 closeQuery();
                 break;
             default:
-                sender.onError(
-                        HgGrpc.toErr("Unsupported sub-request: [ " + request + " ]"));
+                closeQuery(HgGrpc.toErr("Unsupported sub-request: [ " + request + " ]"));
         }
     }
 
@@ -151,8 +160,8 @@ public class ScanBatchResponse implements StreamObserver<ScanStreamBatchReq> {
             return;
         }
         try {
-            this.executor.execute(task);
-        } catch (RejectedExecutionException e) {
+            this.lifecycle.execute(this.executor, task);
+        } catch (io.grpc.StatusRuntimeException e) {
             closeQuery(e);
         }
     }
@@ -166,7 +175,7 @@ public class ScanBatchResponse implements StreamObserver<ScanStreamBatchReq> {
             this.query = request;
             this.limit = request.getLimit();
             this.count = 0;
-            this.iterator = getParallelIterator(graphName, request, this.wrapper, executor);
+            this.iterator = getParallelIterator(graphName, request, this.wrapper, executor, this.lifecycle);
             if (this.cancelled.get()) {
                 closeIter();
                 return;
@@ -194,6 +203,9 @@ public class ScanBatchResponse implements StreamObserver<ScanStreamBatchReq> {
     }
 
     private void closeQuery(Throwable error) {
+        if (error instanceof java.util.concurrent.RejectedExecutionException) {
+            error = ScanLifecycle.rejected(this.executor, error);
+        }
         if (!this.cancelled.compareAndSet(false, true)) {
             return;
         }
@@ -204,27 +216,32 @@ public class ScanBatchResponse implements StreamObserver<ScanStreamBatchReq> {
         }
         try {
             closeIter();
+            if (this.lifecycle.cleanupFailure() != null) {
+                error = Status.INTERNAL.withDescription("Failed to close batch scan iterator")
+                                       .withCause(this.lifecycle.cleanupFailure()).asRuntimeException();
+            }
             if (error == null) {
                 this.sender.onCompleted();
             } else {
                 this.sender.onError(error);
             }
-        } catch (Exception e) {
-            log.error("exception ", e);
+        } catch (RuntimeException | Error e) {
+            log.error("Failed to terminate batch scan response", e);
+        } finally {
+            int active = ScanBatchResponseFactory.getInstance().removeStreamObserver(this);
+            log.info("ScanBatchResponse closeQuery, active count is {}", active);
         }
-        int active = ScanBatchResponseFactory.getInstance().removeStreamObserver(this);
-        log.info("ScanBatchResponse closeQuery, active count is {}", active);
     }
 
     private void closeIter() {
         this.iteratorLock.lock();
         try {
-            if (this.iterator != null) {
-                this.iterator.close();
-                this.iterator = null;
+            if (this.iterator != null && !this.iteratorClosed) {
+                this.iteratorClosed = true;
+                if (this.lifecycle.close(this.iterator)) {
+                    this.iterator = null;
+                }
             }
-        } catch (Exception e) {
-            log.warn("Failed to close batch scan iterator", e);
         } finally {
             this.iteratorLock.unlock();
         }
@@ -262,6 +279,10 @@ public class ScanBatchResponse implements StreamObserver<ScanStreamBatchReq> {
             }
             if (state == State.DONE || this.count >= limit || !iterator.hasNext()) {
                 closeIter();
+                if (this.lifecycle.cleanupFailure() != null) {
+                    closeQuery(this.lifecycle.cleanupFailure());
+                    return;
+                }
                 this.sender.onNext(KvStream.newBuilder().setOver(true).build());
                 setStateDone();
             } else {
@@ -278,9 +299,13 @@ public class ScanBatchResponse implements StreamObserver<ScanStreamBatchReq> {
     }
 
     private void sendNoDataEntries() {
+        this.iteratorLock.lock();
         try {
-            this.sender.onNext(KvStream.newBuilder().setOver(true).build());
-        } catch (Exception e) {
+            if (!this.cancelled.get()) {
+                this.sender.onNext(KvStream.newBuilder().setOver(true).build());
+            }
+        } finally {
+            this.iteratorLock.unlock();
         }
     }
 

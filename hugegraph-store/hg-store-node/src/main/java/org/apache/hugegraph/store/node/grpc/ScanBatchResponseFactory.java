@@ -37,7 +37,13 @@ public class ScanBatchResponseFactory {
 
     public static StreamObserver of(StreamObserver<KvStream> responseObserver,
                                     HgStoreWrapperEx wrapper, ThreadPoolExecutor executor) {
-        StreamObserver observer = new ScanBatchResponse(responseObserver, wrapper, executor);
+        return of(responseObserver, wrapper, executor, new ScanLifecycle());
+    }
+
+    static StreamObserver of(StreamObserver<KvStream> responseObserver,
+                             HgStoreWrapperEx wrapper, ThreadPoolExecutor executor,
+                             ScanLifecycle lifecycle) {
+        StreamObserver observer = new ScanBatchResponse(responseObserver, wrapper, executor, lifecycle);
         getInstance().addStreamObserver(observer);
         getInstance().checkStreamActive();
         return observer;

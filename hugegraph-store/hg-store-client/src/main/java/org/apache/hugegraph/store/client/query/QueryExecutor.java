@@ -60,6 +60,7 @@ import org.apache.hugegraph.structure.KvElement;
 
 import com.google.protobuf.ByteString;
 
+import io.grpc.Status;
 import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
@@ -238,7 +239,14 @@ public class QueryExecutor {
         var reqStream = stub.query(observer);
         observer.setWatcherQueryId(request.getQueryId() + '-' + address);
         observer.setRequestSender(r -> reqStream.onNext(request));
-        observer.setTransferComplete(r -> reqStream.onCompleted());
+        observer.setTransferComplete(r -> {
+            if (observer.isServerFinished()) {
+                reqStream.onCompleted();
+            } else {
+                reqStream.onError(Status.CANCELLED.withDescription("Query iterator closed")
+                                                 .asRuntimeException());
+            }
+        });
         observer.setTimeout(this.timeout);
 
         var itr = new StreamKvIterator<>(b -> observer.clear(), observer::consume);

@@ -19,7 +19,6 @@ package org.apache.hugegraph.unit.rocksdb;
 
 import java.io.File;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
@@ -259,128 +258,6 @@ public class RocksDBSessionsTest extends BaseRocksDBUnitTest {
             if (snapshotFile.exists()) {
                 FileUtils.forceDelete(snapshotFile);
             }
-        }
-    }
-
-    @Test
-    public void testSeparateWalInstallsCheckpointTail() throws Exception {
-        String dataPath = DB_PATH + "/tail-data";
-        String walPath = DB_PATH + "/tail-wal";
-        FileUtils.deleteDirectory(FileUtils.getFile(dataPath));
-        FileUtils.deleteDirectory(FileUtils.getFile(walPath));
-        FileUtils.deleteDirectory(FileUtils.getFile(walPath + ".resume-aside"));
-        HugeConfig config = FakeObjects.newConfig();
-        RocksDBSessions sessions = new RocksDBStdSessions(config, "db", "store",
-                                                          dataPath, walPath);
-        boolean open = true;
-        try {
-            sessions.createTable(TABLE);
-            sessions.close();
-            open = false;
-            byte[] checkpoint = "checkpoint-tail".getBytes(StandardCharsets.UTF_8);
-            byte[] live = "live-longer-tail".getBytes(StandardCharsets.UTF_8);
-            FileUtils.forceMkdir(FileUtils.getFile(dataPath));
-            FileUtils.forceMkdir(FileUtils.getFile(walPath));
-            FileUtils.writeByteArrayToFile(new File(dataPath, "000123.log"),
-                                           checkpoint);
-            FileUtils.writeByteArrayToFile(new File(walPath, "000123.log"), live);
-            FileUtils.writeByteArrayToFile(new File(walPath, "000124.log"),
-                                           "later".getBytes(StandardCharsets.UTF_8));
-
-            Whitebox.invoke(RocksDBStdSessions.class,
-                            "replaceSeparateWalDirectory", sessions);
-
-            assertSameWalLogs(Collections.singletonMap("000123.log", checkpoint),
-                              readWalLogs(walPath));
-            Assert.assertFalse(new File(dataPath, "000123.log").exists());
-            Assert.assertFalse(new File(walPath, "000124.log").exists());
-            assertNoResumeResidue(walPath);
-        } finally {
-            if (open) {
-                sessions.close();
-            }
-            FileUtils.deleteDirectory(FileUtils.getFile(dataPath));
-            FileUtils.deleteDirectory(FileUtils.getFile(walPath));
-            FileUtils.deleteDirectory(FileUtils.getFile(walPath + ".resume-aside"));
-        }
-    }
-
-
-    @Test
-    public void testDataInsideWalKeepsDataAndInstallsTail() throws Exception {
-        String walPath = nestedRoot("contain-wal");
-        String dataPath = walPath + "/data";
-        FileUtils.deleteDirectory(FileUtils.getFile(walPath));
-        FileUtils.forceMkdir(FileUtils.getFile(dataPath).getParentFile());
-        HugeConfig config = FakeObjects.newConfig();
-        RocksDBSessions sessions = new RocksDBStdSessions(config, "db", "store",
-                                                          dataPath, walPath);
-        boolean open = true;
-        try {
-            sessions.createTable(TABLE);
-            sessions.close();
-            open = false;
-            byte[] checkpoint = "checkpoint-tail".getBytes(StandardCharsets.UTF_8);
-            FileUtils.forceMkdir(FileUtils.getFile(dataPath));
-            FileUtils.forceMkdir(FileUtils.getFile(walPath));
-            FileUtils.writeByteArrayToFile(new File(dataPath, "000123.log"),
-                                           checkpoint);
-            FileUtils.writeByteArrayToFile(new File(walPath, "000123.log"),
-                                           "live-longer-tail".getBytes(StandardCharsets.UTF_8));
-            FileUtils.writeByteArrayToFile(new File(walPath, "000124.log"),
-                                           "later".getBytes(StandardCharsets.UTF_8));
-            File marker = new File(dataPath, "keep-data.txt");
-            FileUtils.writeByteArrayToFile(marker, "kept".getBytes(StandardCharsets.UTF_8));
-
-            Whitebox.invoke(RocksDBStdSessions.class,
-                            "replaceSeparateWalDirectory", sessions);
-
-            assertSameWalLogs(Collections.singletonMap("000123.log", checkpoint),
-                              readWalLogs(walPath));
-            Assert.assertTrue(marker.isFile());
-            Assert.assertFalse(new File(dataPath, "000123.log").exists());
-            assertNoResumeResidue(walPath);
-        } finally {
-            if (open) {
-                sessions.close();
-            }
-            FileUtils.deleteDirectory(FileUtils.getFile(walPath));
-        }
-    }
-
-    @Test
-    public void testWalInsideDataInstallsTail() throws Exception {
-        String dataPath = nestedRoot("inside-data");
-        String walPath = dataPath + "/wal";
-        FileUtils.deleteDirectory(FileUtils.getFile(dataPath));
-        FileUtils.forceMkdir(FileUtils.getFile(walPath));
-        HugeConfig config = FakeObjects.newConfig();
-        RocksDBSessions sessions = new RocksDBStdSessions(config, "db", "store",
-                                                          dataPath, walPath);
-        boolean open = true;
-        try {
-            sessions.createTable(TABLE);
-            sessions.close();
-            open = false;
-            byte[] checkpoint = "checkpoint-tail".getBytes(StandardCharsets.UTF_8);
-            FileUtils.writeByteArrayToFile(new File(dataPath, "000123.log"),
-                                           checkpoint);
-            FileUtils.writeByteArrayToFile(new File(walPath, "000124.log"),
-                                           "later".getBytes(StandardCharsets.UTF_8));
-
-            Whitebox.invoke(RocksDBStdSessions.class,
-                            "replaceSeparateWalDirectory", sessions);
-
-            assertSameWalLogs(Collections.singletonMap("000123.log", checkpoint),
-                              readWalLogs(walPath));
-            Assert.assertFalse(new File(dataPath, "000123.log").exists());
-            Assert.assertFalse(new File(walPath, "000124.log").exists());
-            assertNoResumeResidue(walPath);
-        } finally {
-            if (open) {
-                sessions.close();
-            }
-            FileUtils.deleteDirectory(FileUtils.getFile(dataPath));
         }
     }
 

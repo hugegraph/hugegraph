@@ -3,7 +3,7 @@
 Standalone RocksDB snapshot restore retains its source checkpoint until the
 replacement is installed and reopened. Before changing data, it records the
 source checkpoint and WAL location in a sibling `<data-path>.resume-pending`
-file. A subsequent HugeGraph open retries an interrupted installation before
+file, together with the restore operation and checkpoint generation. A subsequent HugeGraph open retries an interrupted installation before
 native recovery. Missing sources, incomplete metadata or a changed WAL
 configuration stop opening instead of replaying uncertain data.
 
@@ -37,3 +37,15 @@ replacement. Preserve WAL symlink configuration across retries. Local fault
 tests cover interrupted operations and reopening; they do not establish
 power-cut durability. This mechanism does not provide an atomic whole-graph
 restore or an HStore multi-partition snapshot protocol.
+
+Each non-consuming restore creates a unique checkpoint directory. Pending recovery binds the original directory and immutable SST filesystem identities,
+plus checkpoint metadata and WAL contents, so replacing a checkpoint at the same path is rejected before data replacement. Keep the original checkpoint
+in place: copying it elsewhere and back may change its identity. Filesystems without file identities use content hashes instead. Unrelated writers must
+not modify checkpoint files; this protocol does not protect against malicious in-place changes to immutable SST files.
+
+WAL staging uses a sibling `<data-path>.resume-staging-<operation>` directory recorded by the pending operation. Retired WAL remains there until successful
+native reopening; repeated attempts reuse that same directory. Cleanup removes only the current operation's directory, never all matching prefixes.
+Unknown staging directories and markers from older formats remain preserved for diagnosis rather than being guessed or silently upgraded.
+
+After a Store-level restore failure closes its native owner, reopen the database to retry the recorded pending operation. Calling restore again on the
+already closed Store does not reopen it. Recovery retries the recorded unique checkpoint; it does not create a new non-consuming copy.
