@@ -1,7 +1,15 @@
 # ToplingDB PR 拆分任务
 
 更新：2026-10-04（Asia/Singapore）。用户已确认 deep 模式与本文件初始化。
-用户已明确恢复执行；已发布四个功能PR与配套网站文档PR，尚未合入，原 Linux goal 保持暂停。
+用户已明确恢复执行；P1 已通过 Apache #3265 合入，P2/P3/P4 与网站 PR 继续收尾，原 Linux goal 保持暂停。
+
+## 当前接手状态
+
+P1 已合入 Apache #3265，org #262 已关闭。本地、Apache 与 org master 已同步；不再向 P1 分支追加修改。旧 PD/Store 服务升级、指标及集群验收仍待完成，后续修复与验证放在新的相关 PR 中。
+
+P2 正常同步 master，并单独提交代码 120 列、Markdown 约 160 列软换行或完整段落的规范。P3/P4 已按真实依赖正常同步前置；P3 保持 10 文件增量，P4 保持 109 文件增量，不 force-push。已保存的未发布 P2/P3/P4 候选与测试数据继续保留；它们的历史通过记录不证明同步后的最终源码。
+
+本轮证据与同步收据：`/Users/zhu/github/hugegraph-topling-split-evidence/master-sync-20261004`。后文保留历史记录，当前状态以本节及本轮收据为准。
 
 ## 入口与依据
 
@@ -188,3 +196,25 @@ P4 frozen004为45文件未发布候选，远端仍9af9d14。runtime-final-edges-
 离线输入已ready：P1/P2/P3固定head源码tar完整可读、3个API资产实际JAR与apache/hugegraph-doc固定commit blob匹配、2本地镜像identity保存。gh raw二进制解码失败原记录保留，改用官方immutable blob核已有缓存成功，不引入依赖。P1 launcher新增显式offline-source/cache receipt，hash错误hard fail；有效缓存preflight进入本地image inspect，未冒称full cluster运行。最新联网comments快照新增P2聚合SCAN_V2关闭、P3同JVM contender OS锁保护、网站WAL/SUMMARY/裸路径三条，P4增加dynamic/customstore两条（已覆盖于未发布候选）；全部仍open等待实际修复验证。P1/P2/P3 current cluster现均CANCELLED，不当PASS；P4 Topling3Docker旧head仍FAIL，新context候选未发布。
 
 P4 runtime-final-boundaries-001完整PASS（receipt exit0/sourcechanges空/container已清理）：format/wholecleancompile、dynamic15、真实kernel-mounted契约5、PD22两个fresh executions、ServerScope5+version2、3标准package+3Topling生成/clean检查。6目录与6tar原样转存该run/preserved-package-004并绑定receipt hash，之后Maven不会覆盖这些产物。Std PD/Store实际服务standard-owned-close-002现为唯一heavy，用此004新包验证4cycle、8正常关闭、8686占用导致partialbootstrap后自然退出与原数据重开。P4产品源码在这些service批次中保持004不变。P4源码tar9af也已完整缓存；离线具备四PR全部固定基线。
+
+用户再次强调全PR review comments及时刷新、确认后修复更新；不确定之处不猜测，先报告证据边界，需要关键范围/取舍时向用户确认。当前P2 aggregate-close-feedback已交付6文件冻结候选和6 meaningful测试，仅Java11语法检查未运行；P3 physical-lock-feedback候选正在准备，仅task evidence写入。原3独立lane复用进行审查，容量不足时串行，不再增加review lane。P3 registry不能因为JDK fileKey允许缺失而新增平台限制，fallback使用Files.isSameFile并对身份查询失败显式失败，不猜物理相等。
+
+P4 standard-owned-close-002完整PASS：004真实PD/Store标准JAR与唯一native 8.10.2、128数据/PDmeta/partition/更新删除新增、两普通重启、4cycle共8次产品正常stop/JVM143/PID消失；真实8686占用的partialbootstrap在Raftjoin/metadata/options close后自然exit1，无TERM/abort豁免，原数据再重开/校验通过。9实际JVM身份均验证，exclusive网络none、Linuxamd64模拟、非physical x86；成功容器已exact清理。先前Std001的Bolt180s FAIL证据保留。接续topling-owned-close-001现唯一heavy，仍用004源/包，P4源码保持不变；最终2边界候选/P2/P3新反馈未发布。
+
+网络恢复后用户授权新开P1/#262收尾会话，已创建 thread 01a10592-3085-73e0-ba74-11b0f4403e14（local hugegraph-server项目）。该会话独占P1源码runtime，核Server JRaft统一1.3.14与全局单变量的真实兼容性，以及Markdown不需80/100换行的原因并按≤160/完整段落偏好修本PR；不自动merge/no force/gh-only。本会话不再编辑P1，后续主动读新会话结果并同步P4前置。两会话所有新heavy用E/run-exclusive.py标准fcntl共享锁，不能同时跑；原P2 aggregate-close-001已exit0/源码不变/容器清理。
+
+P2 round2六文件已仅本地应用，并实际format/wholecleancompile/Store suites/Node测试完整PASS，仍未发布/resolve；新13项聚合query响应与关闭测试的XML随receipt保存。P3五文件物理RecoveryLock候选仅本地应用，还未实际编译/native/kernel验证。P4源码仍004，Std002与Topling001 actual4cycle、8normalclose、bootstrap自然退出/原数据重开均完整PASS；新增最终2边界及P2/P3继承尚待整合/实测。
+
+## 用户明确暂停：2026-10-04T14:42:45.412108+08:00
+
+只暂停本会话；用户明确确认独立PR#262会话继续。主goal已set paused，两个在跑的只读review已interrupt；主会话最后P3 physical-lock-001已于14:32正常exit0并exact清理，当前无本会话heavy，不能开启新goal工作或发布/修复。保留P2 round2清理失败屏障未解决finding，不在暂停后修正。
+
+13:00至暂停的审计：E/pause-audit-20261004-1300/README.md与audit.json，P2 6文件/P3 5文件均13:58:42本地应用、没有功能PR提交；逐文件before/current/hash与p2.patch/p3.patch已保存。P4 11:06冻结源码133路径核验保持不变，13:00后只测试/包转存/未应用候选。记录分支13:12:59正常提交bf86ae33（3任务MD），本地之后还有检查点未发布。#262独立candidate另附只读审计快照，仍运行，不属于主会话暂停。未执行revert、不改历史；恢复或还原必须等用户新指示。
+
+## 当前会话接手修复：2026-10-04T16:17:23.928226+08:00
+
+用户在当前会话选择保留结构、局部重写，并授权执行重构与修复，要求交叉验证、简洁设计、不确定关键事项先汇报确认。旧会话保持暂停；不新建goal，不改原Topling分支。P1独立收尾已完成：org#262与Apache#3265同head e7c2b59c0123c6c4564ed6c34113600cbe062a7d；剩余旧PD/Store升级与metrics/cluster。
+
+本轮证据目录 E/handoff-repair-20261004，已核P2/P3暂停11文件未漂移，并保留start/before。P2局部修清理成功/协议终态/worker归零，保留Service/Listener；P3保留物理owner，补真实descriptor/native失败边界并局部修复。P4两处owner/mapping候选与WAL文档已hash guard应用。网站六条反馈正在同步；尚未提交、resolve或合入。所有heavy继续 E/run-exclusive.py 共用fcntl锁。
+
+P2/P3实现候选已冻结，开始串行实际format/wholecleancompile与模块/failure/kernel fixtures。collaboration新审查线程遇配额上限，最终交叉审查改用已安装Codex CLI ephemeral/read-only独立三路，不降低门槛；待实际启动及结果，不能预报审查通过。

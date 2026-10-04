@@ -5,7 +5,7 @@
 | 项目 | 状态 | 下一动作 / 恢复条件 |
 | --- | --- | --- |
 | 拆分归属与依赖 | 分析完成，P4部分必要性待证 | 198文件/404清单项无漏项；P1、P2独立，P3依赖P2，P4依赖必要前置 |
-| P1候选 | 已发布非Draft #262 | 当前head169d09bf，14文件；实际依赖与兼容范围已确认，真实旧服务升级仍待完成 |
+| P1候选 | 已通过 Apache #3265 合入；org #262 已关闭 | 不再追加 P1 修改；旧服务升级、指标及集群剩余工作放到后续相关 PR |
 | P1兼容测试收敛 | 已提交，当前head兼容CI通过 | 长期src/test/rocksdb-compatibility；两路径6 JVM、未变/JRaft-only skip、去重/unknown fail和format/compile通过；不并入服务/集群验收 |
 | P1代码审查 | 最终14文件三人复审通过 | JRaft ABI修正及README旧版本修正后，三名独立审查者无未解决静态发现；Store meter实测仍待补 |
 | P1 Mac跨版本JNI | 旧候选通过 | 2组/6JVM/0 skip/exit0；最终fixture加入TP标志拒绝后重跑；三版JAR与Central SHA1相符 |
@@ -34,7 +34,7 @@
 
 单项等待后移，不阻止独立分析、候选构造及文档/许可核查；上述任何历史或静态结论均不替代最终head实测。
 
-用户已恢复手动执行。当前single-heavy为P4 standard-owned-close-002；004编译/测试/打包完整PASS，3标准和3Topling输入已保留。最新heads/证据与恢复入口见state.md。P1旧服务关闭失败、P2 API/TTL关闭、P3服务故障与P4真实JNI/native、服务重启、镜像匿名volume和集群gate均保留。
+用户已恢复手动执行。当前single-heavy为P4 topling-owned-close-001（Std002完整PASS）；004编译/测试/打包完整PASS，3标准和3Topling输入已保留。最新heads/证据与恢复入口见state.md。P1旧服务关闭失败、P2 API/TTL关闭、P3服务故障与P4真实JNI/native、服务重启、镜像匿名volume和集群gate均保留。
 
 RISC-V旧head smoke完成后EXIT关闭失败原证据保留；976只让stop诊断可见，最新RISC-V CI已成功但不能替代服务gate。100ms channel轮询开销仍为待负载验证项。历史本机验证、当前CI、实际服务及合入交付分别记录，不互相替代。
 
@@ -55,3 +55,7 @@ RISC-V旧head smoke完成后EXIT关闭失败原证据保留；976只让stop诊�
 - [ ] 每个可review里程碑及时向用户发送链接、重点与未完成验收；无关键取舍不等待用户。
 
 新增反馈待闭环：P2 SCAN_V2 worker/partition drain正在准备最小候选（P2既有查询实现未由本PR引入，缺口属于新增关闭保证）；P3同JVM contender关闭第二fd释放POSIX owner锁已确认，由P3引入，需物理file identity注册和独立JVM/restore窗口实测；网站WAL/SUMMARY/裸路径覆盖3条候选已准备，等待实际验证与正常追加。当前cluster P1/P2/P3均CANCELLED≠PASS；P4旧head3Topling DockerFAIL，修复context输入候选仍未发布。
+
+### 暂停（用户明确，2026-10-04）
+
+主会话停止代码/测试/发布；PR#262独立会话继续。13:00后主会话P2/P3共11个本地文件的before/current及diff已保留，尚未revert。P2还有清理失败不应解除屏障的未解决复审项；P3实际native与parent-bind批次PASS。不要据此继续修复或提交，先等用户决定模型/是否还原与恢复。审计入口见state.md。
