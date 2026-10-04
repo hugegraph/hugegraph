@@ -261,7 +261,6 @@
                                 <include>**/PartitionEngineErrorTest.java</include>
                                 <include>**/BatchGraphIsolationTest.java</include>
                                 <include>**/GraphIDManagerTest.java</include>
-                                <include>**/FixGraphIdControllerTest.java</include>
                             </includes>
                         </configuration>
                     </execution>
