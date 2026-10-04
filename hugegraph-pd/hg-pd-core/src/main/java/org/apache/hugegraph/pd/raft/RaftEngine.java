@@ -36,6 +36,7 @@ import java.util.stream.Collectors;
 
 import org.apache.hugegraph.pd.common.PDException;
 import org.apache.hugegraph.pd.config.PDConfig;
+import org.apache.hugegraph.pd.util.ShutdownUtil;
 import org.apache.hugegraph.pd.grpc.Metapb;
 import org.apache.hugegraph.pd.grpc.Pdpb;
 import org.apache.hugegraph.pd.raft.auth.IpAuthHandler;
@@ -58,7 +59,6 @@ import com.alipay.sofa.jraft.rpc.RaftRpcServerFactory;
 import com.alipay.sofa.jraft.rpc.RpcServer;
 import com.alipay.sofa.jraft.rpc.impl.BoltRpcServer;
 import com.alipay.sofa.jraft.util.Endpoint;
-import com.alipay.sofa.jraft.util.internal.ThrowUtil;
 
 import io.netty.channel.ChannelHandler;
 import lombok.extern.slf4j.Slf4j;
@@ -84,6 +84,8 @@ public class RaftEngine {
     private RaftRpcClient raftRpcClient;
     private volatile int alivePeerCount = -1;
     private ScheduledExecutorService alivePeersRefresher;
+    private volatile boolean closing;
+    private final Object shutdownLock = new Object();
 
     public RaftEngine() {
         this.stateMachine = new RaftStateMachine();
@@ -93,63 +95,72 @@ public class RaftEngine {
         return instance;
     }
 
-    public synchronized boolean init(PDConfig.Raft config) {
-        if (this.raftNode != null) {
-            return false;
+    public boolean init(PDConfig.Raft config) {
+        synchronized (this.shutdownLock) {
+            if (this.closing) {
+                if (this.raftGroupService != null || this.raftNode != null || this.rpcServer != null) {
+                    throw new IllegalStateException("Previous PD Raft shutdown has not completed");
+                }
+                this.stateMachine.prepareListeners();
+                this.closing = false;
+            }
+            if (this.raftNode != null) {
+                return false;
+            }
+            this.config = config;
+
+            // Wire configured rpc timeout into RaftRpcClient so the Bolt transport
+            // timeout and the future.get() caller timeout in getLeaderGrpcAddress() are consistent.
+            raftRpcClient = new RaftRpcClient();
+            RpcOptions rpcOptions = new RpcOptions();
+            rpcOptions.setRpcDefaultTimeout(config.getRpcTimeout());
+            raftRpcClient.init(rpcOptions);
+
+            String raftPath = config.getDataPath() + "/" + groupId;
+            new File(raftPath).mkdirs();
+
+            new File(config.getDataPath()).mkdirs();
+            Configuration initConf = new Configuration();
+            initConf.parse(config.getPeersList());
+            if (config.isEnable() && config.getPeersList().length() < 3) {
+                log.error(
+                        "The RaftEngine parameter is incorrect." +
+                        " When RAFT is enabled, the number of peers " +
+                        "cannot be less than 3");
+            }
+            // Set node parameters, including the log storage path and state machine instance
+            NodeOptions nodeOptions = new NodeOptions();
+            nodeOptions.setFsm(stateMachine);
+            nodeOptions.setEnableMetrics(true);
+            // Log path
+            nodeOptions.setLogUri(raftPath + "/log");
+            // raft metadata path
+            nodeOptions.setRaftMetaUri(raftPath + "/meta");
+            // Snapshot path
+            nodeOptions.setSnapshotUri(raftPath + "/snapshot");
+            // Initial cluster
+            nodeOptions.setInitialConf(initConf);
+            // Snapshot interval
+            nodeOptions.setSnapshotIntervalSecs(config.getSnapshotInterval());
+
+            nodeOptions.setRpcConnectTimeoutMs(config.getRpcTimeout());
+            nodeOptions.setRpcDefaultTimeout(config.getRpcTimeout());
+            nodeOptions.setRpcInstallSnapshotTimeout(config.getRpcTimeout());
+            // TODO: tune RaftOptions for PD (see hugegraph-store PartitionEngine for reference)
+
+            final PeerId serverId = JRaftUtils.getPeerId(config.getAddress());
+
+            rpcServer = createRaftRpcServer(config.getAddress(), initConf.getPeers(),
+                                            config.isIpWhitelistEnabled());
+            // construct raft group and start raft
+            this.raftGroupService =
+                    new RaftGroupService(groupId, serverId, nodeOptions, rpcServer, true);
+            this.raftNode = raftGroupService.start(false);
+            startAlivePeersRefresher();
+            log.info("RaftEngine start successfully: id = {}, peers list = {}", groupId,
+                     nodeOptions.getInitialConf().getPeers());
+            return this.raftNode != null;
         }
-        this.config = config;
-
-        // Wire configured rpc timeout into RaftRpcClient so the Bolt transport
-        // timeout and the future.get() caller timeout in getLeaderGrpcAddress() are consistent.
-        raftRpcClient = new RaftRpcClient();
-        RpcOptions rpcOptions = new RpcOptions();
-        rpcOptions.setRpcDefaultTimeout(config.getRpcTimeout());
-        raftRpcClient.init(rpcOptions);
-
-        String raftPath = config.getDataPath() + "/" + groupId;
-        new File(raftPath).mkdirs();
-
-        new File(config.getDataPath()).mkdirs();
-        Configuration initConf = new Configuration();
-        initConf.parse(config.getPeersList());
-        if (config.isEnable() && config.getPeersList().length() < 3) {
-            log.error(
-                    "The RaftEngine parameter is incorrect." +
-                    " When RAFT is enabled, the number of peers " +
-                    "cannot be less than 3");
-        }
-        // Set node parameters, including the log storage path and state machine instance
-        NodeOptions nodeOptions = new NodeOptions();
-        nodeOptions.setFsm(stateMachine);
-        nodeOptions.setEnableMetrics(true);
-        // Log path
-        nodeOptions.setLogUri(raftPath + "/log");
-        // raft metadata path
-        nodeOptions.setRaftMetaUri(raftPath + "/meta");
-        // Snapshot path
-        nodeOptions.setSnapshotUri(raftPath + "/snapshot");
-        // Initial cluster
-        nodeOptions.setInitialConf(initConf);
-        // Snapshot interval
-        nodeOptions.setSnapshotIntervalSecs(config.getSnapshotInterval());
-
-        nodeOptions.setRpcConnectTimeoutMs(config.getRpcTimeout());
-        nodeOptions.setRpcDefaultTimeout(config.getRpcTimeout());
-        nodeOptions.setRpcInstallSnapshotTimeout(config.getRpcTimeout());
-        // TODO: tune RaftOptions for PD (see hugegraph-store PartitionEngine for reference)
-
-        final PeerId serverId = JRaftUtils.getPeerId(config.getAddress());
-
-        rpcServer = createRaftRpcServer(config.getAddress(), initConf.getPeers(),
-                                        config.isIpWhitelistEnabled());
-        // construct raft group and start raft
-        this.raftGroupService =
-                new RaftGroupService(groupId, serverId, nodeOptions, rpcServer, true);
-        this.raftNode = raftGroupService.start(false);
-        startAlivePeersRefresher();
-        log.info("RaftEngine start successfully: id = {}, peers list = {}", groupId,
-                 nodeOptions.getInitialConf().getPeers());
-        return this.raftNode != null;
     }
 
     /**
@@ -196,42 +207,44 @@ public class RaftEngine {
     }
 
     public void shutDown() {
-        if (this.alivePeersRefresher != null) {
-            this.alivePeersRefresher.shutdownNow();
-            try {
-                // Best effort: shutdownNow only interrupts, and a refresh parked in
-                // listAlivePeers waits on a lock acquire the interrupt does not break,
-                // for up to the raft rpc connect timeout per unreachable peer. A refresh
-                // that outlives this wait may publish one stale count over the reset
-                // below; acceptable while shutDown has no production caller.
-                if (!this.alivePeersRefresher.awaitTermination(1, TimeUnit.SECONDS)) {
-                    log.warn("Raft alive-peers refresher still running after shutdown; " +
-                             "hg_raft_alive_peers may briefly report a stale value");
-                }
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
+        synchronized (this.shutdownLock) {
+            this.closing = true;
+            synchronized (this) {
+                this.notifyAll();
             }
+            ShutdownUtil.stopScheduler(this.alivePeersRefresher, "Raft alive peers");
             this.alivePeersRefresher = null;
-        }
-        this.alivePeerCount = -1;
-        if (this.raftGroupService != null) {
-            this.raftGroupService.shutdown();
-            try {
-                this.raftGroupService.join();
-            } catch (final InterruptedException e) {
+            this.alivePeerCount = -1;
+            if (this.raftGroupService != null) {
+                this.raftGroupService.shutdown();
+                try {
+                    this.raftGroupService.join();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException("PD Raft drain interrupted", e);
+                }
+                this.raftGroupService = null;
                 this.raftNode = null;
-                ThrowUtil.throwException(e);
+            } else if (this.raftNode != null) {
+                this.raftNode.shutdown();
+                try {
+                    this.raftNode.join();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException("PD Raft drain interrupted", e);
+                }
+                this.raftNode = null;
             }
-            this.raftGroupService = null;
+            if (this.rpcServer != null) {
+                this.rpcServer.shutdown();
+                this.rpcServer = null;
+            }
+            this.stateMachine.drainListeners();
+            if (this.raftRpcClient != null) {
+                this.raftRpcClient.shutdown();
+                this.raftRpcClient = null;
+            }
         }
-        if (this.rpcServer != null) {
-            this.rpcServer.shutdown();
-            this.rpcServer = null;
-        }
-        if (this.raftNode != null) {
-            this.raftNode.shutdown();
-        }
-        this.raftNode = null;
     }
 
     public boolean isLeader() {
@@ -404,17 +417,21 @@ public class RaftEngine {
      * Send a message to the leader to get the grpc address.
      */
     public String getLeaderGrpcAddress() throws ExecutionException, InterruptedException {
+        Node node = this.raftNode;
+        if (this.closing || node == null) {
+            throw new ExecutionException(new IllegalStateException("PD Raft is stopping"));
+        }
         if (isLeader()) {
             return config.getGrpcAddress();
         }
 
-        if (raftNode.getLeaderId() == null) {
+        if (node.getLeaderId() == null) {
             waitingForLeader(config.getRpcTimeout());
         }
 
         // Cache leader to avoid repeated getLeaderId() calls and guard against
         // waitingForLeader() returning without a leader being elected.
-        PeerId leader = raftNode.getLeaderId();
+        PeerId leader = node.getLeaderId();
         if (leader == null) {
             throw new ExecutionException(new IllegalStateException("Leader is not ready"));
         }
@@ -585,10 +602,14 @@ public class RaftEngine {
         synchronized (this) {
             leader = getLeader();
             long start = System.currentTimeMillis();
-            while ((System.currentTimeMillis() - start < timeOut) && (leader == null)) {
+            while (!this.closing && (System.currentTimeMillis() - start < timeOut) &&
+                   (leader == null)) {
                 try {
                     long remaining = timeOut - (System.currentTimeMillis() - start);
-                    this.wait(Math.min(1000, Math.max(0, remaining)));
+                    if (remaining <= 0) {
+                        break;
+                    }
+                    this.wait(Math.min(1000, remaining));
                 } catch (InterruptedException e) {
                     log.error("Raft wait for leader exception", e);
                 }

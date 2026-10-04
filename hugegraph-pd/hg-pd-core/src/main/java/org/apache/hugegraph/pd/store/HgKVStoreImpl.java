@@ -89,7 +89,7 @@ public class HgKVStoreImpl implements HgKVStore {
         final Lock readLock = this.readWriteLock.readLock();
         readLock.lock();
         try {
-            db.put(key, value);
+            database().put(key, value);
         } catch (RocksDBException e) {
             throw new PDException(Pdpb.ErrorType.ROCKSDB_WRITE_ERROR_VALUE, e);
         } finally {
@@ -102,7 +102,7 @@ public class HgKVStoreImpl implements HgKVStore {
         final Lock readLock = this.readWriteLock.readLock();
         readLock.lock();
         try {
-            return db.get(key);
+            return database().get(key);
         } catch (RocksDBException e) {
             throw new PDException(Pdpb.ErrorType.ROCKSDB_READ_ERROR_VALUE, e);
         } finally {
@@ -114,10 +114,10 @@ public class HgKVStoreImpl implements HgKVStore {
     public List<KV> scanPrefix(byte[] prefix) {
         final Lock readLock = this.readWriteLock.readLock();
         readLock.lock();
-        try (ReadOptions options = new ReadOptions()
-                .setIterateLowerBound(new Slice(prefix))) {
+        try (Slice lower = new Slice(prefix);
+             ReadOptions options = new ReadOptions().setIterateLowerBound(lower);
+             RocksIterator iterator = database().newIterator(options)) {
             List<KV> kvs = new ArrayList<>();
-            RocksIterator iterator = db.newIterator(options);
             iterator.seekToFirst();
             while (iterator.isValid() && 0 == Bytes.indexOf(iterator.key(), prefix)) {
                 kvs.add(new KV(iterator.key(), iterator.value()));
@@ -134,7 +134,7 @@ public class HgKVStoreImpl implements HgKVStore {
         final Lock readLock = this.readWriteLock.readLock();
         readLock.lock();
         try {
-            db.delete(key);
+            database().delete(key);
         } catch (RocksDBException e) {
             throw new PDException(Pdpb.ErrorType.ROCKSDB_DEL_ERROR_VALUE, e);
         } finally {
@@ -147,14 +147,14 @@ public class HgKVStoreImpl implements HgKVStore {
     public long removeByPrefix(byte[] prefix) throws PDException {
         final Lock readLock = this.readWriteLock.readLock();
         readLock.lock();
-        try (ReadOptions options = new ReadOptions()
-                .setIterateLowerBound(new Slice(prefix))) {
-            RocksIterator iterator = db.newIterator(options);
+        try (Slice lower = new Slice(prefix);
+             ReadOptions options = new ReadOptions().setIterateLowerBound(lower);
+             RocksIterator iterator = database().newIterator(options)) {
             iterator.seekToFirst();
 
             while (iterator.isValid()) {
                 if (0 == Bytes.indexOf(iterator.key(), prefix)) {
-                    db.delete(iterator.key());
+                    database().delete(iterator.key());
                 } else {
                     break;
                 }
@@ -241,7 +241,7 @@ public class HgKVStoreImpl implements HgKVStore {
         log.info("begin save snapshot at {}", snapshotPath);
         final Lock writeLock = this.readWriteLock.writeLock();
         writeLock.lock();
-        try (final Checkpoint checkpoint = Checkpoint.create(this.db)) {
+        try (final Checkpoint checkpoint = Checkpoint.create(database())) {
             final String tempPath = Paths.get(snapshotPath) + "_temp";
             final File tempFile = new File(tempPath);
             FileUtils.deleteDirectory(tempFile);
@@ -304,11 +304,12 @@ public class HgKVStoreImpl implements HgKVStore {
     public List<KV> scanRange(byte[] start, byte[] end) {
         final Lock readLock = this.readWriteLock.readLock();
         readLock.lock();
-        try (ReadOptions options = new ReadOptions()
-                .setIterateLowerBound(new Slice(start))
-                .setIterateUpperBound(new Slice(end))) {
+        try (Slice lower = new Slice(start);
+             Slice upper = new Slice(end);
+             ReadOptions options = new ReadOptions().setIterateLowerBound(lower)
+                                                    .setIterateUpperBound(upper);
+             RocksIterator iterator = database().newIterator(options)) {
             List<KV> kvs = new ArrayList<>();
-            RocksIterator iterator = db.newIterator(options);
             iterator.seekToFirst();
             while (iterator.isValid()) {
                 kvs.add(new KV(iterator.key(), iterator.value()));
@@ -322,7 +323,24 @@ public class HgKVStoreImpl implements HgKVStore {
 
     @Override
     public void close() {
-        closeRocksDB();
+        final Lock writeLock = this.readWriteLock.writeLock();
+        writeLock.lock();
+        try {
+            closeRocksDB();
+            if (this.dbOptions != null) {
+                this.dbOptions.close();
+                this.dbOptions = null;
+            }
+        } finally {
+            writeLock.unlock();
+        }
+    }
+
+    private RocksDB database() {
+        if (this.db == null) {
+            throw new IllegalStateException("PD metadata database is closed");
+        }
+        return this.db;
     }
 
     private void closeRocksDB() {

@@ -22,6 +22,8 @@ import java.io.IOException;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.zip.Checksum;
@@ -30,6 +32,7 @@ import org.apache.commons.io.FileUtils;
 import org.apache.hugegraph.pd.common.PDException;
 import org.apache.hugegraph.pd.grpc.Pdpb;
 import org.apache.hugegraph.pd.service.MetadataService;
+import org.apache.hugegraph.pd.util.ShutdownUtil;
 import org.springframework.util.CollectionUtils;
 
 import com.alipay.sofa.jraft.Closure;
@@ -45,7 +48,6 @@ import com.alipay.sofa.jraft.error.RaftException;
 import com.alipay.sofa.jraft.storage.snapshot.SnapshotReader;
 import com.alipay.sofa.jraft.storage.snapshot.SnapshotWriter;
 import com.alipay.sofa.jraft.util.CRC64;
-import com.alipay.sofa.jraft.util.Utils;
 
 import lombok.extern.slf4j.Slf4j;
 
@@ -78,12 +80,34 @@ public class RaftStateMachine extends StateMachineAdapter {
             this.seesLeader = seesLeader;
         }
     }
+    private ExecutorService listenerJobs = newListenerExecutor();
+
+    private static ExecutorService newListenerExecutor() {
+        return Executors.newCachedThreadPool(task -> {
+            Thread thread = new Thread(task, "pd-raft-listener");
+            thread.setDaemon(true);
+            return thread;
+        });
+    }
     private List<RaftTaskHandler> taskHandlers;
     private List<RaftStateListener> stateListeners;
 
     public RaftStateMachine() {
         this.taskHandlers = new CopyOnWriteArrayList<>();
         this.stateListeners = new CopyOnWriteArrayList<>();
+    }
+
+    public void prepareListeners() {
+        if (this.listenerJobs.isShutdown()) {
+            if (!this.listenerJobs.isTerminated()) {
+                throw new IllegalStateException("Previous PD Raft listeners have not drained");
+            }
+            this.listenerJobs = newListenerExecutor();
+        }
+    }
+
+    public void drainListeners() {
+        ShutdownUtil.finishExecutor(this.listenerJobs, "Raft listeners");
     }
 
     public void addTaskHandler(RaftTaskHandler handler) {
@@ -157,7 +181,7 @@ public class RaftStateMachine extends StateMachineAdapter {
         super.onLeaderStart(term);
 
         log.info("Raft becomes leader");
-        Utils.runInThread(() -> {
+        this.listenerJobs.execute(() -> {
             if (!CollectionUtils.isEmpty(stateListeners)) {
                 stateListeners.forEach(RaftStateListener::onRaftLeaderChanged);
             }
@@ -176,7 +200,7 @@ public class RaftStateMachine extends StateMachineAdapter {
     public void onStartFollowing(final LeaderChangeContext ctx) {
         this.probeView = new ProbeView(State.STATE_FOLLOWER, true);
         super.onStartFollowing(ctx);
-        Utils.runInThread(() -> {
+        this.listenerJobs.execute(() -> {
             if (!CollectionUtils.isEmpty(stateListeners)) {
                 stateListeners.forEach(RaftStateListener::onRaftLeaderChanged);
             }

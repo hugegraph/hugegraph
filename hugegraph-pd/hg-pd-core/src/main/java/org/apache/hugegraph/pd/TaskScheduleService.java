@@ -35,6 +35,7 @@ import java.util.stream.Collectors;
 import org.apache.hugegraph.pd.common.KVPair;
 import org.apache.hugegraph.pd.common.PDException;
 import org.apache.hugegraph.pd.config.PDConfig;
+import org.apache.hugegraph.pd.util.ShutdownUtil;
 import org.apache.hugegraph.pd.grpc.MetaTask;
 import org.apache.hugegraph.pd.grpc.Metapb;
 import org.apache.hugegraph.pd.grpc.Pdpb;
@@ -189,7 +190,7 @@ public class TaskScheduleService {
     }
 
     public void shutDown() {
-        executor.shutdownNow();
+        ShutdownUtil.stopScheduler(this.executor, "metadata schedules");
     }
 
     private boolean isLeader() {

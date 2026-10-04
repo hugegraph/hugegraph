@@ -50,6 +50,7 @@ import org.apache.hugegraph.pd.grpc.pulse.PulseType;
 import org.apache.hugegraph.pd.notice.NoticeBroadcaster;
 import org.apache.hugegraph.pd.raft.RaftEngine;
 import org.apache.hugegraph.pd.util.IdUtil;
+import org.apache.hugegraph.pd.util.ShutdownUtil;
 
 import com.google.protobuf.InvalidProtocolBufferException;
 import com.google.protobuf.Parser;
@@ -87,6 +88,10 @@ public class PDPulseSubject {
     static {
         scheduledExecutor.scheduleAtFixedRate(() -> doSchedule(), 0, RETRYING_PERIOD_SECONDS,
                                               TimeUnit.SECONDS);
+    }
+
+    public static void shutdown() {
+        ShutdownUtil.stopScheduler(scheduledExecutor, "pulse retry");
     }
 
     private static void doSchedule() {

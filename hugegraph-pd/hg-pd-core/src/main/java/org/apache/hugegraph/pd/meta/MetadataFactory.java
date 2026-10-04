@@ -29,26 +29,26 @@ import org.apache.hugegraph.pd.store.RaftKVStore;
 public class MetadataFactory {
 
     private static HgKVStore store = null;
+    private static boolean closing;
 
-    public static HgKVStore getStore(PDConfig pdConfig) {
+    public static synchronized HgKVStore getStore(PDConfig pdConfig) {
+        if (closing) {
+            throw new IllegalStateException("PD metadata is stopping");
+        }
         if (store == null) {
-            synchronized (MetadataFactory.class) {
-                if (store == null) {
-                    HgKVStore proto = new HgKVStoreImpl();
-                    //proto.init(pdConfig);
-                    store = pdConfig.getRaft().isEnable() ?
-                            new RaftKVStore(RaftEngine.getInstance(), proto) :
-                            proto;
-                    store.init(pdConfig);
-                }
-            }
+            HgKVStore proto = new HgKVStoreImpl();
+            store = pdConfig.getRaft().isEnable() ?
+                    new RaftKVStore(RaftEngine.getInstance(), proto) : proto;
+            store.init(pdConfig);
         }
         return store;
     }
 
-    public static void closeStore() {
+    public static synchronized void closeStore() {
+        closing = true;
         if (store != null) {
             store.close();
+            store = null;
         }
     }
 

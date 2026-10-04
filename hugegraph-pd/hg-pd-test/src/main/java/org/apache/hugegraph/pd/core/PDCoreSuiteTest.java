@@ -17,6 +17,10 @@
 
 package org.apache.hugegraph.pd.core;
 
+import org.apache.hugegraph.pd.boot.PDLifecycleTest;
+import org.apache.hugegraph.pd.boot.PDRequestGateTest;
+import org.apache.hugegraph.pd.core.store.HgKVStoreShutdownTest;
+import org.apache.hugegraph.pd.raft.RaftListenerDrainTest;
 import org.apache.hugegraph.pd.core.meta.MetadataKeyHelperTest;
 import org.apache.hugegraph.pd.core.store.HgKVStoreImplTest;
 import org.apache.hugegraph.pd.raft.IpAuthHandlerTest;
@@ -30,6 +34,10 @@ import lombok.extern.slf4j.Slf4j;
 
 @RunWith(Suite.class)
 @Suite.SuiteClasses({
+        PDLifecycleTest.class,
+        PDRequestGateTest.class,
+        RaftListenerDrainTest.class,
+        HgKVStoreShutdownTest.class,
         RaftStateMachineTest.class,
         MetadataKeyHelperTest.class,
         HgKVStoreImplTest.class,

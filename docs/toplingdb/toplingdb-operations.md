@@ -58,6 +58,20 @@ Do not invoke `SidePluginRepo.closeAllDB()`. Store's stop script already has a
 bounded wait. If it reports a timeout, collect thread dumps and component logs
 and investigate the ordinary Store shutdown path before any restart.
 
+PD uses Spring's shutdown lifecycle to stop REST admission, cancel idle gRPC
+watch/pulse streams and drain the owned gRPC callbacks. It then stops metadata
+schedulers, joins Raft, drains leader callbacks and snapshot jobs, and closes the
+metadata database through its normal Java API. The same owner handles failed
+startup and repeated stop calls. Iterator, read-option and slice handles are
+released before the database closes.
+
+Request, transport and executor drains each wait up to 30 seconds. A timed-out
+or interrupted drain reports a failure and leaves the database open rather than
+closing it underneath unfinished work; Raft join waits for Raft termination.
+Collect thread dumps and logs for such a failure. A forced process termination
+is not evidence of graceful native close. Restart only after verifying the old
+process has exited and retain its failure evidence.
+
 ## Upgrade and Rollback
 
 Drain traffic and stop the component cleanly before changing the runtime or

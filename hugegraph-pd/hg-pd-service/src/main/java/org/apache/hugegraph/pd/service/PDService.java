@@ -55,6 +55,7 @@ import org.apache.hugegraph.pd.StoreStatusListener;
 import org.apache.hugegraph.pd.TaskScheduleService;
 import org.apache.hugegraph.pd.common.KVPair;
 import org.apache.hugegraph.pd.common.PDException;
+import org.apache.hugegraph.pd.boot.PDLifecycle;
 import org.apache.hugegraph.pd.config.PDConfig;
 import org.apache.hugegraph.pd.grpc.MetaTask;
 import org.apache.hugegraph.pd.grpc.Metapb;
@@ -172,6 +173,9 @@ public class PDService extends PDGrpc.PDImplBase implements RaftStateListener {
         this.pdConfig = pdConfig;
     }
 
+    @Autowired
+    private PDLifecycle lifecycle;
+
     /**
      * initialize
      */
@@ -187,6 +191,7 @@ public class PDService extends PDGrpc.PDImplBase implements RaftStateListener {
         storeNodeService = new StoreNodeService(pdConfig);
         partitionService = new PartitionService(pdConfig, storeNodeService);
         taskService = new TaskScheduleService(pdConfig, storeNodeService, partitionService);
+        this.lifecycle.registerProducer(taskService::shutDown);
         idService = new IdService(pdConfig);
         logService = new LogService(pdConfig);
         storeMonitorDataService = new StoreMonitorDataService(pdConfig);

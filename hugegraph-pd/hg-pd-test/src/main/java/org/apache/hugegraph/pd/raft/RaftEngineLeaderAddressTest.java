@@ -48,6 +48,7 @@ public class RaftEngineLeaderAddressTest {
     private Node originalRaftNode;
     private RaftRpcClient originalRaftRpcClient;
     private PDConfig.Raft originalConfig;
+    private boolean originalClosing;
 
     private Node mockNode;
     private RaftRpcClient mockRpcClient;
@@ -62,6 +63,7 @@ public class RaftEngineLeaderAddressTest {
         originalRaftNode = engine.getRaftNode();
         originalRaftRpcClient = Whitebox.getInternalState(engine, "raftRpcClient");
         originalConfig = Whitebox.getInternalState(engine, "config");
+        originalClosing = Whitebox.getInternalState(engine, "closing");
 
         // Build mock leader PeerId with real Endpoint
         mockLeader = mock(PeerId.class);
@@ -87,6 +89,8 @@ public class RaftEngineLeaderAddressTest {
         Whitebox.setInternalState(engine, "raftNode", mockNode);
         Whitebox.setInternalState(engine, "raftRpcClient", mockRpcClient);
         Whitebox.setInternalState(engine, "config", mockConfig);
+        // The fixture represents a running node, even after earlier suite cases stopped Raft.
+        Whitebox.setInternalState(engine, "closing", false);
     }
 
     @After
@@ -95,6 +99,17 @@ public class RaftEngineLeaderAddressTest {
         Whitebox.setInternalState(engine, "raftNode", originalRaftNode);
         Whitebox.setInternalState(engine, "raftRpcClient", originalRaftRpcClient);
         Whitebox.setInternalState(engine, "config", originalConfig);
+        Whitebox.setInternalState(engine, "closing", originalClosing);
+    }
+
+    @Test
+    public void testStoppingEngineRejectsLeaderDiscovery() {
+        RaftEngine engine = RaftEngine.getInstance();
+        Whitebox.setInternalState(engine, "closing", true);
+        ExecutionException error = org.junit.Assert.assertThrows(
+                ExecutionException.class, engine::getLeaderGrpcAddress);
+        org.junit.Assert.assertEquals("PD Raft is stopping", error.getCause().getMessage());
+        org.mockito.Mockito.verifyNoInteractions(mockRpcClient);
     }
 
     @Test

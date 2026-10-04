@@ -29,6 +29,8 @@ import javax.annotation.PostConstruct;
 
 import org.apache.hugegraph.pd.KvService;
 import org.apache.hugegraph.pd.common.PDException;
+import org.apache.hugegraph.pd.boot.PDLifecycle;
+import org.apache.hugegraph.pd.util.ShutdownUtil;
 import org.apache.hugegraph.pd.config.PDConfig;
 import org.apache.hugegraph.pd.grpc.kv.K;
 import org.apache.hugegraph.pd.grpc.kv.KResponse;
@@ -72,8 +74,12 @@ public class KvServiceGrpcImpl extends KvServiceGrpc.KvServiceImplBase implement
     private KvWatchSubject subjects;
     private ScheduledExecutorService executor;
 
+    @Autowired
+    private PDLifecycle lifecycle;
+
     @PostConstruct
     public void init() {
+        this.lifecycle.registerProducer(this::shutdown);
         RaftEngine.getInstance().init(pdConfig.getRaft());
         RaftEngine.getInstance().addStateListener(this);
         kvService = new KvService(pdConfig);
@@ -84,6 +90,13 @@ public class KvServiceGrpcImpl extends KvServiceGrpc.KvServiceImplBase implement
                 subjects.keepClientAlive();
             }
         }, 0, KvWatchSubject.WATCH_TTL * 1 / 3, TimeUnit.MILLISECONDS);
+    }
+
+    private void shutdown() {
+        ShutdownUtil.stopScheduler(this.executor, "KV watch keepalive");
+        if (this.channel != null) {
+            this.channel.shutdownNow();
+        }
     }
 
     /**
