@@ -22,8 +22,8 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 import org.apache.hugegraph.store.util.HgStoreException;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 public class FixGraphIdControllerTest {
 
@@ -37,12 +37,12 @@ public class FixGraphIdControllerTest {
             Map<String, Long> graphIds =
                     Collections.singletonMap(graphName, graphId);
 
-            HgStoreException exception = Assert.assertThrows(
+            HgStoreException exception = Assertions.assertThrows(
                     HgStoreException.class,
                     () -> controller.updateGraphId(0, graphIds));
-            Assert.assertTrue(exception.getMessage().contains("Invalid graph ID"));
-            Assert.assertTrue(exception.getMessage().contains(String.valueOf(graphId)));
-            Assert.assertTrue(exception.getMessage().contains(graphName));
+            Assertions.assertTrue(exception.getMessage().contains("Invalid graph ID"));
+            Assertions.assertTrue(exception.getMessage().contains(String.valueOf(graphId)));
+            Assertions.assertTrue(exception.getMessage().contains(graphName));
         }
     }
 
@@ -53,11 +53,11 @@ public class FixGraphIdControllerTest {
         graphIds.put("graph-a", 5L);
         graphIds.put("graph-b", 5L);
 
-        HgStoreException exception = Assert.assertThrows(
+        HgStoreException exception = Assertions.assertThrows(
                 HgStoreException.class,
                 () -> controller.updateGraphId(0, graphIds));
-        Assert.assertTrue(exception.getMessage().contains("graph-a"));
-        Assert.assertTrue(exception.getMessage().contains("graph-b"));
-        Assert.assertTrue(exception.getMessage().contains("5"));
+        Assertions.assertTrue(exception.getMessage().contains("graph-a"));
+        Assertions.assertTrue(exception.getMessage().contains("graph-b"));
+        Assertions.assertTrue(exception.getMessage().contains("5"));
     }
 }

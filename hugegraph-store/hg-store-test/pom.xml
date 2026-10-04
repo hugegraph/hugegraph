@@ -200,7 +200,7 @@
         <dependency>
             <groupId>com.alipay.sofa</groupId>
             <artifactId>jraft-core</artifactId>
-            <version>${pd-store-jraft.version}</version>
+            <version>${jraft.version}</version>
             <exclusions>
                 <exclusion>
                     <groupId>org.rocksdb</groupId>
@@ -261,7 +261,6 @@
                                 <include>**/PartitionEngineErrorTest.java</include>
                                 <include>**/BatchGraphIsolationTest.java</include>
                                 <include>**/GraphIDManagerTest.java</include>
-                                <include>**/FixGraphIdControllerTest.java</include>
                             </includes>
                         </configuration>
                     </execution>
