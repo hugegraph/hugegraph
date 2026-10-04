@@ -1,15 +1,20 @@
 # ToplingDB PR 拆分任务
 
 更新：2026-10-04（Asia/Singapore）。用户已确认 deep 模式与本文件初始化。
-用户已明确恢复执行；P1 已通过 Apache #3265 合入，P2/P3/P4 与网站 PR 继续收尾，原 Linux goal 保持暂停。
+用户已明确暂停当前任务；本轮已发布与未完成门槛见下面的当前状态，原 Linux goal 保持暂停。
 
-## 当前接手状态
+## 当前接手状态：用户暂停
 
-P1 已合入 Apache #3265，org #262 已关闭。本地、Apache 与 org master 已同步；不再向 P1 分支追加修改。旧 PD/Store 服务升级、指标及集群验收仍待完成，后续修复与验证放在新的相关 PR 中。
+用户要求先收敛已完成事项，然后暂停，不启动新事项。当前没有本地构建、业务测试服务或自动监控；GitHub CI 仍异步运行。恢复时先读 [暂停交接](handoff-pause.md)，再重新查询实际 head、checks 和新评论。
 
-P2 正常同步 master，并单独提交代码 120 列、Markdown 约 160 列软换行或完整段落的规范。P3/P4 已按真实依赖正常同步前置；P3 保持 10 文件增量，P4 保持 109 文件增量，不 force-push。已保存的未发布 P2/P3/P4 候选与测试数据继续保留；它们的历史通过记录不证明同步后的最终源码。
+- P1 已合入 Apache #3265，org #262 已关闭。master 已同步到 `89cd937c`；后续旧服务升级、metrics/cluster 另放相关 PR。
+- P2 #261 `9a44b2b7`：最终12文件已发布，三路V3独立审查、format/clean compile、Store/Node回归通过；原两条SCAN_V2反馈已resolve。新增正常完成被误报CANCELLED评论待核；真实API/query/scan/TTL/timeout-PID和新head CI未完成，尚不能报可合入。
+- P3 #263 `556c41fb`：物理owner/关闭失败/lease移交6文件发布，恢复与跨JVM/bind回归通过；原owner反馈已resolve。新增checkpoint代际绑定P1、WAL staging和生产测试路径反馈待核，不能合入。
+- P4 #264 `36058b0c`：已正常同步最新P2/P3前置；46个额外候选文件保留本地，未完成最终组合验证/发布，13条未解决反馈见交接快照。
+- 网站 #510 `6c0f2daf`：8文件更新发布，strict Hugo/产物/14浏览器验证通过，5条已resolve；bare ownership一条需最终P4联动。
+- 代码120列、Markdown约160列软换行或整段规则已在P2更新；P1旧100列评论已说明并闭环。
 
-本轮证据与同步收据：`/Users/zhu/github/hugegraph-topling-split-evidence/master-sync-20261004`。后文保留历史记录，当前状态以本节及本轮收据为准。
+证据：`/Users/zhu/github/hugegraph-topling-split-evidence/comment-closure-20261004`。当前P2/P3目录为发布分支，新P4目录为最新前置加未发布候选，旧源码和数据已保留在pre-pause/pre-sync备份。最终门槛以暂停交接及实际新head为准，不沿用后文历史状态。
 
 ## 入口与依据
 
