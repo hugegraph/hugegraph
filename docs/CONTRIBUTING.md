@@ -73,6 +73,8 @@ mvn test -Pcore-test,memory
 ```
 Note: Code style is defined by the `.editorconfig` file at the repository root. Checkstyle rules are defined in `style/checkstyle.xml`. Configure your IDE accordingly.
 
+Use a 120-column margin for ordinary code. Markdown may wrap at about 160 columns or keep a complete paragraph on one line; do not force 80- or 100-column wrapping. Preserve code-block formatting and keep links and tables intact. Review tools must follow these repository settings.
+
 ##### 3.2.1 Check licenses
 If we want to add new third-party dependencies to the `HugeGraph` project, we need to do the following things:
 1. Find the third-party dependent repository, put the dependent `license` file into [./install-dist/release-docs/licenses/](https://github.com/apache/hugegraph/tree/master/install-dist/release-docs/licenses) path.
