@@ -34,7 +34,6 @@ import org.apache.hugegraph.backend.tx.GraphTransaction;
 import org.apache.hugegraph.exception.NoIndexException;
 import org.apache.hugegraph.schema.SchemaManager;
 import org.apache.hugegraph.testutil.Assert;
-import org.apache.hugegraph.traversal.optimize.ConditionP;
 import org.apache.hugegraph.traversal.optimize.HugeCountStep;
 import org.apache.hugegraph.traversal.optimize.HugeCountStrategy;
 import org.apache.hugegraph.traversal.optimize.HugeGraphStep;
@@ -662,7 +661,7 @@ public class CountStrategyCoreTest extends BaseCoreTest {
     }
 
     @Test
-    public void testPartialEdgeFilterKeepsOrdinaryProperty() {
+    public void testMixedTextEdgeFilterKeepsAllConditionsLocal() {
         this.initSchema();
         graph().schema().propertyKey("weight").asInt().create();
         graph().schema().edgeLabel("rated").link("person", "person")
@@ -683,65 +682,6 @@ public class CountStrategyCoreTest extends BaseCoreTest {
         Assert.assertEquals(1L, graph().traversal().V(source.id()).outE("rated")
                                       .has("name", TextP.containing("ar"))
                                       .has("weight", 2).count().next().longValue());
-    }
-
-    @Test
-    public void testPartialGraphFilterKeepsMixedSearchPredicate() {
-        this.initSchema();
-        graph().schema().indexLabel("personByName").onV("person")
-               .by("name").search().create();
-        graph().addVertex(T.label, "person", "name", "marko graph", "none", "filter");
-        graph().addVertex(T.label, "person", "name", "josh", "none", "filter");
-        commitTx();
-        GraphTraversal<Vertex, Long> traversal = graph().traversal().V()
-                .has("person", "none", TextP.containing("ter"))
-                .has("name", ConditionP.textContains("marko").and(P.eq("marko graph")))
-                .count();
-        applyAndGetGraphStep(traversal);
-
-        Assert.assertTrue(hasRemainingHasStep(traversal, "name"));
-        Assert.assertEquals(1L, traversal.next().longValue());
-    }
-
-    @Test
-    public void testPartialGraphFilterKeepsCustomIdPredicate() {
-        this.initSchema();
-        Vertex marko = graph().addVertex(T.label, "person", "name", "marko",
-                                         "none", "filter");
-        graph().addVertex(T.label, "person", "name", "josh", "none", "filter");
-        commitTx();
-        P<Object> custom = new P<>((actual, expected) ->
-                                   actual.equals(expected), marko.id());
-        GraphTraversal<Vertex, Long> traversal = graph().traversal().V()
-                .has("person", "none", TextP.containing("ter"))
-                .hasId(custom).count();
-        applyAndGetGraphStep(traversal);
-
-        Assert.assertTrue(hasRemainingHasStep(traversal, T.id.getAccessor()));
-        Assert.assertEquals(1L, traversal.next().longValue());
-    }
-
-    @Test
-    public void testPartialGraphFilterKeepsCustomPredicate() {
-        this.initSchema();
-        graph().schema().propertyKey("age").asInt().create();
-        graph().schema().vertexLabel("indexed").properties("name", "age")
-               .create();
-        graph().schema().indexLabel("indexedByAge").onV("indexed")
-               .by("age").secondary().create();
-        graph().addVertex(T.label, "indexed", "name", "marko", "age", 29);
-        graph().addVertex(T.label, "indexed", "name", "marko", "age", 19);
-        commitTx();
-        P<Integer> custom = new P<>((actual, expected) -> actual > expected, 20);
-        GraphTraversal<Vertex, Long> traversal = graph().traversal().V()
-                .has("indexed", "name", TextP.containing("ar"))
-                .has("age", custom).count();
-        HugeGraphStep<?, ?> step = applyAndGetGraphStep(traversal);
-
-        Assert.assertFalse(step.getHasContainers().stream()
-                               .anyMatch(has -> "age".equals(has.getKey())));
-        Assert.assertTrue(hasRemainingHasStep(traversal, "age"));
-        Assert.assertEquals(1L, traversal.next().longValue());
     }
 
     @Test

@@ -23,15 +23,10 @@ import java.util.Set;
 import org.apache.hugegraph.HugeGraph;
 import org.apache.hugegraph.backend.id.Id;
 import org.apache.hugegraph.backend.id.IdGenerator;
-import org.apache.hugegraph.backend.query.Condition;
 import org.apache.hugegraph.exception.NotFoundException;
-import org.apache.hugegraph.schema.IndexLabel;
 import org.apache.hugegraph.schema.PropertyKey;
-import org.apache.hugegraph.schema.VertexLabel;
 import org.apache.hugegraph.testutil.Assert;
 import org.apache.hugegraph.type.define.DataType;
-import org.apache.hugegraph.type.define.IndexType;
-import org.apache.hugegraph.type.define.SchemaStatus;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.TextP;
@@ -130,7 +125,7 @@ public class TraversalUtilOptimizeTest {
     }
 
     @Test
-    public void testExtractHasContainerKeepsUnindexedGraphPropertyLocal() {
+    public void testExtractHasContainerKeepsMixedTextGraphHasStepLocal() {
         HugeGraph graph = Mockito.mock(HugeGraph.class);
         PropertyKey age = propertyKey(1L, "age", DataType.INT);
         PropertyKey name = propertyKey(2L, "name", DataType.TEXT);
@@ -146,184 +141,11 @@ public class TraversalUtilOptimizeTest {
 
         TraversalUtil.extractHasContainer(newStep, traversal);
 
-        Assert.assertTrue(hasContainer(newStep, T.label.getAccessor()));
+        Assert.assertFalse(hasContainer(newStep, T.label.getAccessor()));
         Assert.assertFalse(hasContainer(newStep, "age"));
         Assert.assertFalse(hasContainer(newStep, "name"));
-        Assert.assertFalse(hasStepExists(traversal, T.label.getAccessor()));
+        Assert.assertTrue(hasStepExists(traversal, T.label.getAccessor()));
         Assert.assertTrue(hasStepExists(traversal, "age"));
-        Assert.assertTrue(hasStepExists(traversal, "name"));
-    }
-
-    @Test
-    public void testExtractHasContainerKeepsRebuildingIndexPropertyLocal() {
-        HugeGraph graph = Mockito.mock(HugeGraph.class);
-        PropertyKey age = propertyKey(1L, "age", DataType.INT);
-        PropertyKey name = propertyKey(2L, "name", DataType.TEXT);
-        VertexLabel person = new VertexLabel(graph, IdGenerator.of(3L),
-                                             "person");
-        person.properties(age.id(), name.id());
-        IndexLabel ageIndex = new IndexLabel(graph, IdGenerator.of(4L),
-                                             "personByAge");
-        ageIndex.indexField(age.id());
-        ageIndex.indexType(IndexType.SECONDARY);
-        ageIndex.status(SchemaStatus.REBUILDING);
-        person.addIndexLabel(ageIndex.id());
-
-        Mockito.when(graph.propertyKey("age")).thenReturn(age);
-        Mockito.when(graph.propertyKey("name")).thenReturn(name);
-        Mockito.when(graph.vertexLabel("person")).thenReturn(person);
-        Mockito.when(graph.indexLabel(ageIndex.id())).thenReturn(ageIndex);
-
-        Traversal.Admin<?, ?> traversal = traversal(
-                __.V().has("person", "name", TextP.containing("ar")),
-                graph);
-        HasStep<?> hasStep = (HasStep<?>) traversal.getEndStep();
-        hasStep.addHasContainer(new HasContainer("age", P.eq(29)));
-        HugeGraphStep<?, ?> newStep = replaceGraphStep(traversal);
-
-        TraversalUtil.extractHasContainer(newStep, traversal);
-
-        Assert.assertTrue(hasContainer(newStep, T.label.getAccessor()));
-        Assert.assertFalse(hasContainer(newStep, "age"));
-        Assert.assertFalse(hasContainer(newStep, "name"));
-        Assert.assertFalse(hasStepExists(traversal, T.label.getAccessor()));
-        Assert.assertTrue(hasStepExists(traversal, "age"));
-        Assert.assertTrue(hasStepExists(traversal, "name"));
-    }
-
-    @Test
-    public void testPartialExtractionKeepsUniqueIndexLocal() {
-        assertPartialIndexExtraction(IndexType.UNIQUE, P.eq("marko"), false);
-    }
-
-    @Test
-    public void testPartialExtractionUsesSearchIndexForTextContains() {
-        assertPartialIndexExtraction(IndexType.SEARCH,
-                                     ConditionP.textContains("marko"), true);
-    }
-
-    @Test
-    public void testPartialExtractionKeepsMixedSearchPredicateLocal() {
-        assertPartialIndexExtraction(IndexType.SEARCH,
-                                     ConditionP.textContains("marko")
-                                               .and(P.eq("marko graph")), false);
-    }
-
-    @Test
-    public void testPartialExtractionKeepsTextContainsWithSecondaryIndexLocal() {
-        assertPartialIndexExtraction(IndexType.SECONDARY,
-                                     ConditionP.textContains("marko"), false);
-    }
-
-    @Test
-    public void testPartialExtractionKeepsCustomPredicateLocal() {
-        P<String> custom = new P<>((actual, expected) ->
-                                   actual.startsWith(expected), "m");
-        assertPartialIndexExtraction(IndexType.SECONDARY, custom, false);
-        assertPartialIndexExtraction(IndexType.SECONDARY,
-                                     P.eq("marko").and(custom), false);
-    }
-
-
-    @Test
-    public void testPartialExtractionClassifiesRelationPredicates() {
-        for (Condition.RelationType type : Condition.RelationType.values()) {
-            if (type.isSearchType()) {
-                continue;
-            }
-            Object value = type == Condition.RelationType.IN ||
-                           type == Condition.RelationType.NOT_IN ?
-                           Collections.singletonList("marko") : "marko";
-            P<Object> predicate = new P<>(type, value);
-            boolean secondary = type == Condition.RelationType.EQ ||
-                                type == Condition.RelationType.IN;
-            assertPartialIndexExtraction(IndexType.SECONDARY, predicate,
-                                         secondary);
-            if (type.isRangeType()) {
-                assertPartialIndexExtraction(IndexType.RANGE_INT,
-                                             new P<>(type, 29), true);
-            }
-        }
-    }
-
-    private static void assertPartialIndexExtraction(IndexType indexType,
-                                                     P<?> predicate,
-                                                     boolean extracted) {
-        HugeGraph graph = Mockito.mock(HugeGraph.class);
-        PropertyKey name = propertyKey(1L, "name", DataType.TEXT);
-        PropertyKey query = propertyKey(2L, "query",
-                                        indexType.isNumeric() ? DataType.INT :
-                                        DataType.TEXT);
-        VertexLabel person = new VertexLabel(graph, IdGenerator.of(3L),
-                                             "person");
-        person.properties(name.id(), query.id());
-        IndexLabel index = new IndexLabel(graph, IdGenerator.of(4L),
-                                          "personByQuery");
-        index.indexField(query.id());
-        index.indexType(indexType);
-        index.status(SchemaStatus.CREATED);
-        person.addIndexLabel(index.id());
-        Mockito.when(graph.propertyKey("name")).thenReturn(name);
-        Mockito.when(graph.propertyKey("query")).thenReturn(query);
-        Mockito.when(graph.vertexLabel("person")).thenReturn(person);
-        Mockito.when(graph.indexLabel(index.id())).thenReturn(index);
-
-        Traversal.Admin<?, ?> traversal = traversal(
-                __.V().has("person", "name", TextP.containing("ar")),
-                graph);
-        HasStep<?> hasStep = (HasStep<?>) traversal.getEndStep();
-        hasStep.addHasContainer(new HasContainer("query", predicate));
-        HugeGraphStep<?, ?> newStep = replaceGraphStep(traversal);
-
-        TraversalUtil.extractHasContainer(newStep, traversal);
-
-        Assert.assertTrue(hasContainer(newStep, T.label.getAccessor()));
-        Assert.assertEquals(extracted, hasContainer(newStep, "query"));
-        Assert.assertEquals(!extracted, hasStepExists(traversal, "query"));
-        Assert.assertTrue(hasStepExists(traversal, "name"));
-    }
-
-    @Test
-    public void testPartialGraphExtractionKeepsCustomIdPredicateLocal() {
-        HugeGraph graph = Mockito.mock(HugeGraph.class);
-        Mockito.when(graph.propertyKey("name"))
-               .thenReturn(propertyKey(1L, "name", DataType.TEXT));
-        Traversal.Admin<?, ?> traversal = traversal(
-                __.V().has("person", "name", TextP.containing("ar")),
-                graph);
-        HasStep<?> hasStep = (HasStep<?>) traversal.getEndStep();
-        P<Object> custom = new P<>((actual, expected) ->
-                                   actual.equals(expected), IdGenerator.of(1L));
-        hasStep.addHasContainer(new HasContainer(T.id.getAccessor(), custom));
-        HugeGraphStep<?, ?> newStep = replaceGraphStep(traversal);
-
-        TraversalUtil.extractHasContainer(newStep, traversal);
-
-        Assert.assertEquals(0, newStep.getIds().length);
-        Assert.assertFalse(hasContainer(newStep, T.id.getAccessor()));
-        Assert.assertTrue(hasStepExists(traversal, T.id.getAccessor()));
-        Assert.assertTrue(hasStepExists(traversal, "name"));
-    }
-
-    @Test
-    public void testPartialEdgeExtractionKeepsOrdinaryPropertyLocal() {
-        HugeGraph graph = Mockito.mock(HugeGraph.class);
-        Mockito.when(graph.propertyKey("name"))
-               .thenReturn(propertyKey(1L, "name", DataType.TEXT));
-        Mockito.when(graph.propertyKey("weight"))
-               .thenReturn(propertyKey(2L, "weight", DataType.INT));
-        Traversal.Admin<?, ?> traversal = traversal(
-                __.V().outE().has("knows", "name", TextP.containing("ar")),
-                graph);
-        HasStep<?> hasStep = (HasStep<?>) traversal.getEndStep();
-        hasStep.addHasContainer(new HasContainer("weight", P.eq(2)));
-        HugeVertexStep<?> newStep = replaceVertexStep(traversal);
-
-        TraversalUtil.extractHasContainer(newStep, traversal);
-
-        Assert.assertTrue(hasContainer(newStep, T.label.getAccessor()));
-        Assert.assertFalse(hasContainer(newStep, "weight"));
-        Assert.assertTrue(hasStepExists(traversal, "weight"));
         Assert.assertTrue(hasStepExists(traversal, "name"));
     }
 
@@ -486,7 +308,7 @@ public class TraversalUtilOptimizeTest {
     }
 
     @Test
-    public void testExtractHasContainerPartiallyExtractsVertexHasStep() {
+    public void testExtractHasContainerKeepsMixedTextVertexHasStepLocal() {
         HugeGraph graph = Mockito.mock(HugeGraph.class);
         PropertyKey age = propertyKey(1L, "age", DataType.INT);
         PropertyKey name = propertyKey(2L, "name", DataType.TEXT);
@@ -502,11 +324,11 @@ public class TraversalUtilOptimizeTest {
 
         TraversalUtil.extractHasContainer(newStep, traversal);
 
-        Assert.assertTrue(hasContainer(newStep, T.label.getAccessor()));
-        Assert.assertTrue(hasContainer(newStep, "age"));
+        Assert.assertFalse(hasContainer(newStep, T.label.getAccessor()));
+        Assert.assertFalse(hasContainer(newStep, "age"));
         Assert.assertFalse(hasContainer(newStep, "name"));
-        Assert.assertFalse(hasStepExists(traversal, T.label.getAccessor()));
-        Assert.assertFalse(hasStepExists(traversal, "age"));
+        Assert.assertTrue(hasStepExists(traversal, T.label.getAccessor()));
+        Assert.assertTrue(hasStepExists(traversal, "age"));
         Assert.assertTrue(hasStepExists(traversal, "name"));
     }
 

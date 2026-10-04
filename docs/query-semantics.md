@@ -5,15 +5,15 @@ and edge changes. Only `count()` supports this fallback; other aggregates with
 uncommitted changes are rejected. Queries that combine uncommitted changes with
 pagination, a limit, or an offset remain unsupported.
 
-Unsupported text predicates remain traversal filters. HugeGraph can still use
-label and supported indexed conditions to select candidates, then evaluates the
-text predicate locally. A missing required index is still reported as an error.
+Unsupported text predicates remain traversal filters. If any condition in a
+`HasStep` cannot be converted, the whole step remains local, including its sibling
+label, ID and property conditions. Count optimization preserves that filter step.
 
-Partial extraction keeps custom predicates that the backend cannot translate
-in traversal filters. Single search predicates use a SEARCH index; mixed search
-predicates remain local. UNIQUE indexes are
-not used for partial query extraction. For adjacent-edge queries, ordinary
-property filters remain in the traversal when a text filter is evaluated locally.
+Selective predicate pushdown, predicate-specific local ID/SEARCH matching and
+candidate-index coverage are outside this upgrade series. They are coordinated
+through [PR #2994](https://github.com/apache/hugegraph/pull/2994),
+[issue #3201](https://github.com/apache/hugegraph/issues/3201) and
+[PR #3243](https://github.com/apache/hugegraph/pull/3243).
 
 A self-loop contributes two occurrences to a vertex's `bothE()` traversal and
 one to each of `outE()`, `inE()` and the graph-wide `E()` traversal. Counts retain
@@ -27,9 +27,3 @@ A scan in the middle of a traversal is counted once per incoming traverser,
 including its bulk. It is not replaced by a single backend count. For example,
 with three vertices, `g.V().V().count()` returns `9L`, while `g.V().count()`
 returns `3L` and remains eligible for count optimization.
-
-Partial extraction classifies native `Condition.RelationType` predicates with
-the same index requirements as TinkerPop predicates: equality and membership
-can use secondary indexes, ranges require numeric indexes, and unsupported
-relations (including inequality and negative membership) remain local. The same
-supported-predicate check applies to system properties such as element IDs.

@@ -643,68 +643,27 @@ public final class TraversalUtil {
     private static boolean extractHasContainers(HugeGraphStep<?, ?> newStep,
                                                 HasContainerHolder holder) {
         HugeGraph graph = TraversalUtil.tryGetGraph(newStep);
-        if (canExtractHasContainers(graph, holder)) {
-            for (HasContainer has : holder.getHasContainers()) {
-                if (!GraphStep.processHasContainerIds(newStep, has)) {
-                    newStep.addHasContainer(has);
-                }
-            }
-            return true;
-        }
-        if (!canPartiallyExtractWithLocalTextPropertyPredicates(graph,
-                                                                holder) ||
-            hasUnsupportedLabelContainer(holder)) {
+        if (!canExtractHasContainers(graph, holder)) {
             return false;
         }
-
-        List<HasContainer> extracted = new ArrayList<>();
         for (HasContainer has : holder.getHasContainers()) {
-            if (!canExtractHasContainer(graph, has) ||
-                hasNonIndexablePredicate(has)) {
-                continue;
-            }
-            if (!isSysProp(has.getKey()) &&
-                !hasUsablePartialIndex(graph, newStep, holder, has)) {
-                continue;
-            }
             if (!GraphStep.processHasContainerIds(newStep, has)) {
                 newStep.addHasContainer(has);
             }
-            extracted.add(has);
         }
-        removeExtractedHasContainers(holder, extracted);
-        return holder.getHasContainers().isEmpty();
+        return true;
     }
 
     private static boolean extractHasContainers(HugeVertexStep<?> newStep,
                                                 HasContainerHolder holder) {
         HugeGraph graph = TraversalUtil.tryGetGraph(newStep);
-        if (canExtractHasContainers(graph, holder)) {
-            for (HasContainer has : holder.getHasContainers()) {
-                newStep.addHasContainer(has);
-            }
-            return true;
-        }
-        if (!canPartiallyExtractWithLocalTextPropertyPredicates(graph,
-                                                                holder) ||
-            hasUnsupportedLabelContainer(holder)) {
+        if (!canExtractHasContainers(graph, holder)) {
             return false;
         }
-
-        List<HasContainer> extracted = new ArrayList<>();
         for (HasContainer has : holder.getHasContainers()) {
-            if (!canExtractHasContainer(graph, has)) {
-                continue;
-            }
-            if ((newStep.returnsEdge() && !isSysProp(has.getKey())) ||
-                hasNonIndexablePredicate(has)) {
-                continue;
-            }
             newStep.addHasContainer(has);
-            extracted.add(has);
         }
-        removeExtractedHasContainers(holder, extracted);
-        return holder.getHasContainers().isEmpty();
+        return true;
     }
 
     private static boolean canExtractHasContainers(HugeGraph graph,
@@ -715,209 +674,6 @@ public final class TraversalUtil {
             }
         }
         return true;
-    }
-
-    private static boolean canPartiallyExtractWithLocalTextPropertyPredicates(
-            HugeGraph graph, HasContainerHolder holder) {
-        boolean seenLocalTextPropertyPredicate = false;
-        for (HasContainer has : holder.getHasContainers()) {
-            if (canExtractHasContainer(graph, has)) {
-                continue;
-            }
-            if (!isLocalTextPropertyPredicate(graph, has)) {
-                return false;
-            }
-            seenLocalTextPropertyPredicate = true;
-        }
-        return seenLocalTextPropertyPredicate;
-    }
-
-    private static boolean isLocalTextPropertyPredicate(HugeGraph graph,
-                                                        HasContainer has) {
-        if (graph == null || has.getKey() == null ||
-            has.getPredicate() == null || isSysProp(has.getKey()) ||
-            hasNullPredicate(has)) {
-            return false;
-        }
-
-        try {
-            PropertyKey pkey = graph.propertyKey(has.getKey());
-            return pkey != null && pkey.dataType().isText();
-        } catch (NotFoundException e) {
-            return false;
-        }
-    }
-
-    private static boolean hasUsablePartialIndex(HugeGraph graph,
-                                                 HugeGraphStep<?, ?> step,
-                                                 HasContainerHolder holder,
-                                                 HasContainer has) {
-        if (graph == null) {
-            return false;
-        }
-
-        PropertyKey pkey;
-        try {
-            pkey = graph.propertyKey(has.getKey());
-        } catch (NotFoundException e) {
-            return false;
-        }
-
-        Collection<SchemaLabel> schemaLabels =
-                partialQuerySchemaLabels(graph, step, holder);
-        boolean seen = false;
-        for (SchemaLabel schemaLabel : schemaLabels) {
-            if (!schemaLabel.properties().contains(pkey.id())) {
-                continue;
-            }
-            seen = true;
-            if (!hasSingleFieldQueryIndex(graph, schemaLabel, pkey, has)) {
-                return false;
-            }
-        }
-        return seen;
-    }
-
-    private static boolean hasNonIndexablePredicate(HasContainer has) {
-        List<P<Object>> predicates = new ArrayList<>();
-        collectPredicates(predicates, ImmutableList.of(has.getPredicate()));
-        for (P<Object> predicate : predicates) {
-            BiPredicate<?, ?> bp = predicate.getBiPredicate();
-            if (bp == Compare.neq || bp == Contains.without ||
-                !(bp instanceof Compare || bp instanceof Contains ||
-                  bp instanceof Condition.RelationType)) {
-                return true;
-            }
-            if (bp instanceof Condition.RelationType) {
-                Condition.RelationType type = (Condition.RelationType) bp;
-                if (type != Condition.RelationType.EQ &&
-                    type != Condition.RelationType.IN &&
-                    !type.isRangeType() && !type.isSearchType()) {
-                    return true;
-                }
-            }
-        }
-        return false;
-    }
-
-    private static Collection<SchemaLabel> partialQuerySchemaLabels(
-            HugeGraph graph, HugeGraphStep<?, ?> step,
-            HasContainerHolder holder) {
-        List<Object> labels = new ArrayList<>();
-        collectPositiveLabelValues(step, labels);
-        collectPositiveLabelValues(holder, labels);
-        if (labels.isEmpty()) {
-            List<SchemaLabel> schemaLabels = new ArrayList<>();
-            if (step.returnsVertex()) {
-                schemaLabels.addAll(graph.vertexLabels());
-            } else {
-                schemaLabels.addAll(graph.edgeLabels());
-            }
-            return schemaLabels;
-        }
-
-        List<SchemaLabel> schemaLabels = new ArrayList<>();
-        try {
-            for (Object label : labels) {
-                SchemaLabel schemaLabel;
-                if (label instanceof Id) {
-                    schemaLabel = step.returnsVertex() ?
-                                  graph.vertexLabel((Id) label) :
-                                  graph.edgeLabel((Id) label);
-                } else if (label instanceof String) {
-                    schemaLabel = step.returnsVertex() ?
-                                  graph.vertexLabel((String) label) :
-                                  graph.edgeLabel((String) label);
-                } else {
-                    return ImmutableList.of();
-                }
-                if (schemaLabel == null) {
-                    return ImmutableList.of();
-                }
-                schemaLabels.add(schemaLabel);
-            }
-        } catch (IllegalArgumentException e) {
-            return ImmutableList.of();
-        }
-        return schemaLabels;
-    }
-
-    private static void collectPositiveLabelValues(
-            HasContainerHolder holder, List<Object> labels) {
-        for (HasContainer has : holder.getHasContainers()) {
-            if (isPositiveLabelContainer(has)) {
-                addPositiveLabelValues(has, labels);
-            }
-        }
-    }
-
-    private static boolean hasSingleFieldQueryIndex(HugeGraph graph,
-                                                    SchemaLabel schemaLabel,
-                                                    PropertyKey pkey,
-                                                    HasContainer has) {
-        boolean requireRange = hasRangePredicate(has);
-        boolean requireSearch = hasSearchPredicate(has);
-        if (requireRange && requireSearch) {
-            return false;
-        }
-        if (requireSearch) {
-            List<P<Object>> predicates = new ArrayList<>();
-            collectPredicates(predicates, ImmutableList.of(has.getPredicate()));
-            if (predicates.size() != 1) {
-                return false;
-            }
-        }
-        for (Id id : schemaLabel.indexLabels()) {
-            IndexLabel indexLabel = indexLabelOrNull(graph, id);
-            if (indexLabel == null ||
-                !indexLabel.status().ok() ||
-                !matchSingleFieldIndex(indexLabel, pkey)) {
-                continue;
-            }
-            if (requireSearch ? indexLabel.indexType().isSearch() :
-                requireRange ? indexLabel.indexType().isNumeric() :
-                !indexLabel.indexType().isSearch() &&
-                !indexLabel.indexType().isUnique()) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private static boolean hasRangePredicate(HasContainer has) {
-        List<P<Object>> predicates = new ArrayList<>();
-        collectPredicates(predicates, ImmutableList.of(has.getPredicate()));
-        for (P<Object> predicate : predicates) {
-            BiPredicate<?, ?> bp = predicate.getBiPredicate();
-            if (bp == Compare.gt || bp == Compare.gte ||
-                bp == Compare.lt || bp == Compare.lte ||
-                bp instanceof Condition.RelationType &&
-                ((Condition.RelationType) bp).isRangeType()) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private static boolean hasSearchPredicate(HasContainer has) {
-        List<P<Object>> predicates = new ArrayList<>();
-        collectPredicates(predicates, ImmutableList.of(has.getPredicate()));
-        for (P<Object> predicate : predicates) {
-            BiPredicate<?, ?> bp = predicate.getBiPredicate();
-            if (bp instanceof Condition.RelationType &&
-                ((Condition.RelationType) bp).isSearchType()) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private static void removeExtractedHasContainers(
-            HasContainerHolder holder,
-                                                     List<HasContainer> extracted) {
-        for (HasContainer has : extracted) {
-            holder.removeHasContainer(has);
-        }
     }
 
     static boolean canExtractHasContainer(HugeGraph graph,
