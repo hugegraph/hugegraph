@@ -65,6 +65,10 @@ an executable JAR with the `exec` classifier. The distribution selects only the
 executable artifact and retains its usual `lib/hg-pd-service-<version>.jar` name;
 launch commands remain the same. Use the regular artifact for Java dependencies,
 and the `exec` classifier when resolving the bootable service directly.
+The test module's `jacoco` profile adds the distribution dependency for aggregate
+coverage at `verify`, after the executable service artifact has been packaged.
+It excludes the distribution's transitive service artifact; tests use the direct
+regular service dependency. Default pre-package test reactors omit the distribution.
 
 ### Run
 

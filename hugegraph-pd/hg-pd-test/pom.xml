@@ -41,6 +41,20 @@
             <activation>
                 <activeByDefault>false</activeByDefault>
             </activation>
+            <dependencies>
+                <!-- Aggregate at verify, after the executable service artifact is packaged. -->
+                <dependency>
+                    <groupId>org.apache.hugegraph</groupId>
+                    <artifactId>hg-pd-dist</artifactId>
+                    <version>${revision}</version>
+                    <exclusions>
+                        <exclusion>
+                            <groupId>org.apache.hugegraph</groupId>
+                            <artifactId>hg-pd-service</artifactId>
+                        </exclusion>
+                    </exclusions>
+                </dependency>
+            </dependencies>
             <build>
                 <plugins>
                     <plugin>
@@ -119,6 +133,7 @@
             <artifactId>hg-pd-service</artifactId>
             <version>${revision}</version>
         </dependency>
+
 
         <dependency>
             <groupId>com.google.code.gson</groupId>
