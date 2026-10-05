@@ -28,44 +28,60 @@ import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.SocketAddress;
-import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
-import org.apache.hugegraph.HugeException;
+import javax.script.Bindings;
+
 import org.apache.hugegraph.HugeFactory;
 import org.apache.hugegraph.HugeGraph;
 import org.apache.hugegraph.auth.HugeFactoryAuthProxy;
 import org.apache.hugegraph.config.HugeConfig;
-import org.apache.hugegraph.job.GremlinJob;
-import org.apache.hugegraph.job.JobBuilder;
 import org.apache.hugegraph.masterelection.GlobalMasterInfo;
 import org.apache.hugegraph.security.HugeSecurityManager;
-import org.apache.hugegraph.task.HugeTask;
 import org.apache.hugegraph.testutil.Assert;
 import org.apache.hugegraph.unit.FakeObjects;
-import org.apache.hugegraph.util.JsonUtil;
+import org.apache.tinkerpop.gremlin.groovy.jsr223.GremlinGroovyScriptEngine;
+import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
+import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversalSource;
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.junit.Ignore;
 import org.junit.Test;
 
-import com.google.common.collect.ImmutableMap;
-
 public class SecurityManagerTest {
 
     private static HugeGraph graph;
     private static final HugeSecurityManager sm = new HugeSecurityManager();
+    private static GremlinGroovyScriptEngine groovy;
+    private static ExecutorService groovyExecutor;
 
     @BeforeClass
     public static void init() {
         graph = loadGraph(false);
-        runGremlinJob("1 + 1");
+        // External Gremlin jobs now accept only gremlin-lang. Exercise the
+        // deployment-controlled Groovy boundary directly in this legacy test.
+        groovy = new GremlinGroovyScriptEngine();
+        groovyExecutor = Executors.newSingleThreadExecutor(runnable -> {
+            Thread thread = new Thread(runnable);
+            thread.setName("task-worker-security-test");
+            return thread;
+        });
+        runGroovyScript("1 + 1");
         System.setSecurityManager(new HugeSecurityManager());
     }
 
     @AfterClass
     public static void clear() throws Exception {
+        groovyExecutor.submit(() -> graph.tx().close())
+                      .get(30L, TimeUnit.SECONDS);
+        groovyExecutor.shutdownNow();
+        groovyExecutor.awaitTermination(30L, TimeUnit.SECONDS);
         System.setSecurityManager(null);
         graph.clearBackend();
         graph.close();
@@ -94,22 +110,22 @@ public class SecurityManagerTest {
 
     @Test
     public void testNormal() {
-        String result = runGremlinJob("g.V()");
+        String result = runGroovyScript("g.V()");
         Assert.assertEquals("[]", result);
 
-        result = runGremlinJob("1 + 2");
+        result = runGroovyScript("1 + 2");
         Assert.assertEquals("3", result);
     }
 
     @Test
     public void testPermission() {
-        String result = runGremlinJob("System.setSecurityManager(null)");
+        String result = runGroovyScript("System.setSecurityManager(null)");
         assertError(result, "Not allowed to access denied permission via Gremlin");
     }
 
     @Test
     public void testClassLoader() {
-        String result = runGremlinJob("System.getSecurityManager().checkCreateClassLoader()");
+        String result = runGroovyScript("System.getSecurityManager().checkCreateClassLoader()");
         assertError(result, "Not allowed to create class loader via Gremlin");
     }
 
@@ -117,18 +133,18 @@ public class SecurityManagerTest {
     public void testThread() {
         // access a thread group
         new Thread();
-        String result = runGremlinJob("new Thread()");
+        String result = runGroovyScript("new Thread()");
         assertError(result, "Not allowed to access thread group via Gremlin");
 
         // access thread
         Thread.currentThread().checkAccess();
-        result = runGremlinJob("Thread.currentThread().stop()");
+        result = runGroovyScript("Thread.currentThread().stop()");
         assertError(result, "Not allowed to access thread via Gremlin");
     }
 
     @Test
     public void testExit() {
-        String result = runGremlinJob("System.exit(-1)");
+        String result = runGroovyScript("System.exit(-1)");
         assertError(result, "Not allowed to call System.exit() via Gremlin");
     }
 
@@ -140,7 +156,7 @@ public class SecurityManagerTest {
         } catch (IOException ignored) {
             // ignored exception
         }
-        String result = runGremlinJob("new FileInputStream(new File(\"\"))");
+        String result = runGroovyScript("new FileInputStream(new File(\"\"))");
         assertError(result, "Not allowed to read file via Gremlin");
 
         // read file
@@ -150,18 +166,18 @@ public class SecurityManagerTest {
         } catch (IOException ignored) {
             // ignored exception
         }
-        result = runGremlinJob(String.format(
+        result = runGroovyScript(String.format(
                 "new FileInputStream(new File(\"%s\"))", pom));
         assertError(result, "(No such file or directory)");
 
         // read file fd
         @SuppressWarnings({"unused", "resource"})
         FileInputStream fis = new FileInputStream(FileDescriptor.in);
-        result = runGremlinJob("new FileInputStream(FileDescriptor.in)");
+        result = runGroovyScript("new FileInputStream(FileDescriptor.in)");
         assertError(result, "Not allowed to read fd via Gremlin");
 
         sm.checkRead("", new Object());
-        result = runGremlinJob("System.getSecurityManager()" +
+        result = runGroovyScript("System.getSecurityManager()" +
                                ".checkRead(\"\", new Object())");
         assertError(result, "Not allowed to read file via Gremlin");
 
@@ -171,23 +187,23 @@ public class SecurityManagerTest {
         } catch (IOException ignored) {
             // ignored IOException
         }
-        result = runGremlinJob("new FileOutputStream(new File(\"\"))");
+        result = runGroovyScript("new FileOutputStream(new File(\"\"))");
         assertError(result, "Not allowed to write file via Gremlin");
 
         // write file fd
         @SuppressWarnings({"unused", "resource"})
         FileOutputStream fos = new FileOutputStream(FileDescriptor.out);
-        result = runGremlinJob("new FileOutputStream(FileDescriptor.out)");
+        result = runGroovyScript("new FileOutputStream(FileDescriptor.out)");
         assertError(result, "Not allowed to write fd via Gremlin");
 
         // delete file
         new File("").delete();
-        result = runGremlinJob("new File(\"\").delete()");
+        result = runGroovyScript("new File(\"\").delete()");
         assertError(result, "Not allowed to delete file via Gremlin");
 
         // get absolute path
         new File("").getAbsolutePath();
-        result = runGremlinJob("new File(\"\").getAbsolutePath()");
+        result = runGroovyScript("new File(\"\").getAbsolutePath()");
         assertError(result, "Not allowed to access " +
                             "system property(user.dir) via Gremlin");
     }
@@ -203,7 +219,7 @@ public class SecurityManagerTest {
         } catch (IOException ignored) {
             // ignored UnsatisfiedLinkError
         }
-        String result = runGremlinJob("new ServerSocket(8200)");
+        String result = runGroovyScript("new ServerSocket(8200)");
         assertError(result, "Not allowed to listen socket via Gremlin");
 
         /*
@@ -211,7 +227,7 @@ public class SecurityManagerTest {
          * from checkListen
          */
         sm.checkAccept("localhost", 8200);
-        result = runGremlinJob("System.getSecurityManager()" +
+        result = runGroovyScript("System.getSecurityManager()" +
                                ".checkAccept(\"localhost\", 8200)");
         assertError(result, "Not allowed to accept socket via Gremlin");
 
@@ -221,32 +237,32 @@ public class SecurityManagerTest {
         } catch (ConnectException ignored) {
             // ignored ConnectException
         }
-        result = runGremlinJob("new Socket().connect(" +
+        result = runGroovyScript("new Socket().connect(" +
                                "new InetSocketAddress(\"localhost\", 8200))");
         assertError(result, "Not allowed to connect socket via Gremlin");
 
         sm.checkConnect("localhost", 8200, new Object());
-        result = runGremlinJob("System.getSecurityManager()" +
+        result = runGroovyScript("System.getSecurityManager()" +
                                ".checkConnect(\"localhost\", 8200, " +
                                "new Object())");
         assertError(result, "Not allowed to connect socket via Gremlin");
 
         sm.checkMulticast(InetAddress.getByAddress(new byte[]{0, 0, 0, 0}));
-        result = runGremlinJob("bs = [0, 0, 0, 0] as byte[];" +
+        result = runGroovyScript("bs = [0, 0, 0, 0] as byte[];" +
                                "System.getSecurityManager()" +
                                ".checkMulticast(InetAddress.getByAddress(bs))");
         assertError(result, "Not allowed to multicast via Gremlin");
 
         sm.checkMulticast(InetAddress.getByAddress(new byte[]{0, 0, 0, 0}),
                           (byte) 1);
-        result = runGremlinJob("bs = [0, 0, 0, 0] as byte[]; ttl = (byte) 1;" +
+        result = runGroovyScript("bs = [0, 0, 0, 0] as byte[]; ttl = (byte) 1;" +
                                "System.getSecurityManager()" +
                                ".checkMulticast(InetAddress.getByAddress(" +
                                "bs), ttl)");
         assertError(result, "Not allowed to multicast via Gremlin");
 
         sm.checkSetFactory();
-        result = runGremlinJob("System.getSecurityManager().checkSetFactory()");
+        result = runGroovyScript("System.getSecurityManager().checkSetFactory()");
         assertError(result, "Not allowed to set socket factory via Gremlin");
     }
 
@@ -255,7 +271,7 @@ public class SecurityManagerTest {
         Process process = Runtime.getRuntime().exec("ls");
         process.waitFor();
 
-        String result = runGremlinJob("process=Runtime.getRuntime().exec(" +
+        String result = runGroovyScript("process=Runtime.getRuntime().exec(" +
                                       "'ls'); process.waitFor()");
         assertError(result, "Not allowed to execute command via Gremlin");
     }
@@ -268,7 +284,7 @@ public class SecurityManagerTest {
             // ignored UnsatisfiedLinkError
         }
 
-        String result = runGremlinJob("Runtime.getRuntime().loadLibrary" +
+        String result = runGroovyScript("Runtime.getRuntime().loadLibrary" +
                                       "(\"test.jar\")");
         assertError(result, "Not allowed to link library via Gremlin");
     }
@@ -276,24 +292,24 @@ public class SecurityManagerTest {
     @Test
     public void testProperties() {
         System.getProperties();
-        String result = runGremlinJob("System.getProperties()");
+        String result = runGroovyScript("System.getProperties()");
         assertError(result, "Not allowed to access system properties via Gremlin");
 
         System.getProperty("java.version");
-        result = runGremlinJob("System.getProperty(\"java.version\")");
+        result = runGroovyScript("System.getProperty(\"java.version\")");
         assertError(result, "Not allowed to access system property(java.version) via Gremlin");
 
-        result = runGremlinJob("System.getProperty(\"socksProxyHost\")");
+        result = runGroovyScript("System.getProperty(\"socksProxyHost\")");
         assertError(result, "Not allowed to access system property(socksProxyHost) via Gremlin");
 
-        result = runGremlinJob("System.getProperty(\"file.encoding\")");
+        result = runGroovyScript("System.getProperty(\"file.encoding\")");
         assertError(result, "Not allowed to access system property(file.encoding) via Gremlin");
     }
 
     @Test
     public void testPrintJobAccess() {
         sm.checkPrintJobAccess();
-        String result = runGremlinJob("System.getSecurityManager()" +
+        String result = runGroovyScript("System.getSecurityManager()" +
                                       ".checkPrintJobAccess()");
         assertError(result, "Not allowed to print job via Gremlin");
     }
@@ -312,23 +328,39 @@ public class SecurityManagerTest {
         Assert.assertTrue(result, result.endsWith(message) || result.contains(message));
     }
 
-    private static String runGremlinJob(String gremlin) {
-        JobBuilder<Object> builder = JobBuilder.of(graph);
-        Map<String, Object> input = new HashMap<>();
-        input.put("gremlin", gremlin);
-        input.put("bindings", ImmutableMap.of());
-        input.put("language", "gremlin-groovy");
-        input.put("aliases", ImmutableMap.of());
-        builder.name("test-gremlin-job")
-               .input(JsonUtil.toJson(input))
-               .job(new GremlinJob());
-        HugeTask<?> task = builder.schedule();
+    private static String runGroovyScript(String script) {
         try {
-            task = graph.taskScheduler().waitUntilTaskCompleted(task.id(), 10);
+            return groovyExecutor.submit(() -> evalGroovyScript(script))
+                                  .get(10L, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return e.toString();
+        } catch (ExecutionException e) {
+            return e.getCause().toString();
         } catch (TimeoutException e) {
-            throw new HugeException("Wait for task timeout: %s", e, task);
+            return e.toString();
         }
-        return task.result();
+    }
+
+    private static String evalGroovyScript(String script) {
+        try (GraphTraversalSource g = graph.traversal()) {
+            Bindings bindings = groovy.createBindings();
+            bindings.put("g", g);
+            bindings.put("graph", graph);
+            Object result = groovy.eval(script, bindings);
+            if (result instanceof Traversal) {
+                Traversal<?, ?> traversal = (Traversal<?, ?>) result;
+                try {
+                    List<?> results = traversal.toList();
+                    return results.toString();
+                } finally {
+                    traversal.close();
+                }
+            }
+            return String.valueOf(result);
+        } catch (Exception e) {
+            return e.toString();
+        }
     }
 
     private static HugeGraph loadGraph(boolean needClear) {

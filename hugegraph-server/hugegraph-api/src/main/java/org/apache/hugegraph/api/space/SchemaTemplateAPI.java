@@ -114,6 +114,29 @@ public class SchemaTemplateAPI extends API {
         return manager.serializer().writeSchemaTemplate(template);
     }
 
+    @POST
+    @Timed
+    @Path("{name}/validate")
+    @Produces(APPLICATION_JSON_WITH_CHARSET)
+    @RolesAllowed({"space_member", "$dynamic"})
+    public Object validate(@Context GraphManager manager,
+                           @PathParam("graphspace") String graphSpace,
+                           @PathParam("name") String name) {
+        LOG.debug("Validate schema template '{}' for graph space '{}'",
+                  name, graphSpace);
+        ensurePdModeEnabled(manager);
+
+        SchemaTemplate template = schemaTemplate(manager, graphSpace, name);
+        try {
+            manager.validateSchemaTemplate(template.schema());
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException(String.format(
+                      "Schema template '%s' is invalid: %s",
+                      name, e.getMessage()), e);
+        }
+        return ImmutableMap.of("name", name, "valid", true);
+    }
+
     @DELETE
     @Timed
     @Path("{name}")

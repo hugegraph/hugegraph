@@ -19,23 +19,28 @@
 
 package org.apache.hugegraph.traversal.optimize;
 
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
 
 import javax.script.Bindings;
-import javax.script.ScriptEngine;
 import javax.script.ScriptException;
 
 import org.apache.hugegraph.HugeException;
-import org.apache.tinkerpop.gremlin.jsr223.SingleGremlinScriptEngineManager;
+import org.apache.hugegraph.security.HugeGraphGremlinLangScriptEngine;
+import org.apache.hugegraph.security.HugeGraphGremlinLangScriptEngineFactory;
+import org.apache.tinkerpop.gremlin.jsr223.Customizer;
+import org.apache.tinkerpop.gremlin.jsr223.GremlinLangPlugin;
+import org.apache.tinkerpop.gremlin.jsr223.VariableResolverPlugin;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.TraversalSource;
-import org.apache.tinkerpop.gremlin.process.traversal.TraversalStrategy;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversalSource;
 import org.apache.tinkerpop.gremlin.process.traversal.util.DefaultTraversal;
 
 /**
- * ScriptTraversal encapsulates a {@link ScriptEngine} and a script which is
- * compiled into a {@link Traversal} at {@link Admin#applyStrategies()}.
+ * HugeScriptTraversal parses a GremlinLang query into a {@link Traversal} at
+ * {@link Admin#applyStrategies()} through HugeGraph's protected engine.
  * <p>
  * This is useful for serializing traversals as the compilation can happen on
  * the remote end where the traversal will ultimately be processed.
@@ -46,21 +51,48 @@ public final class HugeScriptTraversal<S, E> extends DefaultTraversal<S, E> {
 
     private static final long serialVersionUID = 4617322697747299673L;
 
+    private final GraphTraversalSource traversalSource;
     private final String script;
-    private final String language;
     private final Map<String, Object> bindings;
-    private final Map<String, String> aliases;
 
     private Object result;
 
-    public HugeScriptTraversal(TraversalSource traversalSource, String language, String script,
-                               Map<String, Object> bindings, Map<String, String> aliases) {
+    public HugeScriptTraversal(TraversalSource traversalSource, String script,
+                               Map<String, Object> bindings,
+                               Map<String, String> aliases) {
+        org.apache.hugegraph.util.E.checkNotNull(traversalSource,
+                                                 "traversal source");
+        org.apache.hugegraph.util.E.checkNotNull(script, "gremlin script");
+        org.apache.hugegraph.util.E.checkNotNull(bindings,
+                                                 "gremlin bindings");
+        org.apache.hugegraph.util.E.checkNotNull(aliases, "gremlin aliases");
+        org.apache.hugegraph.util.E.checkArgument(
+                traversalSource instanceof GraphTraversalSource,
+                "The traversal source must be a GraphTraversalSource");
+        org.apache.hugegraph.util.E.checkArgument(
+                aliases.isEmpty(),
+                "Gremlin aliases are not supported by gremlin-lang");
         this.graph = traversalSource.getGraph();
-        this.language = language;
+        this.traversalSource = (GraphTraversalSource) traversalSource;
+        this.strategies = traversalSource.getStrategies().clone();
         this.script = script;
         this.bindings = bindings;
-        this.aliases = aliases;
         this.result = null;
+    }
+
+    /**
+     * Kept for callers compiled against the former language-selecting API.
+     * The language can no longer select an arbitrary JSR-223 engine.
+     */
+    @Deprecated
+    public HugeScriptTraversal(TraversalSource traversalSource, String language,
+                               String script, Map<String, Object> bindings,
+                               Map<String, String> aliases) {
+        this(traversalSource, script, bindings, aliases);
+        org.apache.hugegraph.util.E.checkArgument(
+                HugeGraphGremlinLangScriptEngineFactory.ENGINE_NAME.equals(
+                        language),
+                "The language must be 'gremlin-lang', but got '%s'", language);
     }
 
     public Object result() {
@@ -73,31 +105,18 @@ public final class HugeScriptTraversal<S, E> extends DefaultTraversal<S, E> {
 
     @Override
     public void applyStrategies() throws IllegalStateException {
-        ScriptEngine engine = SingleGremlinScriptEngineManager.get(this.language);
-
-        Bindings bindings = engine.createBindings();
-        bindings.putAll(this.bindings);
-
-        @SuppressWarnings("rawtypes")
-        TraversalStrategy[] strategies = this.getStrategies().toList()
-                                             .toArray(new TraversalStrategy[0]);
-        GraphTraversalSource g = this.graph.traversal();
-        if (strategies.length > 0) {
-            g = g.withStrategies(strategies);
-        }
-        bindings.put("g", g);
-        bindings.put("graph", this.graph);
-
-        for (Map.Entry<String, String> entry : this.aliases.entrySet()) {
-            Object value = bindings.get(entry.getValue());
-            if (value == null) {
-                throw new IllegalArgumentException(String.format("Invalid alias '%s':'%s'",
-                                                                 entry.getKey(), entry.getValue()));
-            }
-            bindings.put(entry.getKey(), value);
-        }
+        HugeGraphGremlinLangScriptEngineFactory factory =
+                new HugeGraphGremlinLangScriptEngineFactory(customizers());
+        HugeGraphGremlinLangScriptEngine engine = factory.getScriptEngine();
 
         try {
+            Bindings bindings = engine.createBindings();
+            bindings.putAll(this.bindings);
+
+            GraphTraversalSource protectedSource =
+                    engine.add(this.traversalSource.clone());
+            bindings.put("g", protectedSource);
+
             Object result = engine.eval(this.script, bindings);
 
             if (result instanceof Admin) {
@@ -112,6 +131,28 @@ public final class HugeScriptTraversal<S, E> extends DefaultTraversal<S, E> {
             super.applyStrategies();
         } catch (ScriptException e) {
             throw new HugeException(e.getMessage(), e);
+        } finally {
+            engine.clear();
         }
+    }
+
+    private static Customizer[] customizers() {
+        List<Customizer> customizers = new ArrayList<>();
+        GremlinLangPlugin gremlinLang = GremlinLangPlugin.build()
+                                                          .cacheEnabled(false)
+                                                          .create();
+        customizers.addAll(Arrays.asList(
+                gremlinLang.getCustomizers(
+                        HugeGraphGremlinLangScriptEngineFactory.ENGINE_NAME)
+                           .get()));
+        VariableResolverPlugin variables =
+                VariableResolverPlugin.build()
+                                      .resolver("DefaultVariableResolver")
+                                      .create();
+        customizers.addAll(Arrays.asList(
+                variables.getCustomizers(
+                        HugeGraphGremlinLangScriptEngineFactory.ENGINE_NAME)
+                         .get()));
+        return customizers.toArray(new Customizer[0]);
     }
 }

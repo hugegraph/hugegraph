@@ -463,6 +463,10 @@ public class BusinessHandlerImpl implements BusinessHandler {
 
     @Override
     public GraphStoreIterator scan(ScanPartitionRequest spr) throws HgStoreException {
+        if (!spr.getScanRequest().getCondition().isEmpty()) {
+            throw new HgStoreException(
+                    "String scan condition is no longer supported");
+        }
         return new GraphStoreIterator(scanOriginal(spr), spr);
     }
 

@@ -38,6 +38,7 @@ import org.apache.hugegraph.store.grpc.Graphpb.ScanResponse;
 
 import com.google.protobuf.Descriptors;
 
+import io.grpc.Status;
 import io.grpc.stub.StreamObserver;
 import lombok.extern.slf4j.Slf4j;
 
@@ -47,6 +48,8 @@ public class ScanResponseObserver<T> implements
 
     private static final int BATCH_SIZE = 100000;
     private static final int MAX_PAGE = 8; //
+    private static final String CONDITION_UNSUPPORTED =
+            "String scan condition is no longer supported";
     private static final Error ok = Error.newBuilder().setType(ErrorType.OK).build();
     private static final ResponseHeader okHeader =
             ResponseHeader.newBuilder().setError(ok).build();
@@ -149,6 +152,13 @@ public class ScanResponseObserver<T> implements
         if (scanReq.hasScanRequest() && !scanReq.hasReplyRequest()) {
             this.scanReq = scanReq;
             Request request = scanReq.getScanRequest();
+            if (!request.getCondition().isEmpty()) {
+                close();
+                sender.onError(Status.UNIMPLEMENTED
+                                     .withDescription(CONDITION_UNSUPPORTED)
+                                     .asRuntimeException());
+                return;
+            }
             long rl = request.getLimit();
             leftCount = rl > 0 ? rl : Long.MAX_VALUE;
             iter = handler.scan(scanReq);
@@ -185,7 +195,9 @@ public class ScanResponseObserver<T> implements
                 readTask.cancel(true);
             }
             readOver.set(true);
-            iter.close();
+            if (iter != null) {
+                iter.close();
+            }
         } catch (Exception e) {
             log.warn("on Complete with error:", e);
         }

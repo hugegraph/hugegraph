@@ -24,6 +24,7 @@ import java.util.Map;
 
 import org.apache.hugegraph.backend.query.Query;
 import org.apache.hugegraph.exception.LimitExceedException;
+import org.apache.hugegraph.security.HugeGraphGremlinLangScriptEngineFactory;
 import org.apache.hugegraph.traversal.optimize.HugeScriptTraversal;
 import org.apache.hugegraph.util.E;
 import org.apache.hugegraph.util.JsonUtil;
@@ -31,7 +32,6 @@ import org.apache.hugegraph.util.JsonUtil;
 public class GremlinJob extends UserJob<Object> {
 
     public static final String TASK_TYPE = "gremlin";
-    public static final String TASK_BIND_NAME = "gremlinJob";
     public static final int TASK_RESULTS_MAX_SIZE = (int) Query.DEFAULT_CAPACITY;
 
     @Override
@@ -61,6 +61,11 @@ public class GremlinJob extends UserJob<Object> {
         E.checkArgument(value instanceof String,
                         "Invalid language value '%s'", value);
         String language = (String) value;
+        E.checkArgument(
+                HugeGraphGremlinLangScriptEngineFactory.ENGINE_NAME.equals(
+                        language),
+                "Invalid language value '%s', only 'gremlin-lang' is supported",
+                language);
 
         value = map.get("aliases");
         E.checkArgument(value instanceof Map,
@@ -68,12 +73,8 @@ public class GremlinJob extends UserJob<Object> {
         @SuppressWarnings("unchecked")
         Map<String, String> aliases = (Map<String, String>) value;
 
-        bindings.put(TASK_BIND_NAME, new GremlinJobProxy());
-
         HugeScriptTraversal<?, ?> traversal = new HugeScriptTraversal<>(
-                this.graph().traversal(),
-                language, gremlin,
-                bindings, aliases);
+                this.graph().traversal(), gremlin, bindings, aliases);
         List<Object> results = new ArrayList<>();
         long capacity = Query.defaultCapacity(Query.NO_CAPACITY);
         try {
@@ -107,25 +108,6 @@ public class GremlinJob extends UserJob<Object> {
             throw new LimitExceedException(
                     "Job results size %s has exceeded the max limit %s",
                     size, TASK_RESULTS_MAX_SIZE);
-        }
-    }
-
-    /**
-     * Used by gremlin script
-     */
-    @SuppressWarnings("unused")
-    private class GremlinJobProxy {
-
-        public void setMinSaveInterval(long seconds) {
-            GremlinJob.this.setMinSaveInterval(seconds);
-        }
-
-        public void updateProgress(int progress) {
-            GremlinJob.this.updateProgress(progress);
-        }
-
-        public int progress() {
-            return GremlinJob.this.progress();
         }
     }
 }

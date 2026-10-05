@@ -89,7 +89,7 @@ public class TaskApiTest extends BaseApiTest {
 
     @Test
     public void testGetWithoutResult() {
-        int taskId = this.gremlinJob("1 + 2");
+        int taskId = this.gremlinJob("g.inject(3)");
 
         waitTaskSuccess(taskId);
 
@@ -165,14 +165,14 @@ public class TaskApiTest extends BaseApiTest {
     }
 
     private int gremlinJob() {
-        return this.gremlinJob("Thread.sleep(1000L)");
+        return this.gremlinJob("g.inject(1).repeat(__.identity())." +
+                               "emit().times(800000)");
     }
 
     private int gremlinJob(String gremlin) {
         String body = "{" +
                       "\"gremlin\":\"" + gremlin + "\"," +
                       "\"bindings\":{}," +
-                      "\"language\":\"gremlin-groovy\"," +
                       "\"aliases\":{}}";
         String path = "/graphspaces/DEFAULT/graphs/hugegraph/jobs/gremlin";
         String content = assertResponseStatus(201, client().post(path, body));

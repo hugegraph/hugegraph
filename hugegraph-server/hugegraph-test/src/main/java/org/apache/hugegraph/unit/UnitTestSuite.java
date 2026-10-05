@@ -33,6 +33,7 @@ import org.apache.hugegraph.unit.api.auth.LoginAPITest;
 import org.apache.hugegraph.unit.api.filter.LoadDetectFilterTest;
 import org.apache.hugegraph.unit.api.filter.PathFilterTest;
 import org.apache.hugegraph.unit.api.gremlin.GremlinQueryAPITest;
+import org.apache.hugegraph.unit.api.job.GremlinAPIRequestTest;
 import org.apache.hugegraph.unit.api.space.GraphSpaceAPITest;
 import org.apache.hugegraph.unit.auth.HugeGraphAuthProxyTest;
 import org.apache.hugegraph.unit.cache.CacheManagerTest;
@@ -76,6 +77,7 @@ import org.apache.hugegraph.unit.rocksdb.RocksDBCountersTest;
 import org.apache.hugegraph.unit.rocksdb.RocksDBSessionTest;
 import org.apache.hugegraph.unit.rocksdb.RocksDBSessionsTest;
 import org.apache.hugegraph.unit.rocksdb.RocksDBTableQueryByIdsTest;
+import org.apache.hugegraph.unit.schema.RestrictedSchemaTemplateParserTest;
 import org.apache.hugegraph.unit.serializer.BinaryBackendEntryTest;
 import org.apache.hugegraph.unit.serializer.BinaryScatterSerializerTest;
 import org.apache.hugegraph.unit.serializer.BinarySerializerTest;
@@ -88,6 +90,7 @@ import org.apache.hugegraph.unit.serializer.TextBackendEntryTest;
 import org.apache.hugegraph.unit.serializer.TextSerializerTest;
 import org.apache.hugegraph.unit.security.HugeGraphGremlinLangScriptEngineTest;
 import org.apache.hugegraph.unit.store.RamIntObjectMapTest;
+import org.apache.hugegraph.unit.traversal.optimize.HugeScriptTraversalTest;
 import org.apache.hugegraph.unit.util.CompressUtilTest;
 import org.apache.hugegraph.unit.util.JsonUtilTest;
 import org.apache.hugegraph.unit.util.RateLimiterTest;
@@ -111,6 +114,7 @@ import org.junit.runners.Suite;
 
         /* api gremlin */
         GremlinQueryAPITest.class,
+        GremlinAPIRequestTest.class,
         CypherClientTest.class,
         GremlinLangRequestGuardTest.class,
         WsAndHttpBasicAuthHandlerTest.class,
@@ -173,6 +177,9 @@ import org.junit.runners.Suite;
         SchemaElementTest.class,
         HugeGraphTestInfrastructureTest.class,
 
+        /* schema */
+        RestrictedSchemaTemplateParserTest.class,
+
         /* cmd */
         InitStoreConfigTest.class,
 
@@ -193,6 +200,9 @@ import org.junit.runners.Suite;
 
         /* security */
         HugeGraphGremlinLangScriptEngineTest.class,
+
+        /* traversal.optimize */
+        HugeScriptTraversalTest.class,
 
         /* rocksdb */
         RocksDBSessionsTest.class,

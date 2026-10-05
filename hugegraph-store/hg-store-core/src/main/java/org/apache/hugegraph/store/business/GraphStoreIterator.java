@@ -24,12 +24,6 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
 
-import javax.script.Bindings;
-import javax.script.CompiledScript;
-import javax.script.ScriptEngineManager;
-import javax.script.ScriptException;
-
-import org.apache.commons.lang.StringUtils;
 import org.apache.hugegraph.backend.BackendColumn;
 import org.apache.hugegraph.id.Id;
 import org.apache.hugegraph.rocksdb.access.RocksDBSession;
@@ -51,12 +45,10 @@ import org.apache.hugegraph.structure.BaseProperty;
 import org.apache.hugegraph.structure.BaseVertex;
 import org.apache.hugegraph.type.HugeType;
 import org.apache.hugegraph.util.Blob;
-import org.codehaus.groovy.jsr223.GroovyScriptEngineImpl;
 
 import com.google.protobuf.ByteString;
 import com.google.protobuf.Descriptors;
 
-import groovy.lang.MissingMethodException;
 import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
@@ -76,10 +68,7 @@ public class GraphStoreIterator<T> extends AbstractSelectIterator
     private Vertex.Builder vertex;
     private Edge.Builder edge;
     private ArrayList<RocksDBSession.BackendColumn> data;
-    private GroovyScriptEngineImpl engine;
-    private CompiledScript script;
     private BaseElement current;
-    private Exception stopCause;
 
     public GraphStoreIterator(ScanIterator iterator,
                               ScanPartitionRequest scanRequest) {
@@ -103,16 +92,6 @@ public class GraphStoreIterator<T> extends AbstractSelectIterator
                 properties.add(i);
             }
         }
-        String condition = request.getCondition();
-        if (!StringUtils.isEmpty(condition)) {
-            ScriptEngineManager factory = new ScriptEngineManager();
-            engine = (GroovyScriptEngineImpl) factory.getEngineByName("groovy");
-            try {
-                script = engine.compile(condition);
-            } catch (ScriptException e) {
-                log.error("create script with error:", e);
-            }
-        }
     }
 
     private BaseElement getElement(RocksDBSession.BackendColumn next) {
@@ -126,31 +105,8 @@ public class GraphStoreIterator<T> extends AbstractSelectIterator
                 RocksDBSession.BackendColumn next = this.iter.next();
                 BaseElement element = getElement(next);
                 try {
-                    boolean evalResult = true;
-                    if (isVertex) {
-                        BaseVertex el = (BaseVertex) element;
-                        if (engine != null) {
-                            Bindings bindings = engine.createBindings();
-                            bindings.put("element", el);
-                            evalResult = (boolean) script.eval(bindings);
-                        }
-                    } else {
-                        BaseEdge el = (BaseEdge) element;
-                        if (engine != null) {
-                            Bindings bindings = engine.createBindings();
-                            bindings.put("element", el);
-                            evalResult = (boolean) script.eval(bindings);
-                        }
-                    }
-                    if (!evalResult) {
-                        continue;
-                    }
                     current = element;
                     return true;
-                } catch (ScriptException | MissingMethodException se) {
-                    stopCause = se;
-                    log.error("get next with error which cause to stop:", se);
-                    return false;
                 } catch (Exception e) {
                     log.error("get next with error:", e);
                 }
@@ -338,7 +294,12 @@ public class GraphStoreIterator<T> extends AbstractSelectIterator
         iter.close();
     }
 
+    /**
+     * Script evaluation has been removed, so the iterator no longer has a
+     * script-specific stop cause. Kept for binary compatibility.
+     */
+    @Deprecated
     public Exception getStopCause() {
-        return stopCause;
+        return null;
     }
 }

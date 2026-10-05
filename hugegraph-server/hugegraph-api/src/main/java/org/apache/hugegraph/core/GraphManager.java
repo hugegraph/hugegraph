@@ -103,6 +103,8 @@ import org.apache.hugegraph.rpc.RpcServer;
 import org.apache.hugegraph.serializer.JsonSerializer;
 import org.apache.hugegraph.serializer.Serializer;
 import org.apache.hugegraph.server.RestServer;
+import org.apache.hugegraph.schema.RestrictedSchemaTemplateParser;
+import org.apache.hugegraph.schema.SchemaTemplateExecutor;
 import org.apache.hugegraph.space.GraphSpace;
 import org.apache.hugegraph.space.SchemaTemplate;
 import org.apache.hugegraph.space.Service;
@@ -111,7 +113,6 @@ import org.apache.hugegraph.space.register.dto.ServiceDTO;
 import org.apache.hugegraph.space.register.registerImpl.PdRegister;
 import org.apache.hugegraph.task.TaskManager;
 import org.apache.hugegraph.testutil.Whitebox;
-import org.apache.hugegraph.traversal.optimize.HugeScriptTraversal;
 import org.apache.hugegraph.type.define.CollectionType;
 import org.apache.hugegraph.type.define.GraphMode;
 import org.apache.hugegraph.type.define.GraphReadMode;
@@ -422,22 +423,8 @@ public final class GraphManager {
         }
     }
 
-    public static void prepareSchema(HugeGraph graph, String gremlin) {
-        Map<String, Object> bindings = ImmutableMap.of(
-                "graph", graph,
-                "schema", graph.schema());
-        HugeScriptTraversal<?, ?> traversal = new HugeScriptTraversal<>(
-                graph.traversal(),
-                "gremlin-groovy", gremlin,
-                bindings, ImmutableMap.of());
-        while (traversal.hasNext()) {
-            traversal.next();
-        }
-        try {
-            traversal.close();
-        } catch (Exception e) {
-            throw new HugeException("Failed to init schema", e);
-        }
+    public static void prepareSchema(HugeGraph graph, String template) {
+        SchemaTemplateExecutor.execute(graph, template);
     }
 
     private KvStore kvStoreInit() {
@@ -2335,6 +2322,7 @@ public final class GraphManager {
                                     "standalone (non-PD) mode");
         }
         checkSchemaTemplateName(template.name());
+        validateSchemaTemplate(template.schema());
         this.metaManager.addSchemaTemplate(graphSpace, template);
     }
 
@@ -2351,7 +2339,12 @@ public final class GraphManager {
             throw new HugeException("Schema templates are not supported in " +
                                     "standalone (non-PD) mode");
         }
+        validateSchemaTemplate(template.schema());
         this.metaManager.updateSchemaTemplate(graphSpace, template);
+    }
+
+    public void validateSchemaTemplate(String schema) {
+        RestrictedSchemaTemplateParser.validate(schema);
     }
 
     private static void checkSchemaTemplateName(String name) {
