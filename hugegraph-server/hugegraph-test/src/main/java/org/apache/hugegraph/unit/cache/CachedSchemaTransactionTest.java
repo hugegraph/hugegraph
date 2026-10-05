@@ -297,7 +297,7 @@ public class CachedSchemaTransactionTest extends BaseUnitTest {
     }
 
     @Test
-    public void testLastCloseRemovesSchemaCacheListener() throws Exception {
+    public void testGraphCloseRemovesSchemaCacheListener() throws Exception {
         ConcurrentMap<String, Object> registry = schemaCacheEventListeners();
         String graphName = this.params.spaceGraphName();
         CachedSchemaTransaction owner = this.cache();
@@ -314,13 +314,17 @@ public class CachedSchemaTransactionTest extends BaseUnitTest {
         this.cache = null;
         this.params.schemaTransaction().close();
 
+        Assert.assertTrue(registry.containsKey(graphName));
+        Assert.assertTrue(this.params.schemaEventHub()
+                                     .listeners(Events.CACHE)
+                                     .contains(registered));
+
+        this.graph.clearBackend();
+        this.graph.close();
         Assert.assertFalse(registry.containsKey(graphName));
         Assert.assertFalse(this.params.schemaEventHub()
                                       .listeners(Events.CACHE)
                                       .contains(registered));
-
-        this.graph.clearBackend();
-        this.graph.close();
         this.graph = null;
 
         HugeGraph reopened = HugeFactory.open(FakeObjects.newConfig());

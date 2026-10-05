@@ -66,9 +66,8 @@ public final class CachedGraphTransaction extends GraphTransaction {
     private static final long AVG_EDGE_ENTRY_SIZE = 100L;
 
     /*
-     * Listener lifetime must cover all active transactions for the graph.
-     * The holder is removed from the registry and unregistered from EventHub
-     * only when the last transaction releases it.
+     * Retain graph caches and invalidation listeners between request leases.
+     * Only graph close disposes the holder.
      */
     private static final ConcurrentMap<String, CacheListenerHolder>
             GRAPH_CACHE_EVENT_LISTENERS = new ConcurrentHashMap<>();
@@ -158,10 +157,12 @@ public final class CachedGraphTransaction extends GraphTransaction {
             return false;
         };
         BackendStoreProvider provider = this.store().provider();
+        EventHub graphEventHub = this.params().graphEventHub();
         String graphName = this.params().spaceGraphName();
         StoreListenerHolder storeAcquired = STORE_EVENT_LISTENERS.compute(
                 graphName, (key, existing) -> {
-                    if (existing == null || existing.provider != provider) {
+                    if (existing == null || existing.provider != provider ||
+                        existing.hub != graphEventHub) {
                         // Graph close/reopen creates a new provider for the
                         // same graph name; replace the stale holder. Old
                         // transactions skip decrement via identity check.
@@ -169,7 +170,7 @@ public final class CachedGraphTransaction extends GraphTransaction {
                             existing.provider.unlisten(existing.listener);
                         }
                         provider.listen(storeListener);
-                        return new StoreListenerHolder(storeListener, provider);
+                        return new StoreListenerHolder(storeListener, provider, graphEventHub);
                     }
                     existing.refCount++;
                     return existing;
@@ -223,7 +224,6 @@ public final class CachedGraphTransaction extends GraphTransaction {
             }
             return false;
         };
-        EventHub graphEventHub = this.params().graphEventHub();
         CacheListenerHolder acquired = GRAPH_CACHE_EVENT_LISTENERS.compute(
                 graphName, (key, existing) -> {
                     if (existing == null || existing.hub != graphEventHub) {
@@ -231,11 +231,11 @@ public final class CachedGraphTransaction extends GraphTransaction {
                         // same graph name; replace the stale holder. Old
                         // transactions skip decrement via identity check.
                         if (existing != null) {
-                            existing.hub.unlisten(Events.CACHE,
-                                                  existing.listener);
+                            existing.close();
                         }
                         graphEventHub.listen(Events.CACHE, listener);
-                        return new CacheListenerHolder(listener, graphEventHub);
+                        return new CacheListenerHolder(listener, graphEventHub,
+                                                       () -> this.clearCache(null, false));
                     }
                     existing.refCount++;
                     return existing;
@@ -253,10 +253,6 @@ public final class CachedGraphTransaction extends GraphTransaction {
                     return existing;
                 }
                 existing.refCount--;
-                if (existing.refCount == 0) {
-                    existing.hub.unlisten(Events.CACHE, existing.listener);
-                    return null;
-                }
                 return existing;
             });
             this.holder = null;
@@ -269,14 +265,30 @@ public final class CachedGraphTransaction extends GraphTransaction {
                     return existing;
                 }
                 existing.refCount--;
-                if (existing.refCount == 0) {
-                    existing.provider.unlisten(existing.listener);
-                    return null;
-                }
                 return existing;
             });
             this.storeHolder = null;
         }
+    }
+
+    public static void closeGraph(HugeGraphParams params) {
+        GRAPH_CACHE_EVENT_LISTENERS.computeIfPresent(params.spaceGraphName(), (key, existing) -> {
+            if (existing.hub != params.graphEventHub()) {
+                return existing;
+            }
+            try {
+                existing.close();
+            } finally {
+                STORE_EVENT_LISTENERS.computeIfPresent(key, (storeKey, storeHolder) -> {
+                    if (storeHolder.hub != params.graphEventHub()) {
+                        return storeHolder;
+                    }
+                    storeHolder.provider.unlisten(storeHolder.listener);
+                    return null;
+                });
+            }
+            return null;
+        });
     }
 
     private void notifyChanges(String action, HugeType type, Id[] ids) {
@@ -533,24 +545,24 @@ public final class CachedGraphTransaction extends GraphTransaction {
     }
 
     /*
-     * Listener lifetime must cover all active transactions for the graph.
-     * The holder is removed from the registry and unregistered from the
-     * BackendStoreProvider only when the last transaction releases it.
-     * Mirror of CacheListenerHolder for the store event path.
+     * Store invalidation outlives request leases just like the graph cache.
+     * The hub identifies the graph generation even when a provider is pooled.
      */
     private static final class StoreListenerHolder {
 
         final EventListener listener;
         final BackendStoreProvider provider;
+        final EventHub hub;
         // Must only be read or written inside ConcurrentMap.compute() for the
         // enclosing registry; ConcurrentHashMap.compute() serialises per-key
         // access.
         int refCount;
 
         StoreListenerHolder(EventListener listener,
-                            BackendStoreProvider provider) {
+                            BackendStoreProvider provider, EventHub hub) {
             this.listener = listener;
             this.provider = provider;
+            this.hub = hub;
             this.refCount = 1;
         }
     }

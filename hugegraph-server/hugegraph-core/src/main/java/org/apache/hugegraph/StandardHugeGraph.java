@@ -1112,8 +1112,19 @@ public class StandardHugeGraph implements HugeGraph {
             this.closeTx();
         } finally {
             this.closed = true;
-            this.storeProvider.close();
-            LockUtil.destroy(this.spaceGraphName());
+            try {
+                CachedGraphTransaction.closeGraph(this.params);
+            } finally {
+                try {
+                    CachedSchemaTransaction.closeGraph(this.params);
+                } finally {
+                    try {
+                        this.storeProvider.close();
+                    } finally {
+                        LockUtil.destroy(this.spaceGraphName());
+                    }
+                }
+            }
         }
 
         // Make sure that all transactions are closed in all threads

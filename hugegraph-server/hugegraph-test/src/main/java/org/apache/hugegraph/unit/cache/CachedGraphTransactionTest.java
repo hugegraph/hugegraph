@@ -357,7 +357,7 @@ public class CachedGraphTransactionTest extends BaseUnitTest {
     }
 
     @Test
-    public void testLastCloseRemovesStoreListener() throws Exception {
+    public void testGraphCloseRemovesStoreListener() throws Exception {
         ConcurrentMap<String, Object> storeListeners = storeEventListeners();
 
         String graphName = this.params.spaceGraphName();
@@ -374,6 +374,11 @@ public class CachedGraphTransactionTest extends BaseUnitTest {
         this.cache = null;
         this.params.graphTransaction().close();
 
+        Assert.assertSame(holder, storeListeners.get(graphName));
+        Assert.assertEquals(0, holderRefCount(holder));
+        this.graph.clearBackend();
+        this.graph.close();
+        this.graph = null;
         Assert.assertFalse(storeListeners.containsKey(graphName));
     }
 
@@ -473,14 +478,18 @@ public class CachedGraphTransactionTest extends BaseUnitTest {
         this.cache = null;
         this.params.graphTransaction().close();
 
-        // Last close drops the registry entry and unregisters the listener.
+        // Request leases may end while the graph caches remain warm.
+        Assert.assertTrue(storeListeners.containsKey(graphName));
+        Assert.assertTrue(provider.storeEventHub()
+                                  .listeners(EventHub.ANY_EVENT)
+                                  .contains(registered));
+
+        this.graph.clearBackend();
+        this.graph.close();
         Assert.assertFalse(storeListeners.containsKey(graphName));
         Assert.assertFalse(provider.storeEventHub()
                                    .listeners(EventHub.ANY_EVENT)
                                    .contains(registered));
-
-        this.graph.clearBackend();
-        this.graph.close();
         this.graph = null;
 
         HugeGraph reopened = HugeFactory.open(FakeObjects.newConfig());
@@ -505,7 +514,7 @@ public class CachedGraphTransactionTest extends BaseUnitTest {
     }
 
     @Test
-    public void testLastCloseRemovesGraphCacheListener() throws Exception {
+    public void testGraphCloseRemovesGraphCacheListener() throws Exception {
         ConcurrentMap<String, Object> cacheListeners =
                 graphCacheEventListeners();
         String graphName = this.params.spaceGraphName();
@@ -523,13 +532,17 @@ public class CachedGraphTransactionTest extends BaseUnitTest {
         this.cache = null;
         this.params.graphTransaction().close();
 
+        Assert.assertTrue(cacheListeners.containsKey(graphName));
+        Assert.assertTrue(this.params.graphEventHub()
+                                     .listeners(Events.CACHE)
+                                     .contains(registered));
+
+        this.graph.clearBackend();
+        this.graph.close();
         Assert.assertFalse(cacheListeners.containsKey(graphName));
         Assert.assertFalse(this.params.graphEventHub()
                                       .listeners(Events.CACHE)
                                       .contains(registered));
-
-        this.graph.clearBackend();
-        this.graph.close();
         this.graph = null;
 
         HugeGraph reopened = HugeFactory.open(FakeObjects.newConfig());

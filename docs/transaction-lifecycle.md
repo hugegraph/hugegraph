@@ -26,3 +26,5 @@ A normal aggregate-query request half-close ends feedback without cancelling alr
 
 See the [Store shutdown instructions](../hugegraph-store/README.md#stopping-a-store-node)
 and the Server [module test guidance](../hugegraph-server/AGENTS.md#tests).
+
+Shared schema and element caches retain their invalidation listeners until the graph closes. Request cleanup releases backend leases while preserving those graph caches and their schema identity.
