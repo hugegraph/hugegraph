@@ -1234,27 +1234,107 @@ public final class TraversalUtil {
         List<HasContainer> containers = new ArrayList<>(holder.getHasContainers());
         // Use the existing extraction contract to identify a whole local HasStep.
         boolean localIds = !canExtractHasContainers(graph, holder);
-        boolean updated = false;
         for (int i = 0; i < containers.size(); i++) {
-            HasContainer has = containers.get(i);
-            if (localIds && T.id.getAccessor().equals(has.getKey())) {
-                // UUID literals in local ID filters must match the provider's
-                // UuidId; preserve string and numeric comparisons.
-                P<?> predicate = has.getPredicate().clone();
+            HasContainer original = containers.get(i);
+            // P.clone() shares named bindings in TP 3.8. Resolve into a fresh
+            // execution predicate before conversion so setValue() cannot clear
+            // the caller's bindings or those of a previously cloned traversal.
+            P<?> predicate = copyResolvedPredicate(original.getPredicate());
+            HasContainer has;
+            if (localIds && T.id.getAccessor().equals(original.getKey())) {
                 updateLocalIdPredicate(predicate);
-                containers.set(i, new HasContainer(has.getKey(), predicate));
-                updated = true;
+                has = new LocalIdHasContainer(predicate);
             } else {
+                has = new HasContainer(original.getKey(), predicate);
                 convPredicateValue(graph, has);
             }
+            containers.set(i, has);
         }
-        if (updated) {
-            for (HasContainer has : new ArrayList<>(holder.getHasContainers())) {
-                holder.removeHasContainer(has);
+        for (HasContainer has : new ArrayList<>(holder.getHasContainers())) {
+            holder.removeHasContainer(has);
+        }
+        for (HasContainer has : containers) {
+            holder.addHasContainer(has);
+        }
+    }
+
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private static P<?> copyResolvedPredicate(P<?> predicate) {
+        if (predicate == null) {
+            return null;
+        }
+        if (predicate instanceof NotP) {
+            return new NotP(copyResolvedPredicate(((NotP<?>) predicate).negate()));
+        }
+        if (predicate instanceof ConnectiveP) {
+            List<P<Object>> children = new ArrayList<>();
+            for (P<?> child : ((ConnectiveP<?>) predicate).getPredicates()) {
+                children.add((P<Object>) copyResolvedPredicate(child));
             }
-            for (HasContainer has : containers) {
-                holder.addHasContainer(has);
+            return predicate instanceof AndP ? new AndP<>(children) : new OrP<>(children);
+        }
+        if (!predicate.isParameterized()) {
+            // Preserve TextP and custom literal predicate implementations.
+            // Their empty bindings can be shared safely: setValue() replaces
+            // the clone's literals without changing the original's values.
+            return predicate.clone();
+        }
+        Object value = predicate.getValue();
+        if (value instanceof Collection) {
+            value = new ArrayList<>((Collection<?>) value);
+        }
+        return new P((PBiPredicate) predicate.getBiPredicate(), value);
+    }
+
+    private static final class LocalIdHasContainer extends HasContainer {
+
+        private LocalIdHasContainer(P<?> predicate) {
+            super(T.id.getAccessor(), predicate);
+        }
+
+        @Override
+        protected boolean testId(Element element) {
+            return testIdPredicate(this.getPredicate(), element);
+        }
+
+        @Override
+        protected boolean testIdAsString(Element element) {
+            return testIdPredicate(this.getPredicate(), element);
+        }
+
+        private static boolean testIdPredicate(P<?> predicate, Element element) {
+            if (predicate instanceof NotP) {
+                return !testIdPredicate(((NotP<?>) predicate).negate(), element);
             }
+            if (predicate instanceof ConnectiveP) {
+                boolean conjunction = predicate instanceof AndP;
+                for (P<?> child : ((ConnectiveP<?>) predicate).getPredicates()) {
+                    if (testIdPredicate(child, element) != conjunction) {
+                        return !conjunction;
+                    }
+                }
+                return conjunction;
+            }
+            if (predicate.getBiPredicate() instanceof Contains) {
+                Collection<?> values = (Collection<?>) predicate.getValue();
+                boolean stringIds = values.stream().allMatch(value -> value == null || value instanceof String);
+                if (!stringIds) {
+                    // Mixed collections use typed IDs. Keep numeric operands as
+                    // Numbers so Compare.eq() does not truncate fractional IDs.
+                    Object id = element.id();
+                    for (Object value : values) {
+                        Object actual = id instanceof IdGenerator.StringId && value instanceof String ?
+                                        ((Id) id).asString() : id;
+                        if (Compare.eq.test(actual, value)) {
+                            return predicate.getBiPredicate() == Contains.within;
+                        }
+                    }
+                    return predicate.getBiPredicate() == Contains.without;
+                }
+            }
+            // Pure String collections use the standard string-ID mode.
+            // Numeric, custom and type predicates retain their native operand.
+            return new HasContainer(T.id.getAccessor(), predicate).test(element);
         }
     }
 

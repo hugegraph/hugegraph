@@ -54,7 +54,8 @@ serializers:
   - className: org.apache.tinkerpop.gremlin.util.ser.GraphSONUntypedMessageSerializerV1
     config:
       serializeResultToString: false
-      ioRegistries: [org.apache.hugegraph.io.HugeGraphIoRegistry]
+      ioRegistries: [org.apache.hugegraph.io.HugeGraphIoRegistry,
+                     org.apache.hugegraph.io.HugeGraphSONV1MessageIoRegistry]
 ```
 
 The full ordering is in `gremlin-server.yaml`; the config test checks that
@@ -65,7 +66,19 @@ replacement for untyped serialization of every HugeGraph schema or graph
 object. GraphSON V1 uses legacy `@class` metadata; V2/V3 use `@type`/`@value`.
 
 GraphBinary uses `HugeGraphTypeSerializerRegistryBuilder` to write HugeGraph IDs
-as their underlying values. Cypher results normalize HugeGraph IDs, including
+as their underlying values. Schema results use standard maps and Blob values use
+standard binary values (`ByteBuffer` in the Java Driver), including when nested
+in returned vertices, edges or collections. `Optional` results carry their value
+or `null` when empty, including results from `graph.variables().get()`. `File`
+results retain the map shape `{"file": "name"}` using the file name, including
+inside nested results. Untyped GraphSON V1 keeps the legacy Tree array of `key`/`value`
+entries and accepts scalar as well as element keys through the additional
+`HugeGraphSONV1MessageIoRegistry` in that serializer's configuration. Keep this
+registry limited to untyped V1 messages. Standard graph-file IO and typed
+GraphSON serializers keep `HugeGraphIoRegistry` alone and use the TinkerPop
+Tree format for their negotiated version.
+
+Cypher results normalize HugeGraph IDs, including
 values nested in collections, maps and paths. Cyclic results and nesting deeper
 than 32 levels are rejected.
 
@@ -79,6 +92,9 @@ This TinkerPop 3.8.1 upgrade uses SnakeYAML 2.2, Spring Boot 2.5.15 and
 Spring Framework 5.3.27. The Boot patch keeps PD and Store's YAML startup
 loader compatible with SnakeYAML 2.x. These versions belong to the upgraded
 runtime; do not apply the SnakeYAML override to a TinkerPop 3.5.1 deployment.
+The runtime also manages Jackson YAML 2.15.2 so Fabric8 can read kubeconfig
+with SnakeYAML 2.2. Store's Log4j SLF4J binding and CLI logging use 2.18.0;
+Store Node retains its Boot-managed Log4j core version.
 
 Quota templates and PD-delivered Store configuration accept standard YAML
 maps, lists and scalars. Custom Java object tags such as `!!com.example.Type`
@@ -122,6 +138,26 @@ inside negated or connective predicates. Its type operands are preserved without
 schema value conversion. Missing properties do not match, including when the
 type predicate is negated. Type filters do not use backend indexes on their own.
 The new TinkerPop step APIs are adapted without discarding property metadata.
+
+Named `GValue` predicates retain their bindings when reused or cloned, and
+`updateVariable()` applies when the predicate builds subsequent traversals. Explicit named
+`limit()`/`range()` bounds have the same count behavior as literal bounds.
+Local String ID comparisons retain their leaf semantics inside `not`, `and`
+and `or` predicates. Mixed ID collections retain the typed matches of
+strings, numbers and UUIDs when a filter stays local; all-string collections
+keep standard string-ID comparison behavior. Fractional numeric IDs are not
+truncated to integer IDs.
+
+Count filtering is only truncated when every predicate branch has a supported
+bound that preserves the filter result. Unsupported negated collection or
+custom predicate branches keep the complete count, including inside `and` or
+`or` conditions.
+
+DATE schema properties accept TinkerPop `OffsetDateTime` values for writes and
+indexed equality or range queries. Values normalize by instant to the existing
+`java.util.Date` millisecond representation; offsets do not change the stored
+instant, and sub-millisecond precision is truncated. Existing DATE data needs
+no migration.
 
 ## Read-only upgrade smoke
 

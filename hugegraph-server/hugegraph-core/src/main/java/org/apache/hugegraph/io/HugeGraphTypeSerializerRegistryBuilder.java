@@ -17,9 +17,25 @@
 
 package org.apache.hugegraph.io;
 
+import java.io.File;
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.function.Function;
 
 import org.apache.hugegraph.backend.id.Id;
+import org.apache.hugegraph.schema.EdgeLabel;
+import org.apache.hugegraph.schema.IndexLabel;
+import org.apache.hugegraph.schema.PropertyKey;
+import org.apache.hugegraph.schema.SchemaElement;
+import org.apache.hugegraph.schema.VertexLabel;
+import org.apache.hugegraph.type.define.HugeKeys;
+import org.apache.hugegraph.util.Blob;
 import org.apache.tinkerpop.gremlin.structure.io.Buffer;
 import org.apache.tinkerpop.gremlin.structure.io.binary.GraphBinaryReader;
 import org.apache.tinkerpop.gremlin.structure.io.binary.GraphBinaryWriter;
@@ -32,41 +48,104 @@ public final class HugeGraphTypeSerializerRegistryBuilder
         extends TypeSerializerRegistry.Builder {
 
     private static final TypeSerializer<Id> ID_TRANSFORM_SERIALIZER =
-            new IdTransformSerializer();
+            new WireTransformSerializer<>(Id::asObject);
+    private static final TypeSerializer<Blob> BLOB_TRANSFORM_SERIALIZER =
+            new WireTransformSerializer<>(blob -> ByteBuffer.wrap(blob.bytes()));
+    private static final TypeSerializer<SchemaElement> SCHEMA_TRANSFORM_SERIALIZER =
+            new WireTransformSerializer<>(HugeGraphTypeSerializerRegistryBuilder::schemaMap);
+
+    private static final TypeSerializer<Optional<?>> OPTIONAL_TRANSFORM_SERIALIZER =
+            new WireTransformSerializer<>(optional -> optional.orElse(null));
+    private static final TypeSerializer<File> FILE_TRANSFORM_SERIALIZER =
+            new WireTransformSerializer<>(file -> Map.of("file", file.getName()));
 
     public HugeGraphTypeSerializerRegistryBuilder() {
         this.withFallbackResolver(type -> {
             if (Id.class.isAssignableFrom(type)) {
                 return ID_TRANSFORM_SERIALIZER;
             }
+            if (Blob.class.isAssignableFrom(type)) {
+                return BLOB_TRANSFORM_SERIALIZER;
+            }
+            if (SchemaElement.class.isAssignableFrom(type)) {
+                return SCHEMA_TRANSFORM_SERIALIZER;
+            }
+            if (Optional.class.isAssignableFrom(type)) {
+                return OPTIONAL_TRANSFORM_SERIALIZER;
+            }
+            if (File.class.isAssignableFrom(type)) {
+                return FILE_TRANSFORM_SERIALIZER;
+            }
             return null;
         });
     }
 
-    private static final class IdTransformSerializer
-            extends SimpleTypeSerializer<Id>
-            implements TransformSerializer<Id> {
+    private static Map<String, Object> schemaMap(SchemaElement schema) {
+        // Use the same field names and values as the existing GraphSON schema API.
+        GraphSONSchemaSerializer serializer = new GraphSONSchemaSerializer();
+        Map<HugeKeys, Object> fields;
+        if (schema instanceof PropertyKey) {
+            fields = serializer.writePropertyKey((PropertyKey) schema);
+        } else if (schema instanceof VertexLabel) {
+            fields = serializer.writeVertexLabel((VertexLabel) schema);
+        } else if (schema instanceof EdgeLabel) {
+            fields = serializer.writeEdgeLabel((EdgeLabel) schema);
+        } else if (schema instanceof IndexLabel) {
+            fields = serializer.writeIndexLabel((IndexLabel) schema);
+        } else {
+            throw new IllegalArgumentException("Unsupported schema type: " + schema.getClass());
+        }
+        Map<String, Object> result = new LinkedHashMap<>();
+        fields.forEach((key, value) -> result.put(key.string(), schemaValue(value)));
+        return result;
+    }
 
-        private IdTransformSerializer() {
+    private static Object schemaValue(Object value) {
+        if (value instanceof Enum) {
+            return ((Enum<?>) value).name();
+        }
+        if (value instanceof Map) {
+            Map<Object, Object> result = new LinkedHashMap<>();
+            ((Map<?, ?>) value).forEach((key, item) -> result.put(schemaValue(key), schemaValue(item)));
+            return result;
+        }
+        if (value instanceof Collection) {
+            List<Object> result = new ArrayList<>(((Collection<?>) value).size());
+            for (Object item : (Collection<?>) value) {
+                result.add(schemaValue(item));
+            }
+            return result;
+        }
+        return value;
+    }
+
+    private static final class WireTransformSerializer<T>
+            extends SimpleTypeSerializer<T>
+            implements TransformSerializer<T> {
+
+        private final Function<T, Object> transform;
+
+        private WireTransformSerializer(Function<T, Object> transform) {
             super(null);
+            this.transform = transform;
         }
 
         @Override
-        protected Id readValue(Buffer buffer, GraphBinaryReader context)
+        protected T readValue(Buffer buffer, GraphBinaryReader context)
                 throws IOException {
-            throw new IOException("HugeGraph Id is written as a wire primitive");
+            throw new IOException("HugeGraph value is written as a standard wire value");
         }
 
         @Override
-        protected void writeValue(Id value, Buffer buffer,
+        protected void writeValue(T value, Buffer buffer,
                                   GraphBinaryWriter context)
                 throws IOException {
-            throw new IOException("HugeGraph Id is written as a wire primitive");
+            throw new IOException("HugeGraph value is written as a standard wire value");
         }
 
         @Override
-        public Object transform(Id value) {
-            return value.asObject();
+        public Object transform(T value) {
+            return this.transform.apply(value);
         }
     }
 }

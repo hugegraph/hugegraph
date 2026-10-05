@@ -18,9 +18,11 @@
 package org.apache.hugegraph.core;
 
 import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -133,6 +135,80 @@ public class TinkerPop37StepsCoreTest extends BaseCoreTest {
                             graph().traversal()
                                    .inject(Arrays.asList(1, 2, 3))
                                    .any(P.eq(2)).next());
+    }
+
+    @Test
+    public void testOffsetDateTimeQueryOnExistingDateSchema() {
+        SchemaManager schema = graph().schema();
+        schema.propertyKey("birthday").asDate().create();
+        schema.vertexLabel("dated").properties("birthday").create();
+        schema.indexLabel("datedByBirthday").onV("dated")
+              .by("birthday").range().create();
+        OffsetDateTime time = OffsetDateTime.parse("2023-08-02T08:00:00.123456789+08:00");
+        Date date = Date.from(time.toInstant());
+        Vertex first = graph().addVertex(T.label, "dated", "birthday", date);
+        Vertex later = graph().addVertex(T.label, "dated", "birthday",
+                                         Date.from(time.plusDays(1).toInstant()));
+        commitTx();
+        Assert.assertEquals(Collections.singletonList(first.id()),
+                            graph().traversal().V().hasLabel("dated")
+                                   .has("birthday", date).id().toList());
+        Assert.assertEquals(Collections.singletonList(later.id()),
+                            graph().traversal().V().hasLabel("dated")
+                                   .has("birthday", P.gt(date)).id().toList());
+        Assert.assertEquals(Collections.singletonList(first.id()),
+                            graph().traversal().V().hasLabel("dated")
+                                   .has("birthday", time).id().toList());
+        Assert.assertEquals(Collections.singletonList(later.id()),
+                            graph().traversal().V().hasLabel("dated")
+                                   .has("birthday", P.gt(time)).id().toList());
+    }
+
+    @Test
+    public void testOffsetDateTimeWithDateSchemaAndRangeIndex() {
+        SchemaManager schema = graph().schema();
+        schema.propertyKey("birthday").asDate().create();
+        schema.vertexLabel("dated").properties("birthday").create();
+        schema.indexLabel("datedByBirthday").onV("dated")
+              .by("birthday").range().create();
+
+        OffsetDateTime time = graph().traversal()
+                                     .inject("2023-08-02T08:00:00.123456789+08:00")
+                                     .asDate().next();
+        Date expected = Date.from(time.toInstant());
+        Vertex legacy = graph().addVertex(T.label, "dated", "birthday", expected);
+        commitTx();
+        Assert.assertEquals(expected, graph().traversal().V(legacy.id())
+                                            .values("birthday").next());
+        Assert.assertEquals(Collections.singletonList(legacy.id()),
+                            graph().traversal().V().hasLabel("dated")
+                                   .has("birthday", expected).id().toList());
+
+        Vertex modern = graph().addVertex(T.label, "dated", "birthday", time);
+        Vertex later = graph().traversal().addV("dated")
+                              .property("birthday", time.plusDays(1)).next();
+        commitTx();
+        Assert.assertEquals(expected, graph().traversal().V(modern.id())
+                                            .values("birthday").next());
+        Assert.assertEquals(Date.from(time.plusDays(1).toInstant()),
+                            graph().traversal().V(later.id()).values("birthday").next());
+        Assert.assertEquals(setOf(legacy.id(), modern.id()),
+                            asSet(graph().traversal().V().hasLabel("dated")
+                                         .has("birthday", time).id().toList()));
+        Assert.assertEquals(setOf(legacy.id(), modern.id()),
+                            asSet(graph().traversal().V().hasLabel("dated")
+                                         .has("birthday", time.withOffsetSameInstant(
+                                                 ZoneOffset.UTC)).id().toList()));
+        Assert.assertEquals(Collections.singletonList(later.id()),
+                            graph().traversal().V().hasLabel("dated")
+                                   .has("birthday", P.gt(time)).id().toList());
+        Assert.assertEquals(setOf(legacy.id(), modern.id()),
+                            asSet(graph().traversal().V().hasLabel("dated")
+                                         .has("birthday", P.gte(time).and(
+                                                 P.lt(time.plusDays(1)))).id().toList()));
+        Assert.assertEquals(Collections.singletonList(later.id()),
+                            graph().traversal().V().hasLabel("dated")
+                                   .has("birthday", P.gt(expected)).id().toList());
     }
 
     @Test

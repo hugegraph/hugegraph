@@ -21,6 +21,7 @@ import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -31,6 +32,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.regex.Matcher;
@@ -40,12 +42,17 @@ import java.util.stream.Stream;
 import org.apache.hugegraph.backend.id.EdgeId;
 import org.apache.hugegraph.backend.id.Id;
 import org.apache.hugegraph.backend.id.IdGenerator;
+import org.apache.hugegraph.io.HugeGraphIoRegistry;
+import org.apache.hugegraph.schema.PropertyKey;
 import org.apache.hugegraph.structure.HugeEdge;
 import org.apache.hugegraph.structure.HugeFeatures;
 import org.apache.hugegraph.structure.HugeVertex;
+import org.apache.hugegraph.type.define.DataType;
 import org.apache.hugegraph.testutil.Assert;
 import org.apache.hugegraph.unit.BaseUnitTest;
 import org.apache.hugegraph.unit.FakeObjects;
+import org.apache.hugegraph.util.Blob;
+import org.apache.hugegraph.util.JsonUtil;
 import org.apache.tinkerpop.gremlin.driver.Result;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.step.util.MutablePath;
@@ -53,6 +60,9 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.util.Tree;
 import org.apache.tinkerpop.gremlin.server.Settings;
 import org.apache.tinkerpop.gremlin.structure.Edge;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
+import org.apache.tinkerpop.gremlin.structure.io.graphson.GraphSONMapper;
+import org.apache.tinkerpop.gremlin.structure.io.graphson.GraphSONVersion;
+import org.apache.tinkerpop.gremlin.structure.io.graphson.TypeInfo;
 import org.apache.tinkerpop.gremlin.structure.util.detached.DetachedEdge;
 import org.apache.tinkerpop.gremlin.structure.util.detached.DetachedProperty;
 import org.apache.tinkerpop.gremlin.structure.util.detached.DetachedVertex;
@@ -528,6 +538,168 @@ public class GremlinConfigCompatibilityTest extends BaseUnitTest {
         Assert.assertContains("properties", pathJson);
         Assert.assertContains("tom", pathJson);
         Assert.assertContains("0.75", pathJson);
+    }
+
+    @Test
+    public void testDriverConfigsReturnOptionalAndFile() throws Exception {
+        Settings.SerializerSettings serverSettings = readGremlinServerSettings()
+                                                    .serializers.get(0);
+        MessageSerializer<?> server = newMessageSerializer(serverSettings.className);
+        server.configure(config(serverSettings.config), Collections.emptyMap());
+        File file = new File("some/directory/test.text");
+        List<Object> values = Arrays.asList(Optional.of("present"), Optional.empty(),
+                                           file, Optional.of(file),
+                                           Optional.of(Optional.of("nested")));
+        List<Object> expected = Arrays.asList("present", null,
+                                             Map.of("file", "test.text"),
+                                             Map.of("file", "test.text"), "nested");
+        List<Object> response = Arrays.asList(values, Map.of("values", values));
+        for (String config : DRIVER_CONFIGS) {
+            RemoteSerializerSettings settings = readRemoteSerializerSettings(config);
+            MessageSerializer<?> client = newMessageSerializer(settings.className);
+            client.configure(config(settings.config), Collections.emptyMap());
+            List<?> results = (List<?>) roundTripBinaryResponse(server, client, response)
+                                       .getResult().getData();
+            Assert.assertEquals(config, expected, results.get(0));
+            Assert.assertEquals(config, Map.of("values", expected), results.get(1));
+        }
+    }
+
+    @Test
+    public void testDriverConfigsReturnSchemaAndBlob() throws Exception {
+        Settings.SerializerSettings serverSettings = readGremlinServerSettings()
+                                                    .serializers.get(0);
+        MessageSerializer<?> server = newMessageSerializer(serverSettings.className);
+        server.configure(config(serverSettings.config), Collections.emptyMap());
+        PropertyKey schema = new FakeObjects().newPropertyKey(IdGenerator.of(1L), "name");
+        byte[] bytes = new byte[]{0, 1, (byte) 255};
+        Blob blob = Blob.wrap(bytes);
+        DetachedVertex vertex = DetachedVertex.build().setId("blob-one").setLabel("document")
+                .addProperty(DetachedVertexProperty.build().setId(1L)
+                        .setLabel("blob").setValue(blob).create()).create();
+        schema.userdata("nested", Map.of("kind", DataType.BLOB, "values", Arrays.asList(DataType.TEXT, blob)));
+        DetachedEdge edge = DetachedEdge.build().setId("blob-edge").setLabel("link")
+                .setOutV(vertex).setInV(vertex)
+                .addProperty(new DetachedProperty<>("blob", blob)).create();
+        List<Object> expected = Arrays.asList(schema, blob, vertex,
+                                             Collections.singletonMap("nested", Arrays.asList(schema, blob)), edge);
+        for (String file : DRIVER_CONFIGS) {
+            RemoteSerializerSettings settings = readRemoteSerializerSettings(file);
+            MessageSerializer<?> client = newMessageSerializer(settings.className);
+            client.configure(config(settings.config), Collections.emptyMap());
+            List<?> results = (List<?>) roundTripBinaryResponse(server, client, expected)
+                                       .getResult().getData();
+            Map<?, ?> actualSchema = (Map<?, ?>) results.get(0);
+            Assert.assertEquals(file, "name", actualSchema.get("name"));
+            Assert.assertEquals(file, "TEXT", actualSchema.get("data_type"));
+            Assert.assertEquals(file, 1L, actualSchema.get("id"));
+            Map<?, ?> userdata = (Map<?, ?>) ((Map<?, ?>) actualSchema.get("user_data")).get("nested");
+            Assert.assertEquals("BLOB", userdata.get("kind"));
+            Assert.assertEquals(Arrays.asList("TEXT", ByteBuffer.wrap(bytes)), userdata.get("values"));
+            Assert.assertEquals(ByteBuffer.wrap(bytes), results.get(1));
+            Vertex actualVertex = new Result(results.get(2)).getVertex();
+            Assert.assertEquals(file, "blob-one", actualVertex.id());
+            Assert.assertEquals(ByteBuffer.wrap(bytes), actualVertex.value("blob"));
+            List<?> nested = (List<?>) ((Map<?, ?>) results.get(3)).get("nested");
+            Assert.assertEquals(file, actualSchema, nested.get(0));
+            Assert.assertEquals(ByteBuffer.wrap(bytes), nested.get(1));
+            Edge actualEdge = new Result(results.get(4)).getEdge();
+            Assert.assertEquals("blob-edge", actualEdge.id());
+            Assert.assertEquals(ByteBuffer.wrap(bytes), actualEdge.value("blob"));
+        }
+    }
+
+    @Test
+    public void testDefaultGraphSONTreeRetainsArrayShapeAndScalarKeys() throws Exception {
+        MessageTextSerializer<?> serializer = newTextSerializer(GRAPHSON_UNTYPED_V1);
+        serializer.configure(config(graphSONV1Config(readGremlinServerSettings())), Collections.emptyMap());
+        Tree<Object> scalar = new Tree<>();
+        scalar.put("marko", new Tree<>());
+        Map<?, ?> response = JsonUtil.fromJson(serializeResponse(serializer, scalar), Map.class);
+        Object data = ((Map<?, ?>) response.get("result")).get("data");
+        Assert.assertEquals(Collections.singletonList(Map.of("key", "marko", "value", Collections.emptyList())),
+                            data);
+        response = JsonUtil.fromJson(serializeResponse(serializer, elementTree()), Map.class);
+        List<?> entries = (List<?>) ((Map<?, ?>) response.get("result")).get("data");
+        Assert.assertEquals(1, entries.size());
+        Map<?, ?> entry = (Map<?, ?>) entries.get(0);
+        Assert.assertEquals(Set.of("key", "value"), entry.keySet());
+        Assert.assertEquals("person", ((Map<?, ?>) entry.get("key")).get("label"));
+        Assert.assertContains("marko", serializeResponse(serializer, elementTree()));
+        List<?> children = (List<?>) entry.get("value");
+        Assert.assertEquals(1, children.size());
+        Assert.assertEquals(Collections.emptyList(), ((Map<?, ?>) children.get(0)).get("value"));
+    }
+
+    @Test
+    public void testTypedGraphSONTreesRoundTripScalarElementAndNestedKeys() throws Exception {
+        Tree<Object> scalar = new Tree<>();
+        Tree<Object> nested = new Tree<>();
+        nested.put(123L, new Tree<>());
+        scalar.put("marko", nested);
+        int serializers = 0;
+        for (Settings.SerializerSettings setting : readGremlinServerSettings().serializers) {
+            if (!setting.className.startsWith(SERIALIZER_PACKAGE + "GraphSONMessageSerializer")) {
+                continue;
+            }
+            MessageTextSerializer<?> serializer = newTextSerializer(setting.className);
+            serializer.configure(config(setting.config), Collections.emptyMap());
+            if (setting.className.endsWith("GraphSONMessageSerializerV1")) {
+                // V1's legacy typed format returns ID-keyed maps, rather than a Tree.
+                Map<?, ?> elements = (Map<?, ?>) roundTripResponse(serializer, elementTree()).getResult().getData();
+                Assert.assertEquals(1, elements.size());
+                Map<?, ?> entry = (Map<?, ?>) elements.values().iterator().next();
+                Map<?, ?> vertex = (Map<?, ?>) entry.get("key");
+                Assert.assertEquals("person", vertex.get("label"));
+                Assert.assertContains("marko", JsonUtil.toJson(vertex));
+                Assert.assertInstanceOf(Map.class, entry.get("value"));
+                serializers++;
+                continue;
+            }
+            Object data = roundTripResponse(serializer, scalar).getResult().getData();
+            Assert.assertInstanceOf(Tree.class, data);
+            Assert.assertEquals(scalar, data);
+            Tree<?> elements = (Tree<?>) roundTripResponse(serializer, elementTree()).getResult().getData();
+            Assert.assertEquals(1, elements.size());
+            Vertex vertex = (Vertex) elements.keySet().iterator().next();
+            Assert.assertEquals("marko", vertex.value("name"));
+            Tree<?> children = (Tree<?>) elements.get(vertex);
+            Assert.assertEquals(1, children.size());
+            Edge edge = (Edge) children.keySet().iterator().next();
+            Assert.assertEquals(0.5D, (Double) edge.value("weight"), 0.0D);
+            serializers++;
+        }
+        Assert.assertEquals(3, serializers);
+    }
+
+    @Test
+    public void testStandardGraphSONV1IoTreeRetainsIdKeyedMap() throws Exception {
+        org.apache.tinkerpop.shaded.jackson.databind.ObjectMapper mapper = GraphSONMapper.build()
+                .version(GraphSONVersion.V1_0).typeInfo(TypeInfo.NO_TYPES)
+                .addRegistry(HugeGraphIoRegistry.instance()).create().createMapper();
+        Tree<Object> tree = elementTree();
+        String json = mapper.writeValueAsString(tree);
+        Map<?, ?> result = mapper.readValue(json, HashMap.class);
+        String id = ((Vertex) tree.keySet().iterator().next()).id().toString();
+        Assert.assertEquals(Collections.singleton(id), result.keySet());
+        Map<?, ?> entry = (Map<?, ?>) result.get(id);
+        Assert.assertEquals(Set.of("key", "value"), entry.keySet());
+        Assert.assertEquals("person", ((Map<?, ?>) entry.get("key")).get("label"));
+        Assert.assertInstanceOf(Map.class, entry.get("value"));
+    }
+
+    @Test
+    public void testLegacyTreeRegistryIsOnlyUsedByUntypedGraphSONV1() throws Exception {
+        String registry = "org.apache.hugegraph.io.HugeGraphSONV1MessageIoRegistry";
+        for (String variant : GREMLIN_SERVER_CONFIG_VARIANTS) {
+            Settings settings = Settings.read(serverAssemblyPath().resolve(variant).toString());
+            for (Settings.SerializerSettings serializer : settings.serializers) {
+                List<?> registries = (List<?>) serializer.config.get("ioRegistries");
+                Assert.assertEquals(variant + ": " + serializer.className,
+                                    GRAPHSON_UNTYPED_V1.equals(serializer.className),
+                                    registries.contains(registry));
+            }
+        }
     }
 
     @Test

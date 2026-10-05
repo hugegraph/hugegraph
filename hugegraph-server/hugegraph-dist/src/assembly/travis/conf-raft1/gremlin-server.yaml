@@ -84,7 +84,8 @@ serializers:
   - {className: org.apache.tinkerpop.gremlin.util.ser.GraphSONUntypedMessageSerializerV1,
      config: {
        serializeResultToString: false,
-       ioRegistries: [org.apache.hugegraph.io.HugeGraphIoRegistry]
+       ioRegistries: [org.apache.hugegraph.io.HugeGraphIoRegistry,
+                      org.apache.hugegraph.io.HugeGraphSONV1MessageIoRegistry]
      }
   }
   - {className: org.apache.tinkerpop.gremlin.util.ser.GraphSONUntypedMessageSerializerV2,
