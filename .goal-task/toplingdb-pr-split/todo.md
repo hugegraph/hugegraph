@@ -1,17 +1,19 @@
 # 当前执行项 · 2026-10-05
 
-用户已恢复，入口见 [handoff-current.md](handoff-current.md)。不沿用旧四级 stacked PR 的交付范围。
+用户已恢复，入口见 [handoff-current.md](handoff-current.md)。不沿用旧四级 stack 范围。
 
 | 项目 | 当前结果 | 剩余工作 |
 | --- | --- | --- |
-| P1 / master | 已合入并同步核对 | 新 PR 始终核对最新 master；不追加 P1 |
-| TP 核心 #266 | 基于 master 独立建立并及时推送；完整格式、编译、聚焦测试、三普通发行包通过 | 最终真实 PD/Store TP、Server 标准/TP、HStore 三组件验收；更新 body、CI 与 review 状态 |
-| 生命周期 #261 | 普通 scan、receipt、half-close/client、cleanup 日志节流已验证推送；前三及节流评论已 resolve | ordering 争议留回复；active query/scan/TTL + 阻塞 callback 的真实服务关闭验收；确认可供用户 review 时及时通知 |
-| 恢复 #263 / 新替代 | 原四评论已解决；已确认独立 follow-up | UUID checkpoint 失败清理、savedWal 损坏校验；从 master 提取干净范围，不发布回归 source008 |
-| 旧 integration #264 | 将由 #266 及专用 distributions/Docker 后续替代 | 逐评论映射，不把移出范围写成已修复；保留另一会话 d577 新修复 |
-| 专用 distributions → Docker | 用户认可独立拓扑 | 在核心之后小 PR，避免重新继承通用大改造 |
-| 网站 #510 | 两语言指南已收窄匹配 #266，完整内容和必要验收通过推送 | 复核 comment 及最终配对交付，不 claim release/JNI 合规 |
-| JNI 许可/正式发布链 | 用户明确后置 | 不阻塞本轮功能验证，不称已完成审查 |
-| 证据/资源/context | 旧冗余已清理；失败 native 材料保留 | 成功运行清理自己的容器；收敛当前记录并同步专用 records 分支 |
+| P1 / master | 已合入并同步核对 | 新PR核最新master，不追加P1 |
+| 核心 #266 | 三组件/普通包/实际std+TP服务及HStore验收通过，独立review完成 | 最新两运行review已修复验证推送并resolve；等当前head CI和用户review |
+| 规范 #268 | 从266拆出，2文件直接master，policy评论resolve | 全格式覆盖修正已推并回复；GraphQL额度恢复后resolve最后一条，独立评审/合入 |
+| 生命周期 #261 | 普通scan/query/重启、blockedcallback timeout保PID+释放完成通过；已解决comments resolve，ordering争议回复 | TTL严格重叠未验证；master既有codec问题独立跟进；门槛完成后提醒用户review合入 |
+| 恢复 #267 | clean master12文件，所有新修复审查、wholecompile/native/crash/physicalparentbind通过，已推 | 当前CI、review；父根挂载及旧pending升级约束须评审 |
+| 旧恢复 #263 | 已close由267替代，checkpoint评论resolve，分支保留 | 无当前合入入口 |
+| 旧集成 #264 | OPEN拆分源，原20thread逐条回复去向；其他协作持续提交 | 保留并发内容；专用包/Docker分别迁出，不把后置建议称已修复 |
+| 专用 distributions → Docker | 用户认可小PR独立拓扑 | 核心后逐个交付，不重新绑通用改造 |
+| 网站 #510 | 匹配核心，中英/链接/严格fresh产物/浏览器验收，剩余两comments resolve | 配对review/merge，不称release/JNI合规完成 |
+| JNI 许可/正式发布 | 用户后置 | 独立后续，不称已完成 |
+| 资源/context | 已审计删旧冗余和恢复targets/诊断停止容器，失败数据完整保留 | 核心最终targets已收敛，推最新专用records |
 
-已完成/正在运行的 source/hash、产物、命令和证据位置只在 handoff-current 与本机 evidence 保存，不将大日志、数据库或流水账混入功能 PR。
+源/hash、命令及证据只保存在当前handoff和本机evidence；大日志/数据库不进入功能PR。

@@ -1,15 +1,16 @@
 # ToplingDB PR 拆分任务
 
-> 当前执行入口：[handoff-current.md](handoff-current.md)。用户已恢复，旧暂停与旧四级大堆叠仅属历史。当前采用 master 上的小 TP 核心 #266，通用生命周期 #261、干净恢复 follow-up、专用包和 Docker 独立推进。
+> 当前入口：[handoff-current.md](handoff-current.md)。用户已恢复；旧暂停与四级 stack 仅属历史。
 
 ## 当前快照（2026-10-05）
 
-- 核心 #266 已推送到 027cf8dbeab83e2ff71b421f98413a774fc6348c；不依赖 #261/#263。实际 TP PD/Store 和 Server/HStore 最终运行验收进行中。
-- #261 e72b5fcdae07519ae394556986ae7e7734ce3e30：已验证修复及时推送；日志节流评论最新确认已 resolve；ordering 争议保留回复。尚欠 active query/scan/TTL 真实停机验收。
-- #263 最新 f8b29c82f1319894e931218c816165c04f42754a：checkpoint 清理与损坏 savedWal 校验顺序仍未解决，不宣称可合入。
-- 旧 #264 d577cea9bee1379bfe4a2a34c3c76d7700ed3468：保留并发新增修复，准备逐评论映射新核心及独立后续。
-- 网站 #510 7d24a523661287119ea177b63846f199abf4a3e6：已配对新核心收窄并验证推送。
-- 完整 source/编译/测试/包和运行证据详见 handoff-current；source 中旧 docs 在运行结束后同步，不修改正在冻结运行的源码。
+- TP核心 #266 直接master，不依赖通用生命周期/恢复。真实standard/TP PDStore、Server、HStore验收已通过；最新preload优先级/classloader回退已交叉审查、整仓格式/编译/fullCommonsRPC/PD native及actualstdTP JNI关闭重开验证，3ec28716已推，三条新review均resolve；最新CI仍排队。
+- 规范 #268 5a4ae0e8：两文件独立master PR；120代码/160附近或整段Markdown，全tracked格式路径覆盖审查通过；#266 policy评论resolve，#268新增coverage评论已修复推送回复，GraphQL限流暂阻resolve（01:05:11 UTC恢复）。
+- 恢复 #267 7e99fb04：12文件直接master，metadata完整校验/本次UUIDcleanup/pre-copy pendingguard完整native及跨JVM/parentbind通过，已推。#263关闭被替代（非merged），checkpoint评论已resolve，分支保留。
+- 生命周期 #261 80dd322c：普通scan/query/同数据重启与阻塞callback关闭验收通过；TTL带属性暴露master既有codec不一致，合法无属性场景未观察到关闭重叠，strictgate未通过，不报merge-ready。
+- 旧#264 078bf6d1保持OPEN拆分源，其他协作持续追加PD打包/coverage改进；不覆盖、不机械导入核心。原20条comments已有去向回复，未 blanket resolve。
+- 网站#510 7d24a523配对核心指南，两条文档评论已闭环。CI当前head单独看，不以旧绿灯/成功push替代。
+- 执行/证据/兼容边界/保留数据及资源清理详见当前入口；一个heavy/sharedlock，任务context及时更新专用records分支。
 
 ## 以下为历史记录，不作为当前 head 或完成状态
 
