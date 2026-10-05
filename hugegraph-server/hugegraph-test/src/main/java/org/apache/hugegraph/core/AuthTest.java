@@ -1761,9 +1761,7 @@ public class AuthTest extends BaseCoreTest {
 
     @Test
     public void testDeleteProjectAfterRequestCleanup() {
-        Assume.assumeTrue("skip this test for hstore",
-                          !Objects.equals("hstore", System.getProperty("backend")));
-        Assume.assumeTrue("skip this test for null", System.getProperty("backend") != null);
+        Assume.assumeTrue("skip this test for hstore", !Objects.equals("hstore", graph().backend()));
         AuthManager authManager = graph().authManager();
         HugeProject project = makeProject("cleanup_project", "");
         Id projectId = authManager.createProject(project);
@@ -1794,9 +1792,7 @@ public class AuthTest extends BaseCoreTest {
 
     @Test
     public void testDeleteUserWithRelationsAfterRequestCleanup() {
-        Assume.assumeTrue("skip this test for hstore",
-                          !Objects.equals("hstore", System.getProperty("backend")));
-        Assume.assumeTrue("skip this test for null", System.getProperty("backend") != null);
+        Assume.assumeTrue("skip this test for hstore", !Objects.equals("hstore", graph().backend()));
         AuthManager authManager = graph().authManager();
         Id deletedUser = authManager.createUser(makeUser("deleted_member", "pass"));
         Id retainedUser = authManager.createUser(makeUser("retained_member", "pass"));
@@ -1817,9 +1813,7 @@ public class AuthTest extends BaseCoreTest {
 
     @Test
     public void testDeleteUserWithoutRelationsAfterRequestCleanup() {
-        Assume.assumeTrue("skip this test for hstore",
-                          !Objects.equals("hstore", System.getProperty("backend")));
-        Assume.assumeTrue("skip this test for null", System.getProperty("backend") != null);
+        Assume.assumeTrue("skip this test for hstore", !Objects.equals("hstore", graph().backend()));
         AuthManager authManager = graph().authManager();
         Id userId = authManager.createUser(makeUser("isolated_user", "pass"));
         HugeFactory.closeCurrentThreadTransactions();

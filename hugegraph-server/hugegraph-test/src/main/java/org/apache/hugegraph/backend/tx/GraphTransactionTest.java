@@ -56,11 +56,13 @@ public class GraphTransactionTest {
         HugeVertex vertex = Mockito.mock(HugeVertex.class);
         Mockito.when(vertex.schemaLabel()).thenReturn(VertexLabel.OLAP_VL);
         Id id = IdGenerator.of(1L);
+        Mockito.when(vertex.id()).thenReturn(id);
 
         // Preserve OLAP's original rejection before any ordinary edge scan.
-        Assert.assertThrows(IllegalStateException.class, () -> {
+        IllegalStateException error = Assert.assertThrows(IllegalStateException.class, () -> {
             transaction.prepareDeletions(Collections.singletonMap(id, vertex), Collections.emptyMap());
         });
+        Assert.assertTrue(error.getMessage().startsWith("Graph is null of schema"));
         Mockito.verify(transaction, Mockito.never()).queryEdgesFromBackend(Mockito.any());
         Mockito.verify(transaction, Mockito.never()).doRemove(Mockito.any());
     }
