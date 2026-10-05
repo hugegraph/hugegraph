@@ -1,5 +1,17 @@
 # ToplingDB PR 拆分任务
 
+## 2026-10-06 新评论实修进行中（用户要求修复、验证、推送后再交付）
+
+定时自动化tp-pr已经PAUSED；用户明确无需继续定时检查。三PR现有意见由既有workers分工处理，无新事项/无auto-merge。261由p2在R06/p261-comments-fix/source（254381b完整gh archive）负责transportcancel和DONE重复query；3旧实现负回归已失败，positive001发现双onError并修幂等onTransportCancel，fixture补单worker barrier后最终negative002/positive003待实际Java17完成；p3独立review已绑定最新patch。旧ordering事实回复，不盲resolve。
+
+267由p4在R06/p267-comments-fix（目录本身完整2724tree，a021逐blob/mode一致）负责6条；R06/p267-comments-evidence/candidate-001.patch包含物理sameFile、marker notExists、保守拒绝directDB symlink/会删除的内部WAL target链/link..、Storepool close重试、残留前缀+真实native7method。root独立review001通过；真实Docker父双bind WAL尾部必须执行，不能只reopen；冻结negative/candidate排共享heavy锁。
+
+266当前remote仍18dd，root拥有CodeSource、动态OLAP CF、prepare/preload及tests/docs；p3拥有Heartbeat fatalexit及metrics/nativeowner。source=R06/p266-sync/source，正在编辑，不把旧2730parity转移到新candidate。CodeSource控失败+OLAP归属已修；R06/p266-comments-fix/routing-validation-003为最终独立A/B（003修fixture显式createCF，002错误在构造未到truncate，保留失败；003negative必须精确Table graph+ap_123 not opened）。prepare Java17 source inline探针临时DB验证OPTIONS write_buffer_size=17M后close并绑定jar/native easy-migrate.sha256；preload重新核checksum、拒已知竞争JNI/保留其他preload。实际prepare001旧官方JAR原脚本接受、新脚本拒绝；可信JNI新脚本通过配置实效，001后续host复制Docker绝对libaio symlink失败不是产品bug；preload-002保留symlink重跑真实双JNI/拒绝。shellselection host通过。paired网站EN/CN新说明在R06/website-capability待核心验证后同步push。
+
+p3 HStore003 standalone真实HTTP均通过；004真实TP PDStore首6vertex/REST/Gremlin/edge通过，Store实际stop=-6 SidePluginRepo db not closed（script0不能代替）。已定位SystemMetricService.loadRocksDbInfo每DB queryGraphDB clone未close，修try-withresources+真实native引用回归，不改Engine强制关闭。Heartbeat5fatal码独立协调exit helper+真实子JVM A/B：旧2方法卡hookjoin，新6测试过，5进程实际255+hookjoined。p3 patch5files=R06/store-shutdown-comments-candidate/fix.patch，root独立review通过；metrics A/B/nativeowner诊断排锁，最终统一Maven+重构包HStore stop/restart待完成。p2对root266生产初审无material，最终payload需hash复核。
+
+所有heavy单E/run-exclusive锁，实际17immutable。rootnative镜像含snappy digest0d1cf670c86ab4a311e4be6643f0d7e8f189aca04b37afbe123d65136f337a9d；不重用11或旧prepared资产。新prepare需真实JDK17，不是JRE；旧准备目录没有checksum receipt明确拒。各修验证通过后及时gh-only非force分批push，回复且resolve验证当前head的问题；争议保留。不得用后续CI未完作为阻止即时反馈/推送理由。
+
 ## 2026-10-06 半小时评论复查（已执行，自动化 PAUSED）
 
 五PR当前head未变；完整review threads/reviews/普通comments保存在E/resume-20261006/comment-check-0342。对照旧快照与本次请求时间，261新增2条，266新增4条并重开1条，267新增3条（另有3条较早未处理），268/网站510无新增待处理。现有open线程分别3/5/6/0/0；261的旧ordering争议不按已证明缺陷计数，保留已回复线程。
