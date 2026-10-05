@@ -1,71 +1,25 @@
 # Standalone RocksDB snapshot recovery
 
-Standalone RocksDB snapshot restore retains its source checkpoint until the
-replacement is installed and reopened. Before changing data, it records the
-source checkpoint and WAL location in a sibling `<data-path>.resume-pending`
-file, together with the restore operation and checkpoint generation. A subsequent HugeGraph open retries an interrupted installation before
-native recovery. Missing sources, incomplete metadata or a changed WAL
-configuration stop opening instead of replaying uncertain data.
+Standalone RocksDB snapshot restore retains its source checkpoint until the replacement is installed and reopened. Before changing data, it records the source checkpoint and WAL location in a sibling `<data-path>.resume-pending` file, together with the restore operation and checkpoint generation. A subsequent HugeGraph open retries an interrupted installation before native recovery. Missing sources, incomplete metadata or a changed WAL configuration stop opening instead of replaying uncertain data.
 
-Quiesce graph requests, background tasks and open query iterators before starting a restore. The recovery lease coordinates database opens and file
-installation; it does not drain active application work.
+Quiesce graph requests, background tasks and open query iterators before starting a restore. The recovery lease coordinates database opens and file installation; it does not drain active application work.
 
-Preserve the checkpoint, pending marker and configured paths after a failure.
-Restore access or free space, then retry normal startup with the same runtime
-and configuration. Do not delete the pending marker to bypass the guard.
-Successful native reopening clears it and then attempts checkpoint cleanup,
-preserving the existing consume-on-success behavior.
+Preserve the checkpoint, pending marker and configured paths after a failure. Restore access or free space, then retry normal startup with the same runtime and configuration. Do not delete the pending marker to bypass the guard. Successful native reopening clears it and then attempts checkpoint cleanup, preserving the existing consume-on-success behavior.
 
-A sibling `<data-path>.resume-lock` serializes cooperating opens and restores.
-The OS lock remains held through native close and reopen, and is released when
-the database finally closes. The lock file remains on disk; its presence alone
-does not prove an active owner. Do not delete it to force another opener through.
-Within one JVM, physical-file ownership also covers path aliases. An unrelated
-database can still open while another database is closing. A failed native or
-lock-descriptor close retains recovery ownership and reports the failure; retrying
-close cannot bypass it. Preserve the recovery files and stop the process before
-retrying startup after such a failure. Older binaries and unrelated writers do
-not honor this protocol and must not access these directories concurrently.
+A sibling `<data-path>.resume-lock` serializes cooperating opens and restores. The OS lock remains held through native close and reopen, and is released when the database finally closes. The lock file remains on disk; its presence alone does not prove an active owner. Do not delete it to force another opener through. Within one JVM, physical-file ownership also covers path aliases. An unrelated database can still open while another database is closing. A failed native or lock-descriptor close retains recovery ownership and reports the failure; retrying close cannot bypass it. Preserve the recovery files and stop the process before retrying startup after such a failure. Older binaries and unrelated writers do not honor this protocol and must not access these directories concurrently.
 
-Mount the parent data root, such as `rocksdb-data`, rather than an individual
-store directory such as `data/g`. Java opening rejects a store that is itself a
-volume mount, including same-filesystem bind mounts on Linux. Such aliases can
-hide the sibling guards, and directory replacement cannot replace a mount point.
-This Java check is per database: it does not promise a pre-JVM scan of every
-graph or that no sibling database has initialized before another open fails.
-Keep mount layout unchanged throughout startup and recovery.
+Mount the parent data root, such as `rocksdb-data`, rather than an individual store directory such as `data/g`. Java opening rejects a store that is itself a volume mount, including same-filesystem bind mounts on Linux. Such aliases can hide the sibling guards, and directory replacement cannot replace a mount point. This Java check is per database: it does not promise a pre-JVM scan of every graph or that no sibling database has initialized before another open fails. Keep mount layout unchanged throughout startup and recovery.
 
-Independent WAL, WAL inside data, and data inside a WAL root use in-place log
-replacement. Preserve WAL symlink configuration across retries. Local fault
-tests cover interrupted operations and reopening; they do not establish
-power-cut durability. This mechanism does not provide an atomic whole-graph
-restore or an HStore multi-partition snapshot protocol.
+Independent WAL, WAL inside data, and data inside a WAL root use in-place log replacement. Preserve WAL symlink configuration across retries. Local fault tests cover interrupted operations and reopening; they do not establish power-cut durability. This mechanism does not provide an atomic whole-graph restore or an HStore multi-partition snapshot protocol.
 
-Each non-consuming restore creates a unique checkpoint directory. Pending recovery binds the original directory and immutable SST filesystem identities,
-plus checkpoint metadata and WAL contents, so replacing a checkpoint at the same path is rejected before data replacement. Keep the original checkpoint
-in place: copying it elsewhere and back may change its identity. Filesystems without file identities use content hashes instead. Unrelated writers must
-not modify checkpoint files; this protocol does not protect against malicious in-place changes to immutable SST files.
+Each non-consuming restore creates a unique checkpoint directory. Pending recovery binds the original directory and immutable SST filesystem identities, plus checkpoint metadata and WAL contents, so replacing a checkpoint at the same path is rejected before data replacement. Keep the original checkpoint in place: copying it elsewhere and back may change its identity. Filesystems without file identities use content hashes instead. Unrelated writers must not modify checkpoint files; this protocol does not protect against malicious in-place changes to immutable SST files.
 
-WAL staging uses a sibling `<data-path>.resume-staging-<operation>` directory recorded by the pending operation. Retired WAL remains there until successful
-native reopening; repeated attempts reuse that same directory. Cleanup removes only the current operation's directory, never all matching prefixes.
-Unknown staging directories and markers from older formats remain preserved for diagnosis rather than being guessed or silently upgraded.
+WAL staging uses a sibling `<data-path>.resume-staging-<operation>` directory recorded by the pending operation. Retired WAL remains there until successful native reopening; repeated attempts reuse that same directory. Cleanup removes only the current operation's directory, never all matching prefixes. Unknown staging directories and markers from older formats remain preserved for diagnosis rather than being guessed or silently upgraded.
 
-After a Store-level restore failure closes its native owner, reopen the database to retry the recorded pending operation. Calling restore again on the
-already closed Store does not reopen it. Recovery retries the recorded unique checkpoint; it does not create a new non-consuming copy.
+After a Store-level restore failure closes its native owner, reopen the database to retry the recorded pending operation. Calling restore again on the already closed Store does not reopen it. Recovery retries the recorded unique checkpoint; it does not create a new non-consuming copy.
 
-Non-consuming Store restore first creates all temporary checkpoints, then restores each database. If either phase fails, it attempts to remove only the
-exact temporary copies created by that invocation, including an unfinished checkpoint created before its path could be returned. Cleanup requires the
-same database recovery ownership and a confirmed absent pending marker. Any existing or unreadable marker preserves the copy and emits a diagnostic;
-lock contention also preserves it. Original user checkpoints and unrelated temporary directories are never part of this cleanup. This does not collect
-historical orphan directories or copies left by a process killed before writing its pending marker. Restore remains non-atomic across databases.
+Non-consuming Store restore first creates all temporary checkpoints, then restores each database. If either phase fails, it attempts to remove only the exact temporary copies created by that invocation, including an unfinished checkpoint created before its path could be returned. Cleanup requires the same database recovery ownership and a confirmed absent pending marker. Any existing or unreadable marker preserves the copy and emits a diagnostic; lock contention also preserves it. Original user checkpoints and unrelated temporary directories are never part of this cleanup. This does not collect historical orphan directories or copies left by a process killed before writing its pending marker. Restore remains non-atomic across databases.
 
-Pending records include a SHA-256 checksum over all metadata property names and values, excluding the checksum itself. Recovery verifies it before
-reconstructing any WAL alias, then uses the filesystem's actual canonical WAL path to validate the destination. This detects incomplete or changed
-metadata; it is not authentication against someone who can edit the record and recompute its checksum, and it does not freeze the surrounding filesystem.
-Records from older versions without this checksum are rejected and preserved, not silently upgraded. Finish an outstanding restore with its producing
-version before upgrading; otherwise preserve the checkpoint, marker and paths for diagnosis. Do not add a checksum manually to bypass this check.
+Pending records include a SHA-256 checksum over all metadata property names and values, excluding the checksum itself. Recovery verifies it before reconstructing any WAL alias, then uses the filesystem's actual canonical WAL path to validate the destination. This detects incomplete or changed metadata; it is not authentication against someone who can edit the record and recompute its checksum, and it does not freeze the surrounding filesystem. Records from older versions without this checksum are rejected and preserved, not silently upgraded. Finish an outstanding restore with its producing version before upgrading; otherwise preserve the checkpoint, marker and paths for diagnosis. Do not add a checksum manually to bypass this check.
 
-Before creating a non-consuming copy, restore holds the database recovery ownership and requires a confirmed absent pending marker. An existing or
-unreadable marker rejects the new copy before opening its checkpoint source; reopen the database to retry the recorded recovery instead. Repeated
-requests therefore do not allocate more UUID copies for an already pending database. If a later database is pending, copies already created for earlier
-databases are still cleaned by the same invocation's failure handling.
+Before creating a non-consuming copy, restore holds the database recovery ownership and requires a confirmed absent pending marker. An existing or unreadable marker rejects the new copy before opening its checkpoint source; reopen the database to retry the recorded recovery instead. Repeated requests therefore do not allocate more UUID copies for an already pending database. If a later database is pending, copies already created for earlier databases are still cleaned by the same invocation's failure handling.
