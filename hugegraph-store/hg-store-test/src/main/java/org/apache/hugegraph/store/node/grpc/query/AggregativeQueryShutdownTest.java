@@ -557,6 +557,88 @@ public class AggregativeQueryShutdownTest {
         }
     }
 
+    @Test(timeout = 15000)
+    public void testTransportCancellationAfterHalfCloseReleasesWorker() throws Exception {
+        assertTransportCancellationAfterHalfClose(false);
+    }
+
+    @Test(timeout = 15000)
+    public void testDeadlineAfterHalfCloseReleasesWorker() throws Exception {
+        assertTransportCancellationAfterHalfClose(true);
+    }
+
+    private static void assertTransportCancellationAfterHalfClose(boolean deadline) throws Exception {
+        ThreadPoolExecutor pool = pool(1);
+        ScanIterator source = mock(ScanIterator.class);
+        CountDownLatch reading = new CountDownLatch(1);
+        CountDownLatch interrupted = new CountDownLatch(1);
+        CountDownLatch released = new CountDownLatch(1);
+        CountDownLatch fallbackRelease = new CountDownLatch(1);
+        when(source.hasNext()).thenAnswer(invocation -> {
+            reading.countDown();
+            try {
+                fallbackRelease.await();
+            } catch (InterruptedException expected) {
+                interrupted.countDown();
+                Thread.currentThread().interrupt();
+            }
+            return false;
+        });
+        doAnswer(invocation -> {
+            released.countDown();
+            return null;
+        }).when(source).close();
+        AggregativeQueryService service = new AggregativeQueryService(pool, 5000, 10) {
+            @Override
+            AggregativeQueryObserver newObserver(StreamObserver<QueryResponse> sender) {
+                return fixture(super.newObserver(sender), source, new QueryPlan(), null);
+            }
+        };
+        String name = io.grpc.inprocess.InProcessServerBuilder.generateName();
+        io.grpc.Server server = io.grpc.inprocess.InProcessServerBuilder.forName(name)
+                .directExecutor().addService(service).build().start();
+        io.grpc.ManagedChannel channel = io.grpc.inprocess.InProcessChannelBuilder.forName(name)
+                .directExecutor().build();
+        io.grpc.CallOptions options = deadline ? io.grpc.CallOptions.DEFAULT.withDeadlineAfter(2, TimeUnit.SECONDS) :
+                                     io.grpc.CallOptions.DEFAULT;
+        io.grpc.ClientCall<QueryRequest, QueryResponse> call = channel.newCall(
+                org.apache.hugegraph.store.grpc.query.QueryServiceGrpc.getQueryMethod(), options);
+        CountDownLatch terminated = new CountDownLatch(1);
+        java.util.concurrent.atomic.AtomicReference<Status> terminal =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        try {
+            call.start(new io.grpc.ClientCall.Listener<QueryResponse>() {
+                @Override
+                public void onClose(Status status, io.grpc.Metadata trailers) {
+                    terminal.set(status);
+                    terminated.countDown();
+                }
+            }, new io.grpc.Metadata());
+            call.request(1);
+            call.sendMessage(QueryRequest.newBuilder().setQueryId("half-close-cancel").build());
+            assertTrue(reading.await(1, TimeUnit.SECONDS));
+            call.halfClose();
+            if (!deadline) {
+                call.cancel("cancel after half-close", null);
+            }
+            assertTrue(terminated.await(3, TimeUnit.SECONDS));
+            assertEquals(deadline ? Status.Code.DEADLINE_EXCEEDED : Status.Code.CANCELLED,
+                         terminal.get().getCode());
+            assertTrue("transport cancellation must interrupt the worker after half-close",
+                       interrupted.await(1, TimeUnit.SECONDS));
+            assertTrue("transport cancellation must release the source without manual progress",
+                       released.await(1, TimeUnit.SECONDS));
+            verify(source).close();
+        } finally {
+            fallbackRelease.countDown();
+            call.cancel("test cleanup", null);
+            channel.shutdownNow();
+            server.shutdownNow();
+            service.shutdownQueries();
+            pool.shutdownNow();
+        }
+    }
+
     @Test(timeout = 10000)
     public void testRealQueryClientCloseCancelsEarlyAndPreservesNormalCompletion() throws Exception {
         assertClientIteratorClose(true);
@@ -629,9 +711,11 @@ public class AggregativeQueryShutdownTest {
                 org.mockito.ArgumentCaptor<Throwable> failure =
                         org.mockito.ArgumentCaptor.forClass(Throwable.class);
                 verify(observed.get()).onError(failure.capture());
+                verify(observed.get()).cancel();
                 assertEquals(Status.Code.CANCELLED, Status.fromThrowable(failure.getValue()).getCode());
             } else {
                 verify(observed.get(), never()).onError(org.mockito.ArgumentMatchers.any());
+                verify(observed.get(), never()).cancel();
             }
             verify(observed.get()).onNext(org.mockito.ArgumentMatchers.any());
             verify(source).close();

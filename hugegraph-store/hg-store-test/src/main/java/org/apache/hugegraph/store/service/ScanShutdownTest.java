@@ -880,6 +880,48 @@ public class ScanShutdownTest {
         }
     }
 
+    @Test(timeout = 5000)
+    public void testBatchDoneRejectsSecondQueryBeforeAllocatingIterator() throws Exception {
+        ThreadPoolExecutor executor = (ThreadPoolExecutor) Executors.newFixedThreadPool(1);
+        HgStoreWrapperEx wrapper = mock(HgStoreWrapperEx.class);
+        ScanIterator source = mock(ScanIterator.class);
+        when(wrapper.scanAll(anyString(), anyString(), any(byte[].class))).thenReturn(source);
+        StreamObserver<KvStream> output = mock(StreamObserver.class);
+        ScanBatchResponse response = new ScanBatchResponse(output, wrapper, executor);
+        Field state = ScanBatchResponse.class.getDeclaredField("state");
+        state.setAccessible(true);
+        Field iterator = ScanBatchResponse.class.getDeclaredField("iterator");
+        iterator.setAccessible(true);
+        try {
+            response.onNext(batchRequest());
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+            while (!"DONE".equals(state.get(response).toString()) && System.nanoTime() < deadline) {
+                Thread.yield();
+            }
+            assertEquals("DONE", state.get(response).toString());
+            verify(source).close();
+            assertNull(iterator.get(response));
+            response.onNext(batchRequest());
+            // The single worker processes the queued request before this barrier.
+            executor.submit(() -> { }).get(2, TimeUnit.SECONDS);
+            assertNull("a completed query must reject another request before allocating", iterator.get(response));
+            response.onCompleted();
+            response.onCompleted();
+            verify(wrapper).scanAll(anyString(), anyString(), any(byte[].class));
+            verify(source).close();
+            verify(output).onCompleted();
+            verify(output, never()).onError(any(Throwable.class));
+        } finally {
+            // Preserve cleanup even when the old implementation allocated a second producer.
+            Object remaining = iterator.get(response);
+            response.onCompleted();
+            if (remaining instanceof ScanIterator) {
+                ((ScanIterator) remaining).close();
+            }
+            executor.shutdownNow();
+        }
+    }
+
     @Test
     public void testPausedBatchClosesIteratorAndRejectsLaterQuery() throws Exception {
         ThreadPoolExecutor executor = (ThreadPoolExecutor) Executors.newFixedThreadPool(1);

@@ -22,7 +22,7 @@ If shutdown cancellation wins while a one-shot scan releases its iterator, the
 response terminates with `CANCELLED`; it does not report successful completion
 without its result. Iterator cleanup still finishes before the scan unregisters.
 
-A normal aggregate-query request half-close ends feedback without cancelling already permitted work. If the remaining feedback credit cannot finish the query, the server returns an explicit query error. Scan task rejection reports `UNAVAILABLE` during shutdown and `RESOURCE_EXHAUSTED` when the running scan pool is full.
+A normal aggregate-query request half-close ends feedback without cancelling already permitted work. A subsequent transport cancellation or deadline still interrupts the workers and releases their resources. A batch-scan RPC accepts one initial query; repeated query requests are ignored before allocating another iterator, including after its final batch. If the remaining feedback credit cannot finish the query, the server returns an explicit query error. Scan task rejection reports `UNAVAILABLE` during shutdown and `RESOURCE_EXHAUSTED` when the running scan pool is full.
 
 See the [Store shutdown instructions](../hugegraph-store/README.md#stopping-a-store-node)
 and the Server [module test guidance](../hugegraph-server/AGENTS.md#tests).

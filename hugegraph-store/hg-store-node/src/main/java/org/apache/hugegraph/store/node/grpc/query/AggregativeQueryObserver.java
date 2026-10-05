@@ -145,13 +145,20 @@ public class AggregativeQueryObserver implements StreamObserver<QueryRequest> {
 
     @Override
     public void onError(Throwable t) {
-        // The transport already owns error termination; never send normal completion afterwards.
+        onTransportCancel();
+        log.error("AggregativeQueryService, query id: {},  got error", this.queryId, t);
+    }
+
+    void onTransportCancel() {
+        // Both transport cancellation and request onError can report the same event.
         synchronized (this.responseLock) {
+            if (this.responseFinished) {
+                return;
+            }
             this.completeResponse = false;
             this.responseFinished = true;
         }
         cancel();
-        log.error("AggregativeQueryService, query id: {},  got error", this.queryId, t);
     }
 
     @Override

@@ -38,6 +38,7 @@ import org.lognet.springboot.grpc.GRpcService;
 import com.google.protobuf.ByteString;
 
 import io.grpc.Status;
+import io.grpc.stub.ServerCallStreamObserver;
 import io.grpc.stub.StreamObserver;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
@@ -150,6 +151,10 @@ public class AggregativeQueryService extends QueryServiceGrpc.QueryServiceImplBa
         }
         AggregativeQueryObserver query = newObserver(observer);
         this.queries.add(query);
+        if (observer instanceof ServerCallStreamObserver) {
+            ((ServerCallStreamObserver<QueryResponse>) observer).setOnCancelHandler(
+                    query::onTransportCancel);
+        }
         return query;
     }
 

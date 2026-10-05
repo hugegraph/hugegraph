@@ -169,7 +169,7 @@ public class ScanBatchResponse implements StreamObserver<ScanStreamBatchReq> {
     private void startQuery(String graphName, ScanQueryRequest request) {
         this.iteratorLock.lock();
         try {
-            if (this.cancelled.get() || this.iterator != null) {
+            if (this.cancelled.get() || this.query != null) {
                 return;
             }
             this.query = request;
