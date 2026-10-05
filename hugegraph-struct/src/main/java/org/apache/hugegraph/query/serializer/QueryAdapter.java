@@ -36,7 +36,7 @@ import com.google.gson.JsonPrimitive;
 import com.google.gson.JsonSerializationContext;
 import com.google.gson.reflect.TypeToken;
 
-// TODO(hugegraph/hugegraph#259): use stable value type tags while retaining legacy query decoding.
+// Historical query values use Java class names; readers retain their legacy mappings.
 public class QueryAdapter extends AbstractSerializerAdapter<Condition> {
 
     static ImmutableMap<String, Type> cls =

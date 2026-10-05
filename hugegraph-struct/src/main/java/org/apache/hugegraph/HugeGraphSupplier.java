@@ -36,10 +36,8 @@ import org.apache.hugegraph.struct.schema.VertexLabel;
 import org.apache.hugegraph.util.DateUtil;
 
 /**
- * Actually, it would be better if this interface be called
- * "HugeGraphSchemaSupplier".
+ * Provides shared schema, configuration and time access without requiring a graph engine.
  */
-// TODO(hugegraph/hugegraph#258): separate schema access from configuration and clock capabilities.
 public interface HugeGraphSupplier {
 
     List<String> mapPkId2Name(Collection<Id> ids);

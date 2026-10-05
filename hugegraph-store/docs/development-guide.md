@@ -797,8 +797,7 @@ When adding third-party dependencies:
 
 **Run Dependency Check**:
 
-Run from the repository root after building Server, PD and Store distributions
-for the current revision:
+Run from the repository root after building Server, PD and Store distributions for the current revision:
 
 ```bash
 mvn install -DskipTests -Dmaven.javadoc.skip=true
@@ -806,12 +805,7 @@ bash install-dist/scripts/dependency/regenerate_known_dependencies.sh current-de
 bash install-dist/scripts/dependency/check_dependencies.sh
 ```
 
-This build prepares artifacts without running tests. The collector combines the
-Maven runtime union with actual distribution libraries, including nested Spring
-Boot jars; missing current-revision distribution libraries fail. Review both added
-and removed names against `known-dependencies.txt`, including license/NOTICE
-changes, before updating the approved list. Comparison is strict, and source-only
-inspection is insufficient; verify the release platform/profile variants too.
+This build prepares artifacts without running tests. The collector combines the Maven runtime union with actual distribution libraries, including nested Spring Boot jars; missing current-revision distribution libraries fail. Review both added and removed names against `known-dependencies.txt`, including license/NOTICE changes, before updating the approved list. Comparison is strict, and source-only inspection is insufficient; verify the release platform/profile variants too.
 
 ### Documentation
 

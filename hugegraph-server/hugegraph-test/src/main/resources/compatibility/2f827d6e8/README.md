@@ -15,20 +15,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 -->
 
-# Label index compatibility fixtures
+# Historical fixtures for Server label-index tests
 
-The licensed `core-rows.properties` and `store-index-rows.properties` are
-byte-identical copies of the canonical fixtures under
-`hugegraph-struct/src/test/resources/compatibility/2f827d6e8`, whose README
-contains full provenance and whose producers preserve the original pinned
-`2f827d6e8c9c62ae858f2fc122b3a192d015e2f4` writers and readers.
+`BinarySerializerTest.testLegacyStoredLabelExpiryReadEliminateAndAppendKeys` uses `core-rows.properties` and `store-index-rows.properties` to recover Store expiry values and retain original label-index keys through elimination and append.
 
-Core fixture SHA-256: `d90cfe0b349edb832bf7425b6b8e2ddb06b3eff3f29e834cf8363b0d2fb84662`.
-Store fixture SHA-256: `e9e9c967884d0d91b6cf6d5eabf2050a9bad0fe7898d1c47b58535ebdf1b9431`.
-
-Core system vertex/edge label writers receive a positive element expiry but
-emit empty values and stable keys. Original Store writers use those same
-keys and the exact 13-byte `0x00 + Base64(big-endian long)` value envelope.
-`BinarySerializerTest.testLegacyStoredLabelExpiryReadEliminateAndAppendKeys`
-verifies reading those old Store values, recovering expired candidates,
-clone/reset isolation, and eliminating/appending the exact original key.
+These byte-identical copies allow tests to load fixtures from this module's own resource classpath. Keep them synchronized with the shared resources. The [canonical fixture guide](../../../../../../../hugegraph-struct/src/test/resources/compatibility/2f827d6e8/README.md) contains the pinned source revision, historical producers, regeneration instructions, compatibility limits and SHA-256 checksums. Regenerate against those historical writers only, never the current writer.
