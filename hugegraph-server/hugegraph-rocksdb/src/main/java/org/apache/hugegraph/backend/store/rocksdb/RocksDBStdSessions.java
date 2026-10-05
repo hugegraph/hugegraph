@@ -387,8 +387,8 @@ public class RocksDBStdSessions extends RocksDBSessions {
     @Override
     protected synchronized void doClose() {
         synchronized (this.rocksdb) {
-            this.checkValid();
-
+            // Native restore failure does not remove the pool's owner reference.
+            // OpenedRocksDB.close is idempotent and retains any failed-close lease.
             if (this.refCount.decrementAndGet() > 0) {
                 return;
             }

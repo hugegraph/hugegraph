@@ -23,3 +23,16 @@ Non-consuming Store restore first creates all temporary checkpoints, then restor
 Pending records include a SHA-256 checksum over all metadata property names and values, excluding the checksum itself. Recovery verifies it before reconstructing any WAL alias, then uses the filesystem's actual canonical WAL path to validate the destination. This detects incomplete or changed metadata; it is not authentication against someone who can edit the record and recompute its checksum, and it does not freeze the surrounding filesystem. Records from older versions without this checksum are rejected and preserved, not silently upgraded. Finish an outstanding restore with its producing version before upgrading; otherwise preserve the checkpoint, marker and paths for diagnosis. Do not add a checksum manually to bypass this check.
 
 Before creating a non-consuming copy, restore holds the database recovery ownership and requires a confirmed absent pending marker. An existing or unreadable marker rejects the new copy before opening its checkpoint source; reopen the database to retry the recorded recovery instead. Repeated requests therefore do not allocate more UUID copies for an already pending database. If a later database is pending, copies already created for earlier databases are still cleaned by the same invocation's failure handling.
+
+
+The database directory itself must not be a symbolic link, including a dangling link; put a stable alias on its parent directory instead. This keeps the
+pending marker and recovery lock at the same physical database identity while its contents are replaced. Parent-directory symbolic links and bind mounts
+remain supported. Data and WAL aliases of the same physical directory are treated as one directory, so checkpoint WAL records are not deleted as a separate source.
+
+Simple WAL symbolic links remain supported, including an external stable link followed by `..`. Recovery rejects a WAL path combining `..` with a link
+inside the data directory, or a symbolic-link target chain containing another link inside data: data replacement would delete an unrecorded part of that
+path. Reconfigure such layouts to use a stable external WAL directory before restoring. Rejection happens before writing new pending metadata or deleting data.
+If marker existence cannot be determined, opening fails with the recovery material preserved rather than bypassing a possible pending restore.
+
+After a failed restore has closed the native handle, release the remaining Store sessions with normal close calls before reopening the same Store to retry
+its recorded pending checkpoint. A native close failure still retains its recovery ownership and blocks unsafe competing opens.

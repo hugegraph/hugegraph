@@ -194,12 +194,11 @@ public class RocksDBSessionsTest extends BaseRocksDBUnitTest {
             Assert.assertNull(sessions.session().get(TABLE,
                                                      getBytes("person:3gname")));
             Assert.assertEquals(0, readWalLogs(dataPath).size());
-            assertNoResumeResidue(walPath);
+            assertNoResumeResidue(dataPath);
         } finally {
             sessions.close();
             FileUtils.deleteDirectory(FileUtils.getFile(dataPath));
             FileUtils.deleteDirectory(FileUtils.getFile(walPath));
-            FileUtils.deleteDirectory(FileUtils.getFile(walPath + ".resume-aside"));
             File snapshotFile = FileUtils.getFile(SNAPSHOT_PATH);
             if (snapshotFile.exists()) {
                 FileUtils.forceDelete(snapshotFile);
@@ -287,14 +286,26 @@ public class RocksDBSessionsTest extends BaseRocksDBUnitTest {
         return logs;
     }
 
-    private static void assertNoResumeResidue(String walPath) {
-        File wal = FileUtils.getFile(walPath);
-        File[] children = wal.getParentFile().listFiles();
+    @Test
+    public void testResumeResidueAssertionDetectsPendingMarker() throws IOException {
+        String data = DB_PATH + "/residue-data";
+        File marker = FileUtils.getFile(data + ".resume-pending");
+        try {
+            FileUtils.writeByteArrayToFile(marker, new byte[]{1});
+            Assert.assertThrows(AssertionError.class, () -> assertNoResumeResidue(data));
+        } finally {
+            FileUtils.forceDelete(marker);
+        }
+    }
+
+    private static void assertNoResumeResidue(String dataPath) {
+        File data = FileUtils.getFile(dataPath).getAbsoluteFile();
+        File[] children = data.getParentFile().listFiles();
         Assert.assertNotNull(children);
         for (File child : children) {
             String name = child.getName();
-            Assert.assertFalse(name.startsWith(wal.getName() + ".resume-aside-"));
-            Assert.assertFalse(name.startsWith(wal.getName() + ".resume-staging-"));
+            Assert.assertFalse(name.startsWith(data.getName() + ".resume-staging-"));
+            Assert.assertFalse(name.equals(data.getName() + ".resume-pending"));
         }
     }
 

@@ -74,6 +74,265 @@ public class RocksDBSnapshotRestoreTest {
     public TemporaryFolder temporary = new TemporaryFolder();
 
     @Test
+    public void testParentBindDataWalAliasPreservesNativeWalTail() throws Exception {
+        String original = System.getProperty("hugegraph.test.recovery.parent.original");
+        String alias = System.getProperty("hugegraph.test.recovery.parent.alias");
+        org.junit.Assume.assumeTrue("requires the explicit parent-bind kernel fixture",
+                                   original != null && alias != null);
+        assertTrue(Files.isSameFile(Path.of(original), Path.of(alias)));
+        for (boolean aliased : new boolean[]{false, true}) {
+            Path root = Files.createTempDirectory(Path.of(original), "wal-tail-");
+            File data = root.resolve("data").toFile();
+            File wal = aliased ? Path.of(alias).resolve(root.getFileName()).resolve("data").toFile() : data;
+            File checkpoint = root.resolve("checkpoint").toFile();
+            Files.createDirectories(data.toPath());
+            assertTrue(Files.isSameFile(data.toPath(), wal.toPath()));
+            try {
+                nativeCheckpointWithWalTail(data, wal, checkpoint);
+                try (RecoveryLock held = RocksDBSnapshotRestore.lock(data.toString())) {
+                    RocksDBSnapshotRestore.start(data.toString(), wal.toString(), checkpoint.toString());
+                    RocksDBSnapshotRestore restore =
+                            RocksDBSnapshotRestore.prepareOpen(data.toString(), wal.toString());
+                    assertNotNull(restore);
+                    try (Options options = new Options().setWalDir(wal.toString());
+                         RocksDB reopened = RocksDB.open(options, data.toString())) {
+                        assertArrayEquals(new byte[]{2}, reopened.get(new byte[]{1}));
+                        assertArrayEquals("Restored WAL-only data must survive physical directory aliases",
+                                          new byte[]{4}, reopened.get(new byte[]{3}));
+                        restore.complete();
+                    }
+                }
+                assertFalse(new File(data + ".resume-pending").exists());
+                assertFalse(checkpoint.exists());
+            } finally {
+                FileUtils.deleteDirectory(root.toFile());
+            }
+        }
+    }
+
+    private static void nativeCheckpointWithWalTail(File data, File wal, File checkpoint) throws Exception {
+        RocksDB.loadLibrary();
+        try (Options options = new Options().setCreateIfMissing(true).setWalDir(wal.toString());
+             RocksDB db = RocksDB.open(options, data.toString())) {
+            db.put(new byte[]{1}, new byte[]{2});
+            try (Checkpoint snapshot = Checkpoint.create(db)) {
+                snapshot.createCheckpoint(checkpoint.toString());
+            }
+            db.put(new byte[]{3}, new byte[]{4});
+            db.flushWal(true);
+            File[] logs = wal.listFiles(file -> file.getName().matches("[0-9]+\\.log"));
+            assertNotNull(logs);
+            assertTrue(logs.length > 0);
+            for (File log : logs) {
+                FileUtils.copyFile(log, new File(checkpoint, log.getName()));
+            }
+            // Verify the actual checkpoint can replay its tail before testing restore.
+            try (Options readOptions = new Options();
+                 RocksDB source = RocksDB.openReadOnly(readOptions, checkpoint.toString())) {
+                assertArrayEquals(new byte[]{2}, source.get(new byte[]{1}));
+                assertArrayEquals(new byte[]{4}, source.get(new byte[]{3}));
+            }
+        }
+    }
+
+    @Test
+    public void testDirectDataSymlinkIsRejectedBeforeNativeOpen() throws Exception {
+        File root = this.temporary.newFolder("direct-data-link");
+        File data = new File(root, "physical-data");
+        Path alias = new File(root, "configured-data").toPath();
+        RocksDB.loadLibrary();
+        try (Options options = new Options().setCreateIfMissing(true);
+             RocksDB db = RocksDB.open(options, data.toString())) {
+            db.put(new byte[]{1}, new byte[]{2});
+        }
+        byte[] current = Files.readAllBytes(new File(data, "CURRENT").toPath());
+        Files.createSymbolicLink(alias, data.toPath());
+        for (String configured : Arrays.asList(alias.toString(), alias.resolve(".").toString())) {
+            for (boolean withTables : new boolean[]{false, true}) {
+                RocksDBStdSessions opened = null;
+                try {
+                    opened = withTables ? new RocksDBStdSessions(FakeObjects.newConfig(), "db", "store",
+                                                                 configured, data.toString(), Collections.emptyList()) :
+                             new RocksDBStdSessions(FakeObjects.newConfig(), "db", "store",
+                                                    configured, data.toString());
+                    fail("Direct data symlink must be rejected before opening a native owner");
+                } catch (RocksDBException expected) {
+                    assertTrue(expected.getCause().getCause().getMessage().contains("symbolic link"));
+                } finally {
+                    if (opened != null) {
+                        opened.forceCloseRocksDB();
+                    }
+                }
+                assertArrayEquals(current, Files.readAllBytes(new File(data, "CURRENT").toPath()));
+                assertFalse(new File(data + ".resume-pending").exists());
+            }
+        }
+        FileUtils.deleteDirectory(data);
+        try {
+            RocksDBSnapshotRestore.lock(alias.toString());
+            fail("A dangling direct DB link must not change recovery guard identity");
+        } catch (BackendException expected) {
+            assertTrue(expected.getCause().getMessage().contains("symbolic link"));
+        }
+        assertFalse(new File(alias + ".resume-lock").exists());
+    }
+
+    @Test
+    public void testParentDataSymlinkStillSupportsNativeRestore() throws Exception {
+        File root = this.temporary.newFolder("snapshot-parent-link");
+        Path physical = new File(root, "physical").toPath();
+        Files.createDirectories(physical);
+        Path parent = new File(root, "parent").toPath();
+        Files.createSymbolicLink(parent, physical);
+        File data = parent.resolve("db").toFile();
+        File snapshot = new File(root, "checkpoint");
+        RocksDBStdSessions owner = new RocksDBStdSessions(FakeObjects.newConfig(), "db", "store",
+                                                          data.toString(), data.toString());
+        try {
+            owner.createTable("test");
+            owner.session().put("test", new byte[]{1}, new byte[]{2});
+            owner.session().commit();
+            owner.createSnapshot(snapshot.toString());
+            owner.session().put("test", new byte[]{1}, new byte[]{3});
+            owner.session().commit();
+            owner.resumeSnapshot(snapshot.toString());
+            assertArrayEquals(new byte[]{2}, owner.session().get("test", new byte[]{1}));
+            assertTrue(Files.isSymbolicLink(parent));
+        } finally {
+            owner.close();
+        }
+    }
+
+    @Test
+    public void testUnknownMarkerExistenceRejectsRecovery() throws Exception {
+        Path root = this.temporary.newFolder("inaccessible-marker").toPath();
+        org.junit.Assume.assumeTrue(Files.getFileStore(root).supportsFileAttributeView("posix"));
+        Path data = root.resolve("data");
+        Files.createDirectories(data);
+        Path marker = root.resolve("data.resume-pending");
+        byte[] record = new byte[]{4, 2};
+        Files.write(marker, record);
+        Set<java.nio.file.attribute.PosixFilePermission> permissions = Files.getPosixFilePermissions(root);
+        try {
+            Files.setPosixFilePermissions(root, Collections.emptySet());
+            assertFalse(Files.exists(marker, java.nio.file.LinkOption.NOFOLLOW_LINKS));
+            assertFalse(Files.notExists(marker, java.nio.file.LinkOption.NOFOLLOW_LINKS));
+            try {
+                RocksDBSnapshotRestore.prepareOpen(data.toString(), data.toString());
+                fail("Unknown marker existence must not be treated as no pending restore");
+            } catch (BackendException expected) {
+                assertTrue(expected.getMessage().contains("preserve"));
+            }
+        } finally {
+            Files.setPosixFilePermissions(root, permissions);
+        }
+        assertArrayEquals(record, Files.readAllBytes(marker));
+        assertEquals(0, data.toFile().list().length);
+    }
+
+    @Test
+    public void testUnrecordedWalLinksRejectBeforeDeletingNativeData() throws Exception {
+        for (boolean targetChain : new boolean[]{false, true}) {
+            File root = this.temporary.newFolder("unsafe-wal-" + targetChain);
+            File data = new File(root, "data");
+            Files.createDirectories(data.toPath());
+            Path physical = new File(root, "physical/child").toPath();
+            Files.createDirectories(physical);
+            Path inner = new File(data, "link").toPath();
+            Files.createSymbolicLink(inner, physical);
+            Path wal;
+            if (targetChain) {
+                Path external = new File(root, "external-link").toPath();
+                Files.createSymbolicLink(external, inner);
+                wal = external.resolve("logs");
+            } else {
+                wal = inner.resolve("../logs");
+            }
+            FileUtils.forceMkdir(wal.toFile());
+            File snapshot = new File(root, "checkpoint");
+            nativeCheckpointWithWalTail(data, wal.toFile(), snapshot);
+            byte[] current = Files.readAllBytes(new File(data, "CURRENT").toPath());
+            try {
+                RocksDBSnapshotRestore.start(data.toString(), wal.toString(), snapshot.toString());
+                fail("WAL links lost when data is replaced must be rejected before mutation");
+            } catch (IOException expected) {
+                assertTrue(expected.getMessage().contains("WAL"));
+            }
+            assertTrue(Files.isSymbolicLink(inner));
+            assertArrayEquals(current, Files.readAllBytes(new File(data, "CURRENT").toPath()));
+            assertTrue(new File(snapshot, "CURRENT").isFile());
+            assertFalse(new File(data + ".resume-pending").exists());
+            try (Options options = new Options().setWalDir(wal.toString());
+                 RocksDB reopened = RocksDB.open(options, data.toString())) {
+                assertArrayEquals(new byte[]{2}, reopened.get(new byte[]{1}));
+                assertArrayEquals(new byte[]{4}, reopened.get(new byte[]{3}));
+            }
+        }
+    }
+
+    @Test
+    public void testFailedStoreRestoreCanCloseAndReopenSameInstance() throws Exception {
+        File root = this.temporary.newFolder("store-reopen");
+        File data = new File(root, "snapshot-data/store");
+        File snapshot = new File(root, "snapshot_snapshot-data/store");
+        HugeConfig config = FakeObjects.newConfig();
+        config.setProperty(RocksDBOptions.DATA_PATH.name(), data.getParent());
+        config.setProperty(RocksDBOptions.WAL_PATH.name(), data.getParent());
+        RocksDBStdSessions failed = new RocksDBStdSessions(config, "db", "store",
+                                                           data.toString(), data.toString()) {
+            @Override
+            public synchronized void resumeSnapshot(String path) {
+                AtomicReference<OpenedRocksDB> reference = Whitebox.getInternalState(this, "rocksdb");
+                RecoveryLock lease = reference.get().closeForRestore();
+                try {
+                    RocksDBSnapshotRestore restore = new RocksDBSnapshotRestore(
+                            data.toString(), data.toString(), path, new FaultyFiles("data-copy"));
+                    restore.begin();
+                    restore.install();
+                    fail("Expected checkpoint copy failure");
+                } catch (IOException e) {
+                    throw new BackendException("Injected copy failure", e);
+                } finally {
+                    RocksDBSnapshotRestore.unlock(lease);
+                }
+            }
+        };
+        RocksDBStore.RocksDBGraphStore store = (RocksDBStore.RocksDBGraphStore) cleanupStore(failed);
+        List<String> tables = store.tableNames();
+        String table = tables.get(0);
+        try {
+            // Match the real Store CF layout so reopen exercises recovery rather
+            // than an unrelated missing-column-family fallback.
+            failed.createTable(tables.toArray(new String[0]));
+            failed.session().open();
+            failed.session().put(table, new byte[]{1}, new byte[]{2});
+            failed.session().commit();
+            failed.createSnapshot(snapshot.toString());
+            try {
+                store.resumeSnapshot("snapshot", true);
+                fail("Expected native owner to close before injected copy failure");
+            } catch (BackendException expected) {
+                assertTrue(expected.getMessage().contains("Injected copy failure"));
+            }
+            assertFalse(store.opened());
+            assertTrue(new File(data + ".resume-pending").exists());
+            store.close();
+            assertTrue(failed.closed());
+            store.open(config);
+            assertTrue(store.opened());
+            RocksDBSessions reopened = Whitebox.getInternalState(store, "sessions");
+            assertArrayEquals(new byte[]{2}, reopened.session().get(table, new byte[]{1}));
+            assertFalse(new File(data + ".resume-pending").exists());
+            assertFalse(snapshot.exists());
+            store.close();
+        } finally {
+            failed.forceCloseRocksDB();
+            RocksDBSessions remaining = Whitebox.getInternalState(store, "sessions");
+            remaining.forceCloseRocksDB();
+        }
+    }
+
+    @Test
     public void testPendingRestoreRejectsRepeatedCopiesBeforeOpeningSource() throws Exception {
         for (boolean malformed : new boolean[]{false, true}) {
             File root = this.temporary.newFolder("snapshot-pending-copy-" + malformed);

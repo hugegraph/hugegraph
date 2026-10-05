@@ -69,7 +69,7 @@ final class RocksDBSnapshotRestore {
 
     RocksDBSnapshotRestore(String data, String wal, String snapshot,
                            FileOperations files) throws IOException {
-        this.data = new File(data).getCanonicalFile();
+        this.data = dataDirectory(data);
         this.wal = wal == null || wal.isEmpty() ? this.data :
                    new File(wal).getCanonicalFile();
         this.snapshot = new File(snapshot).getCanonicalFile();
@@ -77,6 +77,9 @@ final class RocksDBSnapshotRestore {
         this.files = files;
         this.configuredWal = wal == null || wal.isEmpty() ? this.data.toPath() :
                              new File(wal).toPath().toAbsolutePath().normalize();
+        Path rawWal = wal == null || wal.isEmpty() ? this.data.toPath() :
+                      new File(wal).toPath().toAbsolutePath();
+        this.validateWalLinks(rawWal);
         Path component = this.configuredWal.getRoot();
         for (Path name : this.configuredWal) {
             component = component.resolve(name);
@@ -90,6 +93,76 @@ final class RocksDBSnapshotRestore {
             throw new IOException("Checkpoint must not overlap data or WAL: " + this.snapshot);
         }
         validateCheckpoint(this.snapshot);
+    }
+
+    private static File dataDirectory(String data) throws IOException {
+        Path configured = new File(data).toPath().toAbsolutePath();
+        // A direct DB alias becomes dangling while install replaces its target,
+        // changing canonical marker/lock identity. Stable parent aliases are fine.
+        while (configured.getFileName() != null && ".".equals(configured.getFileName().toString())) {
+            configured = configured.getParent();
+        }
+        if (Files.isSymbolicLink(configured)) {
+            throw new IOException("Database directory cannot itself be a symbolic link; " +
+                                  "use a stable parent directory alias instead: " + configured);
+        }
+        return new File(data).getCanonicalFile();
+    }
+
+    private void validateWalLinks(Path rawWal) throws IOException {
+        boolean parentTraversal = false;
+        for (Path part : rawWal) {
+            parentTraversal |= "..".equals(part.toString());
+        }
+        Path component = rawWal.getRoot();
+        for (Path part : rawWal) {
+            component = component.resolve(part);
+            if (Files.isSymbolicLink(component)) {
+                if (parentTraversal && this.linkInsideData(component)) {
+                    throw new IOException("WAL cannot combine a link inside data with '..': " + rawWal);
+                }
+                this.validateWalLinkTarget(component, 0);
+            }
+        }
+    }
+
+    // Inspect target paths without normalizing away filesystem link/.. semantics.
+    // Only reject hidden links that data replacement would delete; external
+    // parent aliases and directly recorded simple WAL links remain supported.
+    private void validateWalLinkTarget(Path link, int depth) throws IOException {
+        if (depth >= 40) {
+            throw new IOException("WAL symbolic link target chain is too deep: " + link);
+        }
+        Path target = Files.readSymbolicLink(link);
+        if (!target.isAbsolute()) {
+            target = link.getParent().resolve(target);
+        }
+        Path component = target.getRoot();
+        for (Path part : target) {
+            component = component.resolve(part);
+            if (Files.isSymbolicLink(component)) {
+                if (this.linkInsideData(component)) {
+                    throw new IOException("WAL target chain contains an unrecorded link inside data: " + component);
+                }
+                this.validateWalLinkTarget(component, depth + 1);
+            }
+        }
+    }
+
+    private boolean linkInsideData(Path link) throws IOException {
+        Path parent = link.getParent().toFile().getCanonicalFile().toPath();
+        if (parent.startsWith(this.data.toPath())) {
+            return true;
+        }
+        // Parent bind aliases have different canonical strings but the same inode.
+        if (Files.exists(this.data.toPath())) {
+            for (Path ancestor = parent; ancestor != null; ancestor = ancestor.getParent()) {
+                if (Files.isSameFile(ancestor, this.data.toPath())) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     private static void validateCheckpoint(File snapshot) throws IOException {
@@ -209,7 +282,7 @@ final class RocksDBSnapshotRestore {
     }
 
     private static Path marker(String data) throws IOException {
-        return new File(new File(data).getCanonicalPath() + ".resume-pending").toPath();
+        return new File(dataDirectory(data) + ".resume-pending").toPath();
     }
 
     // Caller must hold the native owner lease or the same database recovery lock.
@@ -219,7 +292,7 @@ final class RocksDBSnapshotRestore {
 
     static RecoveryLock lock(String data) {
         try {
-            Path directory = new File(data).getCanonicalFile().toPath();
+            Path directory = dataDirectory(data).toPath();
             Path parent = directory.getParent();
             if (parent == null) {
                 throw new IOException("Database directory cannot be a filesystem root: " + directory);
@@ -341,7 +414,7 @@ final class RocksDBSnapshotRestore {
     static RocksDBSnapshotRestore prepareOpen(String data, String wal) {
         try {
             Path marker = marker(data);
-            if (!Files.exists(marker, LinkOption.NOFOLLOW_LINKS)) {
+            if (Files.notExists(marker, LinkOption.NOFOLLOW_LINKS)) {
                 return null;
             }
             if (!Files.isRegularFile(marker, LinkOption.NOFOLLOW_LINKS)) {
@@ -476,11 +549,11 @@ final class RocksDBSnapshotRestore {
     }
 
     private void installWal() throws IOException {
-        if (this.data.equals(this.wal)) {
+        FileUtils.forceMkdir(this.wal);
+        if (this.data.equals(this.wal) || Files.isSameFile(this.data.toPath(), this.wal.toPath())) {
             return;
         }
         List<File> source = logs(this.data);
-        FileUtils.forceMkdir(this.wal);
         Path staging = this.staging();
         if (Files.exists(staging, LinkOption.NOFOLLOW_LINKS) &&
             !Files.isDirectory(staging, LinkOption.NOFOLLOW_LINKS)) {
