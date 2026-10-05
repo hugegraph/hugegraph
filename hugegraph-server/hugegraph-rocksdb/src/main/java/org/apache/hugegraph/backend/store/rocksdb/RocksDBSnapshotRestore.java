@@ -388,11 +388,9 @@ final class RocksDBSnapshotRestore {
             state.setProperty("wal-link-target-" + i, this.walLinkTargets.get(i).toString());
         }
         state.setProperty("metadata-sha256", metadataDigest(state));
-        // CREATE_NEW prevents replacing the only description of an interrupted restore.
-        try (OutputStream output = Files.newOutputStream(this.marker,
-                                                        StandardOpenOption.CREATE_NEW,
-                                                        StandardOpenOption.WRITE)) {
-            state.store(output, "Pending RocksDB checkpoint restore; do not remove");
+        // Publish only a complete, forced record without replacing an interrupted restore.
+        try {
+            this.files.publishMarker(this.marker, state);
         } catch (FileAlreadyExistsException e) {
             Properties pending = new Properties();
             try (InputStream input = Files.newInputStream(this.marker)) {
@@ -616,6 +614,34 @@ final class RocksDBSnapshotRestore {
 
     // Package-private seam for deterministic IO faults, without mocking native DBs.
     static class FileOperations {
+
+        void publishMarker(Path marker, Properties state) throws IOException {
+            Path staged = Files.createTempFile(marker.getParent(),
+                                               marker.getFileName() + ".staging-", ".tmp");
+            try {
+                try (OutputStream output = this.markerOutput(staged)) {
+                    state.store(output, "Pending RocksDB checkpoint restore; do not remove");
+                }
+                try (FileChannel channel = FileChannel.open(staged, StandardOpenOption.WRITE)) {
+                    channel.force(true);
+                }
+                // A same-directory hard link publishes atomically and refuses an existing name.
+                // If linking is unsupported, fail before installing or touching the live data.
+                Files.createLink(marker, staged);
+            } catch (IOException | RuntimeException | Error failure) {
+                try {
+                    Files.deleteIfExists(staged);
+                } catch (IOException cleanup) {
+                    failure.addSuppressed(cleanup);
+                }
+                throw failure;
+            }
+            Files.delete(staged);
+        }
+
+        OutputStream markerOutput(Path staged) throws IOException {
+            return Files.newOutputStream(staged, StandardOpenOption.WRITE);
+        }
 
         void copyDirectory(File source, File target) throws IOException {
             FileUtils.copyDirectory(source, target);

@@ -18,6 +18,8 @@
 package org.apache.hugegraph.backend.store.rocksdb;
 
 import java.io.File;
+import java.io.FilterOutputStream;
+import java.io.OutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.MappedByteBuffer;
@@ -1323,6 +1325,47 @@ public class RocksDBSnapshotRestoreTest {
     }
 
     @Test
+    public void testPartialMarkerWriteLeavesNativeDataAndCheckpointRetryable() throws Exception {
+        File root = this.temporary.newFolder("partial-marker");
+        File data = new File(root, "data");
+        File wal = new File(root, "wal");
+        File snapshot = new File(root, "snapshot");
+        RocksDBStdSessions original = new RocksDBStdSessions(FakeObjects.newConfig(), "db", "store",
+                                                            data.toString(), wal.toString());
+        try {
+            original.createTable("test");
+            original.session().put("test", new byte[]{1}, new byte[]{2});
+            original.session().put("test", new byte[]{6}, new byte[]{7});
+            original.session().commit();
+            AtomicReference<OpenedRocksDB> shared = Whitebox.getInternalState(original, "rocksdb");
+            try (Checkpoint checkpoint = Checkpoint.create(shared.get().rocksdb())) {
+                checkpoint.createCheckpoint(snapshot.toString());
+            }
+            original.session().put("test", new byte[]{1}, new byte[]{3});
+            original.session().commit();
+        } finally {
+            original.close();
+        }
+        Map<Path, byte[]> before = new HashMap<>();
+        for (File directory : Arrays.asList(data, wal, snapshot)) {
+            try (java.util.stream.Stream<Path> paths = Files.walk(directory.toPath())) {
+                for (Path path : paths.filter(Files::isRegularFile).collect(java.util.stream.Collectors.toList())) {
+                    before.put(path, Files.readAllBytes(path));
+                }
+            }
+        }
+        runRecoveryProcess(data, wal, snapshot, "marker-partial", 0);
+        assertFalse(new File(data + ".resume-pending").exists());
+        assertEquals(0, root.listFiles(file -> file.getName().startsWith("data.resume-pending.staging-")).length);
+        for (Map.Entry<Path, byte[]> entry : before.entrySet()) {
+            assertArrayEquals(entry.getKey().toString(), entry.getValue(), Files.readAllBytes(entry.getKey()));
+        }
+        // With the IO fault gone, a fresh JVM opens the live value and retries the same checkpoint.
+        runRecoveryProcess(data, wal, snapshot, "marker-retry", 0);
+        runRecoveryProcess(data, wal, snapshot, "finish", 0);
+    }
+
+    @Test
     public void testKilledRestoreRetriesSameGenerationAndReclaimsOnlyOwnedStaging() throws Exception {
         for (String phase : Arrays.asList("stage", "retire", "publish", "reopen")) {
             File root = this.temporary.newFolder(phase);
@@ -1388,6 +1431,46 @@ public class RocksDBSnapshotRestoreTest {
 
     private static void recoverChild(String[] args) throws Exception {
         String phase = args[3];
+        if ("marker-partial".equals(phase)) {
+            try (RecoveryLock held = RocksDBSnapshotRestore.lock(args[0])) {
+                RocksDBSnapshotRestore restore = new RocksDBSnapshotRestore(args[0], args[1], args[2],
+                        new RocksDBSnapshotRestore.FileOperations() {
+                            @Override
+                            OutputStream markerOutput(Path staged) throws IOException {
+                                return new FilterOutputStream(super.markerOutput(staged)) {
+                                    @Override
+                                    public void write(byte[] bytes, int offset, int length) throws IOException {
+                                        // Commit real bytes, then fail while Properties.store is still flushing.
+                                        this.out.write(bytes, offset, Math.min(32, length));
+                                        this.out.flush();
+                                        assertTrue(Files.size(staged) > 0);
+                                        throw new IOException("injected partial marker write");
+                                    }
+                                };
+                            }
+                        });
+                try {
+                    restore.begin();
+                    fail("Partial marker IO must fail before installing data");
+                } catch (IOException expected) {
+                    assertEquals("injected partial marker write", expected.getMessage());
+                }
+            }
+            return;
+        }
+        if ("marker-retry".equals(phase)) {
+            RocksDBStdSessions fresh = new RocksDBStdSessions(FakeObjects.newConfig(), "db", "store",
+                                                              args[0], args[1], Collections.singletonList("test"));
+            try {
+                assertArrayEquals(new byte[]{3}, fresh.session().get("test", new byte[]{1}));
+                fresh.resumeSnapshot(args[2]);
+                assertArrayEquals(new byte[]{2}, fresh.session().get("test", new byte[]{1}));
+                assertArrayEquals(new byte[]{7}, fresh.session().get("test", new byte[]{6}));
+            } finally {
+                fresh.close();
+            }
+            return;
+        }
         if ("finish".equals(phase)) {
             RocksDBStdSessions fresh = new RocksDBStdSessions(FakeObjects.newConfig(), "db", "store",
                                                               args[0], args[1], Collections.singletonList("test"));

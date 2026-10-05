@@ -2,6 +2,8 @@
 
 Standalone RocksDB snapshot restore retains its source checkpoint until the replacement is installed and reopened. Before changing data, it records the source checkpoint and WAL location in a sibling `<data-path>.resume-pending` file, together with the restore operation and checkpoint generation. A subsequent HugeGraph open retries an interrupted installation before native recovery. Missing sources, incomplete metadata or a changed WAL configuration stop opening instead of replaying uncertain data.
 
+Recovery metadata publication requires same-directory hard-link support in the data directory's parent filesystem. The complete temporary record is written and forced before its final name is published without overwriting an existing marker. A pre-publication I/O or unsupported-link failure leaves live data and the checkpoint untouched; resolve the filesystem or permission fault, reopen normally and reissue restore. Existing damaged or old-format markers are still preserved and rejected.
+
 Quiesce graph requests, background tasks and open query iterators before starting a restore. The recovery lease coordinates database opens and file installation; it does not drain active application work.
 
 Preserve the checkpoint, pending marker and configured paths after a failure. Restore access or free space, then retry normal startup with the same runtime and configuration. Do not delete the pending marker to bypass the guard. Successful native reopening clears it and then attempts checkpoint cleanup, preserving the existing consume-on-success behavior.
