@@ -2,15 +2,17 @@
 
 > 当前入口：[handoff-current.md](handoff-current.md)。用户已恢复；旧暂停与四级 stack 仅属历史。
 
-## 当前快照（2026-10-05）
+> 2026-10-06当前：4代码PR已同步master9ed(Java17/Gremlin)，261/266冲突已静态审查解决并推。所有新验证actualJava17 only；266两个schema/auth配套修复正在Java17正反对照，HStore真实API仍待运行。五PR新说明已更新。03:46本地本线程一次评论复查，未确认新增意见不算完成。具体heads/commands/receipts见handoff-current最前执行基线。
 
-- TP核心 #266 直接master，不依赖通用生命周期/恢复。真实standard/TP PDStore、Server、HStore验收已通过；最新preload优先级/classloader回退已交叉审查、整仓格式/编译/fullCommonsRPC/PD native及actualstdTP JNI关闭重开验证，3ec28716已推，三条新review均resolve；最新CI仍排队。
-- 规范 #268 5a4ae0e8：两文件独立master PR；120代码/160附近或整段Markdown，全tracked格式路径覆盖审查通过；#266 policy评论resolve，#268新增coverage评论也已修复推送回复，额度恢复后resolve。
-- 恢复 #267 7e99fb04：12文件直接master，metadata完整校验/本次UUIDcleanup/pre-copy pendingguard完整native及跨JVM/parentbind通过，已推。#263关闭被替代（非merged），checkpoint评论已resolve，分支保留。MacIntel远端60秒启动检查超时、约74秒后服务ready；等待workflow终态后同head重试，尚非merge-ready。
-- 生命周期 #261 80dd322c：普通scan/query/同数据重启与阻塞callback关闭验收通过；TTL带属性暴露master既有codec不一致，合法无属性场景未观察到关闭重叠，strictgate未通过，不报merge-ready。
-- 旧#264 078bf6d1保持OPEN拆分源，其他协作持续追加PD打包/coverage改进；不覆盖、不机械导入核心。原20条comments已有去向回复，未 blanket resolve。
-- 网站#510 7d24a523配对核心指南，两条文档评论已闭环。CI当前head单独看，不以旧绿灯/成功push替代。
-- 新一轮已删约12.5GiB精确重复/可重建产物及8停止容器，source/finaltar/native失败数据hash不变。执行/证据/兼容边界/保留数据及资源清理详见当前入口；一个heavy/sharedlock，任务context及时更新专用records分支。
+## 2026-10-05历史快照（由当前入口覆盖）
+
+- 266 exact3ec：范围已拆薄，生产Java/脚本新增约835，其余测试/文档；最新完整API CI有Project access删除重建、schema清理、HStore顶点可见性失败，需基线对照并修，暂不合。
+- 268 exact5a：两文件格式规范，0未解决comments、当前检查通过，最适合先review；合入仍看门禁。
+- 267 exact7e：12文件独立恢复替代263，native本地通过，Mac双架构同head重跑成功；仅cluster取消，兼容父根挂载/旧pending升级须深入review。
+- 261 exact80dd：普通scan/query/blockedcallback通过；TTL关闭重叠strictgate未验证，ordering争议已回复保持open，后置。
+- 510 exact7d：匹配266；新增comment要求HStore Server明确清provider环境，中英两页待修，配对core合入。
+- 旧264最新6b946e30保持OPEN拆分来源，44checks成功不改变不合整包策略；旧263关闭且branch保留。
+- 审计排序和评分：R/review-priority-current/summary.md，整体7/10，拓扑清晰9/10、当前合入闭环6/10；所有源码/产物/失败数据证据保留。当前无heavy运行。
 
 ## 以下为历史记录，不作为当前 head 或完成状态
 

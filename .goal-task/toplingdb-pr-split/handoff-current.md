@@ -1,5 +1,40 @@
 # TP 拆分当前接手入口 · 2026-10-05
 
+## 2026-10-06 master同步与Java17执行基线
+
+用户明确要求：261/266先尽早解决冲突merge master推，后续本地验证与补充另提交；以后只在实际Java17构建/测试/实测，禁止用11或21代替。旧Java11记录仅历史，不能转作新head验收。org/master当前9ed28845a0d75047bc26e3ffb3f0a3efcb5c250a（39a3 Java17+8fd Gremlin）；源码runtime/CI已升级17。
+
+四代码PR已同步、master behind=0且mergeable=true，尚未合入：261=254381b28adcb2775e9fc4792a3eab9d2c3567f2；266=18dd8b123a23a74d77182947ea569cf1b45e462f；267=a021511e2aab9f8fef136d4751a9675c85ef21e3；268=78231ce338732cce7b974602dc2c0feb95f65918。全部追加历史/nonforce；261唯一UnitSuite冲突保留双方tests，266两launcher冲突以masterJava17 module/security/bootstrap为基底保留TP前置classpath+quoted CP，独立静态review通过。同步证据R20261006/p261-sync、p266-sync、sync-pushed-status.json；267/268 helper证据实际位于E/resume-20261005/resume-20261006/p267-p268-sync（注意这一历史嵌套路径）。
+
+网站510=f6f5cbd0cc972b5caa9201cfde6d54fc61ee3ae6：HStore Server清provider环境两语言已推且4180479210 reply/resolve，随后明确Java17/Maven3.6.3+。所有5PR描述已改Java17基线/旧验收历史/新17未完成状态，receipt R20261006/descriptions-java17。PR标题依赖阶段保持，非独立前置不绑进核心。
+
+actualJava17 Linuxamd64镜像固定 `local/hg-java17-amd64-validation@sha256:8eb147ec33c90d10ab7a6f8ec610739ae70028367987b3d3e1ff8d18aeb88221`，Temurin17.0.20.1/spec17、nonroot50120、Maven3.9.16、Python3.12、unzip/ldd；官方17-noble base与toolchain记录R20261006/java17-runtime。它是hostarm64上的amd64模拟，非physicalx86。一个heavy共用E/run-exclusive.py；旧11images不使用。
+
+266拆分遗漏的2必要companion已定位：close schema cache后system auth边没有被枚举→project/access、user/belong漏删；cached vertex/edge持旧SchemaLabel indexIDs→Undefined index/清理失败。来源261明确修复；已仅移植GraphTransaction/GraphIndexTransaction+AuthTest/IndexLabelCoreTest/GraphTransactionTest五文件与coreguideJava17一处，未搬scan/TTL/queryTaskInfos。2730完整源R20261006/p266-sync/source；parent2307，candidate freeze=p266-candidate-java17-freeze.json；before/patch/payload与独立review=p266-ci-rootcause/companion-candidate。Java17 focused AB001candidate格式/wholecleancompile通过、缓存index两回归通过但Auth三项因backend系统属性null跳过；不是6项全PASS。AB002同两副本显式-Dbackend=memory负对照确4类症状复现、2boundaryPASS无skip，project primary+teardown会产生同方法多XML testcase，不能强制原始testcase总数=6而丢failure；AB003 candidate显式-Dbackend=memory六个独立方法全部PASS，零failure/error/skip，完整源码hash未变。六文件修复已单独提交并推送18dd8b123a23a74d77182947ea569cf1b45e462f，receipt R20261006/p266-companion-publish.published.json。不得改运行中源/driver，结果以java17-validation receipts为准。
+
+实际HTTP最短3case driver已准备未实跑：R20261006/api-regression，绑定新Java17包/PID/backend；Project固定名create-delete-recreate且access0；schema/index task等完成并再写读；HStore首轮6真实vertices必须REST/Gremlin一致才取真实IDs连edge。禁止改测试名/弱断言/假ID/手造序列化绕过错误。HStore首次枚举缺ID不由两个companion静态分析证明已修，仍需实跑。
+
+用户要求半小时复查新增comments：当前thread heartbeat id=tp-pr ACTIVE，下次本地2026-10-06 03:46:33，执行一次后自动pause；覆盖261/266/267/268/网站510，新增/更新review+普通comment逐条单独确认，已修复验证推送当前head才resolve；未确认意见保持open，有新增未确认不得标记任务完成。automation receipt=R20261006/comment-followup.json。不自动merge、不等CI全完才反馈，只需快速当前状态。此前创建的DTSTART/COUNT尝试被工具拒绝、没有重复automation；实际为hourlyBYMINUTE46BYSECOND33，prompt明确此次结束pause自身。
+
+当前优先：已完成Java17正反对照并推送6files；正在构建当前18dd新17发布包，随后真实HTTP/API/HStore；其后261/267针对性17验收与TTL严格gate。保持小PR主线，CI与评论异步跟进，不依赖旧JDK11结果，不做未经因果确认的test适配掩盖。
+
+## 2026-10-06 合入阶段与标题
+
+按新交付计划编号：已合P1（Apache3265，1/4）→ core266（2/4）→ 专用发行包（3/4，尚未建PR）→ Docker/Compose（4/4，尚未建PR）。网站510与core同阶段配套，标2/4；261生命周期、267恢复、268规范直接基于master，均无阶段编号。旧264仅拆分来源，不编号、不恢复整包合入路线。并行PR共享文件，任一合入后其余同步master并复验。
+
+- hugegraph/hugegraph#266: feat: enable ToplingDB for Server/PD/Store (2/4)
+- apache/hugegraph-doc#510: docs: explain ToplingDB runtime setup (2/4)
+- hugegraph/hugegraph#261: fix: release query resources and drain Store RPCs
+- hugegraph/hugegraph#267: fix(rocksdb): make snapshot restore retryable
+- hugegraph/hugegraph#268: chore: align review rules for code and Markdown
+- hugegraph/hugegraph#264: feat: integrate ToplingDB (split source only)
+
+标题已逐一通过REST修改并读回核验，head/base未改；receipt在 /Users/zhu/github/hugegraph-topling-split-evidence/resume-20261006/pr-titles-updated.json。
+
+## 最新审计状态（覆盖下文旧CI快照）
+
+R/review-priority-current/prs.json与reviews.json：266 exact3ec当前8失败check，实质为Project access删除重建、schema index清理、HStore顶点可见性及级联；不认为只是启动timeout。两个ci-diagnosis报告已落盘，须受控baseline对照责任及request/task lease交互后修复，不能合入。267 exact7e Mac ARM/Intel同head已重跑成功，唯一cancelled为cluster；之前Mac等待重试门槛已解除。268 exact5a检查通过、0open；261 exact80dd仍只有ordering争议1open及TTL本地缺口。510 exact7d新增env隔离comment4180479210，需EN/CN明确HStore Server unset provider或设rocksdb，尚未修/resolve。旧264最新6b946e30、135files/+10510/44成功checks，继续保留来源，不因绿灯恢复整包路线。详细评分/规模/合入顺序见R/review-priority-current/summary.md。
+
 ## 授权与交付边界
 
 用户切换模型后已恢复；小 TP 核心保留 Server/PD/Store，通用生命周期与恢复独立。允许小的新 PR 替换旧 stack；及时提交推送、实证解决后 resolve、争议回复；不 auto-merge、不 force push、不直接推 master。版本库操作 gh-only。只做本轮已有范围，不引入通用大框架。
@@ -24,7 +59,7 @@ master (P1 已合)
 | 生命周期 #261 | master base，80dd322c8feb6a6ba76500a57e825557ef72e1ce；普通scan/query与blockedcallback验收通过，TTL重叠严格gate未通过 |
 | 恢复 #267 | task/rocksdb-recovery-20261005，直接master，非draft；7e99fb04f127a753ddac31cd4716f1bea02d75ef |
 | 旧恢复 #263 | CLOSED，被267替代；bd13072e5a62a391a186f99ca1010f9927af06f2；不是merged，分支保留 |
-| 旧集成 #264 | OPEN拆分源，078bf6d181b6d7db6ec84825d85babd7775be949；其他协作仍发布，保留不覆盖/关闭 |
+| 旧集成 #264 | OPEN拆分源，6b946e30d38725e1fe664be9a65cc757c7aef953；其他协作仍发布，保留不覆盖/关闭 |
 | 规范 #268 | task/review-formatting-20261005，直接master；5a4ae0e836335cbb5d0824cb5ddf815177bae473；两文件，无生产变动；当前tracked格式含dotpaths覆盖，最新评论已reply/resolve |
 | 网站 #510 | apache/hugegraph-doc；fork task/topling-split-docs；7d24a523661287119ea177b63846f199abf4a3e6；配对266 |
 
