@@ -217,9 +217,9 @@ Apache 2.0 licenses
 The following components are provided under the Apache License. See project link for details.
 The text of each license is the standard Apache 2.0 license.
 
-hugegraph-server/hugegraph-core/src/main/java/org/apache/hugegraph/type/Nameable.java from https://github.com/JanusGraph/janusgraph
-hugegraph-server/hugegraph-core/src/main/java/org/apache/hugegraph/type/define/Cardinality.java from https://github.com/JanusGraph/janusgraph
-hugegraph-server/hugegraph-core/src/main/java/org/apache/hugegraph/util/StringEncoding.java from https://github.com/JanusGraph/janusgraph
+hugegraph-struct/src/main/java/org/apache/hugegraph/type/Namifiable.java from https://github.com/JanusGraph/janusgraph
+hugegraph-struct/src/main/java/org/apache/hugegraph/type/define/Cardinality.java from https://github.com/JanusGraph/janusgraph
+hugegraph-struct/src/main/java/org/apache/hugegraph/util/StringEncoding.java from https://github.com/JanusGraph/janusgraph
 hugegraph-server/hugegraph-core/src/main/java/org/apache/hugegraph/traversal/optimize/HugeScriptTraversal.java from https://github.com/apache/tinkerpop
 hugegraph-server/hugegraph-test/src/main/java/org/apache/hugegraph/tinkerpop/ProcessBasicSuite.java from https://github.com/apache/tinkerpop
 hugegraph-server/hugegraph-test/src/main/java/org/apache/hugegraph/tinkerpop/StructureBasicSuite.java from https://github.com/apache/tinkerpop
@@ -277,11 +277,9 @@ the corresponding per-component license file.
     https://central.sonatype.com/artifact/com.carrotsearch/hppc/0.7.1 -> Apache 2.0
     https://central.sonatype.com/artifact/com.chenlb.mmseg4j/mmseg4j-core/1.10.0 -> Apache 2.0
     https://central.sonatype.com/artifact/com.codahale.metrics/metrics-core/3.0.2 -> Apache 2.0
-    https://central.sonatype.com/artifact/com.fasterxml.jackson.core/jackson-annotations/2.12.6 -> Apache 2.0
     https://central.sonatype.com/artifact/com.fasterxml.jackson.core/jackson-annotations/2.13.0 -> Apache 2.0
     https://central.sonatype.com/artifact/com.fasterxml.jackson.core/jackson-annotations/2.14.0-rc1 -> Apache 2.0
     https://central.sonatype.com/artifact/com.fasterxml.jackson.core/jackson-annotations/2.15.2 -> Apache 2.0
-    https://central.sonatype.com/artifact/com.fasterxml.jackson.core/jackson-core/2.12.6 -> Apache 2.0
     https://central.sonatype.com/artifact/com.fasterxml.jackson.core/jackson-core/2.13.0 -> Apache 2.0
     https://central.sonatype.com/artifact/com.fasterxml.jackson.core/jackson-core/2.13.2 -> Apache 2.0
     https://central.sonatype.com/artifact/com.fasterxml.jackson.core/jackson-core/2.14.0-rc1 -> Apache 2.0

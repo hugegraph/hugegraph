@@ -2063,7 +2063,7 @@ public class GraphTransaction extends IndexableTransaction {
                     (this.addedEdges.containsKey(edge.id()) ||
                      this.updatedEdges.containsKey(edge.id()))) {
                     HugeEdge opposite = edge.switchOwner();
-                    if (query.test(opposite)) {
+                    if (query.test(opposite.element())) {
                         return ImmutableList.of(edge, opposite).iterator();
                     }
                 }

@@ -78,8 +78,8 @@ import org.apache.hugegraph.type.define.IndexType;
 import org.apache.hugegraph.type.define.WriteType;
 import org.apache.hugegraph.util.Bytes;
 import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import com.google.protobuf.ByteString;
@@ -92,7 +92,7 @@ public class StoredRowIngressTest {
     private Properties rows;
     private HugeGraphSupplier graph;
 
-    @Before
+    @BeforeEach
     public void setUp() throws Exception {
         this.rows = new Properties();
         try (InputStream input = getClass().getClassLoader().getResourceAsStream(FIXTURE)) {
