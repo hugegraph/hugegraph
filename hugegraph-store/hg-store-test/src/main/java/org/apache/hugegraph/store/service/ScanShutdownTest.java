@@ -381,10 +381,14 @@ public class ScanShutdownTest {
         HgStoreWrapperEx wrapper = mock(HgStoreWrapperEx.class);
         ScanIterator iterator = mock(ScanIterator.class);
         when(wrapper.scanAll(anyString(), anyString(), any(byte[].class))).thenReturn(iterator);
-        doThrow(new IllegalStateException("native close failed")).when(iterator).close();
         StreamObserver<KvPageRes> output = mock(StreamObserver.class);
         CountDownLatch sending = new CountDownLatch(1);
         CountDownLatch release = new CountDownLatch(1);
+        doAnswer(invocation -> {
+            // Exercise cleanup failure while the response callback is already in flight.
+            assertTrue(sending.await(2, TimeUnit.SECONDS));
+            throw new IllegalStateException("native close failed");
+        }).when(iterator).close();
         doAnswer(invocation -> {
             sending.countDown();
             assertTrue(release.await(2, TimeUnit.SECONDS));
