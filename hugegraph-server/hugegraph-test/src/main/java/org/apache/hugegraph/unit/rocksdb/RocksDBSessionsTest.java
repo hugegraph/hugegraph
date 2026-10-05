@@ -20,6 +20,9 @@ package org.apache.hugegraph.unit.rocksdb;
 import java.io.File;
 import java.io.IOException;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.apache.commons.io.FileUtils;
 import org.apache.hugegraph.backend.store.rocksdb.RocksDBMetrics;
@@ -33,11 +36,80 @@ import org.apache.hugegraph.testutil.Whitebox;
 import org.apache.hugegraph.unit.FakeObjects;
 import org.junit.Test;
 import org.rocksdb.RocksDBException;
+import org.rocksdb.WriteBatch;
+import org.rocksdb.WriteOptions;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
 public class RocksDBSessionsTest extends BaseRocksDBUnitTest {
+
+    @Test
+    public void testFinalDetachDisposesNativeOwners() throws Exception {
+        RocksDBSessions.Session session = this.rocks.session();
+        WriteBatch batch = Whitebox.getInternalState(session, "batch");
+        WriteOptions options = Whitebox.getInternalState(session, "writeOptions");
+        // Keep the DB alive while this worker releases its final request lease.
+        CountDownLatch attached = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        Thread keeper = new Thread(() -> {
+            try {
+                this.rocks.session();
+                attached.countDown();
+                release.await();
+            } catch (Throwable e) {
+                failure.set(e);
+            } finally {
+                attached.countDown();
+                try {
+                    this.rocks.close();
+                } catch (Throwable e) {
+                    failure.compareAndSet(null, e);
+                }
+            }
+        });
+        keeper.start();
+        try {
+            Assert.assertTrue(attached.await(30, TimeUnit.SECONDS));
+            Assert.assertNull(failure.get());
+            Assert.assertSame(session, this.rocks.useSession());
+            Assert.assertFalse(this.rocks.close());
+            Assert.assertTrue(batch.isOwningHandle());
+            Assert.assertTrue(options.isOwningHandle());
+            session.put(TABLE, getBytes("lease"), getBytes("retained"));
+            session.commit();
+            Assert.assertFalse(this.rocks.close());
+            Assert.assertFalse(batch.isOwningHandle());
+            Assert.assertFalse(options.isOwningHandle());
+            // Native close is idempotent even after the pool removed this session.
+            session.close();
+            Assert.assertFalse(batch.isOwningHandle());
+            Assert.assertFalse(options.isOwningHandle());
+            for (int i = 0; i < 32; i++) {
+                RocksDBSessions.Session request = this.rocks.session();
+                Assert.assertNotSame(session, request);
+                WriteBatch requestBatch = Whitebox.getInternalState(request, "batch");
+                WriteOptions requestOptions = Whitebox.getInternalState(request, "writeOptions");
+                Assert.assertTrue(requestBatch.isOwningHandle());
+                Assert.assertTrue(requestOptions.isOwningHandle());
+                Assert.assertArrayEquals(getBytes("retained"), request.get(TABLE, getBytes("lease")));
+                request.put(TABLE, getBytes("request"), getBytes("value"));
+                request.commit();
+                Assert.assertFalse(this.rocks.close());
+                Assert.assertFalse(requestBatch.isOwningHandle());
+                Assert.assertFalse(requestOptions.isOwningHandle());
+            }
+        } finally {
+            // Leave the fixture's main-worker session open for ordinary teardown.
+            this.rocks.session();
+            release.countDown();
+            keeper.join(TimeUnit.SECONDS.toMillis(30));
+        }
+        Assert.assertFalse(keeper.isAlive());
+        Assert.assertNull(failure.get());
+        Assert.assertEquals("retained", this.get("lease"));
+    }
 
     @Test
     public void testDatabaseOpenedDoesNotCreateSession() throws RocksDBException {

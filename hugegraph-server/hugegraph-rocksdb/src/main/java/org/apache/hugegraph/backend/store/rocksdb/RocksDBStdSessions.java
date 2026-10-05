@@ -731,7 +731,15 @@ public class RocksDBStdSessions extends RocksDBSessions {
         @Override
         public void close() {
             assert this.closeable();
-            this.opened = false;
+            try {
+                this.batch.close();
+            } finally {
+                try {
+                    this.writeOptions.close();
+                } finally {
+                    this.opened = false;
+                }
+            }
         }
 
         @Override
