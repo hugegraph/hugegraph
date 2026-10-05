@@ -33,7 +33,8 @@ graph or that no sibling database has initialized before another open fails.
 Keep mount layout unchanged throughout startup and recovery.
 
 Independent WAL, WAL inside data, and data inside a WAL root use in-place log
-replacement. Preserve WAL symlink configuration across retries. Local fault
+replacement. Preserve WAL symlink configuration across retries. Recovery validates the saved canonical WAL binding and existing
+recorded aliases before reconstructing any missing alias, so rejected metadata does not create WAL links. Local fault
 tests cover interrupted operations and reopening; they do not establish
 power-cut durability. This mechanism does not provide an atomic whole-graph
 restore or an HStore multi-partition snapshot protocol.

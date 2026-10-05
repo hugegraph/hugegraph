@@ -26,6 +26,7 @@ import java.nio.channels.OverlappingFileLockException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
+import java.nio.file.InvalidPathException;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -339,11 +340,19 @@ final class RocksDBSnapshotRestore {
                 String linkTarget = state.getProperty("wal-link-target-" + i);
                 if (link == null || linkTarget == null || !Paths.get(link).isAbsolute() ||
                     !Paths.get(link).normalize().toString().equals(link) ||
-                    !configuredWal.startsWith(Paths.get(link))) {
+                    !configuredWal.startsWith(Paths.get(link)) ||
+                    (i > 0 && Paths.get(link).getNameCount() <= recordedLinks.get(i - 1).getNameCount())) {
                     throw new IOException("Invalid WAL link in recovery marker " + marker);
                 }
                 recordedLinks.add(Paths.get(link));
                 recordedTargets.add(Paths.get(linkTarget));
+            }
+            validateCheckpoint(source);
+            // Resolve recorded aliases without creating them, so an invalid canonical WAL binding
+            // or a changed existing alias cannot mutate the filesystem before rejection.
+            Path resolvedWal = resolveRecordedWal(configuredWal, recordedLinks, recordedTargets);
+            if (!resolvedWal.toString().equals(savedWal)) {
+                throw new IOException("WAL configuration changed during recovery: " + marker);
             }
             // Validate every metadata field before reconstructing even the first alias.
             for (int i = 0; i < links; i++) {
@@ -357,7 +366,7 @@ final class RocksDBSnapshotRestore {
             restore.validateGeneration(state);
             restore.install();
             return restore;
-        } catch (IOException e) {
+        } catch (IOException | InvalidPathException e) {
             throw new BackendException("Pending snapshot recovery failed for '%s'; " +
                                        "preserve the .resume-pending marker and checkpoint", e, data);
         }
@@ -393,6 +402,27 @@ final class RocksDBSnapshotRestore {
                 }
             }
         }
+    }
+
+    private static Path resolveRecordedWal(Path configuredWal, List<Path> links,
+                                           List<Path> targets) throws IOException {
+        Path logical = configuredWal.getRoot();
+        Path resolved = logical;
+        for (Path name : configuredWal) {
+            logical = logical.resolve(name);
+            resolved = resolved.resolve(name);
+            int index = links.indexOf(logical);
+            if (index >= 0) {
+                Path target = targets.get(index);
+                if (Files.exists(resolved, LinkOption.NOFOLLOW_LINKS) &&
+                    (!Files.isSymbolicLink(resolved) || !Files.readSymbolicLink(resolved).equals(target))) {
+                    throw new IOException("WAL link changed during recovery: " + logical);
+                }
+                resolved = target.isAbsolute() ? target : resolved.getParent().resolve(target);
+            }
+            resolved = resolved.toFile().getCanonicalFile().toPath();
+        }
+        return resolved;
     }
 
     private static void restoreLink(Path link, Path target) throws IOException {
