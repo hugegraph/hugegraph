@@ -64,3 +64,8 @@ reconstructing any WAL alias, then uses the filesystem's actual canonical WAL pa
 metadata; it is not authentication against someone who can edit the record and recompute its checksum, and it does not freeze the surrounding filesystem.
 Records from older versions without this checksum are rejected and preserved, not silently upgraded. Finish an outstanding restore with its producing
 version before upgrading; otherwise preserve the checkpoint, marker and paths for diagnosis. Do not add a checksum manually to bypass this check.
+
+Before creating a non-consuming copy, restore holds the database recovery ownership and requires a confirmed absent pending marker. An existing or
+unreadable marker rejects the new copy before opening its checkpoint source; reopen the database to retry the recorded recovery instead. Repeated
+requests therefore do not allocate more UUID copies for an already pending database. If a later database is pending, copies already created for earlier
+databases are still cleaned by the same invocation's failure handling.

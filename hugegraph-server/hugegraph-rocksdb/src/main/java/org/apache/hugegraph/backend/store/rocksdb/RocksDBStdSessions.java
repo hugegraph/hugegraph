@@ -315,20 +315,32 @@ public class RocksDBStdSessions extends RocksDBSessions {
     }
 
     @Override
-    public String hardLinkSnapshot(String snapshotPath) throws RocksDBException {
-        String snapshotLinkPath = this.dataPath + "_temp-" + java.util.UUID.randomUUID();
-        try (OpenedRocksDB rocksdb = this.openSnapshot(snapshotPath)) {
-            rocksdb.createCheckpoint(snapshotLinkPath);
-            return snapshotLinkPath;
-        } catch (RocksDBException | RuntimeException | Error failure) {
-            try {
-                this.cleanupSnapshot(snapshotLinkPath);
-            } catch (RuntimeException | Error cleanupFailure) {
-                if (cleanupFailure != failure) {
-                    failure.addSuppressed(cleanupFailure);
+    public synchronized String hardLinkSnapshot(String snapshotPath) throws RocksDBException {
+        synchronized (this.rocksdb) {
+            try (RecoveryLock acquired = this.rocksdb.get().ownsRecoveryLock() ?
+                                         null : lockForOpen(this.dataPath)) {
+                if (!RocksDBSnapshotRestore.hasNoPendingRestore(this.dataPath)) {
+                    throw new BackendException("Recovery may be pending for '%s'; reopen the database " +
+                                               "to retry its original checkpoint before creating another copy",
+                                               this.dataPath);
                 }
+                String snapshotLinkPath = this.dataPath + "_temp-" + java.util.UUID.randomUUID();
+                try (OpenedRocksDB rocksdb = this.openSnapshot(snapshotPath)) {
+                    rocksdb.createCheckpoint(snapshotLinkPath);
+                    return snapshotLinkPath;
+                } catch (RocksDBException | RuntimeException | Error failure) {
+                    try {
+                        this.cleanupSnapshotUnderLock(snapshotLinkPath);
+                    } catch (IOException | RuntimeException | Error cleanupFailure) {
+                        if (cleanupFailure != failure) {
+                            failure.addSuppressed(cleanupFailure);
+                        }
+                    }
+                    throw failure;
+                }
+            } catch (IOException e) {
+                throw new BackendException("Failed to create temporary checkpoint for '%s'", e, this.dataPath);
             }
-            throw failure;
         }
     }
 
@@ -341,19 +353,24 @@ public class RocksDBStdSessions extends RocksDBSessions {
         synchronized (this.rocksdb) {
             try (RecoveryLock acquired = this.rocksdb.get().ownsRecoveryLock() ?
                                          null : lockForOpen(this.dataPath)) {
-                // An existing or unreadable marker may own recovery material. Do not
-                // parse it here or call prepareOpen, which can install data.
-                if (!RocksDBSnapshotRestore.hasNoPendingRestore(this.dataPath)) {
-                    LOG.warn("Preserving temporary checkpoint {} because recovery may be pending for {}",
-                             snapshotPath, this.dataPath);
-                    return;
-                }
-                FileUtils.deleteDirectory(new File(snapshotPath + "_temp"));
-                FileUtils.deleteDirectory(new File(snapshotPath));
+                this.cleanupSnapshotUnderLock(snapshotPath);
             } catch (IOException | RocksDBException e) {
                 throw new BackendException("Failed to clean temporary checkpoint '%s'", e, snapshotPath);
             }
         }
+    }
+
+    // The caller retains either the shared native owner's lease or an acquired lock.
+    private void cleanupSnapshotUnderLock(String snapshotPath) throws IOException {
+        // An existing or unreadable marker may own recovery material. Do not
+        // parse it here or call prepareOpen, which can install data.
+        if (!RocksDBSnapshotRestore.hasNoPendingRestore(this.dataPath)) {
+            LOG.warn("Preserving temporary checkpoint {} because recovery may be pending for {}",
+                     snapshotPath, this.dataPath);
+            return;
+        }
+        FileUtils.deleteDirectory(new File(snapshotPath + "_temp"));
+        FileUtils.deleteDirectory(new File(snapshotPath));
     }
 
     @Override

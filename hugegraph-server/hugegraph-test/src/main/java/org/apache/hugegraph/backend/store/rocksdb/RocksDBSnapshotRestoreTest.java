@@ -42,6 +42,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.apache.commons.io.FileUtils;
@@ -71,6 +72,102 @@ public class RocksDBSnapshotRestoreTest {
 
     @Rule
     public TemporaryFolder temporary = new TemporaryFolder();
+
+    @Test
+    public void testPendingRestoreRejectsRepeatedCopiesBeforeOpeningSource() throws Exception {
+        for (boolean malformed : new boolean[]{false, true}) {
+            File root = this.temporary.newFolder("snapshot-pending-copy-" + malformed);
+            File data = new File(root, "data");
+            File source = new File(root, "source");
+            AtomicInteger sourceOpens = new AtomicInteger();
+            RocksDBStdSessions owner = new RocksDBStdSessions(FakeObjects.newConfig(), "db", "store",
+                                                             data.toString(), data.toString()) {
+                @Override
+                OpenedRocksDB openSnapshot(String path) throws RocksDBException {
+                    sourceOpens.incrementAndGet();
+                    return super.openSnapshot(path);
+                }
+            };
+            try {
+                owner.createSnapshot(source.toString());
+                String pendingCopy = owner.hardLinkSnapshot(source.toString());
+                RocksDBSnapshotRestore.start(data.toString(), data.toString(), pendingCopy);
+                Path marker = new File(data + ".resume-pending").toPath();
+                if (malformed) {
+                    Files.writeString(marker, "incomplete pending record");
+                    // Exercise the acquired-lock path as well as a live owner's lease.
+                    owner.forceCloseRocksDB();
+                }
+                byte[] pendingBytes = Files.readAllBytes(marker);
+                byte[] current = Files.readAllBytes(new File(pendingCopy, "CURRENT").toPath());
+                sourceOpens.set(0);
+                for (int attempt = 0; attempt < 3; attempt++) {
+                    try {
+                        owner.hardLinkSnapshot(source.toString());
+                        fail("Existing recovery must reject a new checkpoint copy");
+                    } catch (BackendException expected) {
+                        assertTrue(expected.getMessage().contains("reopen the database"));
+                    }
+                    assertEquals(0, sourceOpens.get());
+                    assertArrayEquals(new String[]{new File(pendingCopy).getName()},
+                                      root.list((parent, name) -> name.startsWith("data_temp-")));
+                    assertArrayEquals(pendingBytes, Files.readAllBytes(marker));
+                    assertArrayEquals(current, Files.readAllBytes(new File(pendingCopy, "CURRENT").toPath()));
+                    assertTrue(new File(source, "CURRENT").isFile());
+                }
+            } finally {
+                owner.forceCloseRocksDB();
+            }
+        }
+    }
+
+    @Test
+    public void testLaterPendingDatabaseReclaimsEarlierNewCopy() throws Exception {
+        File root = this.temporary.newFolder("snapshot-later-pending");
+        File firstSource = new File(root, "first-source");
+        File secondSource = new File(root, "second-source");
+        File secondData = new File(root, "second");
+        AtomicInteger sourceOpens = new AtomicInteger();
+        RocksDBStdSessions first = cleanupOwner(new File(root, "first"), firstSource);
+        RocksDBStdSessions second = new RocksDBStdSessions(FakeObjects.newConfig(), "db", "store",
+                                                          secondData.toString(), secondData.toString()) {
+            @Override
+            public String buildSnapshotPath(String prefix) {
+                return secondSource.toString();
+            }
+
+            @Override
+            OpenedRocksDB openSnapshot(String path) throws RocksDBException {
+                sourceOpens.incrementAndGet();
+                return super.openSnapshot(path);
+            }
+        };
+        try {
+            first.createSnapshot(firstSource.toString());
+            second.createSnapshot(secondSource.toString());
+            RocksDBSnapshotRestore.start(secondData.toString(), secondData.toString(), secondSource.toString());
+            Path marker = new File(secondData + ".resume-pending").toPath();
+            byte[] pendingBytes = Files.readAllBytes(marker);
+            RocksDBStore store = cleanupStore(first, second);
+            for (int attempt = 0; attempt < 3; attempt++) {
+                try {
+                    store.resumeSnapshot("ignored", false);
+                    fail("Later database is already recovering");
+                } catch (BackendException expected) {
+                    assertTrue(expected.getMessage().contains("reopen the database"));
+                }
+                assertEquals(0, sourceOpens.get());
+                assertEquals(0, root.list((parent, name) -> name.startsWith("first_temp-") ||
+                                                          name.startsWith("second_temp-")).length);
+                assertArrayEquals(pendingBytes, Files.readAllBytes(marker));
+                assertTrue(new File(firstSource, "CURRENT").isFile());
+                assertTrue(new File(secondSource, "CURRENT").isFile());
+            }
+        } finally {
+            first.forceCloseRocksDB();
+            second.forceCloseRocksDB();
+        }
+    }
 
     @Test
     public void testUnusedCopiesDoNotAccumulateOnFirstPassFailure() throws Exception {
