@@ -1,5 +1,21 @@
 # TP 拆分当前接手入口 · 2026-10-05
 
+## 2026-10-06 用户要求先推送修复，继续本地实测
+
+三PR本轮修复已gh-only非force提交并逐blob验证：261=719222bb8b7031524b7ee76423aaaadaa5769c3f（六files）、266=ebe465840f7169a839f85a873d5090bf08ee77c8（两批共13files）、267=82b75b07076b3b37c8d495657530b98a33945b9d（六files，重开fixture使用真实Store CF）。配套网站510=e0cb5ea822388f5bf6215aa7df2796cfddc0b568。receipt=R06/takeover-20261006/publish-*.published.json和R06/website-capability/publish.published.json。用户明确先推送方便review，随后继续测试；push不代表验收通过，不提前resolve。
+
+261最终positive003新三项和相关取消通过，但既有扫描清理等待回调失败，P2在同冻结源码诊断；267candidate001的重开测试曾错建额外testCF，新fixture保持实际Store CF并待重验（生产未变）。266统一Java17格式通过，wholecompile进行中；新包HStore关闭/重启仍待完成。已在P2 context/P4 handoff追加新主发布notice和exactreceipt，提醒勿使用旧parent发布；这不是跨树消息送达证明。
+
+
+## 2026-10-06 新主接管（覆盖旧主暂停前状态）
+
+新主chat=01a10dc0-9a54-7463-9890-ed318c763f08；接管清单=/Users/zhu/github/hugegraph-topling-split-evidence/resume-20261006/takeover-20261006/handoff.md。已读取旧主最后两轮、三个worker当前状态及gh当前head。根checkout是master，仅协调；实际修复source/branch以接管清单为准。
+
+266已分批提交推送6800d29b9acd8f46cad590a12a859b4adec7ae79（CodeSource控失败+动态OLAP清理四files），routing003实际Java17正反回归/格式/wholecleancompile通过、发布逐blob核验，4187965595和4187994473已reply/resolve。剩余9files包含prepare/preload、docs、heartbeat和metrics；13file候选冻结到takeover/source，统一格式/compile/相关测试/三包构建通过sharedheavy锁排队；新包HStore关闭重启仍待完成。旧p266-sync/source已修改，历史18dd2730parity不能证明当前树与18dd一致。
+
+P2仍负责261最终positive003并分批发布；P4仍负责267，candidate001完整native回归发现sameStore重开失败，不可宣称完成；不在其可写目录重复修复。P3局部heartbeat/metrics真实AB已完成。子线程direct messaging被multi-agentv2限制拒绝、跨树collaboration不可达；旧主收到仅协调请求但确认guard未转达，agents尚未切换同步。shared记录takeover/agent-sync.md不是送达证明。定时任务继续PAUSED，不auto-merge。
+
+
 ## 2026-10-06 新评论实修进行中（用户要求修复、验证、推送后再交付）
 
 定时自动化tp-pr已经PAUSED；用户明确无需继续定时检查。三PR现有意见由既有workers分工处理，无新事项/无auto-merge。261由p2在R06/p261-comments-fix/source（254381b完整gh archive）负责transportcancel和DONE重复query；3旧实现负回归已失败，positive001发现双onError并修幂等onTransportCancel，fixture补单worker barrier后最终negative002/positive003待实际Java17完成；p3独立review已绑定最新patch。旧ordering事实回复，不盲resolve。
