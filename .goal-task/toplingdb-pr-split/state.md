@@ -5,12 +5,12 @@
 ## 当前快照（2026-10-05）
 
 - TP核心 #266 直接master，不依赖通用生命周期/恢复。真实standard/TP PDStore、Server、HStore验收已通过；最新preload优先级/classloader回退已交叉审查、整仓格式/编译/fullCommonsRPC/PD native及actualstdTP JNI关闭重开验证，3ec28716已推，三条新review均resolve；最新CI仍排队。
-- 规范 #268 5a4ae0e8：两文件独立master PR；120代码/160附近或整段Markdown，全tracked格式路径覆盖审查通过；#266 policy评论resolve，#268新增coverage评论已修复推送回复，GraphQL限流暂阻resolve（01:05:11 UTC恢复）。
-- 恢复 #267 7e99fb04：12文件直接master，metadata完整校验/本次UUIDcleanup/pre-copy pendingguard完整native及跨JVM/parentbind通过，已推。#263关闭被替代（非merged），checkpoint评论已resolve，分支保留。
+- 规范 #268 5a4ae0e8：两文件独立master PR；120代码/160附近或整段Markdown，全tracked格式路径覆盖审查通过；#266 policy评论resolve，#268新增coverage评论也已修复推送回复，额度恢复后resolve。
+- 恢复 #267 7e99fb04：12文件直接master，metadata完整校验/本次UUIDcleanup/pre-copy pendingguard完整native及跨JVM/parentbind通过，已推。#263关闭被替代（非merged），checkpoint评论已resolve，分支保留。MacIntel远端60秒启动检查超时、约74秒后服务ready；等待workflow终态后同head重试，尚非merge-ready。
 - 生命周期 #261 80dd322c：普通scan/query/同数据重启与阻塞callback关闭验收通过；TTL带属性暴露master既有codec不一致，合法无属性场景未观察到关闭重叠，strictgate未通过，不报merge-ready。
 - 旧#264 078bf6d1保持OPEN拆分源，其他协作持续追加PD打包/coverage改进；不覆盖、不机械导入核心。原20条comments已有去向回复，未 blanket resolve。
 - 网站#510 7d24a523配对核心指南，两条文档评论已闭环。CI当前head单独看，不以旧绿灯/成功push替代。
-- 执行/证据/兼容边界/保留数据及资源清理详见当前入口；一个heavy/sharedlock，任务context及时更新专用records分支。
+- 新一轮已删约12.5GiB精确重复/可重建产物及8停止容器，source/finaltar/native失败数据hash不变。执行/证据/兼容边界/保留数据及资源清理详见当前入口；一个heavy/sharedlock，任务context及时更新专用records分支。
 
 ## 以下为历史记录，不作为当前 head 或完成状态
 

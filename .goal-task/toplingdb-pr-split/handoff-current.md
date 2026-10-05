@@ -25,7 +25,7 @@ master (P1 已合)
 | 恢复 #267 | task/rocksdb-recovery-20261005，直接master，非draft；7e99fb04f127a753ddac31cd4716f1bea02d75ef |
 | 旧恢复 #263 | CLOSED，被267替代；bd13072e5a62a391a186f99ca1010f9927af06f2；不是merged，分支保留 |
 | 旧集成 #264 | OPEN拆分源，078bf6d181b6d7db6ec84825d85babd7775be949；其他协作仍发布，保留不覆盖/关闭 |
-| 规范 #268 | task/review-formatting-20261005，直接master；5a4ae0e836335cbb5d0824cb5ddf815177bae473；两文件，无生产变动；当前tracked格式含dotpaths覆盖，最新评论已回复，resolve被GraphQL限流 |
+| 规范 #268 | task/review-formatting-20261005，直接master；5a4ae0e836335cbb5d0824cb5ddf815177bae473；两文件，无生产变动；当前tracked格式含dotpaths覆盖，最新评论已reply/resolve |
 | 网站 #510 | apache/hugegraph-doc；fork task/topling-split-docs；7d24a523661287119ea177b63846f199abf4a3e6；配对266 |
 
 ## 证据和可复制入口
@@ -43,11 +43,11 @@ C/final-core-acceptance-004.json：真实standard/TP PDStore写读更新/正常s
 环境：Darwin arm64上的隔离Linux amd64 Docker模拟，非原生x86主机；nonroot501:20、无host ports、通常networknone/4CPU6GB。Commons两项既有公开cacerts下载需要bridge；真实服务保持none。
 
 Commons CI发现utility新增令ReflectionUtilTest类计数需19→20，ec9单行修复已推。build006 format/wholecleancompile PASS，完整Commons仅两项networknone DNS下载ERROR，保留exit1；build007桥接重跑Commons351+RPC24零fail/error/skip，源未变。
-新review三条：policy4179681096拆268、移除core并reply/resolve；preload4179681102与loader4179681112修复已交叉审查、验证、提交推送并reply/resolve。C/review-runtime-comments-resolved-009.json及policy/comment-resolved.json保存证据。最新core无未解决thread（comments-final-010.json）。
+新review三条：policy4179681096拆268、移除core并reply/resolve；preload4179681102与loader4179681112修复已交叉审查、验证、提交推送并reply/resolve。C/review-runtime-comments-resolved-009.json及policy/comment-resolved.json保存证据。最新core无未解决thread（comments-final-013.json）；267/268也为0，261只有已回复的ordering争议保持open。
 C/review-preload-009：选定JNI放LD_PRELOAD首位，保留继承条目及跨组件/std恢复；新shell测试PASS，原实现同fixtureFAIL。C/review-classloader-009：仅ClassNotFoundException fallback到utility defining loader，marker跟随所选loader，保留LinkageError/provider mismatch；5JUnit PASS，旧实现同testFAIL。
 最终C/core-freeze-009.json：2714路径，含两组运行修复及policy回退；C/build-009/receipt.json format/wholecompile/fullCommons354+RPC24/PDNativeOwner+KV7/launcher全部PASS，format_changes/source_changes={}，容器已删。C/published-build-binding-009.json完整tree逐blob匹配最新3ec生产源。C/source的docs/toplingdb.md保留build时版本，公开最新guide在C/docs-final-payload；此guide字节不同是完整remote-binding中唯一编译源差异，不影响已测生产代码；下次发布勿覆盖回旧文。
 C/review-runtime-native-009/native-009-001/receipt.json：以当前build编译utility和新prepare/preload，actualstandard/可信TP JNI各独立JVM，normal/null/isolated context verify及反provider拒绝、新DB put/get/close/reopen PASS；实际origin/maps/nativehash匹配。networknone/nonroot无端口、容器删；utilityclass副本保存在该run/utility。可选ELFsymbolfixture因无gcc标NOT_RUN，未安装依赖；继承preload顺序由真实launcher回归直接检查，不作竞争ELF符号实测声明。
-最新CI快照R/final-remote-snapshot-010.json：3ec核心新checks多数queued，旧ec9 Commons/PD/Store/Struct/四Docker等PASS不转移到3ec；267亦尚有运行/排队检查。261远端31SUCCESS、cluster仍运行，不代替TTL本地gate。
+最新CI快照R/final-remote-snapshot-013.json：3ec核心6success/3running/10queued无failure；旧ec9绿灯不转移。267为18success/6running/1queued/1failure（MacIntel startup，详见下段）；268亦running/queued。261远端31SUCCESS、cluster仍运行，不代替TTL本地gate。已取消266旧827/ ec9的两条superseded workflow，最新3ec保留。
 
 ## 独立恢复 #267
 
@@ -55,6 +55,7 @@ R/recovery-clean/source：master2704完整baseline、2708候选路径、12change
 实施：真实物理锁reservation覆盖nativeclose/reopen，close失败保留lease；checkpoint代际绑定pending和operation-owned WAL staging；metadata全部排序字段长度编码SHA256（不作恶意编辑认证）；任何alias变化前拒绝缺/坏/旧checksum；cleanup仅本次exact UUID/_temp，持owner/RecoveryLock且确认无pending才删；已有/不可读marker保留；pre-copy guard在新UUID/source open之前拒绝pending，重复重试不长孤儿。未知历史/kill前marker/failedFDclose文件有意保留。
 原003新增fixture4项失败（raw native owner不等于初始化session）已4行修测试；生产guard不放松。独立UUID/metadata/pending三审查通过。最终validation-harness/runs/recovery-006-001/receipt.json：format/wholecleancompile/nativeunit63零skip/coreMultiGraphs11（两个既有HStore-onlyskip），childJVM中断/WAL/alias/损坏metadata/跨JVM锁/actualdoubleparentbind PASS；source_changes={}，容器已删。
 published-validation-binding-007.json：完整2708远端blob匹配，测试后唯一变化是rocksdb-recovery.md字词相同的段落reflow；doc-wrap-check-007.json核验。最终7e已推、267创建并attach，原263 checkpoint4179176067已回复并resolve，然后close旧PR，分支保留。
+MacIntel CI失败诊断：R/recovery-clean/ci-macos-013/diagnosis.md/json。job111568834909/run37247025023，60s readiness先timeout，服务约74s才REST ready，API测试未开始；此前core816零fail/error（42既有skip）。script/workflow不在本PR diff，无恢复异常阻塞证据，但尚无baseline A/B，不称纯环境flaky。尝试gh job rerun及REST均被拒绝：workflow already running（403）；证据rerun-rest-result.json。待整条run terminal后仅重跑该失败job：`gh run rerun 37247025023 --repo hugegraph/hugegraph --job 111568834909`。不放宽timeout或改fixture掩盖问题；若复现再同runner baseline启动耗时对照。267可review，尚不能merge-ready。
 **兼容边界**：须挂父数据根，直接挂单数据库目录会被拒绝；旧pending先用产生它的版本完成再升级；手动restore须先quiesce请求、后台任务、queryiterators，owner lease不负责应用drain。不是wholegraph原子恢复/HStore多分区恢复/断电认证。以上不进入核心266。
 
 ## 独立生命周期 #261
@@ -70,12 +71,12 @@ runtime008合法无属性CUSTOMIZE_STRING约4KiB IDs/24h TTL由REST创建，TTL�
 
 264的20条threads逐条回复core/后续去向：R/tp-scope/pr264-comment-mapping-current.md/json及pr264-split-thread-replies.json；不将移出范围称修复。后续新增PD plain service/exec分离274及coverage078不覆盖。C/ci-pd-packaging-diagnosis.md/json：ec9 PD cleanpackage后tests/verify通过，plain-JAR消费契约合理改进独立后置，未证明当前核心blocker，不机械移植。
 网站510中英两指南匹配core普通包prepare/runtime/dataWALRaft；721tracked、focusedlinks/nav、freshstrict产物+24stockbrowsersearch PASS，未称Git-backed/fullsuite通过。ownership4176198151/precreateWAL4178842090已reply/resolve（R/website-comments-resolved-current.json）。配对review/merge，不自动合。
-剩余：当前head远端CI和用户review；P2 TTL严格重叠gate/既有codec独立跟进；专用dist→Docker小PR；strongownership/genericPDJDKchannels/JNI发布许可后续。不能把当前核心再绑回这些范围。
+剩余：当前head远端CI和用户review，267 workflow结束后的MacIntel同head重试；P2 TTL严格重叠gate/既有codec独立跟进；专用dist→Docker小PR；strongownership/genericPDJDKchannels/JNI发布许可后续。不能把当前核心再绑回这些范围。
 
 ## 清理与恢复约定
 
 前已审计归档删3顶层冗余目录+9旧source快照约7.2GB。C/cleanup-rebuildable-core-006.json、cleanup-assembly-duplicates-007.json删重复targets/assemblies/旧中间包；本轮009结束后又删38core target，逐2714源hash保持，reports与真实utilityclass副本保留。
-R/cleanup-final-009/receipt.json本次删恢复003/004/006各38个target（逐2708源hash前后不变），并删已诊断的recovery003/Corebuild006两个停止容器，logs/inspect/diff及host reports/physical-parent保留。失败native容器/数据不笼统prune。
+R/cleanup-final-009/receipt.json本次删恢复003/004/006各38target（逐2708源hash不变）、core38target（2714源hash不变）及两诊断停止容器；reports/physical-parent保留。另p2-cleanup-receipt.json删P2 38target+33精确重复assembly/lib约12.5GiB逻辑字节及8停止容器，2719源两副本、3finaltar与8native数据根hash前后不变，上游reports/site归档在p2-upstream-reports。目录清单/逐文件tar或canonical对应保存在R/p2-runtime-current/cleanup-inventory。重放须从保留finaltar恢复对应lib或精确assembly，probe依赖从runtime002/client-libs恢复，再编译；不要完整tar覆盖已有runtime配置/数据。失败native数据/锁/marker和未知其他容器不笼统prune。
 保留最终build005与失败复现build002包、所有reports/logs/nativeDB/crash/markers/physical-parent、trustedJNI/m2/image。其他chat的toplingdb/toplingdb-sync和旧workdir未发布内容不清理。不删native lock/pending/data来绕过失败。
 
-接手：先查head/newcomments/CI，再读上述最终receipts；不要递归扫大证据目录。当前没有heavy/运行服务，p2在只读清理精确清单，其他agents已完成；最新运行修复四文件及core body已推/闭环。268全格式覆盖评论4179966878已修复审查推送回复，GraphQL resolve请求被额度耗尽拒绝；响应reset为2026-10-05 01:05:11 UTC（09:05:11本地），恢复后只重试resolve，不重复reply/代码。thread PRRT_kwDOKVbRO86o4EW1；限流/回复证据C/review-policy-009/graphql-rate-limit-010.json与comment-general-replied-010.json。REST仍可用；当前context存独立records分支，不把数据库/日志上传功能PR。
+接手：先查head/newcomments/CI，再读上述最终receipts；不要递归扫大证据目录。当前没有heavy/运行服务，三个agents均已完成，report均已落盘；最新运行修复四文件及core body已推/闭环。268全格式覆盖评论4179966878已修复审查推送回复；GraphQL短期限流后01:05 UTC恢复，原thread已resolve（C/review-policy-009/comment-general-resolved-013.json），未重复reply；当前context存独立records分支，不把数据库/日志上传功能PR。
