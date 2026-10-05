@@ -22,6 +22,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 import org.apache.hugegraph.config.CoreOptions;
@@ -36,6 +37,10 @@ import org.mockito.Mockito;
 import org.yaml.snakeyaml.LoaderOptions;
 import org.yaml.snakeyaml.Yaml;
 import org.yaml.snakeyaml.constructor.SafeConstructor;
+
+import io.fabric8.kubernetes.client.Config;
+import io.fabric8.kubernetes.client.ConfigBuilder;
+import io.fabric8.kubernetes.client.utils.Serialization;
 
 public class K8sResourceQuotaYamlTest {
 
@@ -92,6 +97,51 @@ public class K8sResourceQuotaYamlTest {
         Assert.assertEquals("4", hard.get("limits.cpu"));
         Assert.assertEquals("8Gi", hard.get("requests.memory"));
         Assert.assertEquals("8Gi", hard.get("limits.memory"));
+    }
+
+    @Test
+    public void testConfigBuilderReadsKubeconfig() throws Exception {
+        Path kubeconfig = Files.createTempFile("hugegraph-kubeconfig-", ".yaml");
+        Map<String, String> properties = new LinkedHashMap<>();
+        properties.put(Config.KUBERNETES_KUBECONFIG_FILE, kubeconfig.toString());
+        properties.put(Config.KUBERNETES_AUTH_TRYKUBECONFIG_SYSTEM_PROPERTY, "true");
+        properties.put(Config.KUBERNETES_AUTH_TRYSERVICEACCOUNT_SYSTEM_PROPERTY, "false");
+        properties.put(Config.KUBERNETES_DISABLE_AUTO_CONFIG_SYSTEM_PROPERTY, "false");
+        Map<String, String> originals = new LinkedHashMap<>();
+        try {
+            Files.write(kubeconfig, ("apiVersion: v1\nkind: Config\n" +
+                                     "clusters:\n- name: test\n" +
+                                     "  cluster: {server: 'https://127.0.0.1:6443'}\n" +
+                                     "users:\n- name: test-user\n" +
+                                     "  user: {token: local-test-token}\n" +
+                                     "contexts:\n- name: test-context\n" +
+                                     "  context: {cluster: test, user: test-user, " +
+                                     "namespace: hugegraph-test}\n" +
+                                     "current-context: test-context\n").getBytes(StandardCharsets.UTF_8));
+            properties.forEach((key, value) -> {
+                originals.put(key, System.getProperty(key));
+                System.setProperty(key, value);
+            });
+            // This is the same auto-configuration entry point as K8sDriver,
+            // without constructing a client or contacting a Kubernetes server.
+            Config config = new ConfigBuilder().build();
+            Assert.assertEquals("https://127.0.0.1:6443/", config.getMasterUrl());
+            Assert.assertEquals("hugegraph-test", config.getNamespace());
+            Assert.assertEquals("local-test-token", config.getOauthToken());
+            Config roundTrip = Serialization.unmarshal(Serialization.asYaml(config), Config.class);
+            Assert.assertEquals(config.getMasterUrl(), roundTrip.getMasterUrl());
+            Assert.assertEquals(config.getNamespace(), roundTrip.getNamespace());
+            Assert.assertEquals(config.getOauthToken(), roundTrip.getOauthToken());
+        } finally {
+            originals.forEach((key, value) -> {
+                if (value == null) {
+                    System.clearProperty(key);
+                } else {
+                    System.setProperty(key, value);
+                }
+            });
+            Files.deleteIfExists(kubeconfig);
+        }
     }
 
     @Test

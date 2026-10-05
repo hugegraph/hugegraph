@@ -183,6 +183,9 @@ The launch scripts reject Java versions older than 17. That minimum-version
 check does not qualify later Java releases; use Java 17 unless another release
 is explicitly listed as supported.
 
+For this upgrade, read the [TinkerPop 3.8.1 migration guide](docs/upgrade-tinkerpop-3.8.md)
+for client configuration and query compatibility checks.
+
 ### Option 1: Docker (Fastest)
 
 Docker is the quickest way to get started for **testing or development**:

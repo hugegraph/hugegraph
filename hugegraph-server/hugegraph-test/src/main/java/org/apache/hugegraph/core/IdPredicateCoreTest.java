@@ -18,6 +18,7 @@
 package org.apache.hugegraph.core;
 
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
@@ -33,6 +34,7 @@ import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.TextP;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversalSource;
+import org.apache.tinkerpop.gremlin.process.traversal.step.GValue;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.GraphStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.util.HasContainer;
@@ -233,6 +235,88 @@ public class IdPredicateCoreTest extends BaseCoreTest {
     }
 
     @Test
+    public void testHeterogeneousIdCollections() {
+        graph().schema().propertyKey("name").asText().create();
+        graph().schema().vertexLabel("number").useCustomizeNumberId().properties("name").create();
+        graph().schema().vertexLabel("string").useCustomizeStringId().properties("name").create();
+        graph().schema().vertexLabel("uuid").useCustomizeUuidId().properties("name").create();
+        Vertex number = graph().addVertex(T.label, "number", T.id, 42L, "name", "member");
+        Vertex string = graph().addVertex(T.label, "string", T.id, "alpha", "name", "member");
+        Vertex uuid = graph().addVertex(T.label, "uuid", T.id, UUID1, "name", "member");
+        commitTx();
+        for (GraphTraversalSource source : this.sources()) {
+            this.assertHeterogeneousIdCollection(source, Arrays.asList(42, "alpha"), uuid, number, string);
+            this.assertHeterogeneousIdCollection(source, Arrays.asList(UUID1, "alpha"), number, uuid, string);
+            this.assertHeterogeneousIdCollection(source, Arrays.asList(number.id(), "alpha"), uuid, number, string);
+            // Pure String collections retain HasContainer's string-ID mode.
+            assertLocalId(source, P.not(P.without("42", "alpha")), number, string);
+            assertLocalId(source, P.not(P.without(42.5, "alpha")), string);
+            assertLocalId(source, P.not(P.without("42", uuid.id())), uuid);
+        }
+    }
+
+    @Test
+    public void testHeterogeneousNamedIdCollectionPreservesBindings() {
+        graph().schema().vertexLabel("number").useCustomizeNumberId().create();
+        graph().schema().vertexLabel("string").useCustomizeStringId().create();
+        Vertex number = graph().addVertex(T.label, "number", T.id, 42L);
+        Vertex string = graph().addVertex(T.label, "string", T.id, "alpha");
+        commitTx();
+        for (GraphTraversalSource source : this.sources()) {
+            P<Object> leaf = P.without(Arrays.asList(GValue.of("targetId", 42L), "alpha"));
+            Collection<?> bindings = new HashSet<>(leaf.getGValues());
+            P<Object> predicate = P.not(leaf);
+            P<Object> clone = predicate.clone();
+            GraphTraversal<Vertex, Vertex> traversal = source.V().hasId(predicate);
+            GraphTraversal.Admin<Vertex, Vertex> traversalClone = traversal.asAdmin().clone();
+            Assert.assertEquals(new HashSet<>(Arrays.asList(number, string)), new HashSet<>(traversal.toList()));
+            Assert.assertEquals(new HashSet<>(Arrays.asList(number, string)),
+                                new HashSet<>(traversalClone.toList()));
+            assertLocalId(source, predicate, number, string);
+            assertLocalId(source, clone, number, string);
+            Assert.assertEquals(new HashSet<>(Arrays.asList(42L, "alpha")),
+                                new HashSet<>((Collection<?>) leaf.getValue()));
+            Assert.assertTrue(leaf.isParameterized());
+            Assert.assertTrue(((NotP<?>) clone).negate().isParameterized());
+            Assert.assertEquals(bindings, new HashSet<>(((NotP<?>) clone).negate().getGValues()));
+            Assert.assertEquals(bindings, new HashSet<>(leaf.getGValues()));
+            leaf.updateVariable("targetId", 43L);
+            assertLocalId(source, predicate, string);
+            Assert.assertEquals(new HashSet<>(Arrays.asList(43L, "alpha")),
+                                new HashSet<>((Collection<?>) leaf.getValue()));
+        }
+    }
+
+    private void assertHeterogeneousIdCollection(GraphTraversalSource source, List<Object> operands,
+                                                 Vertex excluded, Vertex... expected) {
+        P<Object> within = P.within(operands);
+        P<Object> original = within.clone();
+        GraphTraversal<Vertex, Vertex> pushed = graph().traversal().V().hasId(within);
+        pushed.asAdmin().applyStrategies();
+        Assert.assertEquals(operands.size(),
+                            ((GraphStep<?, ?>) pushed.asAdmin().getStartStep()).getIds().length);
+        Assert.assertEquals(new HashSet<>(Arrays.asList(expected)), new HashSet<>(pushed.toList()));
+        assertLocalId(source, P.not(P.without(operands)), expected);
+        assertLocalId(source, P.not(within), excluded);
+        Assert.assertEquals((long) expected.length,
+                            source.V().hasId(P.not(P.without(operands))).count().next().longValue());
+        Assert.assertEquals(1L, source.V().hasId(P.not(within)).count().next().longValue());
+        for (P<Object> predicate : Arrays.asList(within, P.without(operands))) {
+            Vertex[] result = predicate == within ? expected : new Vertex[] {excluded};
+            GraphTraversal<Vertex, Vertex> traversal = source.V().hasId(predicate)
+                    .has("name", P.typeOf(GType.STRING));
+            localIdContainer(traversal);
+            List<Vertex> actual = traversal.toList();
+            Assert.assertEquals(result.length, actual.size());
+            Assert.assertEquals(new HashSet<>(Arrays.asList(result)), new HashSet<>(actual));
+            Assert.assertEquals((long) result.length, source.V().hasId(predicate)
+                    .has("name", P.typeOf(GType.STRING)).count().next().longValue());
+        }
+        Assert.assertEquals(original, within);
+        Assert.assertEquals(operands, within.getValue());
+    }
+
+    @Test
     public void testIdTypeOperandRemainsSemanticMarker() {
         Vertex[] vertices = this.initUuidGraph();
         P<Object> predicate = P.not(P.typeOf(GType.STRING));
@@ -245,4 +329,159 @@ public class IdPredicateCoreTest extends BaseCoreTest {
         }
         Assert.assertEquals(GType.STRING, predicate.getValue());
     }
+
+    @Test
+    public void testCombinedStringIdPredicates() {
+        graph().schema().vertexLabel("string").useCustomizeStringId().create();
+        Vertex first = graph().addVertex(T.label, "string", T.id, "first");
+        Vertex second = graph().addVertex(T.label, "string", T.id, "second");
+        Vertex third = graph().addVertex(T.label, "string", T.id, "third");
+        commitTx();
+        for (GraphTraversalSource source : this.sources()) {
+            P<String> firstNot = P.not(P.eq("first"));
+            P<String> secondNot = P.not(P.eq("second"));
+            P<String> conjunction = firstNot.and(secondNot);
+            Assert.assertEquals(Collections.singletonList(third), source.V()
+                    .hasId(firstNot).hasId(secondNot).toList());
+            assertLocalId(source, conjunction, third);
+            Assert.assertEquals(1L, source.V().hasId(conjunction).count().next().longValue());
+            P<String> disjunction = P.not(P.neq("first")).or(P.not(P.neq("second")));
+            assertLocalId(source, disjunction, first, second);
+            Assert.assertEquals(2L, source.V().hasId(disjunction).count().next().longValue());
+            Assert.assertEquals(Collections.singletonList(third),
+                                source.V().hasId(new NotP<>(disjunction)).toList());
+            Assert.assertEquals(1L, source.V().hasId(new NotP<>(disjunction))
+                                        .count().next().longValue());
+            assertLocalId(source, P.not(P.gt("second")), first, second);
+            Assert.assertTrue(conjunction.test("third"));
+            Assert.assertFalse(conjunction.test("first"));
+        }
+    }
+
+    @Test
+    public void testNamedUuidIdPredicateStateIsolation() {
+        Vertex[] vertices = this.initUuidGraph();
+        for (GraphTraversalSource source : this.sources()) {
+            P<UUID> predicate = P.eq(GValue.of("id", UUID1));
+            P<UUID> clone = predicate.clone();
+            GraphTraversal<Vertex, Vertex> traversal = source.V().hasId(predicate)
+                    .has("name", P.typeOf(GType.STRING));
+            GraphTraversal.Admin<Vertex, Vertex> traversalClone = traversal.asAdmin().clone();
+            Assert.assertEquals(Collections.singletonList(vertices[0]), traversal.toList());
+            Assert.assertEquals(Collections.singletonList(vertices[0]), traversalClone.toList());
+            for (int i = 0; i < 3; i++) {
+                Assert.assertEquals(Collections.singletonList(vertices[0]), source.V()
+                        .hasId(predicate).has("name", P.typeOf(GType.STRING)).toList());
+                Assert.assertEquals(Collections.singletonList(vertices[0]), source.V()
+                        .hasId(clone).has("name", P.typeOf(GType.STRING)).toList());
+                Assert.assertEquals(UUID1, predicate.getValue());
+                Assert.assertEquals(UUID1, clone.getValue());
+                Assert.assertTrue(predicate.isParameterized());
+            }
+            predicate.updateVariable("id", UUID2);
+            Assert.assertEquals(Collections.singletonList(vertices[1]), source.V()
+                    .hasId(predicate).has("name", P.typeOf(GType.STRING)).toList());
+            Assert.assertEquals(UUID2, predicate.getValue());
+        }
+    }
+
+    @Test
+    public void testNamedPropertyPredicateStateIsolation() {
+        graph().schema().propertyKey("name").asText().create();
+        graph().schema().vertexLabel("uuid").useCustomizeUuidId().properties("name").create();
+        Vertex[] vertices = {
+                graph().addVertex(T.label, "uuid", T.id, UUID1, "name", "first"),
+                graph().addVertex(T.label, "uuid", T.id, UUID2, "name", "second")
+        };
+        commitTx();
+        for (GraphTraversalSource source : this.sources()) {
+            P<String> predicate = P.eq(GValue.of("name", "first"));
+            P<String> clone = predicate.clone();
+            GraphTraversal<Vertex, Vertex> traversal = source.V(vertices[0].id(), vertices[1].id())
+                    .has("name", predicate);
+            GraphTraversal.Admin<Vertex, Vertex> traversalClone = traversal.asAdmin().clone();
+            Assert.assertEquals(Collections.singletonList(vertices[0]), traversal.toList());
+            Assert.assertEquals(Collections.singletonList(vertices[0]), traversalClone.toList());
+            for (int i = 0; i < 3; i++) {
+                Assert.assertEquals(Collections.singletonList(vertices[0]),
+                                    source.V(vertices[0].id(), vertices[1].id()).has("name", predicate).toList());
+                Assert.assertEquals(Collections.singletonList(vertices[0]),
+                                    source.V(vertices[0].id(), vertices[1].id()).has("name", clone).toList());
+                Assert.assertEquals("first", predicate.getValue());
+                Assert.assertEquals("first", clone.getValue());
+                Assert.assertTrue(predicate.isParameterized());
+            }
+            predicate.updateVariable("name", "second");
+            Assert.assertEquals(Collections.singletonList(vertices[1]),
+                                source.V(vertices[0].id(), vertices[1].id()).has("name", predicate).toList());
+            Assert.assertEquals("second", predicate.getValue());
+        }
+    }
+
+    @Test
+    public void testNamedIdCollectionPredicateStateIsolation() {
+        graph().schema().vertexLabel("number").useCustomizeNumberId().create();
+        Vertex first = graph().addVertex(T.label, "number", T.id, 42L);
+        Vertex second = graph().addVertex(T.label, "number", T.id, 43L);
+        Vertex third = graph().addVertex(T.label, "number", T.id, 44L);
+        commitTx();
+        for (GraphTraversalSource source : this.sources()) {
+            P<Long> leaf = P.within(GValue.of("targetId", 42L));
+            Collection<?> bindings = new HashSet<>(leaf.getGValues());
+            P<Long> predicate = P.not(leaf);
+            P<Long> clone = predicate.clone();
+            GraphTraversal<Vertex, Vertex> traversal = source.V().hasId(predicate);
+            GraphTraversal.Admin<Vertex, Vertex> traversalClone = traversal.asAdmin().clone();
+            Assert.assertEquals(new HashSet<>(Arrays.asList(second, third)),
+                                new HashSet<>(traversal.toList()));
+            Assert.assertEquals(new HashSet<>(Arrays.asList(second, third)),
+                                new HashSet<>(traversalClone.toList()));
+            assertLocalId(source, predicate, second, third);
+            assertLocalId(source, clone, second, third);
+            Assert.assertEquals(Collections.singletonList(42L), leaf.getValue());
+            Assert.assertEquals(Collections.singletonList(42L), clone.getValue());
+            Assert.assertTrue(leaf.isParameterized());
+            Assert.assertEquals(bindings, new HashSet<>(leaf.getGValues()));
+            leaf.updateVariable("targetId", 43L);
+            assertLocalId(source, predicate, first, third);
+            Assert.assertEquals(Collections.singletonList(43L), leaf.getValue());
+        }
+    }
+
+    @Test
+    public void testMixedNamedPropertyCollectionPredicateStateIsolation() {
+        graph().schema().propertyKey("age").asInt().create();
+        graph().schema().vertexLabel("number").useCustomizeNumberId().properties("age").create();
+        Vertex first = graph().addVertex(T.label, "number", T.id, 42L, "age", 20);
+        Vertex second = graph().addVertex(T.label, "number", T.id, 43L, "age", 30);
+        Vertex third = graph().addVertex(T.label, "number", T.id, 44L, "age", 40);
+        commitTx();
+        for (GraphTraversalSource source : this.sources()) {
+            P<Object> predicate = P.within(Arrays.asList(GValue.of("age", 20), 40));
+            Collection<?> bindings = new HashSet<>(predicate.getGValues());
+            Collection<?> values = new HashSet<>((Collection<?>) predicate.getValue());
+            P<Object> clone = predicate.clone();
+            GraphTraversal<Vertex, Vertex> traversal = source.V(first.id(), second.id(), third.id())
+                    .has("age", predicate);
+            GraphTraversal.Admin<Vertex, Vertex> traversalClone = traversal.asAdmin().clone();
+            Assert.assertEquals(new HashSet<>(Arrays.asList(first, third)),
+                                new HashSet<>(traversal.toList()));
+            Assert.assertEquals(new HashSet<>(Arrays.asList(first, third)),
+                                new HashSet<>(traversalClone.toList()));
+            Assert.assertEquals(new HashSet<>(Arrays.asList(first, third)), new HashSet<>(source
+                    .V(first.id(), second.id(), third.id()).has("age", predicate).toList()));
+            Assert.assertEquals(new HashSet<>(Arrays.asList(first, third)), new HashSet<>(source
+                    .V(first.id(), second.id(), third.id()).has("age", clone).toList()));
+            Assert.assertEquals(values, new HashSet<>((Collection<?>) predicate.getValue()));
+            Assert.assertEquals(values, new HashSet<>((Collection<?>) clone.getValue()));
+            Assert.assertTrue(predicate.isParameterized());
+            Assert.assertTrue(clone.isParameterized());
+            Assert.assertEquals(bindings, new HashSet<>(predicate.getGValues()));
+            Assert.assertEquals(bindings, new HashSet<>(clone.getGValues()));
+            predicate.updateVariable("age", 30);
+            Assert.assertEquals(new HashSet<>(Arrays.asList(second, third)), new HashSet<>(source
+                    .V(first.id(), second.id(), third.id()).has("age", predicate).toList()));
+        }
+    }
+
 }

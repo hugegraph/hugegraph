@@ -15,6 +15,9 @@ bytecode for downstream compatibility. Their build and tests still run on
 Java 17; this library bytecode target does not lower HugeGraph's runtime
 requirement.
 
+See the [TinkerPop 3.8.1 migration guide](upgrade-tinkerpop-3.8.md) for the
+upgraded runtime, client configuration and compatibility checks.
+
 To build without executing tests: `mvn clean package -Dmaven.test.skip=true`
 
 ## Building in IDEA

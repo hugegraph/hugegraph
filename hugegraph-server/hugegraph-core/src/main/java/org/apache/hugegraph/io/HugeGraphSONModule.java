@@ -228,6 +228,10 @@ public class HugeGraphSONModule extends TinkerPopJacksonModule {
 
     public static void registerTraversalSerializers(SimpleModule module) {
         module.addSerializer(Path.class, new PathSerializer());
+        registerLegacyTreeSerializer(module);
+    }
+
+    public static void registerLegacyTreeSerializer(SimpleModule module) {
         module.addSerializer(Tree.class, new TreeSerializer());
     }
 

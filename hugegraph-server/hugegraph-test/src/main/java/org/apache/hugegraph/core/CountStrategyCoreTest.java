@@ -17,6 +17,8 @@
 
 package org.apache.hugegraph.core;
 
+import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -26,6 +28,7 @@ import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 
 import org.apache.hugegraph.HugeException;
 import org.apache.hugegraph.backend.query.Aggregate;
@@ -45,6 +48,7 @@ import org.apache.hugegraph.traversal.optimize.HugeGraphStep;
 import org.apache.hugegraph.traversal.optimize.HugeGraphStepStrategy;
 import org.apache.hugegraph.type.HugeType;
 import org.apache.hugegraph.type.define.HugeKeys;
+import org.apache.tinkerpop.gremlin.process.traversal.NotP;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.TextP;
@@ -52,6 +56,7 @@ import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversalSource;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__;
+import org.apache.tinkerpop.gremlin.process.traversal.step.GValue;
 import org.apache.tinkerpop.gremlin.process.traversal.step.HasContainerHolder;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.RangeGlobalStep;
@@ -67,6 +72,44 @@ import org.apache.tinkerpop.gremlin.structure.util.CloseableIterator;
 import org.junit.Test;
 
 public class CountStrategyCoreTest extends BaseCoreTest {
+
+    @Test
+    public void testNamedLimitCountPreservesExplicitBound() {
+        GraphTraversalSource g = graph().traversal();
+        Assert.assertEquals(Collections.singletonList(3L),
+                            g.inject(1, 2, 3).limit(3).count().is(P.gt(0L)).toList());
+        Assert.assertEquals(Collections.singletonList(3L),
+                            g.withoutStrategies(HugeCountStrategy.class)
+                             .inject(1, 2, 3).limit(GValue.of("size", 3L))
+                             .count().is(P.gt(0L)).toList());
+        Assert.assertEquals(Collections.singletonList(3L),
+                            g.inject(1, 2, 3).limit(GValue.of("size", 3L))
+                             .count().is(P.gt(0L)).toList());
+        Assert.assertEquals(Collections.singletonList(3L),
+                            g.inject(1, 2, 3).limit(GValue.of("size", 3L))
+                             .count().is(P.not(P.eq(0L))).toList());
+    }
+
+    @Test
+    public void testNamedRangeCountPreservesExplicitBounds() {
+        GraphTraversalSource g = graph().traversal();
+        Assert.assertEquals(Collections.singletonList(3L),
+                            g.inject(1, 2, 3, 4).range(1, 4)
+                             .count().is(P.gt(0L)).toList());
+        Assert.assertEquals(Collections.singletonList(3L),
+                            g.withoutStrategies(HugeCountStrategy.class)
+                             .inject(1, 2, 3, 4)
+                             .range(GValue.of("lo", 1L), GValue.of("hi", 4L))
+                             .count().is(P.gt(0L)).toList());
+        Assert.assertEquals(Collections.singletonList(3L),
+                            g.inject(1, 2, 3, 4)
+                             .range(GValue.of("lo", 1L), GValue.of("hi", 4L))
+                             .count().is(P.gt(0L)).toList());
+        Assert.assertEquals(Collections.singletonList(3L),
+                            g.inject(1, 2, 3, 4)
+                             .range(GValue.of("lo", 1L), GValue.of("hi", 4L))
+                             .count().is(P.not(P.eq(0L))).toList());
+    }
 
     private void initSchema() {
         SchemaManager schema = graph().schema();
@@ -412,6 +455,117 @@ public class CountStrategyCoreTest extends BaseCoreTest {
                             .count().next();
 
         Assert.assertEquals(1L, count);
+    }
+
+    @Test
+    public void testCountNegatedCollectionPredicatesKeepFinalResults() {
+        this.assertCountPredicatesKeepFinalResults(List.of(
+                P.not(P.without(2L, 3L)),
+                P.not(P.within(2L, 3L)),
+                P.not(P.without(2L, 3L)).or(P.eq(0L)),
+                P.not(P.within(2L, 3L)).or(P.eq(0L)),
+                P.not(P.without(2L, 3L)).and(P.gt(0L)),
+                P.not(P.within(2L, 3L)).and(P.gt(0L)),
+                P.not(P.not(P.within(2L, 3L))).or(P.eq(0L)),
+                P.not(P.not(P.without(2L, 3L))).or(P.eq(0L)),
+                new NotP<>(new NotP<>(P.within(2L, 3L))).or(P.eq(0L)),
+                new NotP<>(new NotP<>(P.without(2L, 3L))).or(P.eq(0L)),
+                new NotP<>(new NotP<>(P.eq(2L))).or(P.eq(0L)),
+                P.not(P.without(2L, 3L)).or(P.eq(0L)).and(P.gte(0L)),
+                P.not(P.within(2L, 3L).or(P.eq(0L)))));
+    }
+
+    @Test
+    public void testCountUnknownNumericPredicateKeepsFinalResults() {
+        P<Long> custom = new P<>((count, ignored) -> count == 2L, 0L);
+        P<Long> customFalse = new P<>((count, ignored) -> count == 1L, 0L);
+        this.assertCountPredicatesKeepFinalResults(List.of(
+                custom, custom.or(P.eq(0L)), custom.and(P.gt(0L)),
+                customFalse.or(P.eq(0L)), P.not(custom).or(P.eq(0L))));
+    }
+
+    @Test
+    public void testCountWithoutUsesBoundAboveAllExcludedCounts() {
+        this.initSchema();
+        Vertex source = graph().addVertex(T.label, "person", "name", "source");
+        for (int i = 0; i < 4; i++) {
+            Vertex target = graph().addVertex(T.label, "person", "name", "target" + i);
+            source.addEdge("knows", target);
+        }
+        commitTx();
+        GraphTraversalSource g = graph().traversal();
+        GraphTraversalSource control = g.withoutStrategies(HugeCountStrategy.class);
+        for (P<Long> predicate : List.of(P.without(2L, 3L),
+                                        P.without(2L, 3L).or(P.eq(0L)),
+                                        P.without(2L, 3L).and(P.gt(0L)))) {
+            Assert.assertEquals(Collections.singletonList(source.id()),
+                                control.V(source.id()).where(__.out("knows").count()
+                                       .is(predicate.clone())).id().toList());
+            Assert.assertEquals(Collections.singletonList(source.id()),
+                                g.V(source.id()).where(__.out("knows").count()
+                                 .is(predicate.clone())).id().toList());
+            Assert.assertEquals(Collections.singletonList(4L),
+                                g.V(source.id()).out("knows").count()
+                                 .is(predicate.clone()).toList());
+        }
+    }
+
+    @Test
+    public void testCountLossyNumericBoundsKeepCompleteCount() {
+        List<Number> bounds = List.of(new BigDecimal("1E-400"),
+                                     BigInteger.ONE, new AtomicLong(1L), 9007199254740993L,
+                                     16777216F, 9007199254740992D);
+        GraphTraversalSource g = graph().traversal();
+        GraphTraversalSource control = g.withoutStrategies(HugeCountStrategy.class);
+        for (Number bound : bounds) {
+            for (P<Number> predicate : List.of(P.gte(bound), P.lt(bound),
+                                              P.gte(bound).or(P.eq(0)))) {
+                List<Long> expected = predicate.test(2L) ?
+                                      Collections.singletonList(2L) :
+                                      Collections.emptyList();
+                Assert.assertEquals(expected,
+                                    control.inject(1, 2).count().is(predicate.clone()).toList());
+                Assert.assertEquals(expected,
+                                    g.inject(1, 2).count().is(predicate.clone()).toList());
+                GraphTraversal<?, Long> traversal = __.count().is(predicate.clone());
+                HugeCountStrategy.instance().apply(traversal.asAdmin());
+                Assert.assertInstanceOf(CountGlobalStep.class,
+                                        traversal.asAdmin().getStartStep());
+            }
+        }
+    }
+
+    private void assertCountPredicatesKeepFinalResults(List<P<Long>> predicates) {
+        this.initSchema();
+        Vertex source = graph().addVertex(T.label, "person", "name", "source");
+        Vertex first = graph().addVertex(T.label, "person", "name", "first");
+        Vertex second = graph().addVertex(T.label, "person", "name", "second");
+        source.addEdge("knows", first);
+        source.addEdge("knows", second);
+        commitTx();
+
+        GraphTraversalSource g = graph().traversal();
+        GraphTraversalSource control = g.withoutStrategies(HugeCountStrategy.class);
+        for (P<Long> predicate : predicates) {
+            List<Object> expectedIds = predicate.test(2L) ?
+                                       Collections.singletonList(source.id()) :
+                                       Collections.emptyList();
+            List<Long> expectedCounts = predicate.test(2L) ?
+                                        Collections.singletonList(2L) :
+                                        Collections.emptyList();
+            Assert.assertEquals(expectedIds,
+                                control.V(source.id()).where(__.out("knows").count()
+                                           .is(predicate.clone())).id().toList());
+            Assert.assertEquals(expectedIds,
+                                g.V(source.id()).where(__.out("knows").count()
+                                 .is(predicate.clone())).id().toList());
+            Assert.assertEquals(expectedCounts,
+                                control.V(source.id()).out("knows").count()
+                                       .is(predicate.clone()).toList());
+            Assert.assertEquals(expectedCounts,
+                                g.V(source.id()).out("knows").count()
+                                 .is(predicate.clone()).toList());
+        }
     }
 
     @Test
