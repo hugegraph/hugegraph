@@ -19,6 +19,8 @@ package org.apache.hugegraph.backend.store.rocksdb;
 
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.nio.ByteBuffer;
 import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
@@ -34,6 +36,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Properties;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.FutureTask;
@@ -488,6 +491,62 @@ public class RocksDBSnapshotRestoreTest {
             assertFalse(Files.exists(wal, java.nio.file.LinkOption.NOFOLLOW_LINKS));
             assertTrue(Files.exists(marker));
         }
+    }
+
+    @Test
+    public void testInvalidCanonicalWalDoesNotReconstructAlias() throws Exception {
+        assertInvalidWalDoesNotReconstructAlias(false);
+    }
+
+    @Test
+    public void testInvalidWalPathDoesNotReconstructAlias() throws Exception {
+        assertInvalidWalDoesNotReconstructAlias(true);
+    }
+
+    private void assertInvalidWalDoesNotReconstructAlias(boolean invalidPath) throws Exception {
+        File data = this.temporary.newFolder("invalid-wal-data");
+        File snapshot = this.temporary.newFolder("invalid-wal-snapshot");
+        fakeCheckpoint(snapshot);
+        Path wal = new File(this.temporary.getRoot(), "invalid-wal-link").toPath();
+        Files.createSymbolicLink(wal, this.temporary.newFolder("invalid-wal-target").toPath());
+        Files.write(new File(data, "untouched").toPath(), new byte[]{9});
+        RocksDBSnapshotRestore.start(data.toString(), wal.toString(), snapshot.toString());
+        Path marker = new File(data + ".resume-pending").toPath();
+        Properties state = new Properties();
+        try (InputStream input = Files.newInputStream(marker)) {
+            state.load(input);
+        }
+        String invalidWal = new File(this.temporary.getRoot(), "different-wal").getCanonicalPath();
+        state.setProperty("wal", invalidPath ? invalidWal + Character.MIN_VALUE : invalidWal);
+        try (OutputStream output = Files.newOutputStream(marker)) {
+            state.store(output, "Invalid canonical WAL fixture");
+        }
+        byte[] pending = Files.readAllBytes(marker);
+        Files.delete(wal);
+        try {
+            RocksDBSnapshotRestore.prepareOpen(data.toString(), wal.toString());
+            fail("Invalid canonical WAL must fail before reconstructing aliases");
+        } catch (BackendException expected) {
+            assertFalse(Files.exists(wal, java.nio.file.LinkOption.NOFOLLOW_LINKS));
+            assertArrayEquals(pending, Files.readAllBytes(marker));
+            assertArrayEquals(new byte[]{9}, Files.readAllBytes(new File(data, "untouched").toPath()));
+        }
+    }
+
+    @Test
+    public void testRelativeWalAliasRecoveryRemainsValid() throws Exception {
+        File data = this.temporary.newFolder("relative-wal-data");
+        File snapshot = this.temporary.newFolder("relative-wal-snapshot");
+        fakeCheckpoint(snapshot);
+        this.temporary.newFolder("relative-wal-target");
+        Path wal = new File(this.temporary.getRoot(), "relative-wal-link").toPath();
+        Path target = java.nio.file.Paths.get("relative-wal-target");
+        Files.createSymbolicLink(wal, target);
+        RocksDBSnapshotRestore.start(data.toString(), wal.toString(), snapshot.toString());
+        Files.delete(wal);
+        assertNotNull(RocksDBSnapshotRestore.prepareOpen(data.toString(), wal.toString()));
+        assertTrue(Files.isSymbolicLink(wal));
+        assertEquals(target, Files.readSymbolicLink(wal));
     }
 
     @Test
