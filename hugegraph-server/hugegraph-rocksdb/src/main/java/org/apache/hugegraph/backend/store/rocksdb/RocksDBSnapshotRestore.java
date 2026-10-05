@@ -88,10 +88,7 @@ final class RocksDBSnapshotRestore {
                 this.walLinkTargets.add(Files.readSymbolicLink(component));
             }
         }
-        if (overlaps(this.snapshot, this.data) ||
-            this.wal.toPath().startsWith(this.snapshot.toPath())) {
-            throw new IOException("Checkpoint must not overlap data or WAL: " + this.snapshot);
-        }
+        this.validatePaths();
         validateCheckpoint(this.snapshot);
     }
 
@@ -276,9 +273,39 @@ final class RocksDBSnapshotRestore {
         return Paths.get(this.data + ".resume-staging-" + this.operation);
     }
 
-    private static boolean overlaps(File first, File second) {
-        return first.toPath().startsWith(second.toPath()) ||
-               second.toPath().startsWith(first.toPath());
+    private static boolean overlaps(File first, File second) throws IOException {
+        return contains(first, second) || contains(second, first);
+    }
+
+    private static boolean contains(File root, File directory) throws IOException {
+        Path parent = root.toPath();
+        Path child = directory.toPath();
+        if (child.startsWith(parent)) {
+            return true;
+        }
+        // Parent bind aliases keep distinct canonical strings. Match existing
+        // physical prefixes, then compare their remaining directory suffixes.
+        for (Path left = parent; left != null; left = left.getParent()) {
+            if (Files.notExists(left)) {
+                continue;
+            }
+            for (Path right = child; right != null; right = right.getParent()) {
+                if (!Files.notExists(right) && Files.isSameFile(left, right)) {
+                    Path prefix = left.relativize(parent);
+                    Path suffix = right.relativize(child);
+                    if (prefix.toString().isEmpty() || suffix.startsWith(prefix)) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    private void validatePaths() throws IOException {
+        if (overlaps(this.snapshot, this.data) || contains(this.snapshot, this.wal)) {
+            throw new IOException("Checkpoint must not overlap data or WAL: " + this.snapshot);
+        }
     }
 
     private static Path marker(String data) throws IOException {
@@ -373,6 +400,7 @@ final class RocksDBSnapshotRestore {
     }
 
     void begin() throws IOException {
+        this.validatePaths();
         Properties state = new Properties();
         this.generation = generation(this.snapshot);
         this.operation = UUID.randomUUID().toString();
@@ -443,7 +471,7 @@ final class RocksDBSnapshotRestore {
                 !source.toString().equals(snapshot) || overlaps(source, target) ||
                 !new File(savedWal).isAbsolute() ||
                 !Paths.get(savedWal).normalize().toString().equals(savedWal) ||
-                Paths.get(savedWal).startsWith(source.toPath()) ||
+                contains(source, new File(savedWal)) ||
                 !generation(source).equals(generation)) {
                 throw new IOException("Checkpoint generation changed or recovery identity invalid: " + marker);
             }
@@ -489,6 +517,7 @@ final class RocksDBSnapshotRestore {
     }
 
     void install() throws IOException {
+        this.validatePaths();
         if (!this.generation.equals(generation(this.snapshot))) {
             throw new IOException("Checkpoint generation changed: " + this.snapshot);
         }
@@ -531,6 +560,7 @@ final class RocksDBSnapshotRestore {
 
     void complete() {
         try {
+            this.validatePaths();
             // Only this operation's staging is reclaimed, after successful native reopen.
             FileUtils.deleteDirectory(this.staging().toFile());
             Files.delete(this.marker);
@@ -540,6 +570,7 @@ final class RocksDBSnapshotRestore {
         // Restore historically consumes its source. Only clean it after native
         // reopen succeeded AND the marker no longer directs retries to it.
         try {
+            this.validatePaths();
             FileUtils.deleteDirectory(this.snapshot);
         } catch (IOException e) {
             LOG.warn("Snapshot restored but source cleanup failed: {}", this.snapshot, e);

@@ -76,6 +76,147 @@ public class RocksDBSnapshotRestoreTest {
     public TemporaryFolder temporary = new TemporaryFolder();
 
     @Test
+    public void testParentBindCheckpointSameDataRejectsBeforeDeletion() throws Exception {
+        this.checkParentBindCheckpointOverlap("same");
+    }
+
+    @Test
+    public void testParentBindCheckpointInsideDataRejectsBeforeDeletion() throws Exception {
+        this.checkParentBindCheckpointOverlap("inside");
+    }
+
+    @Test
+    public void testParentBindCheckpointContainingDataRejectsBeforeDeletion() throws Exception {
+        this.checkParentBindCheckpointOverlap("parent");
+    }
+
+    @Test
+    public void testParentBindCheckpointContainingWalRejectsBeforeDeletion() throws Exception {
+        this.checkParentBindCheckpointOverlap("wal");
+    }
+
+    private void checkParentBindCheckpointOverlap(String layout) throws Exception {
+        String original = System.getProperty("hugegraph.test.recovery.parent.original");
+        String alias = System.getProperty("hugegraph.test.recovery.parent.alias");
+        org.junit.Assume.assumeTrue("requires the explicit parent-bind kernel fixture",
+                                   original != null && alias != null);
+        assertTrue(Files.isSameFile(Path.of(original), Path.of(alias)));
+        Path root = Files.createTempDirectory(Path.of(original), "checkpoint-overlap-" + layout + "-");
+        Path aliased = Path.of(alias).resolve(root.getFileName());
+        File data = root.resolve("live").toFile();
+        File wal = root.resolve("wal").toFile();
+        File snapshot = aliased.resolve("live").toFile();
+        if ("parent".equals(layout) || "wal".equals(layout)) {
+            File physicalCheckpoint = root.resolve("checkpoint").toFile();
+            RocksDB.loadLibrary();
+            try (Options options = new Options().setCreateIfMissing(true);
+                 RocksDB db = RocksDB.open(options, physicalCheckpoint.toString())) {
+                db.put(new byte[]{8}, new byte[]{9});
+            }
+            snapshot = aliased.resolve("checkpoint").toFile();
+            if ("parent".equals(layout)) {
+                data = new File(physicalCheckpoint, "live");
+            } else {
+                wal = new File(physicalCheckpoint, "wal");
+            }
+        }
+        RocksDBStdSessions owner = new RocksDBStdSessions(FakeObjects.newConfig(), "db", "store",
+                                                         data.toString(), wal.toString());
+        try {
+            owner.createTable("test");
+            owner.session().put("test", new byte[]{1}, new byte[]{2});
+            owner.session().commit();
+            if ("inside".equals(layout)) {
+                AtomicReference<OpenedRocksDB> shared = Whitebox.getInternalState(owner, "rocksdb");
+                try (Checkpoint checkpoint = Checkpoint.create(shared.get().rocksdb())) {
+                    checkpoint.createCheckpoint(new File(data, "checkpoint").toString());
+                }
+                snapshot = aliased.resolve("live/checkpoint").toFile();
+            }
+            byte[] liveCurrent = Files.readAllBytes(new File(data, "CURRENT").toPath());
+            byte[] sourceCurrent = Files.readAllBytes(new File(snapshot, "CURRENT").toPath());
+            boolean rejected = false;
+            try {
+                owner.resumeSnapshot(snapshot.toString());
+            } catch (BackendException expected) {
+                rejected = true;
+            }
+            Path marker = Path.of(data + ".resume-pending");
+            // Keep the actual fixture and observations, including destructive negative controls.
+            String observed = "layout=" + layout + "\nlive_exists=" + data.exists() +
+                              "\nsource_exists=" + snapshot.exists() +
+                              "\nmarker_exists=" + Files.exists(marker) + "\n";
+            Files.writeString(root.resolve("observed.txt"), observed);
+            System.out.print(observed);
+            assertTrue("Physical overlap must be rejected: " + observed, rejected);
+            assertFalse("Refusal must precede marker publication: " + observed, Files.exists(marker));
+            assertArrayEquals(liveCurrent, Files.readAllBytes(new File(data, "CURRENT").toPath()));
+            assertArrayEquals(sourceCurrent, Files.readAllBytes(new File(snapshot, "CURRENT").toPath()));
+        } finally {
+            owner.close();
+        }
+        RocksDBStdSessions fresh = new RocksDBStdSessions(FakeObjects.newConfig(), "db", "store",
+                                                         data.toString(), wal.toString(),
+                                                         Collections.singletonList("test"));
+        try {
+            assertArrayEquals(new byte[]{2}, fresh.session().get("test", new byte[]{1}));
+        } finally {
+            fresh.close();
+        }
+    }
+
+    @Test
+    public void testParentBindUnsafePendingRejectsBeforeDeletingNativeData() throws Exception {
+        String original = System.getProperty("hugegraph.test.recovery.parent.original");
+        String alias = System.getProperty("hugegraph.test.recovery.parent.alias");
+        org.junit.Assume.assumeTrue("requires the explicit parent-bind kernel fixture",
+                                   original != null && alias != null);
+        Path root = Files.createTempDirectory(Path.of(original), "unsafe-pending-");
+        File data = root.resolve("live").toFile();
+        File wal = root.resolve("wal").toFile();
+        File snapshot = Path.of(alias).resolve(root.getFileName()).resolve("live").toFile();
+        RocksDBStdSessions owner = new RocksDBStdSessions(FakeObjects.newConfig(), "db", "store",
+                                                         data.toString(), wal.toString());
+        try {
+            owner.createTable("test");
+            owner.session().put("test", new byte[]{1}, new byte[]{2});
+            owner.session().commit();
+        } finally {
+            owner.close();
+        }
+        // Represent a checksum-valid pending record accepted by the previous lexical guard.
+        Properties state = new Properties();
+        state.setProperty("operation", java.util.UUID.randomUUID().toString());
+        state.setProperty("data", data.getCanonicalPath());
+        state.setProperty("snapshot", snapshot.getCanonicalPath());
+        state.setProperty("wal", wal.getCanonicalPath());
+        state.setProperty("configured-wal", wal.getCanonicalPath());
+        state.setProperty("wal-links", "0");
+        java.lang.reflect.Method generation = RocksDBSnapshotRestore.class.getDeclaredMethod("generation", File.class);
+        generation.setAccessible(true);
+        state.setProperty("generation", (String) generation.invoke(null, snapshot));
+        java.lang.reflect.Method checksum = RocksDBSnapshotRestore.class.getDeclaredMethod("metadataDigest",
+                                                                                          Properties.class);
+        checksum.setAccessible(true);
+        state.setProperty("metadata-sha256", (String) checksum.invoke(null, state));
+        Path marker = Path.of(data + ".resume-pending");
+        writeRecoveryMetadata(marker, state);
+        byte[] pending = Files.readAllBytes(marker);
+        byte[] current = Files.readAllBytes(new File(data, "CURRENT").toPath());
+        try {
+            RocksDBStdSessions fresh = new RocksDBStdSessions(FakeObjects.newConfig(), "db", "store",
+                                                             data.toString(), wal.toString(),
+                                                             Collections.singletonList("test"));
+            fresh.close();
+            fail("Previously accepted physical-overlap pending record must fail closed");
+        } catch (BackendException expected) {
+            assertArrayEquals(pending, Files.readAllBytes(marker));
+            assertArrayEquals(current, Files.readAllBytes(new File(data, "CURRENT").toPath()));
+            assertTrue(snapshot.exists());
+        }
+    }
+
+    @Test
     public void testParentBindDataWalAliasPreservesNativeWalTail() throws Exception {
         String original = System.getProperty("hugegraph.test.recovery.parent.original");
         String alias = System.getProperty("hugegraph.test.recovery.parent.alias");
@@ -217,6 +358,9 @@ public class RocksDBSnapshotRestoreTest {
         Set<java.nio.file.attribute.PosixFilePermission> permissions = Files.getPosixFilePermissions(root);
         try {
             Files.setPosixFilePermissions(root, Collections.emptySet());
+            org.junit.Assume.assumeTrue("runner bypasses directory permissions; marker remains observable",
+                                       !Files.exists(marker, java.nio.file.LinkOption.NOFOLLOW_LINKS) &&
+                                       !Files.notExists(marker, java.nio.file.LinkOption.NOFOLLOW_LINKS));
             assertFalse(Files.exists(marker, java.nio.file.LinkOption.NOFOLLOW_LINKS));
             assertFalse(Files.notExists(marker, java.nio.file.LinkOption.NOFOLLOW_LINKS));
             try {
