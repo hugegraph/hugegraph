@@ -19,16 +19,11 @@
 inheritance: true
 reviews:
   path_instructions:
-    - path: "**/*.{java,proto,yaml,properties,sh,md}"
+    - path: "{**/*,**/.*,**/.*/**,.*/**/.*}"
       instructions: |
-        Follow .editorconfig and docs/CONTRIBUTING.md. Ordinary code uses a
-        120-column margin, UTF-8 and LF. Markdown may wrap at about 160 columns
-        or keep complete paragraphs on one line. Do not request 80- or 100-column
-        wrapping, or apply the code margin to Markdown prose. Preserve code-block
-        formatting, links and tables. Follow language-specific indentation and
-        do not use Java star imports.
-    - path: "**/*.{xml,py,yml}"
-      instructions: |
-        Follow .editorconfig: ordinary code uses a 120-column margin, UTF-8 and LF.
-        Do not request 80- or 100-column wrapping. Preserve language-specific
-        indentation.
+        Follow .editorconfig and docs/CONTRIBUTING.md for all reviewed files.
+        Ordinary code uses a 120-column margin, UTF-8 and LF. Markdown prose
+        may wrap at about 160 columns or keep complete paragraphs on one line.
+        Do not request 80- or 100-column wrapping, or apply the code margin to
+        Markdown prose. Preserve code-block formatting, links and tables.
+        Follow language-specific indentation and do not use Java star imports.
