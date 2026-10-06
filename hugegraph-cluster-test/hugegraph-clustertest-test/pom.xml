@@ -38,6 +38,12 @@
             <version>${revision}</version>
             <scope>compile</scope>
         </dependency>
+        <!-- Keep the legacy Client on this reactor's Commons instead of its published 1.5.0 dependency. -->
+        <dependency>
+            <groupId>org.apache.hugegraph</groupId>
+            <artifactId>hugegraph-common</artifactId>
+            <version>${revision}</version>
+        </dependency>
         <!-- TODO: avoid depending on toolchain -->
         <dependency>
             <groupId>org.apache.hugegraph</groupId>
