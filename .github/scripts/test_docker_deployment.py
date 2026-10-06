@@ -114,12 +114,24 @@ class PayloadTest(unittest.TestCase):
                     deployment.verify_server()
 
     def test_rejects_wrong_release_gremlin_and_protocol_versions(self):
-        for key, wrong in (("core", "1.7.0"), ("gremlin", "3.7.3"),
+        for key, wrong in (("core", "1.7.0"), ("gremlin", "3.7.3"), ("gremlin", None),
                            ("api", "1.8.0"), ("version", "v2")):
             payload = json.loads(self.VERSIONS)
             payload["versions"][key] = wrong
             with self.subTest(key=key), self.assertRaisesRegex(RuntimeError, "versions object"):
                 deployment.verify_versions(payload)
+
+    def test_rejects_missing_expected_gremlin_version(self):
+        parse = deployment.ET.parse
+
+        def read_pom(path):
+            if path == Path(deployment.__file__).resolve().parents[2] / "hugegraph-server/pom.xml":
+                return deployment.ET.ElementTree(deployment.ET.Element("project"))
+            return parse(path)
+
+        with patch.object(deployment.ET, "parse", side_effect=read_pom):
+            with self.assertRaisesRegex(RuntimeError, "non-empty expected versions"):
+                deployment.expected_versions()
 
     def test_rejects_unauthenticated_server_access(self):
         with patch.object(deployment, "response", return_value=(200, self.GRAPHS)):

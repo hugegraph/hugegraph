@@ -17,8 +17,31 @@
 
 suite: Image reference and digest pinning
 tests:
+  - it: keeps the default pd tag on latest until release images are published
+    template: pd-statefulset.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: hugegraph/pd:latest
+
+  - it: keeps the default store tag on latest until release images are published
+    template: store-statefulset.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: hugegraph/store:latest
+
+  - it: keeps the default server tag on latest until release images are published
+    template: server-deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: hugegraph/server:latest
+
   - it: inherits appVersion for pd when the tag is empty
     template: pd-statefulset.yaml
+    set:
+      pd.image.tag: ""
     asserts:
       - equal:
           path: spec.template.spec.containers[0].image
@@ -26,6 +49,8 @@ tests:
 
   - it: inherits appVersion for store when the tag is empty
     template: store-statefulset.yaml
+    set:
+      store.image.tag: ""
     asserts:
       - equal:
           path: spec.template.spec.containers[0].image
@@ -42,6 +67,8 @@ tests:
 
   - it: inherits appVersion for server when the tag is empty
     template: server-deployment.yaml
+    set:
+      server.image.tag: ""
     asserts:
       - equal:
           path: spec.template.spec.containers[0].image

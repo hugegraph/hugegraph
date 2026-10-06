@@ -4,7 +4,7 @@
 >
 > 1. The HugeGraph Docker image is a convenience release, not an official ASF distribution artifact. See the [ASF Release Distribution Policy](https://infra.apache.org/release-distribution.html#dockerhub) for details.
 >
-> 2. Use release tags (for example, `1.8.0`) for stable deployments. Use `latest` only for development or testing.
+> 2. Use release tags (for example, `1.7.0`) for stable deployments. Use `latest` only for development or testing.
 
 ## 1. Deploy
 
@@ -12,7 +12,7 @@ Use Docker to quickly start a standalone HugeGraph Server with RocksDB.
 
 1. Using `docker run`
 
-   Use `docker run -itd --name=graph -p 8080:8080 hugegraph/hugegraph:1.8.0` to start hugegraph server.
+   Use `docker run -itd --name=graph -p 8080:8080 hugegraph/hugegraph:1.7.0` to start hugegraph server.
 
 2. Using `docker compose`
 
@@ -22,7 +22,7 @@ Use Docker to quickly start a standalone HugeGraph Server with RocksDB.
     version: '3'
     services:
       graph:
-        image: hugegraph/hugegraph:1.8.0
+        image: hugegraph/hugegraph:1.7.0
         ports:
           - 8080:8080
     ```
@@ -35,7 +35,7 @@ To customize the preload, mount your own Groovy script.
 
 1. Using `docker run`
 
-   Use `docker run -itd --name=graph -p 8080:8080 -e PRELOAD=true -v /path/to/script:/hugegraph-server/scripts/example.groovy hugegraph/hugegraph:1.8.0`
+   Use `docker run -itd --name=graph -p 8080:8080 -e PRELOAD=true -v /path/to/script:/hugegraph-server/scripts/example.groovy hugegraph/hugegraph:1.7.0`
    to start hugegraph server.
 
 2. Using `docker compose`
@@ -46,7 +46,7 @@ To customize the preload, mount your own Groovy script.
     version: '3'
     services:
       graph:
-        image: hugegraph/hugegraph:1.8.0
+        image: hugegraph/hugegraph:1.7.0
         environment:
           - PRELOAD=true
         volumes:
@@ -63,7 +63,7 @@ To customize the preload, mount your own Groovy script.
 
 1. Using `docker run`
 
-   Use `docker run -itd --name=graph -p 8080:8080 -e AUTH=true -e PASSWORD=xxx hugegraph/hugegraph:1.8.0` to enable authentication.
+   Use `docker run -itd --name=graph -p 8080:8080 -e AUTH=true -e PASSWORD=xxx hugegraph/hugegraph:1.7.0` to enable authentication.
 
 2. Using `docker compose`
 
@@ -73,7 +73,7 @@ To customize the preload, mount your own Groovy script.
     version: '3'
     services:
       server:
-        image: hugegraph/hugegraph:1.8.0
+        image: hugegraph/hugegraph:1.7.0
         container_name: graph
         ports:
           - 8080:8080
@@ -125,7 +125,7 @@ For a full distributed HugeGraph cluster with PD, Store, and Server, use the
 
 ```bash
 cd docker
-HUGEGRAPH_VERSION=1.8.0 docker compose -f docker-compose-3pd-3store-3server.yml up -d
+HUGEGRAPH_VERSION=1.7.0 docker compose -f docker-compose-3pd-3store-3server.yml up -d
 ```
 
 See [docker/README.md](../../../docker/README.md) for the full setup guide,
@@ -153,7 +153,7 @@ The entrypoints supervise the Java process directly — when Java exits, the con
 Raise the startup budget on slow or contended hosts, and wherever an orchestrator already owns it through a probe of its own: a startup probe cannot extend a container that has already ended the JVM it was waiting for.
 
 ```bash
-docker run -itd --name=graph -p 8080:8080 -e HG_SERVER_STARTUP_TIMEOUT_S=450 hugegraph/hugegraph:1.8.0
+docker run -itd --name=graph -p 8080:8080 -e HG_SERVER_STARTUP_TIMEOUT_S=450 hugegraph/hugegraph:1.7.0
 ```
 
 Raising it does not move the health check above. The images set `--interval=15s --start-period=90s --retries=3`, so a container given a longer startup budget is reported `unhealthy` around 135 seconds while the entrypoint is still legitimately waiting; raise it with `--health-start-period` on `docker run`. The Compose files replace those values with their own (`start_period: 60s`, `interval: 10s`, `retries: 30`, so roughly 360 seconds), and anything gated on `depends_on: condition: service_healthy`, Hubble included, waits on that budget rather than on this variable. Move the two together.

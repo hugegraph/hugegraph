@@ -74,7 +74,10 @@ def expected_versions():
     # Packaged API classes use their manifest version before the resource fallback.
     api = ET.parse(root / "hugegraph-server/hugegraph-api/pom.xml").findtext(
         ".//m:manifestEntries/m:Implementation-Version", namespaces=ns) or properties["ApiVersion"]
-    return {"version": "v1", "core": revision, "gremlin": gremlin, "api": api}
+    expected = {"version": "v1", "core": revision, "gremlin": gremlin, "api": api}
+    if any(not isinstance(value, str) or not value for value in expected.values()):
+        raise RuntimeError("Source POMs did not define non-empty expected versions")
+    return expected
 
 
 def verify_versions(payload):
@@ -164,7 +167,4 @@ def main(tag):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) == 3 and sys.argv[1] == "--check-versions":
-        verify_versions(json.loads(Path(sys.argv[2]).read_text()))
-    else:
-        main(sys.argv[1])
+    main(sys.argv[1])

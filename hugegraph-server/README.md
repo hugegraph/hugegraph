@@ -34,10 +34,10 @@ tree or distribution packages.
 ### Standalone Mode
 
 ```bash
-docker run -itd --name=hugegraph -p 8080:8080 hugegraph/hugegraph:1.8.0
+docker run -itd --name=hugegraph -p 8080:8080 hugegraph/hugegraph:1.7.0
 ```
 
-> Use release tags (e.g., `1.8.0`) for stable deployments. The `latest` tag is intended for testing or development only.
+> Use release tags (e.g., `1.7.0`) for stable deployments. The `latest` tag is intended for testing or development only.
 
 ### Distributed Mode (PD + Store + Server)
 
@@ -45,7 +45,7 @@ For a full distributed deployment, use the compose file in the `docker/` directo
 
 ```bash
 cd docker
-HUGEGRAPH_VERSION=1.8.0 docker compose -f docker-compose-3pd-3store-3server.yml up -d
+HUGEGRAPH_VERSION=1.7.0 docker compose -f docker-compose-3pd-3store-3server.yml up -d
 ```
 
 See [docker/README.md](../docker/README.md) for the full setup guide.
