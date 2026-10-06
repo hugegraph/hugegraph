@@ -54,7 +54,6 @@ commons-collections4-4.4.jar
 commons-compress-1.21.jar
 commons-configuration-1.10.jar
 commons-configuration2-2.10.1.jar
-commons-configuration2-2.8.0.jar
 commons-configuration2-2.9.0.jar
 commons-crypto-1.1.0.jar
 commons-io-2.12.0.jar
@@ -228,7 +227,6 @@ javaparser-core-3.26.3.jar
 javapoet-1.13.0.jar
 javassist-3.21.0-GA.jar
 javassist-3.24.0-GA.jar
-javassist-3.25.0-GA.jar
 javassist-3.28.0-GA.jar
 javatuples-1.2.jar
 javax-websocket-client-impl-9.4.51.v20230217.jar
