@@ -205,6 +205,11 @@ public interface HugeGraph extends Graph {
 
     String spaceGraphName();
 
+    /**
+     * The incarnation of this graph instance in its PD schema sync record, 0 if unknown
+     */
+    long schemaIncarnation();
+
     String backend();
 
     BackendFeatures backendStoreFeatures();
