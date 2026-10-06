@@ -46,6 +46,7 @@ import org.apache.hugegraph.unit.cache.CachedSchemaTransactionTest;
 import org.apache.hugegraph.unit.cache.RamTableTest;
 import org.apache.hugegraph.unit.cmd.InitStoreConfigTest;
 import org.apache.hugegraph.unit.config.GremlinConfigCompatibilityTest;
+import org.apache.hugegraph.unit.config.GraphBinarySchemaCompatibilityTest;
 import org.apache.hugegraph.unit.config.K8sResourceQuotaYamlTest;
 import org.apache.hugegraph.unit.core.AnalyzerTest;
 import org.apache.hugegraph.unit.core.BackendMutationTest;
@@ -216,6 +217,7 @@ import org.junit.runners.Suite;
 
         /* config */
         GremlinConfigCompatibilityTest.class,
+        GraphBinarySchemaCompatibilityTest.class,
         K8sResourceQuotaYamlTest.class,
         /* rocksdb */
         RocksDBSessionsTest.class,

@@ -38,6 +38,7 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.GValue;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.GraphStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.util.HasContainer;
+import org.apache.tinkerpop.gremlin.structure.Edge;
 import org.apache.tinkerpop.gremlin.structure.T;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.junit.Test;
@@ -284,6 +285,38 @@ public class IdPredicateCoreTest extends BaseCoreTest {
             assertLocalId(source, predicate, string);
             Assert.assertEquals(new HashSet<>(Arrays.asList(43L, "alpha")),
                                 new HashSet<>((Collection<?>) leaf.getValue()));
+        }
+    }
+
+    @Test
+    public void testMixedEdgeIdCollections() {
+        graph().schema().vertexLabel("edge-id").useCustomizeNumberId().create();
+        graph().schema().edgeLabel("mixed-id-edge").sourceLabel("edge-id").targetLabel("edge-id").create();
+        Vertex first = graph().addVertex(T.label, "edge-id", T.id, 101L);
+        Vertex second = graph().addVertex(T.label, "edge-id", T.id, 102L);
+        Vertex third = graph().addVertex(T.label, "edge-id", T.id, 103L);
+        Edge one = first.addEdge("mixed-id-edge", second);
+        Edge two = first.addEdge("mixed-id-edge", third);
+        Edge excluded = second.addEdge("mixed-id-edge", third);
+        commitTx();
+        List<List<Object>> collections = Arrays.asList(Arrays.asList(one.id().toString(), two.id()),
+                                                       Arrays.asList(one.id(), two.id().toString()),
+                                                       Arrays.asList(one.id(), two.id()),
+                                                       Arrays.asList(one.id().toString(), two.id().toString()));
+        for (GraphTraversalSource source : this.sources()) {
+            for (List<Object> ids : collections) {
+                Assert.assertEquals(new HashSet<>(Arrays.asList(one.id(), two.id())),
+                                    new HashSet<>(graph().traversal().E().hasId(P.within(ids)).id().toList()));
+                GraphTraversal<Edge, Edge> local = source.E().hasId(P.not(P.without(ids)));
+                localIdContainer(local);
+                Assert.assertEquals(new HashSet<>(Arrays.asList(one, two)), new HashSet<>(local.toList()));
+                Assert.assertEquals(2L, source.E().hasId(P.not(P.without(ids))).count().next().longValue());
+                Assert.assertEquals(Collections.singletonList(excluded),
+                                    source.E().hasId(P.not(P.within(ids))).toList());
+                Assert.assertEquals(1L, source.E().hasId(P.not(P.within(ids))).count().next().longValue());
+            }
+            Assert.assertEquals(Collections.singletonList(one), source.E()
+                    .hasId(P.not(P.without(Arrays.asList("invalid", one.id())))).toList());
         }
     }
 

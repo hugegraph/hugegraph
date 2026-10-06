@@ -32,8 +32,7 @@ serializer:
 
 GraphBinary preserves graph elements and UUID IDs for Java Driver accessors such
 as `Result.getVertex()` and `Result.get(UUID.class)`. Untyped GraphSON V1 decodes
-these results as maps and strings, and typed GraphSON V1 still decodes graph
-elements as maps.
+these results as maps and strings.
 
 `remote-objects.yaml` serves the Cypher HTTP JSON path and continues to use
 `org.apache.tinkerpop.gremlin.util.ser.GraphSONUntypedMessageSerializerV1` with
@@ -41,7 +40,7 @@ elements as maps.
 driver compatibility workaround.
 
 For the server, keep the GraphBinary builder and registry. The serializer order
-is GraphBinary, untyped GraphSON V1/V2/V3, then typed GraphSON V1/V2/V3. The
+is GraphBinary, untyped GraphSON V1/V2/V3, then typed GraphSON V2/V3. The
 GraphSON entries keep the HugeGraph registry. The first entries look like this:
 
 ```yaml
@@ -63,7 +62,8 @@ The full ordering is in `gremlin-server.yaml`; the config test checks that
 
 Typed GraphSON is available for the supported simple values and IDs, not as a
 replacement for untyped serialization of every HugeGraph schema or graph
-object. GraphSON V1 uses legacy `@class` metadata; V2/V3 use `@type`/`@value`.
+object. Typed V1 is not registered: its legacy `@class` deserialization can
+construct Java objects before request authentication. V2/V3 use `@type`/`@value`.
 
 GraphBinary uses `HugeGraphTypeSerializerRegistryBuilder` to write HugeGraph IDs
 as their underlying values. Schema results use standard maps and Blob values use
@@ -78,6 +78,15 @@ registry limited to untyped V1 messages. Standard graph-file IO and typed
 GraphSON serializers keep `HugeGraphIoRegistry` alone and use the TinkerPop
 Tree format for their negotiated version.
 
+HugeGraph enums such as `DataType.TEXT` and `Directions.OUT` return their names
+over GraphBinary, including in maps and lists. `graph.schema()` returns a map
+with `propertykeys`, `vertexlabels`, `edgelabels` and `indexlabels` lists, using
+the same schema conversion. TinkerPop enums retain their native wire types.
+
+Local edge ID filters accept both serialized strings and native edge IDs in
+mixed collections: `hasId(not(without(ids)))` and `hasId(within(ids))` agree on
+membership and count. Numeric and string vertex IDs keep their distinct types.
+
 Groovy interpolated strings (`GString`, including subclasses) return as standard
 strings over GraphBinary, including inside lists and maps. For example,
 `def value = 42; "r3-value:${value}"` returns `"r3-value:42"`. The untyped GraphSON
@@ -87,6 +96,9 @@ Cypher extension predicates use the current TinkerPop predicate constructor
 through the existing translator extension point. Computed-expression regex
 filters retain whole-string matching (`String.matches`), so `"marko"` matches
 `"mar.*"` and does not match `"ark"`.
+The public `cypherRegex`, `cypherIsString`, `cypherIsNode` and `cypherIsRelationship`
+factories imported by the bundled Gremlin configuration use that same adapter,
+so the Gremlin translation returned by `EXPLAIN` can be replayed.
 
 Cypher results normalize HugeGraph IDs, including
 values nested in collections, maps and paths. Cyclic results and nesting deeper
@@ -97,6 +109,10 @@ remote requests to GremlinLang. Validate application scripts against the full
 TinkerPop 3.5.1 to 3.8.1 upgrade interval before deploying.
 
 ## YAML configuration safety
+
+Jackson JSON and YAML modules share the root BOM version. Fabric8 kubeconfig
+extensions can contain integer and decimal values; the K8s configuration
+regression verifies auto-configuration without contacting a cluster.
 
 This TinkerPop 3.8.1 upgrade uses SnakeYAML 2.2, Spring Boot 2.5.15 and
 Spring Framework 5.3.27. The Boot patch keeps PD and Store's YAML startup

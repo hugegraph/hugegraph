@@ -17,12 +17,27 @@
 
 package org.apache.hugegraph.unit.opencypher;
 
+import java.util.Collections;
+import java.util.List;
+
+import javax.script.Bindings;
+import javax.script.ScriptException;
+
 import org.apache.hugegraph.opencypher.CypherGremlinPredicates;
+import org.apache.hugegraph.opencypher.CypherPlugin;
 import org.apache.hugegraph.testutil.Assert;
 import org.apache.hugegraph.unit.BaseUnitTest;
+import org.apache.tinkerpop.gremlin.groovy.jsr223.GremlinGroovyScriptEngine;
+import org.apache.tinkerpop.gremlin.jsr223.Customizer;
+import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal;
+import org.apache.tinkerpop.gremlin.structure.util.empty.EmptyGraph;
 import org.apache.tinkerpop.gremlin.structure.util.reference.ReferenceEdge;
 import org.apache.tinkerpop.gremlin.structure.util.reference.ReferenceVertex;
 import org.junit.Test;
+import org.opencypher.gremlin.translation.CypherAst;
+import org.opencypher.gremlin.translation.StatementOption;
+import org.opencypher.gremlin.translation.groovy.GroovyPredicate;
+import org.opencypher.gremlin.translation.translator.Translator;
 
 public class CypherGremlinPredicatesTest extends BaseUnitTest {
 
@@ -50,4 +65,48 @@ public class CypherGremlinPredicatesTest extends BaseUnitTest {
         Assert.assertFalse(predicates.isString().test(42));
         Assert.assertFalse(predicates.isString().test(source));
     }
+
+    @Test
+    public void testPublicFactoriesThroughPluginImports() throws ScriptException {
+        GremlinGroovyScriptEngine engine = pluginEngine();
+        Bindings bindings = engine.createBindings();
+        ReferenceVertex source = new ReferenceVertex("source", "person");
+        ReferenceVertex target = new ReferenceVertex("target", "person");
+        bindings.put("vertex", source);
+        bindings.put("edge", new ReferenceEdge("edge", "knows", source, target));
+        Assert.assertEquals(true, engine.eval("cypherRegex('mar.*').test('marko')", bindings));
+        Assert.assertEquals(false, engine.eval("cypherRegex('ark').test('marko')", bindings));
+        Assert.assertEquals(true, engine.eval("cypherIsNode().test(vertex)", bindings));
+        Assert.assertEquals(false, engine.eval("cypherIsNode().test(edge)", bindings));
+        Assert.assertEquals(true, engine.eval("cypherIsRelationship().test(edge)", bindings));
+        Assert.assertEquals(false, engine.eval("cypherIsRelationship().test(vertex)", bindings));
+        Assert.assertEquals(true, engine.eval("cypherIsString().test('marko')", bindings));
+        Assert.assertEquals(false, engine.eval("cypherIsString().test(42)", bindings));
+    }
+
+    @Test
+    public void testExplainGremlinReplaysUsingPluginImports() throws ScriptException {
+        CypherAst ast = CypherAst.parse("EXPLAIN UNWIND ['marko', 'peter'] AS name " +
+                                       "WITH name WHERE name =~ 'mar.*' RETURN name");
+        Assert.assertTrue(ast.getOptions().contains(StatementOption.EXPLAIN));
+        Translator<String, GroovyPredicate> translator = Translator.builder()
+                                                                   .gremlinGroovy()
+                                                                   .build("gremlin+cfog_server_extensions+" +
+                                                                          "inline_parameters");
+        String gremlin = ast.buildTranslation(translator);
+        Assert.assertTrue(gremlin.contains("cypherRegex("));
+        GremlinGroovyScriptEngine engine = pluginEngine();
+        Bindings bindings = engine.createBindings();
+        bindings.put("g", EmptyGraph.instance().traversal());
+        GraphTraversal<?, ?> traversal = (GraphTraversal<?, ?>) engine.eval(gremlin, bindings);
+        List<?> result = traversal.toList();
+        Assert.assertEquals(Collections.singletonList(Collections.singletonMap("name", "marko")),
+                            result);
+    }
+
+    private static GremlinGroovyScriptEngine pluginEngine() {
+        Customizer[] customizers = CypherPlugin.instance().getCustomizers("gremlin-groovy").get();
+        return new GremlinGroovyScriptEngine(customizers);
+    }
+
 }

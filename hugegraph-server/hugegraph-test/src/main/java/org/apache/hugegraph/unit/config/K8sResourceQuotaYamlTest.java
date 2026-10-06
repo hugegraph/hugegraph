@@ -117,7 +117,9 @@ public class K8sResourceQuotaYamlTest {
                                      "contexts:\n- name: test-context\n" +
                                      "  context: {cluster: test, user: test-user, " +
                                      "namespace: hugegraph-test}\n" +
-                                     "current-context: test-context\n").getBytes(StandardCharsets.UTF_8));
+                                     "current-context: test-context\n" +
+                                     "extensions:\n- name: fixture-extension\n" +
+                                     "  extension: {ratio: 0.5, count: 1}\n").getBytes(StandardCharsets.UTF_8));
             properties.forEach((key, value) -> {
                 originals.put(key, System.getProperty(key));
                 System.setProperty(key, value);

@@ -291,8 +291,10 @@ the corresponding per-component license file.
     https://central.sonatype.com/artifact/com.fasterxml.jackson.core/jackson-databind/2.15.2 -> Apache 2.0
     https://central.sonatype.com/artifact/com.fasterxml.jackson.dataformat/jackson-dataformat-yaml/2.15.2 -> Apache 2.0
     https://central.sonatype.com/artifact/com.fasterxml.jackson.datatype/jackson-datatype-jdk8/2.12.7 -> Apache 2.0
+    https://central.sonatype.com/artifact/com.fasterxml.jackson.datatype/jackson-datatype-jdk8/2.15.2 -> Apache 2.0
     https://central.sonatype.com/artifact/com.fasterxml.jackson.datatype/jackson-datatype-jsr310/2.11.2 -> Apache 2.0
     https://central.sonatype.com/artifact/com.fasterxml.jackson.datatype/jackson-datatype-jsr310/2.12.7 -> Apache 2.0
+    https://central.sonatype.com/artifact/com.fasterxml.jackson.datatype/jackson-datatype-jsr310/2.15.2 -> Apache 2.0
     https://central.sonatype.com/artifact/com.fasterxml.jackson.jakarta.rs/jackson-jakarta-rs-base/2.15.2 -> Apache 2.0
     https://central.sonatype.com/artifact/com.fasterxml.jackson.jakarta.rs/jackson-jakarta-rs-json-provider/2.15.2 -> Apache 2.0
     https://central.sonatype.com/artifact/com.fasterxml.jackson.jaxrs/jackson-jaxrs-base/2.14.0-rc1 -> Apache 2.0
@@ -303,6 +305,7 @@ the corresponding per-component license file.
     https://central.sonatype.com/artifact/com.fasterxml.jackson.module/jackson-module-jaxb-annotations/2.14.0-rc1 -> Apache 2.0
     https://central.sonatype.com/artifact/com.fasterxml.jackson.module/jackson-module-jaxb-annotations/2.15.2 -> Apache 2.0
     https://central.sonatype.com/artifact/com.fasterxml.jackson.module/jackson-module-parameter-names/2.12.7 -> Apache 2.0
+    https://central.sonatype.com/artifact/com.fasterxml.jackson.module/jackson-module-parameter-names/2.15.2 -> Apache 2.0
     https://central.sonatype.com/artifact/com.github.ben-manes.caffeine/caffeine/2.3.1 -> Apache 2.0
     https://central.sonatype.com/artifact/com.github.javaparser/javaparser-core/3.26.3 -> Apache 2.0
     https://central.sonatype.com/artifact/com.github.jbellis/jamm/0.3.2 -> Apache 2.0

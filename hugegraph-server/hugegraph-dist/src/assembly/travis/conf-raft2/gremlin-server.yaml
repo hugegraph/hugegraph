@@ -63,9 +63,10 @@ scriptEngines: {
           org.apache.hugegraph.traversal.optimize.Text,
           org.apache.hugegraph.traversal.optimize.TraversalUtil,
           org.opencypher.gremlin.traversal.CustomFunctions,
-          org.opencypher.gremlin.traversal.CustomPredicate
+          org.apache.hugegraph.opencypher.CypherGremlinPredicates
         ],
-        methodImports: [java.lang.Math#*]
+        methodImports: [java.lang.Math#*,
+                        org.apache.hugegraph.opencypher.CypherGremlinPredicates#*]
       },
       org.apache.tinkerpop.gremlin.jsr223.ScriptFileGremlinPlugin: {
         files: [scripts/empty-sample.groovy]
@@ -100,12 +101,7 @@ serializers:
        ioRegistries: [org.apache.hugegraph.io.HugeGraphIoRegistry]
      }
   }
-  - {className: org.apache.tinkerpop.gremlin.util.ser.GraphSONMessageSerializerV1,
-     config: {
-       serializeResultToString: false,
-       ioRegistries: [org.apache.hugegraph.io.HugeGraphIoRegistry]
-     }
-  }
+  # Typed V1 is disabled because it accepts Java class names.
   - {className: org.apache.tinkerpop.gremlin.util.ser.GraphSONMessageSerializerV2,
      config: {
        serializeResultToString: false,
