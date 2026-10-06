@@ -22,6 +22,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Consumer;
+import java.util.function.LongConsumer;
 
 import org.apache.hugegraph.HugeException;
 import org.apache.hugegraph.constant.ServiceConstant;
@@ -134,6 +135,26 @@ public class PdMetaDriver implements MetaDriver {
             this.client.listenPrefix(prefix, (Consumer<WatchResponse>) consumer);
         } catch (PDException e) {
             throw new HugeException("Failed to listenPrefix '%s' to pd", e, prefix);
+        }
+    }
+
+    /**
+     * Opens the schema sync watch on the prefix, see {@link KvClient#listenSync}
+     */
+    public void listenSync(String prefix, Consumer<WatchResponse> consumer,
+                           LongConsumer sessionClosed, Consumer<Throwable> stopped) {
+        try {
+            this.client.listenSync(prefix, consumer, sessionClosed, stopped);
+        } catch (PDException e) {
+            throw new HugeException("Failed to listenSync '%s' to pd", e, prefix);
+        }
+    }
+
+    public boolean ack(long clientId, String key, long revision) {
+        try {
+            return this.client.ack(clientId, key, revision);
+        } catch (PDException e) {
+            throw new HugeException("Failed to ack '%s' rev %s to pd", e, key, revision);
         }
     }
 
