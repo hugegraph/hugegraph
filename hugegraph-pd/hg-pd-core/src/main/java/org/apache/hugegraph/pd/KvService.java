@@ -26,10 +26,13 @@ import java.util.Map;
 import org.apache.hugegraph.pd.common.PDException;
 import org.apache.hugegraph.pd.config.PDConfig;
 import org.apache.hugegraph.pd.grpc.kv.Kv;
+import org.apache.hugegraph.pd.grpc.kv.TxnRequest;
+import org.apache.hugegraph.pd.grpc.kv.TxnResponse;
 import org.apache.hugegraph.pd.grpc.kv.V;
 import org.apache.hugegraph.pd.meta.MetadataKeyHelper;
 import org.apache.hugegraph.pd.meta.MetadataRocksDBStore;
 import org.apache.hugegraph.pd.store.KV;
+import org.apache.hugegraph.pd.store.KvTxnApplier;
 import org.springframework.stereotype.Service;
 
 import com.google.protobuf.InvalidProtocolBufferException;
@@ -104,6 +107,16 @@ public class KvService {
         meta.put(getStoreKey(key), storeValue.toByteArray());
         meta.put(getTTLStoreKey(key, curTime), EMPTY_VALUE);
         // log.warn("add key with key-{}:value-{}:ttl-{}", key, value, ttl);
+    }
+
+    /**
+     * Atomic multi-key write, see {@link KvTxnApplier}. A failed compare or a rejected record
+     * is an unsuccessful response, not an exception. Keys a TXN writes must not be written with
+     * put or delete as well.
+     */
+    public TxnResponse txn(TxnRequest request) throws PDException {
+        KvTxnApplier.validate(request);
+        return meta.getStore().txn(request);
     }
 
     public String get(String key) throws PDException {

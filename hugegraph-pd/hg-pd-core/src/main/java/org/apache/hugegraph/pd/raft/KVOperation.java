@@ -50,6 +50,10 @@ public class KVOperation {
     public static final byte PUT_WITH_TTL_UNIT = 0x08;
     public static final byte REMOVE_WITH_TTL = 0x09;
     /**
+     * Atomic multi-key write, the value holds a serialized kv.TxnRequest
+     */
+    public static final byte TXN = 0x0A;
+    /**
      * Snapshot operation
      */
     public static final byte SAVE_SNAPSHOT = 0x10;
@@ -62,6 +66,8 @@ public class KVOperation {
     private Object attach;
     private Object arg;
     private byte op;
+    // Raft log index of the entry, set on apply on every node and never serialized
+    private transient long index;
 
     public KVOperation() {
 
@@ -136,6 +142,11 @@ public class KVOperation {
     public static KVOperation createRemove(byte[] key) {
         Requires.requireNonNull(key, "key");
         return new KVOperation(key, key, null, REMOVE);
+    }
+
+    public static KVOperation createTxn(byte[] request) {
+        Requires.requireNonNull(request, "request");
+        return new KVOperation(null, request, null, TXN);
     }
 
     public static KVOperation createClear() {
