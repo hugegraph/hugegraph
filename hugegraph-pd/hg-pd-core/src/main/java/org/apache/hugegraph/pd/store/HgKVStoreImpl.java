@@ -36,6 +36,8 @@ import org.apache.hugegraph.pd.common.PDException;
 import org.apache.hugegraph.pd.config.PDConfig;
 import org.apache.hugegraph.pd.grpc.Pdpb;
 import org.apache.hugegraph.pd.grpc.discovery.RegisterInfo;
+import org.apache.hugegraph.pd.grpc.kv.TxnRequest;
+import org.apache.hugegraph.pd.grpc.kv.TxnResponse;
 import org.rocksdb.Checkpoint;
 import org.rocksdb.Options;
 import org.rocksdb.ReadOptions;
@@ -43,6 +45,8 @@ import org.rocksdb.RocksDB;
 import org.rocksdb.RocksDBException;
 import org.rocksdb.RocksIterator;
 import org.rocksdb.Slice;
+import org.rocksdb.WriteBatch;
+import org.rocksdb.WriteOptions;
 
 import com.alipay.sofa.jraft.util.Utils;
 import com.google.common.cache.CacheBuilder;
@@ -317,6 +321,43 @@ public class HgKVStoreImpl implements HgKVStore {
             return kvs;
         } finally {
             readLock.unlock();
+        }
+    }
+
+    @Override
+    public void writeBatch(List<KV> kvs) throws PDException {
+        final Lock readLock = this.readWriteLock.readLock();
+        readLock.lock();
+        try (WriteBatch batch = new WriteBatch();
+             WriteOptions options = new WriteOptions()) {
+            for (KV kv : kvs) {
+                if (kv.getValue() == null) {
+                    batch.delete(kv.getKey());
+                } else {
+                    batch.put(kv.getKey(), kv.getValue());
+                }
+            }
+            db.write(options, batch);
+        } catch (RocksDBException e) {
+            throw new PDException(Pdpb.ErrorType.ROCKSDB_WRITE_ERROR_VALUE, e);
+        } finally {
+            readLock.unlock();
+        }
+    }
+
+    /**
+     * The path without raft (raft.enable=false): there is no log index, so a TXN takes the
+     * one after the last applied. The write lock keeps other writes out from between the
+     * compares and the batch.
+     */
+    @Override
+    public TxnResponse txn(TxnRequest request) throws PDException {
+        final Lock writeLock = this.readWriteLock.writeLock();
+        writeLock.lock();
+        try {
+            return KvTxnApplier.apply(this, request, KvTxnApplier.lastIndex(this) + 1);
+        } finally {
+            writeLock.unlock();
         }
     }
 

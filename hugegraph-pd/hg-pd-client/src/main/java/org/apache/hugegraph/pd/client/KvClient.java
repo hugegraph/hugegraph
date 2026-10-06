@@ -49,6 +49,8 @@ import org.apache.hugegraph.pd.grpc.kv.LockResponse;
 import org.apache.hugegraph.pd.grpc.kv.ScanPrefixResponse;
 import org.apache.hugegraph.pd.grpc.kv.TTLRequest;
 import org.apache.hugegraph.pd.grpc.kv.TTLResponse;
+import org.apache.hugegraph.pd.grpc.kv.TxnRequest;
+import org.apache.hugegraph.pd.grpc.kv.TxnResponse;
 import org.apache.hugegraph.pd.grpc.kv.WatchEvent;
 import org.apache.hugegraph.pd.grpc.kv.WatchKv;
 import org.apache.hugegraph.pd.grpc.kv.WatchRequest;
@@ -187,6 +189,16 @@ public class KvClient<T extends WatchResponse> extends AbstractClient implements
         TTLRequest request =
                 TTLRequest.newBuilder().setKey(key).setValue(value).setTtl(ttl).build();
         TTLResponse response = blockingUnaryCall(KvServiceGrpc.getPutTTLMethod(), request);
+        handleErrors(response.getHeader());
+        return response;
+    }
+
+    /**
+     * Atomic multi-key write. A failed compare or a rejected record is not an error: check
+     * succeeded on the response.
+     */
+    public TxnResponse txn(TxnRequest request) throws PDException {
+        TxnResponse response = blockingUnaryCall(KvServiceGrpc.getTxnMethod(), request);
         handleErrors(response.getHeader());
         return response;
     }

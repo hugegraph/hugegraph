@@ -1593,6 +1593,10 @@ public final class GraphManager {
 
         HugeConfig config = new HugeConfig(propConfig);
         this.checkOptions(graphSpace, config);
+        if (init) {
+            // A new incarnation of the graph, before it writes any schema
+            this.metaManager.schemaMetaManager().createGraph(graphSpace, name);
+        }
         HugeGraph graph = this.createGraph(graphSpace, config,
                                            this.authManager, init);
         graph.graphSpace(graphSpace);
@@ -2286,6 +2290,10 @@ public final class GraphManager {
             }
 
             g.clearBackend();
+            // Drop only the incarnation this instance belongs to; its writes are rejected
+            // from now on
+            this.metaManager.schemaMetaManager().dropGraph(graphSpace, name,
+                                                           g.schemaIncarnation());
             try {
                 g.close();
             } catch (Exception e) {

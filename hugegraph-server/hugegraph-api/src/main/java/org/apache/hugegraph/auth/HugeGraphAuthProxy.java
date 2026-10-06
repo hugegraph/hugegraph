@@ -774,6 +774,11 @@ public final class HugeGraphAuthProxy implements HugeGraph {
     }
 
     @Override
+    public long schemaIncarnation() {
+        return this.hugegraph.schemaIncarnation();
+    }
+
+    @Override
     public String backend() {
         this.verifyAnyPermission();
         return this.hugegraph.backend();

@@ -39,6 +39,7 @@ service KvService {
   rpc isLocked(LockRequest) returns (LockResponse);
   rpc putTTL(TTLRequest) returns (TTLResponse);
   rpc keepTTLAlive(TTLRequest) returns (TTLResponse);
+  rpc txn(TxnRequest) returns (TxnResponse);
 }
 
 /* requests */
@@ -140,4 +141,76 @@ message TTLRequest{
 message TTLResponse{
   pdpb.ResponseHeader header = 1;
   bool succeed = 2;
+}
+
+/*
+ * Atomic multi-key write, applied as one raft entry and one RocksDB write batch. Keys and
+ * values share the namespace of put/get/scanPrefix. The compares run first, in order; when
+ * one fails, or the graph record rejects the TXN, nothing but the replay guard is written.
+ * TXN writes fire no watch events.
+ */
+message TxnRequest {
+  pdpb.RequestHeader header = 1;
+  repeated TxnCompare compares = 2;
+  repeated TxnOp ops = 3;
+  // The per-graph schema sync record to advance, if any
+  TxnRecord record = 4;
+}
+
+message TxnCompare {
+  enum Kind {
+    ABSENT = 0;
+    EQUALS = 1;
+  }
+  string key = 1;
+  Kind kind = 2;
+  string value = 3;
+}
+
+message TxnOp {
+  enum Type {
+    PUT = 0;
+    DELETE = 1;
+    DELETE_PREFIX = 2;
+  }
+  Type type = 1;
+  string key = 2;
+  string value = 3;
+}
+
+/*
+ * The record value is {"rev":<n>,"inc":<n>,"state":"LIVE"|"DROPPED"}; rev is the raft index
+ * of the last TXN that wrote it
+ */
+message TxnRecord {
+  enum Op {
+    // Advance rev; creates the record (inc 1) if it is absent
+    BUMP = 0;
+    // Start a new incarnation of the graph
+    CREATE = 1;
+    // Mark the graph DROPPED
+    DROP = 2;
+  }
+  string key = 1;
+  Op op = 2;
+  // 0 does not check the incarnation
+  int64 expected_incarnation = 3;
+}
+
+message TxnResponse {
+  enum Failure {
+    NONE = 0;
+    COMPARE_FAILED = 1;
+    GRAPH_DROPPED = 2;
+    INCARNATION_MISMATCH = 3;
+  }
+  pdpb.ResponseHeader header = 1;
+  bool succeeded = 2;
+  // The raft log index of the TXN, set when it succeeded
+  int64 revision = 3;
+  // The record's incarnation after the TXN, or the stored one when the record rejected it
+  int64 incarnation = 4;
+  Failure failure = 5;
+  // Position of the failed compare, with COMPARE_FAILED
+  int32 failed_compare = 6;
 }

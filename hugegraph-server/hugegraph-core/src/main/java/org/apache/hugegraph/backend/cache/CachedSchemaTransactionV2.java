@@ -38,7 +38,10 @@ import org.apache.hugegraph.meta.MetaDriver;
 import org.apache.hugegraph.meta.MetaManager;
 import org.apache.hugegraph.meta.MetaManager.SchemaCacheClearEvent;
 import org.apache.hugegraph.perf.PerfUtil;
+import org.apache.hugegraph.schema.IndexLabel;
 import org.apache.hugegraph.schema.SchemaElement;
+import org.apache.hugegraph.schema.SchemaLabel;
+import org.apache.hugegraph.schema.VertexLabel;
 import org.apache.hugegraph.type.HugeType;
 import org.apache.hugegraph.util.E;
 import org.apache.hugegraph.util.Events;
@@ -330,6 +333,18 @@ public class CachedSchemaTransactionV2 extends SchemaTransactionV2 {
 
         // Schema additions must always propagate to remote nodes regardless
         // of TASK_SYNC_DELETION (which only gates removal flows).
+        this.notifySchemaCacheClear();
+    }
+
+    @Override
+    public void addIndexLabel(SchemaLabel baseLabel, IndexLabel indexLabel) {
+        super.addIndexLabel(baseLabel, indexLabel);
+
+        // Both were written in one commit, cache them as addSchema and updateSchema do
+        this.updateCache(indexLabel);
+        if (!baseLabel.equals(VertexLabel.OLAP_VL)) {
+            this.updateCache(baseLabel);
+        }
         this.notifySchemaCacheClear();
     }
 
