@@ -1,6 +1,6 @@
 # TP PR 接盘记录 — 2026-10-06
 
-当前结果以 state.md 和文末 Review wave 03 为准：核心31ee6543已推，六条新意见已resolve，ASF #3274/#3275已创建。下面W02表格和CI描述为历史证据，不是当前head。
+当前结果以 state.md 和文末 Review wave 03 为准：核心7ee8766b已rebase最新master并推，六条新意见已resolve，ASF #3275保留，#3274和fork#268已关闭。下面W02表格和CI描述为历史证据，不是当前head。
 
 已确认的修复全部分批 commit 推送，对应 review 意见已回复并 resolve；保留 261 旧 ordering 争议，不自动合并。最后两项新增测试 fixture 修复也已推。
 
@@ -105,3 +105,7 @@ T 第一轮证据保留：build-receipt.json、package-remote-binding.json、api
 组合缓存/Auth验证：两个分支均通过，完整直接相关缓存类和四个Auth方法，source无漂移。格式专用agent：仅10个Java文件空白/换行，所有修改源行原属PR新增代码，tokens/literals等价；最终format/whole cleancompile/Commons testcompile通过并推送。
 
 最新CI看W03/latest-pr-status.json；#267当前提交29项成功，其他分支/上游仍有运行中检查，不称全部绿色。先前服务包验收绑定ebe4658，不能替代最新head服务验收。更早W02完整记录保留，W03当前证据优先。
+
+## 最新master rebase
+
+当前state.md表为准。隔离源码R06/rebase-master/checkout；21个核心提交实际rebase到8beb78b8，head 7ee8766b5d7c5763188f3b5a0a9bf81de618fb2f。不加重复格式规范；CONTRIBUTING完整采用master，pd-store可复用workflow采用master并保留selection步骤。GitHub自动rebase历史CI冲突，隔离副本本地解决；GitHub所有发布通过gh，替换分支前校验old head和master，最终2739blob/mode逐一相同。#266与ASF#3275同head，保留JNI快速启用图和精简描述。全仓Java17compile与CI/shell相关检查通过；新CI待完成。
