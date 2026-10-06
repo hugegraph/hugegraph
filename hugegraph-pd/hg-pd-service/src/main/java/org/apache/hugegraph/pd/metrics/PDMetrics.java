@@ -34,10 +34,13 @@ import org.apache.hugegraph.pd.grpc.Metapb;
 import org.apache.hugegraph.pd.grpc.Metapb.ShardGroup;
 import org.apache.hugegraph.pd.model.GraphStatistics;
 import org.apache.hugegraph.pd.raft.RaftEngine;
+import org.apache.hugegraph.pd.service.KvServiceGrpcImpl;
 import org.apache.hugegraph.pd.service.PDRestService;
 import org.apache.hugegraph.pd.service.PDService;
+import org.apache.hugegraph.pd.sync.SchemaSyncTracker;
 
 import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.FunctionCounter;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 import lombok.extern.slf4j.Slf4j;
@@ -53,6 +56,8 @@ public final class PDMetrics {
     PDRestService pdRestService;
     @Autowired
     private PDService pdService;
+    @Autowired
+    private KvServiceGrpcImpl kvService;
     private MeterRegistry registry;
     private Map<String, Pair<Long, Long>> lasts = new ConcurrentHashMap();
     private int interval = 120 * 1000;
@@ -78,6 +83,43 @@ public final class PDMetrics {
              .description("term of partitions in PD")
              .register(registry);
         registerRaftMeters();
+        registerSchemaSyncMeters();
+    }
+
+    /**
+     * Schema sync watch delivery on this PD; sessions and pending work exist on the leader only
+     */
+    private void registerSchemaSyncMeters() {
+        SchemaSyncTracker sync = kvService.getSyncTracker();
+        String prefix = PREFIX + ".schema.sync";
+        Gauge.builder(prefix + ".sessions", sync, SchemaSyncTracker::sessionCount)
+             .description("Schema sync watch sessions")
+             .register(registry);
+        Gauge.builder(prefix + ".pending", sync, t -> t.pendingCount(true))
+             .description("Graph record changes waiting to be sent, per session")
+             .tag("state", "unsent")
+             .register(registry);
+        Gauge.builder(prefix + ".pending", sync, t -> t.pendingCount(false))
+             .description("Graph record changes sent and not acknowledged, per session")
+             .tag("state", "unacked")
+             .register(registry);
+        Gauge.builder(prefix + ".pending.oldest.age", sync, SchemaSyncTracker::oldestPendingAge)
+             .description("Longest wait of a pending change for acknowledgment progress, in ms")
+             .register(registry);
+        FunctionCounter.builder(prefix + ".notifications", sync,
+                                SchemaSyncTracker::notificationCount)
+                       .description("Graph record changes sent to sessions, resends excluded")
+                       .register(registry);
+        FunctionCounter.builder(prefix + ".retries", sync, SchemaSyncTracker::retryCount)
+                       .description("Resends of unacknowledged graph record changes")
+                       .register(registry);
+        for (SchemaSyncTracker.Reason reason : SchemaSyncTracker.Reason.values()) {
+            FunctionCounter.builder(prefix + ".invalidations", sync,
+                                    t -> t.invalidationCount(reason))
+                           .description("Schema sync sessions closed by PD")
+                           .tag("reason", reason.name().toLowerCase())
+                           .register(registry);
+        }
     }
 
     /**

@@ -269,6 +269,35 @@ initial_partitions = (store_count * store_max_shard_count) / default_shard_count
   - Large deployment: `200-500`
   - Limit based on Store disk capacity and expected data volume
 
+### Schema Sync Settings
+
+Controls how the PD leader delivers graph record changes to schema sync watches, the prefix
+watches Servers open on `HUGEGRAPH/{cluster}/SCHEMA_SYNC/` to keep their schema caches current.
+Pending work lives in leader memory only; after a leader change every Server reconnects and
+syncs again.
+
+```yaml
+schema-sync:
+  coalesce-window: 50        # Send a change once no newer one arrived for this long (ms)
+  max-wait: 500              # ...but no later than this after the first unsent change (ms)
+  retry-backoff: 1000        # First resend of an unacknowledged change, doubled per resend (ms)
+  retry-budget: 30000        # Close a watch whose pending work saw no ACK for this long (ms)
+  keepalive-interval: 5000   # Interval of the Alive frames that renew a watch (ms)
+```
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `schema-sync.coalesce-window` | Long | `50` | A change of a graph is sent once no newer change of it arrived for this long, in milliseconds, so a burst of DDL becomes one notification. |
+| `schema-sync.max-wait` | Long | `500` | The longest a change waits for coalescing, in milliseconds, so continuous DDL cannot postpone notification indefinitely. |
+| `schema-sync.retry-backoff` | Long | `1000` | Delay before the first resend of a change that was not acknowledged, in milliseconds. Each further resend doubles it; a resend always carries the latest revision. |
+| `schema-sync.retry-budget` | Long | `30000` | A watch whose pending work saw no acknowledgment progress for this long, in milliseconds, is closed instead of being treated as done; the Server reconnects and syncs again. Keep it well above `retry-backoff`. |
+| `schema-sync.keepalive-interval` | Long | `5000` | Interval of the Alive frames that renew a schema sync watch, in milliseconds. A Server treats its watch as expired when these stop; PD stops sending them once it closes a watch. Other watches keep their own keepalive. |
+
+The leader exposes the delivery state as `hg_schema_sync_sessions`,
+`hg_schema_sync_pending{state="unsent"|"unacked"}`, `hg_schema_sync_pending_oldest_age` (ms),
+`hg_schema_sync_notifications_total`, `hg_schema_sync_retries_total` and
+`hg_schema_sync_invalidations_total{reason="retry_budget"|"send_failed"|"handshake_failed"|"not_leader"|"dispatch_failed"}`.
+
 ### Management and Metrics
 
 Controls Spring Boot Actuator endpoints for monitoring.

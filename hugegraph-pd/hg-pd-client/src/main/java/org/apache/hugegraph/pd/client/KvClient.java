@@ -36,6 +36,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
+import java.util.function.LongConsumer;
 
 import org.apache.hugegraph.pd.common.PDException;
 import org.apache.hugegraph.pd.grpc.Pdpb;
@@ -51,6 +52,8 @@ import org.apache.hugegraph.pd.grpc.kv.TTLRequest;
 import org.apache.hugegraph.pd.grpc.kv.TTLResponse;
 import org.apache.hugegraph.pd.grpc.kv.TxnRequest;
 import org.apache.hugegraph.pd.grpc.kv.TxnResponse;
+import org.apache.hugegraph.pd.grpc.kv.WatchAckRequest;
+import org.apache.hugegraph.pd.grpc.kv.WatchAckResponse;
 import org.apache.hugegraph.pd.grpc.kv.WatchEvent;
 import org.apache.hugegraph.pd.grpc.kv.WatchKv;
 import org.apache.hugegraph.pd.grpc.kv.WatchRequest;
@@ -203,17 +206,55 @@ public class KvClient<T extends WatchResponse> extends AbstractClient implements
         return response;
     }
 
+    /**
+     * Acknowledges a graph record event of a schema sync watch, once it was processed
+     *
+     * @param clientId the session that delivered the event, from its WatchResponse
+     * @param key      the record key of the event
+     * @param revision the rev of the record value
+     * @return false when PD ignored the ACK: an unknown or ended session, or a revision it did
+     * not send to that session
+     */
+    public boolean ack(long clientId, String key, long revision) throws PDException {
+        WatchAckRequest request = WatchAckRequest.newBuilder().setClientId(clientId).setKey(key)
+                                                 .setRevision(revision).build();
+        WatchAckResponse response = blockingUnaryCall(KvServiceGrpc.getWatchAckMethod(), request);
+        handleErrors(response.getHeader());
+        return response.getAccepted();
+    }
+
     private void onEvent(WatchResponse value, Consumer<T> consumer) {
         log.debug("receive message for {},event Count:{}", value, value.getEventsCount());
         if (value.getEventsCount() != 0) {
-            try {
-                consumer.accept((T) value);
-            } catch (Exception e) {
-                log.info(
-                        "an error occurred while executing the client callback method, which " +
-                        "should not " +
-                        "have happened.Please check the callback method of the client", e);
-            }
+            accept(value, consumer);
+        }
+    }
+
+    private void accept(WatchResponse value, Consumer<T> consumer) {
+        try {
+            consumer.accept((T) value);
+        } catch (Exception e) {
+            log.info("an error occurred while executing the client callback method, which " +
+                     "should not have happened.Please check the callback method of the client",
+                     e);
+        }
+    }
+
+    private void onSyncFrame(WatchSubscription subscription, WatchResponse value) {
+        // The keepalive PD runs for every watch sends Alive without a clientId
+        if (subscription.sessionClosed != null && value.getClientId() != 0L) {
+            accept(value, subscription.consumer);
+        }
+    }
+
+    private void onSessionClosed(WatchSubscription subscription, long clientId) {
+        if (subscription.sessionClosed == null || clientId == 0L) {
+            return;
+        }
+        try {
+            subscription.sessionClosed.accept(clientId);
+        } catch (RuntimeException e) {
+            log.warn("Session close callback of watch {} failed", subscription.key, e);
         }
     }
 
@@ -230,6 +271,7 @@ public class KvClient<T extends WatchResponse> extends AbstractClient implements
                         if (b) {
                             log.info("set watch client id to :{}", value.getClientId());
                         }
+                        onSyncFrame(subscription, value);
                         break;
                     case Started:
                         onEvent(value, subscription.consumer);
@@ -238,7 +280,9 @@ public class KvClient<T extends WatchResponse> extends AbstractClient implements
                         requestReconnect(subscription, this, true);
                         break;
                     case Alive:
-                        // only for check client is alive, do nothing
+                    case Synced:
+                        // Session renewal and the end of the initial sync: for sync watches
+                        onSyncFrame(subscription, value);
                         break;
                     default:
                         break;
@@ -279,14 +323,37 @@ public class KvClient<T extends WatchResponse> extends AbstractClient implements
         listen(prefix, consumer, errorConsumer, true);
     }
 
+    /**
+     * Watches a schema sync prefix, HUGEGRAPH/{cluster}/SCHEMA_SYNC/. Each stream is a session
+     * with its own clientId; a reconnect starts a new session, which syncs again. The consumer
+     * gets every frame of a session: Starting with its clientId, Started with graph record
+     * events (key, value {"rev","inc","state"}), Synced once every record under the prefix was
+     * sent, and Alive at the keepalive interval. Each processed event is acknowledged with
+     * {@link #ack}; PD resends what is not, and closes a session that stays behind.
+     *
+     * @param sessionClosed gets the clientId of a session that ended: its stream failed or
+     *                      completed, or the PD leader changed
+     */
+    public void listenSync(String prefix, Consumer<T> consumer, LongConsumer sessionClosed,
+                           Consumer<Throwable> errorConsumer) throws PDException {
+        listen(prefix, consumer, errorConsumer, true,
+               Objects.requireNonNull(sessionClosed, "sessionClosed"));
+    }
+
     private void listen(String key, Consumer<T> consumer,
                         Consumer<Throwable> errorConsumer,
                         boolean prefix) throws PDException {
+        listen(key, consumer, errorConsumer, prefix, null);
+    }
+
+    private void listen(String key, Consumer<T> consumer,
+                        Consumer<Throwable> errorConsumer,
+                        boolean prefix, LongConsumer sessionClosed) throws PDException {
         Objects.requireNonNull(key, "key");
         Objects.requireNonNull(consumer, "consumer");
         Objects.requireNonNull(errorConsumer, "errorConsumer");
         WatchSubscription subscription =
-                new WatchSubscription(key, consumer, errorConsumer, prefix);
+                new WatchSubscription(key, consumer, errorConsumer, prefix, sessionClosed);
         subscriptions.add(subscription);
         try {
             if (!startWatch(subscription)) {
@@ -430,6 +497,7 @@ public class KvClient<T extends WatchResponse> extends AbstractClient implements
                                   StreamObserver<WatchResponse> sourceObserver,
                                   boolean rotateTransport,
                                   boolean requireMissingFirstFrame) {
+        long closedClientId;
         synchronized (subscription) {
             if (closed.get() || subscription.observer.get() != sourceObserver ||
                 (requireMissingFirstFrame && subscription.firstFrameReceived)) {
@@ -437,12 +505,13 @@ public class KvClient<T extends WatchResponse> extends AbstractClient implements
             }
             subscription.observer.set(null);
             cancelStartTimeout(subscription);
-            subscription.clientId.set(0L);
+            closedClientId = subscription.clientId.getAndSet(0L);
             if (rotateTransport) {
                 subscription.rotateTransport = true;
                 subscription.reconnectChannel = subscription.attemptChannel;
             }
         }
+        onSessionClosed(subscription, closedClientId);
         scheduleReconnect(subscription);
     }
 
@@ -492,6 +561,7 @@ public class KvClient<T extends WatchResponse> extends AbstractClient implements
             cancelStartTimeout(subscription);
         }
         subscriptions.remove(subscription);
+        onSessionClosed(subscription, subscription.clientId.getAndSet(0L));
         log.error("Watch for key {} stopped after a non-retryable error: {}",
                   subscription.key, Status.fromThrowable(throwable), throwable);
         notifyWatchStopped(subscription, unwrapWatchError(throwable));
@@ -744,6 +814,8 @@ public class KvClient<T extends WatchResponse> extends AbstractClient implements
         private final Consumer<T> consumer;
         private final Consumer<Throwable> errorConsumer;
         private final boolean prefix;
+        // Set for a schema sync watch only
+        private final LongConsumer sessionClosed;
         private final AtomicReference<StreamObserver<WatchResponse>> observer;
         private final AtomicBoolean reconnectScheduled;
         private final AtomicBoolean terminated;
@@ -756,11 +828,12 @@ public class KvClient<T extends WatchResponse> extends AbstractClient implements
 
         private WatchSubscription(String key, Consumer<T> consumer,
                                   Consumer<Throwable> errorConsumer,
-                                  boolean prefix) {
+                                  boolean prefix, LongConsumer sessionClosed) {
             this.key = key;
             this.consumer = consumer;
             this.errorConsumer = errorConsumer;
             this.prefix = prefix;
+            this.sessionClosed = sessionClosed;
             this.observer = new AtomicReference<>();
             this.reconnectScheduled = new AtomicBoolean(false);
             this.terminated = new AtomicBoolean(false);
