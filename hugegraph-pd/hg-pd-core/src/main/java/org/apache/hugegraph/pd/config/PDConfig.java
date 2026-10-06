@@ -96,6 +96,8 @@ public class PDConfig implements InitializingBean {
     private Partition partition;
     @Autowired
     private Discovery discovery;
+    @Autowired
+    private SchemaSync schemaSync;
     private Map<String, String> initialStoreMap = null;
     private ConfigService configService;
     private IdService idService;
@@ -337,6 +339,30 @@ public class PDConfig implements InitializingBean {
         // that, the previous registration information will be deleted
         @Value("${discovery.heartbeat-try-count:3}")
         private int heartbeatOutTimes = 3;
+    }
+
+    /**
+     * Delivery of graph record changes to schema sync watches, all in milliseconds
+     */
+    @Data
+    @Configuration
+    public class SchemaSync {
+
+        // A change is sent once no newer one arrived for this long
+        @Value("${schema-sync.coalesce-window:50}")
+        private long coalesceWindow = 50L;
+        // ...but no later than this after the first change that was not sent
+        @Value("${schema-sync.max-wait:500}")
+        private long maxWait = 500L;
+        // First resend of an unacknowledged change; each resend doubles it
+        @Value("${schema-sync.retry-backoff:1000}")
+        private long retryBackoff = 1000L;
+        // A watch whose pending work saw no acknowledgment for this long is closed
+        @Value("${schema-sync.retry-budget:30000}")
+        private long retryBudget = 30000L;
+        // Interval of the Alive frames that renew a schema sync watch
+        @Value("${schema-sync.keepalive-interval:5000}")
+        private long keepaliveInterval = 5000L;
     }
 
     @Data

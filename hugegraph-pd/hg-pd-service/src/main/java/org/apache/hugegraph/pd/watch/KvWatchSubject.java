@@ -239,6 +239,19 @@ public class KvWatchSubject {
         });
     }
 
+    /**
+     * Ends one prefix watch stream and drops its registration; the client reconnects as a new
+     * session
+     */
+    public void closePrefixClient(String key, long clientId) {
+        String clientsKey = KvService.getKeyWithoutPrefix(ALL_PREFIX, PREFIX_DELIMITER, key,
+                                                          clientId);
+        StreamObserver<WatchResponse> observer = clients.get(clientsKey);
+        if (observer != null) {
+            removeClient(observer, clientsKey, KvService.getKeyWithoutPrefix(ALL_PREFIX, clientId));
+        }
+    }
+
     private void removeClient(StreamObserver<WatchResponse> value, String key, String clientKey) {
         try {
             log.info("remove null observer,client:", clientKey);
