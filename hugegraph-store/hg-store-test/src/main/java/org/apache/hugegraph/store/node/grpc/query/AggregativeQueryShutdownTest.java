@@ -650,6 +650,7 @@ public class AggregativeQueryShutdownTest {
         ScanIterator source = mock(ScanIterator.class);
         CountDownLatch reading = new CountDownLatch(1);
         CountDownLatch released = new CountDownLatch(1);
+        CountDownLatch completed = new CountDownLatch(1);
         if (early) {
             when(source.hasNext()).thenAnswer(invocation -> {
                 reading.countDown();
@@ -670,7 +671,24 @@ public class AggregativeQueryShutdownTest {
         AggregativeQueryService service = new AggregativeQueryService(pool, 5000, 10) {
             @Override
             AggregativeQueryObserver newObserver(StreamObserver<QueryResponse> sender) {
-                AggregativeQueryObserver observer = fixture(super.newObserver(sender), source, new QueryPlan(), null);
+                StreamObserver<QueryResponse> tracked = new StreamObserver<QueryResponse>() {
+                    @Override
+                    public void onNext(QueryResponse value) {
+                        sender.onNext(value);
+                    }
+
+                    @Override
+                    public void onError(Throwable failure) {
+                        sender.onError(failure);
+                    }
+
+                    @Override
+                    public void onCompleted() {
+                        sender.onCompleted();
+                        completed.countDown();
+                    }
+                };
+                AggregativeQueryObserver observer = fixture(super.newObserver(tracked), source, new QueryPlan(), null);
                 observed.set(observer);
                 return observer;
             }
@@ -704,6 +722,8 @@ public class AggregativeQueryShutdownTest {
             } else {
                 assertFalse(iterator.hasNext());
                 iterator.close();
+                // A finished batch arrives before transport completion; don't cancel that RPC in teardown.
+                assertTrue("normal RPC must finish before channel teardown", completed.await(2, TimeUnit.SECONDS));
             }
             assertTrue("iterator close must release resources before service shutdown",
                        released.await(2, TimeUnit.SECONDS));
