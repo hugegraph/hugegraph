@@ -23,6 +23,7 @@ import java.util.Map;
 import java.util.UUID;
 
 import org.apache.hugegraph.backend.id.IdGenerator;
+import org.apache.hugegraph.backend.store.Shard;
 import org.apache.hugegraph.backend.tx.ISchemaTransaction;
 import org.apache.hugegraph.io.HugeGraphTypeSerializerRegistryBuilder;
 import org.apache.hugegraph.schema.EdgeLabel;
@@ -53,6 +54,35 @@ import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufAllocator;
 
 public class GraphBinarySchemaCompatibilityTest extends BaseUnitTest {
+
+    @Test
+    public void testShardUsesExistingGraphSONFieldsWithStandardClient() throws Exception {
+        Shard shard = new Shard("start", "end", Long.MAX_VALUE);
+        Assert.assertEquals(Map.of("start", "start", "end", "end", "length", Long.MAX_VALUE),
+                            roundTrip(shard));
+    }
+
+    @Test
+    public void testShardsInsideListsAndMapsWithStandardClient() throws Exception {
+        Shard shard = new Shard("a", "z", 1048576L);
+        Map<String, Object> expected = Map.of("start", "a", "end", "z", "length", 1048576L);
+        Assert.assertEquals(List.of(expected), roundTrip(List.of(shard)));
+        Assert.assertEquals(Map.of("splits", List.of(expected)),
+                            roundTrip(Map.of("splits", List.of(shard))));
+    }
+
+    @Test
+    public void testShardPreservesEmptyAndNullBoundaries() throws Exception {
+        Assert.assertEquals(Map.of("start", "", "end", "", "length", 0L),
+                            roundTrip(new Shard("", "", 0L)));
+        Map<?, ?> result = (Map<?, ?>) roundTrip(new Shard(null, null, Long.MAX_VALUE));
+        Assert.assertEquals(3, result.size());
+        Assert.assertTrue(result.containsKey("start"));
+        Assert.assertTrue(result.containsKey("end"));
+        Assert.assertNull(result.get("start"));
+        Assert.assertNull(result.get("end"));
+        Assert.assertEquals(Long.MAX_VALUE, result.get("length"));
+    }
 
     @Test
     public void testHugeGraphEnumsUseNamesWithStandardClient() throws Exception {
