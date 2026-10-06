@@ -17,6 +17,7 @@
 """Reject successful service checks performed against an unrelated image."""
 
 import importlib.util
+import json
 from pathlib import Path
 import unittest
 from unittest.mock import patch
@@ -84,7 +85,7 @@ class ImageIdentityTest(unittest.TestCase):
 
 
 class PayloadTest(unittest.TestCase):
-    VERSIONS = '{"versions":{"version":"v1","core":"1.7.0","gremlin":"3.7.3","api":"0.74"}}'
+    VERSIONS = json.dumps({"versions": deployment.expected_versions()})
     GRAPHS = '{"graphs":["hugegraph"]}'
 
     def test_accepts_public_versions_and_authenticated_graphs(self):
@@ -111,6 +112,14 @@ class PayloadTest(unittest.TestCase):
                  patch.object(deployment, "response", side_effect=[(401, ""), (200, self.GRAPHS), (200, body)]):
                 with self.assertRaisesRegex(RuntimeError, "versions object"):
                     deployment.verify_server()
+
+    def test_rejects_wrong_release_gremlin_and_protocol_versions(self):
+        for key, wrong in (("core", "1.7.0"), ("gremlin", "3.7.3"),
+                           ("api", "1.8.0"), ("version", "v2")):
+            payload = json.loads(self.VERSIONS)
+            payload["versions"][key] = wrong
+            with self.subTest(key=key), self.assertRaisesRegex(RuntimeError, "versions object"):
+                deployment.verify_versions(payload)
 
     def test_rejects_unauthenticated_server_access(self):
         with patch.object(deployment, "response", return_value=(200, self.GRAPHS)):

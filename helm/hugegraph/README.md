@@ -172,9 +172,11 @@ A fresh install seeds PD with a partition shard count of 3 when
 default of 1. The seed applies at first bootstrap only; see Partition
 Sharding below.
 
-The component image tags and `appVersion` track `latest` until the next
-HugeGraph release tag is published. For production, pin the image tags (or
-digests) and switch the component pull policies to `IfNotPresent`.
+PD, Store, and Server inherit `appVersion` (`1.8.0`) when their image tags
+are empty. Explicit tags override `appVersion`; digests override both. Hubble
+keeps its independent `latest` tag. The selected images must be available in
+your registry before installation. For production, pin immutable image
+references and switch the component pull policies to `IfNotPresent`.
 
 Verify the release:
 
@@ -454,7 +456,7 @@ default values.
 |---|---|---|
 | `pd.replicas` | PD StatefulSet replicas. Maximum `99` | `3` |
 | `pd.image.repository` | PD image repository | `hugegraph/pd` |
-| `pd.image.tag` | PD image tag; pin it (or a digest) for production | `latest` |
+| `pd.image.tag` | Empty inherits `appVersion`; explicit tag overrides it | `""` |
 | `pd.image.digest` | Optional immutable digest such as `sha256:...`; when set it takes priority over the tag | `""` |
 | `pd.image.pullPolicy` | PD image pull policy | `Always` |
 | `pd.javaOpts` | Extra JVM flags, rendered after the chart-derived `-D` properties below so an explicit duplicate here wins. The image's automatic heap sizing is preserved unless heap flags are set | `""` |
@@ -505,7 +507,7 @@ default values.
 |---|---|---|
 | `store.replicas` | Store StatefulSet replicas. Maximum `99` | `3` |
 | `store.image.repository` | Store image repository | `hugegraph/store` |
-| `store.image.tag` | Store image tag; pin it (or a digest) for production | `latest` |
+| `store.image.tag` | Empty inherits `appVersion`; explicit tag overrides it | `""` |
 | `store.image.digest` | Optional immutable digest such as `sha256:...`; when set it takes priority over the tag | `""` |
 | `store.image.pullPolicy` | Store image pull policy | `Always` |
 | `store.javaOpts` | Empty preserves the image's automatic JVM sizing | `""` |
@@ -546,7 +548,7 @@ default values.
 |---|---|---|
 | `server.replicas` | Server Deployment replicas. Ignored when `server.hpa.enabled` | `3` |
 | `server.image.repository` | Server image repository | `hugegraph/server` |
-| `server.image.tag` | Server image tag; pin it (or a digest) for production | `latest` |
+| `server.image.tag` | Empty inherits `appVersion`; explicit tag overrides it | `""` |
 | `server.image.digest` | Optional immutable digest such as `sha256:...`; when set it takes priority over the tag | `""` |
 | `server.image.pullPolicy` | Server image pull policy | `Always` |
 | `server.javaOpts` | Empty preserves the image's automatic JVM sizing | `""` |

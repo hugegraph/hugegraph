@@ -24,6 +24,7 @@ import subprocess
 import sys
 import urllib.error
 import urllib.request
+import xml.etree.ElementTree as ET
 
 
 ADMIN_PASSWORD = "ci-compose-password"
@@ -59,6 +60,30 @@ def expect_response(url, expected=200, credentials=None):
     return body
 
 
+def expected_versions():
+    root = Path(__file__).resolve().parents[2]
+    ns = {"m": "http://maven.apache.org/POM/4.0.0"}
+    revision = ET.parse(root / "pom.xml").findtext("m:properties/m:revision", namespaces=ns)
+    gremlin = ET.parse(root / "hugegraph-server/pom.xml").findtext(
+        "m:properties/m:tinkerpop.version", namespaces=ns)
+    properties = dict(line.split("=", 1) for line in
+                      (root / "hugegraph-commons/hugegraph-common/src/main/resources/version.properties")
+                      .read_text().splitlines() if "=" in line and not line.startswith("#"))
+    if properties["VersionInBash"] != revision:
+        raise RuntimeError("VersionInBash does not match the project revision")
+    # Packaged API classes use their manifest version before the resource fallback.
+    api = ET.parse(root / "hugegraph-server/hugegraph-api/pom.xml").findtext(
+        ".//m:manifestEntries/m:Implementation-Version", namespaces=ns) or properties["ApiVersion"]
+    return {"version": "v1", "core": revision, "gremlin": gremlin, "api": api}
+
+
+def verify_versions(payload):
+    versions = payload.get("versions") if isinstance(payload, dict) else None
+    expected = expected_versions()
+    if not isinstance(versions, dict) or any(versions.get(key) != value for key, value in expected.items()):
+        raise RuntimeError(f"Server did not return the expected versions object: {expected}; got {versions}")
+
+
 def verify_server():
     url = "http://localhost:8080"
     expect_response(url + "/graphspaces/DEFAULT/graphs", 401)
@@ -68,11 +93,7 @@ def verify_server():
     if not isinstance(names, list) or "hugegraph" not in names:
         raise RuntimeError("Server did not return its initialized hugegraph in the graphs array")
     payload = json.loads(expect_response(url + "/versions"))
-    versions = payload.get("versions") if isinstance(payload, dict) else None
-    if not isinstance(versions, dict) or versions.get("version") != "v1" or any(
-            not isinstance(versions.get(key), str) or not versions[key]
-            for key in ("core", "gremlin", "api")):
-        raise RuntimeError("Server did not return the expected versions object")
+    verify_versions(payload)
 
 
 def verify_storage():
@@ -143,4 +164,7 @@ def main(tag):
 
 
 if __name__ == "__main__":
-    main(sys.argv[1])
+    if len(sys.argv) == 3 and sys.argv[1] == "--check-versions":
+        verify_versions(json.loads(Path(sys.argv[2]).read_text()))
+    else:
+        main(sys.argv[1])

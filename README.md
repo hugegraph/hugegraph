@@ -161,7 +161,7 @@ flowchart TB
 
 ```bash
 # Start HugeGraph (standalone mode)
-docker run -itd --name=hugegraph -p 8080:8080 hugegraph/hugegraph:1.7.0
+docker run -itd --name=hugegraph -p 8080:8080 hugegraph/hugegraph:1.8.0
 
 # Verify server is running
 curl http://localhost:8080/versions
@@ -192,13 +192,13 @@ Docker is the quickest way to get started for **testing or development**:
 
 ```bash
 # Basic usage
-docker run -itd --name=hugegraph -p 8080:8080 hugegraph/hugegraph:1.7.0
+docker run -itd --name=hugegraph -p 8080:8080 hugegraph/hugegraph:1.8.0
 
 # With sample graph preloaded
-docker run -itd --name=hugegraph -e PRELOAD=true -p 8080:8080 hugegraph/hugegraph:1.7.0
+docker run -itd --name=hugegraph -e PRELOAD=true -p 8080:8080 hugegraph/hugegraph:1.8.0
 
 # With authentication enabled
-docker run -itd --name=hugegraph -e PASSWORD=your_password -p 8080:8080 hugegraph/hugegraph:1.7.0
+docker run -itd --name=hugegraph -e PASSWORD=your_password -p 8080:8080 hugegraph/hugegraph:1.8.0
 ```
 
 For advanced Docker configurations, see:
@@ -212,7 +212,7 @@ For advanced Docker configurations, see:
 
 > **Note**: Docker images are convenience releases, not **official ASF distribution artifacts**. See [ASF Release Distribution Policy](https://infra.apache.org/release-distribution.html#dockerhub) for details.
 >
-> **Version Tags**: Use release tags (e.g., `1.7.0`) for stable deployments. The `latest` tag should only be used for testing or development.
+> **Version Tags**: Use release tags (e.g., `1.8.0`) for stable deployments. The `latest` tag should only be used for testing or development.
 
 ### Option 2: Kubernetes with Helm
 
@@ -294,9 +294,9 @@ curl http://localhost:8080/versions
 # {
 #   "versions": {
 #     "version": "v1",
-#     "core": "1.7.0",
+#     "core": "1.8.0",
 #     "gremlin": "3.8.1",
-#     "api": "1.7.0"
+#     "api": "0.72.0.0"
 #   }
 # }
 

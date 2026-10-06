@@ -87,7 +87,7 @@ jobs:
               apt-get -q update
               apt-get -q install -y --no-install-recommends \
                 ca-certificates curl jq libatomic1 libgcc-s1 libstdc++6 \
-                lsof maven procps \
+                lsof maven procps python3 \
                 protobuf-compiler protobuf-compiler-grpc-java-plugin
 
               ARCHIVE_PATH="/tmp/$TEMURIN_RISCV64_ARCHIVE"

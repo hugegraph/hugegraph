@@ -27,9 +27,9 @@ pd:
   replicas: 3
   image:
     repository: hugegraph/pd
-    # Tracks latest until the next HugeGraph release tag is published. Pin the
-    # tag (or digest) and switch to IfNotPresent for production.
-    tag: latest
+    # Empty inherits Chart.appVersion (1.8.0). Override the tag or pin a digest
+    # for a different image; use IfNotPresent for immutable production images.
+    tag: ""
     # Optional immutable digest, for example sha256:abc...  When set it wins over
     # tag and the image is pulled by digest, which is what a release gate should
     # assert instead of a mutable tag.
@@ -189,9 +189,9 @@ store:
   replicas: 3
   image:
     repository: hugegraph/store
-    # Tracks latest until the next HugeGraph release tag is published. Pin the
-    # tag (or digest) and switch to IfNotPresent for production.
-    tag: latest
+    # Empty inherits Chart.appVersion (1.8.0). Override the tag or pin a digest
+    # for a different image; use IfNotPresent for immutable production images.
+    tag: ""
     # Optional immutable digest, for example sha256:abc...  When set it wins over
     # tag and the image is pulled by digest, which is what a release gate should
     # assert instead of a mutable tag.
@@ -276,9 +276,9 @@ server:
   replicas: 3
   image:
     repository: hugegraph/server
-    # Tracks latest until the next HugeGraph release tag is published. Pin the
-    # tag (or digest) and switch to IfNotPresent for production.
-    tag: latest
+    # Empty inherits Chart.appVersion (1.8.0). Override the tag or pin a digest
+    # for a different image; use IfNotPresent for immutable production images.
+    tag: ""
     # Optional immutable digest, for example sha256:abc...  When set it wins over
     # tag and the image is pulled by digest, which is what a release gate should
     # assert instead of a mutable tag.

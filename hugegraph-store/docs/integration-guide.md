@@ -125,7 +125,7 @@ The `hg-store-client` module provides a Java client for directly interacting wit
 <dependency>
     <groupId>org.apache.hugegraph</groupId>
     <artifactId>hugegraph-client</artifactId>
-    <version>1.7.0</version>
+    <version>1.8.0</version>
 </dependency>
 ```
 

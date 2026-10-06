@@ -425,8 +425,8 @@ df -h
 ```bash
 # Extract PD distribution
 # Note: use "-incubating" only for historical 1.7.0 and earlier package/directory names.
-tar -xzf apache-hugegraph-pd-incubating-1.7.0.tar.gz
-cd apache-hugegraph-pd-incubating-1.7.0
+tar -xzf apache-hugegraph-pd-1.8.0.tar.gz
+cd apache-hugegraph-pd-1.8.0
 
 # Edit configuration
 vi conf/application.yml
@@ -496,7 +496,7 @@ curl -u hg:"${PD_SECRET}" http://192.168.1.10:8620/v1/members
       "role":"Leader",
       "replicateState":"",
       "serviceName":"-PD",
-      "serviceVersion":"1.7.0",
+      "serviceVersion":"1.8.0",
       "startTimeStamp":1761818483830
       }],
     "stateCountMap":{
@@ -519,8 +519,8 @@ curl -u hg:"${PD_SECRET}" http://192.168.1.10:8620/v1/members
 ```bash
 # Extract Store distribution
 # Note: use "-incubating" only for historical 1.7.0 and earlier package/directory names.
-tar -xzf apache-hugegraph-store-incubating-1.7.0.tar.gz
-cd apache-hugegraph-store-incubating-1.7.0
+tar -xzf apache-hugegraph-store-1.8.0.tar.gz
+cd apache-hugegraph-store-1.8.0
 
 # Edit configuration
 vi conf/application.yml
@@ -637,8 +637,8 @@ curl -u hg:"${PD_SECRET}" http://192.168.1.10:8620/v1/stores
 ```bash
 # Extract Server distribution
 # Note: use "-incubating" only for historical 1.7.0 and earlier package/directory names.
-tar -xzf apache-hugegraph-incubating-1.7.0.tar.gz
-cd apache-hugegraph-incubating-1.7.0
+tar -xzf apache-hugegraph-server-1.8.0.tar.gz
+cd apache-hugegraph-server-1.8.0
 
 # Configure backend
 vi conf/graphs/hugegraph.properties
@@ -690,7 +690,7 @@ cd docker
 export HG_PD_AUTH_SECRET_KEY="$(openssl rand -hex 24)"
 # Hubble reads the secret from a generated, untracked properties file that the Compose file mounts; create it before `up` or Hubble starts unconfigured.
 ./set-hubble-pd-password.sh hstore-ha
-HUGEGRAPH_VERSION=1.7.0 docker compose -f docker-compose-3pd-3store-3server.yml up -d
+HUGEGRAPH_VERSION=1.8.0 docker compose -f docker-compose-3pd-3store-3server.yml up -d
 ```
 
 The compose file uses a Docker bridge network (`hg-net`) with container hostnames for service discovery. Configuration is injected via environment variables using the `HG_*` prefix:
@@ -748,7 +748,7 @@ environment:
 
 ```bash
 # Start cluster (run from the docker/ directory)
-HUGEGRAPH_VERSION=1.7.0 docker compose -f docker-compose-3pd-3store-3server.yml up -d
+HUGEGRAPH_VERSION=1.8.0 docker compose -f docker-compose-3pd-3store-3server.yml up -d
 
 # Check status
 docker ps
@@ -805,7 +805,7 @@ spec:
     spec:
       containers:
       - name: store
-        image: hugegraph/store:1.7.0
+        image: hugegraph/store:1.8.0
         ports:
         - containerPort: 8500
           name: grpc
@@ -884,7 +884,7 @@ curl -i http://192.168.1.10:8620/v1/ready
 curl http://192.168.1.20:8520/v1/health
 ```
 
-> **Note**: `/v1/ready` ships from the release after `1.7.0`, so the Docker examples above, which pin `HUGEGRAPH_VERSION=1.7.0`, need a newer tag or images built from source before this check means anything. On `1.7.0` the PD answers `200` with `{"status":-1,"error":"Unauthorized!"}` on any path its auth interceptor does not exclude, `/v1/ready` included, so match on the body rather than the status code. See [docker/README.md](../../docker/README.md) for the details.
+> **Note**: `/v1/ready` is included in the 1.8.0 sources used by these examples. Use locally built images until the release images are published. On `1.7.0` the PD answers `200` with `{"status":-1,"error":"Unauthorized!"}` on any path its auth interceptor does not exclude, `/v1/ready` included, so match on the body rather than the status code. See [docker/README.md](../../docker/README.md) for the details.
 
 ### Cluster Status
 

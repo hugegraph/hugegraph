@@ -49,7 +49,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-for command in curl jq; do
+for command in curl jq python3; do
     if ! command -v "$command" >/dev/null 2>&1; then
         echo "Required command is unavailable: $command" >&2
         exit 1
@@ -144,7 +144,8 @@ verify_graph() {
 
 wait_for_server
 request GET /versions 200
-assert_json 'type == "object" and length > 0'
+ROOT_DIR=$(cd "$(dirname "$0")/../../../../.." && pwd)
+python3 "$ROOT_DIR/.github/scripts/docker-deployment.py" --check-versions "$RESPONSE_FILE"
 
 if [[ "$MODE" == "create" ]]; then
     request POST "$GRAPH_PATH/schema/propertykeys" 202 \

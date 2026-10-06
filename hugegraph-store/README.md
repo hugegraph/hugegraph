@@ -1,7 +1,7 @@
 # HugeGraph Store
 
 [![License](https://img.shields.io/badge/license-Apache%202-0E78BA.svg)](https://www.apache.org/licenses/LICENSE-2.0.html)
-[![Version](https://img.shields.io/badge/version-1.7.0-blue)](https://github.com/apache/hugegraph)
+[![Version](https://img.shields.io/badge/version-1.8.0-blue)](https://github.com/apache/hugegraph)
 
 > **Note**: From revision 1.5.0, the HugeGraph-Store code has been adapted to this location.
 

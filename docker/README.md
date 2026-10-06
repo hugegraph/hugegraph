@@ -202,7 +202,7 @@ Open `http://localhost:8088` and sign in as `admin` with the password from `.env
 Set a HugeGraph release for Server, PD, and Store without changing Hubble:
 
 ```bash
-HUGEGRAPH_VERSION=1.7.0 \
+HUGEGRAPH_VERSION=1.8.0 \
 docker compose -f docker-compose-hstore.yml up -d
 ```
 
