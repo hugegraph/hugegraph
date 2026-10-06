@@ -357,6 +357,64 @@ public class CachedGraphTransactionTest extends BaseUnitTest {
     }
 
     @Test
+    public void testGraphCloseRemovesStoreListenerWithoutCacheHolder() throws Exception {
+        String name = this.params.spaceGraphName();
+        Object cacheHolder = graphCacheEventListeners().remove(name);
+        Assert.assertNotNull(cacheHolder);
+        Whitebox.invoke(cacheHolder.getClass(), "close", cacheHolder);
+        Object storeHolder = storeEventListeners().get(name);
+        EventListener listener = holderListener(storeHolder);
+        BackendStoreProvider provider = holderProvider(storeHolder);
+        CachedGraphTransaction.closeGraph(this.params);
+        Assert.assertFalse(storeEventListeners().containsKey(name));
+        Assert.assertFalse(provider.storeEventHub().listeners(EventHub.ANY_EVENT).contains(listener));
+    }
+
+    @Test
+    public void testGraphCloseCleansStoreAfterCacheRegistrationFailure() throws Exception {
+        String name = this.params.spaceGraphName();
+        EventHub hub = Mockito.spy(new EventHub("cache-registration-failure"));
+        RuntimeException failure = new IllegalStateException("injected cache registration failure");
+        Mockito.doThrow(failure).when(hub).listen(Mockito.eq(Events.CACHE), Mockito.any(EventListener.class));
+        HugeGraphParams failedParams = Mockito.spy(this.params);
+        Mockito.doReturn(hub).when(failedParams).graphEventHub();
+        try {
+            new CachedGraphTransaction(failedParams, this.params.loadGraphStore());
+            Assert.fail("Cache registration must reach the injected failure");
+        } catch (RuntimeException expected) {
+            Assert.assertSame(failure, expected);
+        }
+        Object storeHolder = storeEventListeners().get(name);
+        Assert.assertSame(hub, Whitebox.getInternalState(storeHolder, "hub"));
+        BackendStoreProvider provider = holderProvider(storeHolder);
+        EventListener listener = holderListener(storeHolder);
+        Assert.assertTrue(provider.storeEventHub().listeners(EventHub.ANY_EVENT).contains(listener));
+        CachedGraphTransaction.closeGraph(failedParams);
+        Assert.assertFalse(storeEventListeners().containsKey(name));
+        Assert.assertFalse(provider.storeEventHub().listeners(EventHub.ANY_EVENT).contains(listener));
+    }
+
+    @Test
+    public void testOldGraphCloseKeepsReopenedStoreGeneration() throws Exception {
+        HugeGraphParams oldParams = this.params;
+        this.cache.close();
+        this.cache = null;
+        this.graph.clearBackend();
+        this.graph.close();
+        this.graph = HugeFactory.open(FakeObjects.newConfig());
+        this.params = Whitebox.getInternalState(this.graph, "params");
+        this.cache = new CachedGraphTransaction(this.params, this.params.loadGraphStore());
+        String name = this.params.spaceGraphName();
+        Object cacheHolder = graphCacheEventListeners().get(name);
+        Object storeHolder = storeEventListeners().get(name);
+        CachedGraphTransaction.closeGraph(oldParams);
+        Assert.assertSame(cacheHolder, graphCacheEventListeners().get(name));
+        Assert.assertSame(storeHolder, storeEventListeners().get(name));
+        Assert.assertTrue(holderProvider(storeHolder).storeEventHub().listeners(EventHub.ANY_EVENT)
+                             .contains(holderListener(storeHolder)));
+    }
+
+    @Test
     public void testGraphCloseRemovesStoreListener() throws Exception {
         ConcurrentMap<String, Object> storeListeners = storeEventListeners();
 

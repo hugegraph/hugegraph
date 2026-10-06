@@ -272,23 +272,26 @@ public final class CachedGraphTransaction extends GraphTransaction {
     }
 
     public static void closeGraph(HugeGraphParams params) {
-        GRAPH_CACHE_EVENT_LISTENERS.computeIfPresent(params.spaceGraphName(), (key, existing) -> {
-            if (existing.hub != params.graphEventHub()) {
-                return existing;
-            }
-            try {
+        String graphName = params.spaceGraphName();
+        EventHub graphEventHub = params.graphEventHub();
+        try {
+            GRAPH_CACHE_EVENT_LISTENERS.computeIfPresent(graphName, (key, existing) -> {
+                if (existing.hub != graphEventHub) {
+                    return existing;
+                }
                 existing.close();
-            } finally {
-                STORE_EVENT_LISTENERS.computeIfPresent(key, (storeKey, storeHolder) -> {
-                    if (storeHolder.hub != params.graphEventHub()) {
-                        return storeHolder;
-                    }
-                    storeHolder.provider.unlisten(storeHolder.listener);
-                    return null;
-                });
-            }
-            return null;
-        });
+                return null;
+            });
+        } finally {
+            STORE_EVENT_LISTENERS.computeIfPresent(graphName, (key, storeHolder) -> {
+                // The hub owns this graph generation even if the provider is pooled.
+                if (storeHolder.hub != graphEventHub) {
+                    return storeHolder;
+                }
+                storeHolder.provider.unlisten(storeHolder.listener);
+                return null;
+            });
+        }
     }
 
     private void notifyChanges(String action, HugeType type, Id[] ids) {

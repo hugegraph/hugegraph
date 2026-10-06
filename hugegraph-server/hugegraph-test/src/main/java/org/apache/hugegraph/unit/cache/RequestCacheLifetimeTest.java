@@ -57,9 +57,31 @@ public class RequestCacheLifetimeTest {
         this.checkSchemaAppendAfterRequestCleanup(true);
     }
 
+    @Test
+    public void testFailedReopenPreservesCauseAndDeletesDirectory() throws Exception {
+        Path path = Files.createTempDirectory("request-cache-reopen-failure");
+        RuntimeException failure = null;
+        try {
+            this.checkSchemaAppendAfterRequestCleanup(false, path, true);
+            Assert.fail("The invalid backend must fail during reopen");
+        } catch (RuntimeException expected) {
+            failure = expected;
+        }
+        System.out.println("REOPEN_FAILURE=" + failure + "; DIRECTORY_EXISTS=" + Files.exists(path));
+        Assert.assertNotNull(failure);
+        Assert.assertTrue(failure instanceof org.apache.hugegraph.HugeException);
+        Assert.assertEquals("Failed to load backend store provider", failure.getMessage());
+        Assert.assertFalse(Files.exists(path));
+    }
+
     private void checkSchemaAppendAfterRequestCleanup(boolean edgeFirst) throws Exception {
-        RegisterUtil.registerBackends();
         Path path = Files.createTempDirectory("request-cache-lifetime");
+        this.checkSchemaAppendAfterRequestCleanup(edgeFirst, path, false);
+    }
+
+    private void checkSchemaAppendAfterRequestCleanup(boolean edgeFirst, Path path,
+                                                     boolean failReopen) throws Exception {
+        RegisterUtil.registerBackends();
         HugeConfig config = FakeObjects.newConfig();
         config.setProperty("backend", "rocksdb");
         config.setProperty("serializer", "binary");
@@ -120,16 +142,28 @@ public class RequestCacheLifetimeTest {
             Assert.assertEquals(0L, Whitebox.invoke(idleGraph, "edgesCache", "size"));
             Assert.assertEquals(0L, Whitebox.invoke(idleSchema, "idCache", "size"));
             graph.close();
+            graph = null;
+            if (failReopen) {
+                config.setProperty("backend", "invalid_reopen_backend");
+            }
             graph = HugeFactory.open(config);
             Assert.assertEquals("vertex-api-value", graph.vertices(1L).next().value("added"));
             Assert.assertEquals("edge-api-value", graph.edges(edgeId).next().value("added"));
         } finally {
-            HugeFactory.closeCurrentThreadTransactions();
-            graph.clearBackend();
-            graph.close();
-            try (java.util.stream.Stream<Path> files = Files.walk(path)) {
-                for (Path file : files.sorted(java.util.Comparator.reverseOrder()).toArray(Path[]::new)) {
-                    Files.deleteIfExists(file);
+            try {
+                HugeFactory.closeCurrentThreadTransactions();
+                if (graph != null) {
+                    try {
+                        graph.clearBackend();
+                    } finally {
+                        graph.close();
+                    }
+                }
+            } finally {
+                try (java.util.stream.Stream<Path> files = Files.walk(path)) {
+                    for (Path file : files.sorted(java.util.Comparator.reverseOrder()).toArray(Path[]::new)) {
+                        Files.deleteIfExists(file);
+                    }
                 }
             }
         }

@@ -141,8 +141,7 @@ public class AuthTest extends BaseCoreTest {
         }
 
         //FIXME: support project in hstore
-        boolean isHstore = Objects.equals("hstore", System.getProperty("backend")) ||
-                           (System.getProperty("backend") == null);
+        boolean isHstore = Objects.equals("hstore", graph.backend());
 
         if (!isHstore) {
             for (HugeProject project : authManager.listAllProject(-1)) {
@@ -1757,6 +1756,26 @@ public class AuthTest extends BaseCoreTest {
         Assert.assertThrows(Exception.class, () -> {
             authManager.getTarget(IdGenerator.of(deletedProject.targetId()));
         });
+    }
+
+    @Test
+    public void testProjectCleanupRepeatsWithoutBackendSystemProperty() {
+        Assume.assumeTrue("skip this test for hstore", !Objects.equals("hstore", graph().backend()));
+        String previous = System.getProperty("backend");
+        try {
+            System.clearProperty("backend");
+            for (int attempt = 0; attempt < 2; attempt++) {
+                this.testDeleteProjectAfterRequestCleanup();
+                this.clearAll();
+                Assert.assertEquals(0, graph().authManager().listAllProject(-1).size());
+            }
+        } finally {
+            if (previous == null) {
+                System.clearProperty("backend");
+            } else {
+                System.setProperty("backend", previous);
+            }
+        }
     }
 
     @Test
