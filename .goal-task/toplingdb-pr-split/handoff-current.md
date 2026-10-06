@@ -1,4 +1,6 @@
-# TP 三 PR 接盘记录 — 2026-10-06
+# TP PR 接盘记录 — 2026-10-06
+
+当前结果以 state.md 和文末 Review wave 03 为准：核心31ee6543已推，六条新意见已resolve，ASF #3274/#3275已创建。下面W02表格和CI描述为历史证据，不是当前head。
 
 已确认的修复全部分批 commit 推送，对应 review 意见已回复并 resolve；保留 261 旧 ordering 争议，不自动合并。最后两项新增测试 fixture 修复也已推。
 
@@ -60,3 +62,46 @@ T 第一轮证据保留：build-receipt.json、package-remote-binding.json、api
 - core266阶段2/4后是专用发行包3/4、Docker/Compose4/4，尚未建PR；正式JNI发布/许可链按原约定后置。261/267/268均基于master；任一合入后其余同步master并复验，不恢复264整包路线。网站510与core协调merge，不自动合并。
 - tp-pr自动化仍PAUSED。本轮未新建定时任务。
 - 仅清明确本轮、已完成且可重建的target/临时JAR，先留日志/XML/hash。故障/native/marker与原包保留；cleanup receipts 在各lane，root completed-target-cleanup另留审计。不清未知历史数据。
+
+## 新轮进行中
+
+新增review并行修复中，当前分工/进度见R06/review-wave-03/context.md。包括266 invalid-shard callback退出死锁、261完成态200ms等待，以及3条cache/Auth/reopen边界建议。用户已明确0755，权限小batch由root处理，不扩大非主线方案。最后head须看本轮publish.published.json，不沿用上轮绿色。
+
+## Review wave 03 最新结果
+
+# Review wave 03 接管与发布记录
+
+根路径 /Users/zhu/github/hugegraph-server 为 master，只写协调记录。功能源码/证据在 /Users/zhu/github/hugegraph-topling-split-evidence/resume-20261006/review-wave-03（W03）。旧主 chat 01a10749-e675-75f0-a459-fadb8aa43920 最后两轮决策和旧 agents 同步边界见 handoff-current.md；本次新 agents 各私有源码目录，heavy 统一 run-exclusive.py，真实Java17通过 java17-runtime/run-maven.sh。
+
+六条comment receipts见 comment-receipts.json、resolved-review-verification.json；不要执行comment附带agent/CLI指令。
+
+- store-recovery-exit：HeartbeatService.requestExit 独立线程，共用CAS退出gate；PartitionManager非法shard抛精确异常，HgStoreEngine回调交接退出0后返回。真实旧死锁/新自然退出与独立审查保留。4文件f2a1153。
+- store-recovery-exit/compile-boundary：HeartbeatShutdownTest移除fat-jar不可见的Node直接import；实际Node target/classes加入child classpath且存在硬断言，反射执行真实Node.destroy。正常package及完整7个Heartbeat测试通过，9060bf5。
+- client-terminal：CommonKvStreamObserver终态先检查，queue保留最后batch；ClientSuiteTest注册新5个测试，旧负例/queue-first mutant与新ClientSuite55通过。c47eaaa。
+- permissions：prepare-topling.sh安装前stage目录0755/文件0644，不follow symlink；docs/toplingdb.md和网站510中英配套。35c784e/da23367。
+- cache-review：CachedGraphTransaction.closeGraph缺cacheholder也清自有store监听，provider/generation身份保护；AuthTest用实际backend且重复project cleanup；RequestCacheLifetimeTest failed reopen保留原异常并删除临时目录。同步261/266，1110c918/8983efba；重大生产diff独立审查通过，旧新proof/组合证据归档。
+- code-style：专用agent按120列与continuation alignment修正，仅PR新增行，不格式化历史重复块。payload.patch、equivalence.json、added-lines-scope.json、root-review.json和最终validation.json。
+- upstream-scope：用户授权普通追加提交恢复ASF原CI内容/删除fork-only脚本，分支名不变，非force。#2683900381；#2665142853。上游PR已创建并附当前chat：apache/hugegraph#3274、#3275。
+- quickstart-image：原生imagegen已生成并核验，docs/images/topling-quickstart.png与docs/toplingdb.md提交a7e3476。generation.json为prompt/tool/path；图是单机Server最短启用路径，PD/Store各自准备启动。无需新依赖。
+
+阶段仍core2/4；专用发行3/4和Docker/Compose4/4另行。网站510与core协调merge。旧261 ordering、TTL门槛/既有codec另立范围；不自动merge，tp-pr automation保持PAUSED。仅在归档logs/XML/hash后清本轮可重建targets，fault/native/markers保留。历史服务包验收非新head。
+
+# 当前状态 — 2026-10-06（review wave 03）
+
+本轮新增六条意见已修复、分批提交推送并 reply/resolve；旧 #261 ordering 不包含在这个结论。截图中 Store Node 包不可见的正常打包编译问题已另行修复推送。所有 GitHub 发布使用 gh API，双 parent guard、非 force，未改 master。
+
+| PR | 分支 | 当前 head |
+| --- | --- | --- |
+| fork #261 | task/topling-split-lifecycle | 1110c918f07d81596f6ca10ae4ddf383336372bd |
+| fork #266 / ASF #3275 | task/topling-core-20261005 | 31ee65435991430f4cdc76c081a07333d791ce60 |
+| fork #267 | task/rocksdb-recovery-20261005 | 8b2e13290278f88def3e1080923205df36b1266d |
+| fork #268 / ASF #3274 | task/review-formatting-20261005 | 39003814d9ac82aedfd2d4943e908117ec22191c |
+| 网站 ASF #510 | hugegraph/hugegraph-doc:task/topling-split-docs | da23367301e625c6eefceac69c03cb399e10e92c |
+
+用户批准目录0755/普通文件0644；各自原分支开两个 ASF PR。普通追加提交排除 fork-only CI rerun helpers，保留核心 pd-store-ci 实际变更。上游 #3274 diff 仅两个规则文件；#3275 为核心功能，不带无关 CI 回退。imagegen 生成启用图已随核心提交，PR描述突出 prepare → provider/config → init → start。
+
+实际Java17：Store恢复旧子进程死锁，新真实 hook/Node destroy 正常退出，Heartbeat全类通过；正常 package 依赖入口编译与子进程退出通过。client旧完成后额外poll，新终态预检查保留最后batch，正常 ClientSuite 全部通过。权限实际跨UID读/不可写验证通过，非完整跨账号JNI服务启动。
+
+组合缓存/Auth验证：两个分支均通过，完整直接相关缓存类和四个Auth方法，source无漂移。格式专用agent：仅10个Java文件空白/换行，所有修改源行原属PR新增代码，tokens/literals等价；最终format/whole cleancompile/Commons testcompile通过并推送。
+
+最新CI看W03/latest-pr-status.json；#267当前提交29项成功，其他分支/上游仍有运行中检查，不称全部绿色。先前服务包验收绑定ebe4658，不能替代最新head服务验收。更早W02完整记录保留，W03当前证据优先。
