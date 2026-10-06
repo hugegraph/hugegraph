@@ -1,6 +1,6 @@
 # TP PR 接盘记录 — 2026-10-06
 
-当前结果以 state.md 和文末 Review wave 03 为准：核心7ee8766b已rebase最新master并推，六条新意见已resolve，ASF #3275保留，#3274和fork#268已关闭。下面W02表格和CI描述为历史证据，不是当前head。
+当前结果以 state.md 和文末 Review wave 03 为准：核心cd5f016已同步最新master并更新批准配图，六条新意见已resolve，ASF #3275保留，#3274和fork#268已关闭。下面W02表格和CI描述为历史证据，不是当前head。
 
 已确认的修复全部分批 commit 推送，对应 review 意见已回复并 resolve；保留 261 旧 ordering 争议，不自动合并。最后两项新增测试 fixture 修复也已推。
 
@@ -108,4 +108,12 @@ T 第一轮证据保留：build-receipt.json、package-remote-binding.json、api
 
 ## 最新master rebase
 
-当前state.md表为准。隔离源码R06/rebase-master/checkout；21个核心提交实际rebase到8beb78b8，head 7ee8766b5d7c5763188f3b5a0a9bf81de618fb2f。不加重复格式规范；CONTRIBUTING完整采用master，pd-store可复用workflow采用master并保留selection步骤。GitHub自动rebase历史CI冲突，隔离副本本地解决；GitHub所有发布通过gh，替换分支前校验old head和master，最终2739blob/mode逐一相同。#266与ASF#3275同head，保留JNI快速启用图和精简描述。全仓Java17compile与CI/shell相关检查通过；新CI待完成。
+当前state.md表为准。隔离源码R06/rebase-master/checkout；21个核心提交实际rebase到8beb78b8，head cd5f0160b4fee9956649afc06a4d958291cdb69b。不加重复格式规范；CONTRIBUTING完整采用master，pd-store可复用workflow采用master并保留selection步骤。GitHub自动rebase历史CI冲突，隔离副本本地解决；GitHub所有发布通过gh，替换分支前校验old head和master，最终2739blob/mode逐一相同。#266与ASF#3275同head，保留JNI快速启用图和精简描述。全仓Java17compile与CI/shell相关检查通过；新CI待完成。
+
+## 冲突与配图刷新
+
+前次同步后ASF master又前进到662a97d8，HgKVStoreImpl catch存在唯一冲突。实际rebase保留core启动失败释放Options/fail-fast行为及master heldLOCK retry TODO；另外三处master TODO保留。独立审查无问题，Java17 format/全仓compile通过，无源漂移。rebase head dd9399dd，批准的A图和README普通提交后共享head cd5f0160b4fee9956649afc06a4d958291cdb69b；#266/#3275均MERGEABLE，当前CI运行中。
+
+用户批准A，并改标题为 Switch RocksDB to ToplingDB。原生imagegen已完成仅标题编辑，最终图片存docs/images/topling-quickstart.png，README及指南引用该批准图。B/C仅预览，不进入Git。旧图通过Chrome文件选择上传，作为PR描述的折叠附件，URL与metadata在visual-refresh/legacy-attachment.json；当前PNG文件为批准A。文案只讲prepare/select/start及用户收益，无Trust JNI/Java/WAL标签。
+
+证据R06/visual-refresh：rebase-binding.json、independent-review.json、rebase-validation.json、published.json、approved/{receipt,prompts,publish.published}.json、final-pr-verification.json、pr-updated.jpg。保存源码与native故障证据，归档后只清本轮targets。

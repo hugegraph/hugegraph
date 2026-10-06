@@ -5,7 +5,7 @@
 | PR | 分支 | 当前 head |
 | --- | --- | --- |
 | fork #261 | task/topling-split-lifecycle | 1110c918f07d81596f6ca10ae4ddf383336372bd |
-| fork #266 / ASF #3275 | task/topling-core-20261005 | 7ee8766b5d7c5763188f3b5a0a9bf81de618fb2f |
+| fork #266 / ASF #3275 | task/topling-core-20261005 | cd5f0160b4fee9956649afc06a4d958291cdb69b |
 | fork #267 | task/rocksdb-recovery-20261005 | 8b2e13290278f88def3e1080923205df36b1266d |
 | fork #268 / ASF #3274（已关闭） | task/review-formatting-20261005 | 39003814d9ac82aedfd2d4943e908117ec22191c |
 | 网站 ASF #510 | hugegraph/hugegraph-doc:task/topling-split-docs | da23367301e625c6eefceac69c03cb399e10e92c |
@@ -21,3 +21,11 @@
 ## 同步最新 master
 
 用户要求关闭#268/#3274（已确认CLOSED），不重复增加120/160规范。核心#266/#3275共享分支已实际rebase到ASF master 8beb78b8bbbbac337a7b2db4a9e8a5a76399365b；保留21个核心提交，排除过时fork-only CI提交及其回退。最终diff不含.coderabbit.yaml或CONTRIBUTING变动，仅保留Topling selection CI步骤。全部Java文件与此前已测31ee一致；最终源码format及Java17 whole clean compile通过、无漂移；Linux selection和master CI policy自测通过。新head CI仍运行中，不能沿用旧绿。证据R06/rebase-master/{published,local-rebase-verification,validation,final-pr-verification,final-compare}.json。
+
+## 冲突与配图刷新
+
+前次同步后ASF master又前进到662a97d8，HgKVStoreImpl catch存在唯一冲突。实际rebase保留core启动失败释放Options/fail-fast行为及master heldLOCK retry TODO；另外三处master TODO保留。独立审查无问题，Java17 format/全仓compile通过，无源漂移。rebase head dd9399dd，批准的A图和README普通提交后共享head cd5f0160b4fee9956649afc06a4d958291cdb69b；#266/#3275均MERGEABLE，当前CI运行中。
+
+用户批准A，并改标题为 Switch RocksDB to ToplingDB。原生imagegen已完成仅标题编辑，最终图片存docs/images/topling-quickstart.png，README及指南引用该批准图。B/C仅预览，不进入Git。旧图通过Chrome文件选择上传，作为PR描述的折叠附件，URL与metadata在visual-refresh/legacy-attachment.json；当前PNG文件为批准A。文案只讲prepare/select/start及用户收益，无Trust JNI/Java/WAL标签。
+
+证据R06/visual-refresh：rebase-binding.json、independent-review.json、rebase-validation.json、published.json、approved/{receipt,prompts,publish.published}.json、final-pr-verification.json、pr-updated.jpg。保存源码与native故障证据，归档后只清本轮targets。

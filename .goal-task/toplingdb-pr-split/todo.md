@@ -15,3 +15,8 @@
 - [x] 核心实际rebase最新ASF master，保留修复历史并同步#266/#3275
 - [x] 最终源码format/Java17compile、CI policy与Linux selection验证
 - [ ] CodeRabbit三项review频率/显示/摘要选择待用户答复；组织格式规则已保存
+
+- [x] 核心刷新到662a97d8 master，HgKVStoreImpl冲突独立审查/Java17编译通过并推送
+- [x] 三个imagegen风格预览，用户批准A及RocksDB标题；README/PR配图更新并验证显示
+- [x] 原图Chrome上传PR附件，B/C不进入Git
+- [ ] cd5f016当前CI及人工review，不沿用旧head绿色
