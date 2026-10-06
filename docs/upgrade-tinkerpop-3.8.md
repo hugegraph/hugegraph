@@ -78,6 +78,16 @@ registry limited to untyped V1 messages. Standard graph-file IO and typed
 GraphSON serializers keep `HugeGraphIoRegistry` alone and use the TinkerPop
 Tree format for their negotiated version.
 
+Groovy interpolated strings (`GString`, including subclasses) return as standard
+strings over GraphBinary, including inside lists and maps. For example,
+`def value = 42; "r3-value:${value}"` returns `"r3-value:42"`. The untyped GraphSON
+path retains the legacy GString bean map with its `values` and `strings` fields.
+
+Cypher extension predicates use the current TinkerPop predicate constructor
+through the existing translator extension point. Computed-expression regex
+filters retain whole-string matching (`String.matches`), so `"marko"` matches
+`"mar.*"` and does not match `"ark"`.
+
 Cypher results normalize HugeGraph IDs, including
 values nested in collections, maps and paths. Cyclic results and nesting deeper
 than 32 levels are rejected.

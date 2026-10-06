@@ -84,6 +84,7 @@ import org.apache.hugegraph.unit.id.EdgeIdTest;
 import org.apache.hugegraph.unit.id.IdTest;
 import org.apache.hugegraph.unit.id.IdUtilTest;
 import org.apache.hugegraph.unit.id.SplicingIdGeneratorTest;
+import org.apache.hugegraph.unit.opencypher.CypherGremlinPredicatesTest;
 import org.apache.hugegraph.unit.rocksdb.RocksDBCountersTest;
 import org.apache.hugegraph.unit.rocksdb.RocksDBSessionTest;
 import org.apache.hugegraph.unit.rocksdb.RocksDBSessionsTest;
@@ -125,6 +126,7 @@ import org.junit.runners.Suite;
         /* api gremlin */
         GremlinQueryAPITest.class,
         CypherClientTest.class,
+        CypherGremlinPredicatesTest.class,
         WsAndHttpBasicAuthHandlerTest.class,
         GraphSpaceGroupAPITest.class,
         GraphSpaceAuthPayloadTest.class,

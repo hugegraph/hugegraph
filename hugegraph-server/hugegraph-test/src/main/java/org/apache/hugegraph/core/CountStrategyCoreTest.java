@@ -485,6 +485,43 @@ public class CountStrategyCoreTest extends BaseCoreTest {
     }
 
     @Test
+    public void testCountWithoutNegativeValuesKeepsEmptyCount() {
+        this.initSchema();
+        commitTx();
+        assertNegativeWithoutCounts(graph().traversal(), 0L);
+    }
+
+    @Test
+    public void testCountWithoutNegativeValuesKeepsNonemptyAndNestedCount() {
+        this.initSchema();
+        Vertex source = graph().addVertex(T.label, "person", "name", "source");
+        for (int i = 0; i < 5; i++) {
+            Vertex target = graph().addVertex(T.label, "person", "name", "target" + i);
+            source.addEdge("knows", target);
+        }
+        commitTx();
+        GraphTraversalSource g = graph().traversal();
+        assertNegativeWithoutCounts(g, 6L);
+        for (P<Long> predicate : List.of(P.without(-1L), P.without(-2L, -1L))) {
+            Assert.assertEquals(Collections.singletonList(source.id()),
+                                g.V().filter(__.out("knows").count().is(predicate.clone())
+                                               .is(P.gt(0L))).id().toList());
+        }
+    }
+
+    private static void assertNegativeWithoutCounts(GraphTraversalSource g, long count) {
+        GraphTraversalSource control = g.withoutStrategies(HugeCountStrategy.class);
+        for (P<Long> predicate : List.of(P.without(-1L), P.without(-2L, -1L))) {
+            Assert.assertEquals(Collections.singletonList(count),
+                                control.V().count().is(predicate.clone()).toList());
+            Assert.assertEquals(Collections.singletonList(count),
+                                g.V().count().is(predicate.clone()).toList());
+            Assert.assertEquals(count > 0L ? Collections.singletonList(count) : Collections.emptyList(),
+                                g.V().count().is(predicate.clone()).is(P.gt(0L)).toList());
+        }
+    }
+
+    @Test
     public void testCountWithoutUsesBoundAboveAllExcludedCounts() {
         this.initSchema();
         Vertex source = graph().addVertex(T.label, "person", "name", "source");

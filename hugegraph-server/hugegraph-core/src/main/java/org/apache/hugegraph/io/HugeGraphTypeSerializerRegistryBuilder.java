@@ -44,6 +44,8 @@ import org.apache.tinkerpop.gremlin.structure.io.binary.TypeSerializerRegistry;
 import org.apache.tinkerpop.gremlin.structure.io.binary.types.SimpleTypeSerializer;
 import org.apache.tinkerpop.gremlin.structure.io.binary.types.TransformSerializer;
 
+import groovy.lang.GString;
+
 public final class HugeGraphTypeSerializerRegistryBuilder
         extends TypeSerializerRegistry.Builder {
 
@@ -58,6 +60,9 @@ public final class HugeGraphTypeSerializerRegistryBuilder
             new WireTransformSerializer<>(optional -> optional.orElse(null));
     private static final TypeSerializer<File> FILE_TRANSFORM_SERIALIZER =
             new WireTransformSerializer<>(file -> Map.of("file", file.getName()));
+
+    private static final TypeSerializer<GString> GSTRING_TRANSFORM_SERIALIZER =
+            new WireTransformSerializer<>(GString::toString);
 
     public HugeGraphTypeSerializerRegistryBuilder() {
         this.withFallbackResolver(type -> {
@@ -75,6 +80,9 @@ public final class HugeGraphTypeSerializerRegistryBuilder
             }
             if (File.class.isAssignableFrom(type)) {
                 return FILE_TRANSFORM_SERIALIZER;
+            }
+            if (GString.class.isAssignableFrom(type)) {
+                return GSTRING_TRANSFORM_SERIALIZER;
             }
             return null;
         });
