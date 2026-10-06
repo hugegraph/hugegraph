@@ -31,6 +31,7 @@ import org.apache.hugegraph.meta.MetaDriver;
 import org.apache.hugegraph.testutil.Assert;
 import org.apache.hugegraph.util.JsonUtil;
 import org.junit.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 
 public class AuthMetaManagerTest {
@@ -148,6 +149,24 @@ public class AuthMetaManagerTest {
         Assert.assertEquals(new HashSet<>(Arrays.asList("graph1", "graph2")),
                             deleted.graphs());
         Mockito.verify(driver).delete(key);
+    }
+
+    @Test
+    public void testClearGraphAuthKeepsGraphsNamedLikeAuth() {
+        MetaDriver driver = Mockito.mock(MetaDriver.class);
+        AuthMetaManager manager = new AuthMetaManager(driver, "cluster");
+
+        manager.clearGraphAuth("SPACE_A");
+
+        ArgumentCaptor<String> prefix = ArgumentCaptor.forClass(String.class);
+        Mockito.verify(driver).deleteWithPrefix(prefix.capture());
+        Assert.assertEquals("HUGEGRAPH/cluster/GRAPHSPACE/SPACE_A/AUTH/",
+                            prefix.getValue());
+        // A graph named AUTHx keeps its keys directly under the graphspace
+        Assert.assertFalse("HUGEGRAPH/cluster/GRAPHSPACE/SPACE_A/AUTHx/SCHEMA/"
+                           .startsWith(prefix.getValue()));
+        Assert.assertTrue("HUGEGRAPH/cluster/GRAPHSPACE/SPACE_A/AUTH/ROLE/r1"
+                          .startsWith(prefix.getValue()));
     }
 
     private static HugeProject project() {
