@@ -82,6 +82,9 @@ HugeGraph enums such as `DataType.TEXT` and `Directions.OUT` return their names
 over GraphBinary, including in maps and lists. `graph.schema()` returns a map
 with `propertykeys`, `vertexlabels`, `edgelabels` and `indexlabels` lists, using
 the same schema conversion. TinkerPop enums retain their native wire types.
+Backend `Shard` values, including `graph.metadata(HugeType.VERTEX, 'splits', size)`,
+return standard maps with `start`, `end` and an exact 64-bit `length`, including
+inside lists and maps. The default Driver does not need a private Shard serializer.
 
 Local edge ID filters accept both serialized strings and native edge IDs in
 mixed collections: `hasId(not(without(ids)))` and `hasId(within(ids))` agree on

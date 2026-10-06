@@ -29,6 +29,7 @@ import java.util.Optional;
 import java.util.function.Function;
 
 import org.apache.hugegraph.backend.id.Id;
+import org.apache.hugegraph.backend.store.Shard;
 import org.apache.hugegraph.schema.EdgeLabel;
 import org.apache.hugegraph.schema.IndexLabel;
 import org.apache.hugegraph.schema.PropertyKey;
@@ -54,6 +55,8 @@ public final class HugeGraphTypeSerializerRegistryBuilder
             new WireTransformSerializer<>(Id::asObject);
     private static final TypeSerializer<Blob> BLOB_TRANSFORM_SERIALIZER =
             new WireTransformSerializer<>(blob -> ByteBuffer.wrap(blob.bytes()));
+    private static final TypeSerializer<Shard> SHARD_TRANSFORM_SERIALIZER =
+            new WireTransformSerializer<>(HugeGraphTypeSerializerRegistryBuilder::shardMap);
     private static final TypeSerializer<SchemaElement> SCHEMA_TRANSFORM_SERIALIZER =
             new WireTransformSerializer<>(HugeGraphTypeSerializerRegistryBuilder::schemaMap);
     private static final TypeSerializer<SchemaManager> SCHEMA_MANAGER_TRANSFORM_SERIALIZER =
@@ -76,6 +79,9 @@ public final class HugeGraphTypeSerializerRegistryBuilder
             }
             if (Blob.class.isAssignableFrom(type)) {
                 return BLOB_TRANSFORM_SERIALIZER;
+            }
+            if (Shard.class.isAssignableFrom(type)) {
+                return SHARD_TRANSFORM_SERIALIZER;
             }
             if (SchemaElement.class.isAssignableFrom(type)) {
                 return SCHEMA_TRANSFORM_SERIALIZER;
@@ -103,6 +109,15 @@ public final class HugeGraphTypeSerializerRegistryBuilder
         // Scope the fallback to HugeGraph; native TinkerPop enums keep their serializers.
         return Enum.class.isAssignableFrom(type) &&
                type.getName().startsWith("org.apache.hugegraph.");
+    }
+
+    private static Map<String, Object> shardMap(Shard shard) {
+        // Match the existing GraphSON contract, including open range boundaries.
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("start", shard.start());
+        result.put("end", shard.end());
+        result.put("length", shard.length());
+        return result;
     }
 
     private static Map<String, Object> schemaManagerMap(SchemaManager schema) {
