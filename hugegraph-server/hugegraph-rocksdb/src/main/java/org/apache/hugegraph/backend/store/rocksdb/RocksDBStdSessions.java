@@ -339,6 +339,10 @@ public class RocksDBStdSessions extends RocksDBSessions {
         return this.rocksdb.rocksdb();
     }
 
+    RocksDB database() {
+        return this.rocksdb();
+    }
+
     private OpenedRocksDB.CFHandle cf(String cfName) {
         OpenedRocksDB.CFHandle cfh = this.rocksdb.cf(cfName);
         if (cfh == null) {

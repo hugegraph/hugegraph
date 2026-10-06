@@ -18,6 +18,7 @@
 package org.apache.hugegraph.backend.store;
 
 import org.apache.hugegraph.config.HugeConfig;
+import org.apache.hugegraph.backup.GraphBackupService;
 import org.apache.hugegraph.event.EventHub;
 import org.apache.hugegraph.event.EventListener;
 
@@ -74,6 +75,13 @@ public interface BackendStoreProvider {
     void onCloneConfig(HugeConfig config, String newGraph);
 
     void onDeleteConfig(HugeConfig config);
+
+    default GraphBackupService backupService(HugeConfig config,
+                                             String graphName) {
+        throw new UnsupportedOperationException(
+                "Graph backups are not supported by backend '" +
+                this.type() + "'");
+    }
 
     default boolean isHstore() {
         return "hstore".equals(type());
