@@ -133,6 +133,10 @@ public class CommonKvStreamObserver<R, T> implements StreamObserver<R> {
     public Iterator<T> consume() {
         try {
             while (!Thread.currentThread().isInterrupted()) {
+                // Read terminal state before the queue, including a concurrently published final batch.
+                if (isServerFinished() && this.queue.isEmpty()) {
+                    return null;
+                }
                 var iterator = this.queue.poll(200, TimeUnit.MILLISECONDS);
                 if (iterator != null) {
                     sendRequest();
