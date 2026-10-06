@@ -71,48 +71,13 @@ jobs:
     permissions:
       actions: write
       contents: read
-      pull-requests: read
     runs-on: ubuntu-latest
     steps:
-      # workflow_run is privileged: only load code from the default-branch commit.
-      - name: Checkout trusted retry checker
-        uses: actions/checkout@v7
-        with:
-          ref: ${{ github.sha }}
-          persist-credentials: false
-          sparse-checkout: .github/scripts
-
-      - name: Check source freshness before waiting
-        id: initial-freshness
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_REPO: ${{ github.repository }}
-          RUN_ID: ${{ github.event.workflow_run.id }}
-          RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
-        run: |
-          python3 .github/scripts/check-rerun.py \
-            --repository "$GH_REPO" --run-id "$RUN_ID" \
-            --run-attempt "$RUN_ATTEMPT" --max-reruns "$MAX_RERUNS"
-
       - name: Wait before rerun
-        if: steps.initial-freshness.outputs.action == 'rerun'
-        run: sleep "$RETRY_DELAY_SECONDS"
-
-      - name: Check source freshness after waiting
-        id: freshness
-        if: steps.initial-freshness.outputs.action == 'rerun'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_REPO: ${{ github.repository }}
-          RUN_ID: ${{ github.event.workflow_run.id }}
-          RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
         run: |
-          python3 .github/scripts/check-rerun.py \
-            --repository "$GH_REPO" --run-id "$RUN_ID" \
-            --run-attempt "$RUN_ATTEMPT" --max-reruns "$MAX_RERUNS"
+          sleep "$RETRY_DELAY_SECONDS"
 
       - name: Rerun failed jobs
-        if: steps.freshness.outputs.action == 'rerun'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
