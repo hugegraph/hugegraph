@@ -33,6 +33,7 @@ import org.apache.hugegraph.schema.EdgeLabel;
 import org.apache.hugegraph.schema.IndexLabel;
 import org.apache.hugegraph.schema.PropertyKey;
 import org.apache.hugegraph.schema.SchemaElement;
+import org.apache.hugegraph.schema.SchemaManager;
 import org.apache.hugegraph.schema.VertexLabel;
 import org.apache.hugegraph.type.define.HugeKeys;
 import org.apache.hugegraph.util.Blob;
@@ -55,6 +56,10 @@ public final class HugeGraphTypeSerializerRegistryBuilder
             new WireTransformSerializer<>(blob -> ByteBuffer.wrap(blob.bytes()));
     private static final TypeSerializer<SchemaElement> SCHEMA_TRANSFORM_SERIALIZER =
             new WireTransformSerializer<>(HugeGraphTypeSerializerRegistryBuilder::schemaMap);
+    private static final TypeSerializer<SchemaManager> SCHEMA_MANAGER_TRANSFORM_SERIALIZER =
+            new WireTransformSerializer<>(HugeGraphTypeSerializerRegistryBuilder::schemaManagerMap);
+    private static final TypeSerializer<Enum<?>> ENUM_TRANSFORM_SERIALIZER =
+            new WireTransformSerializer<>(Enum::name);
 
     private static final TypeSerializer<Optional<?>> OPTIONAL_TRANSFORM_SERIALIZER =
             new WireTransformSerializer<>(optional -> optional.orElse(null));
@@ -75,6 +80,12 @@ public final class HugeGraphTypeSerializerRegistryBuilder
             if (SchemaElement.class.isAssignableFrom(type)) {
                 return SCHEMA_TRANSFORM_SERIALIZER;
             }
+            if (SchemaManager.class.isAssignableFrom(type)) {
+                return SCHEMA_MANAGER_TRANSFORM_SERIALIZER;
+            }
+            if (isHugeGraphEnum(type)) {
+                return ENUM_TRANSFORM_SERIALIZER;
+            }
             if (Optional.class.isAssignableFrom(type)) {
                 return OPTIONAL_TRANSFORM_SERIALIZER;
             }
@@ -86,6 +97,21 @@ public final class HugeGraphTypeSerializerRegistryBuilder
             }
             return null;
         });
+    }
+
+    private static boolean isHugeGraphEnum(Class<?> type) {
+        // Scope the fallback to HugeGraph; native TinkerPop enums keep their serializers.
+        return Enum.class.isAssignableFrom(type) &&
+               type.getName().startsWith("org.apache.hugegraph.");
+    }
+
+    private static Map<String, Object> schemaManagerMap(SchemaManager schema) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("propertykeys", schemaValue(schema.getPropertyKeys()));
+        result.put("vertexlabels", schemaValue(schema.getVertexLabels()));
+        result.put("edgelabels", schemaValue(schema.getEdgeLabels()));
+        result.put("indexlabels", schemaValue(schema.getIndexLabels()));
+        return result;
     }
 
     private static Map<String, Object> schemaMap(SchemaElement schema) {
@@ -109,8 +135,14 @@ public final class HugeGraphTypeSerializerRegistryBuilder
     }
 
     private static Object schemaValue(Object value) {
-        if (value instanceof Enum) {
+        if (value instanceof Enum && isHugeGraphEnum(value.getClass())) {
             return ((Enum<?>) value).name();
+        }
+        if (value instanceof SchemaElement) {
+            return schemaMap((SchemaElement) value);
+        }
+        if (value instanceof SchemaManager) {
+            return schemaManagerMap((SchemaManager) value);
         }
         if (value instanceof Map) {
             Map<Object, Object> result = new LinkedHashMap<>();

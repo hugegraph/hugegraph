@@ -28,7 +28,7 @@ graphs: {
 scriptEngines: {
   gremlin-groovy: {
     staticImports: [
-      org.opencypher.gremlin.process.traversal.CustomPredicates.*',
+      org.apache.hugegraph.opencypher.CypherGremlinPredicates.*,
       org.opencypher.gremlin.traversal.CustomFunctions.*
     ],
     plugins: {
@@ -67,11 +67,11 @@ scriptEngines: {
           org.apache.hugegraph.traversal.optimize.Text,
           org.apache.hugegraph.traversal.optimize.TraversalUtil,
           org.opencypher.gremlin.traversal.CustomFunctions,
-          org.opencypher.gremlin.traversal.CustomPredicate
+          org.apache.hugegraph.opencypher.CypherGremlinPredicates
         ],
         methodImports: [
           java.lang.Math#*,
-          org.opencypher.gremlin.traversal.CustomPredicate#*,
+          org.apache.hugegraph.opencypher.CypherGremlinPredicates#*,
           org.opencypher.gremlin.traversal.CustomFunctions#*
         ]
       },
@@ -109,13 +109,7 @@ serializers:
      }
   }
   # Keep untyped GraphSON before typed GraphSON so application/json stays
-  # mapped to the untyped V1 serializer while explicit typed MIME requests work.
-  - {className: org.apache.tinkerpop.gremlin.util.ser.GraphSONMessageSerializerV1,
-     config: {
-       serializeResultToString: false,
-       ioRegistries: [org.apache.hugegraph.io.HugeGraphIoRegistry]
-     }
-  }
+  # mapped to untyped V1. Typed V1 is disabled because it accepts Java class names.
   - {className: org.apache.tinkerpop.gremlin.util.ser.GraphSONMessageSerializerV2,
      config: {
        serializeResultToString: false,

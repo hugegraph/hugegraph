@@ -32,6 +32,7 @@ import java.util.regex.Pattern;
 import org.apache.hugegraph.HugeException;
 import org.apache.hugegraph.HugeGraph;
 import org.apache.hugegraph.backend.BackendException;
+import org.apache.hugegraph.backend.id.EdgeId;
 import org.apache.hugegraph.backend.id.Id;
 import org.apache.hugegraph.backend.id.IdGenerator;
 import org.apache.hugegraph.backend.page.PageInfo;
@@ -46,6 +47,7 @@ import org.apache.hugegraph.iterator.FilterIterator;
 import org.apache.hugegraph.schema.IndexLabel;
 import org.apache.hugegraph.schema.PropertyKey;
 import org.apache.hugegraph.schema.SchemaLabel;
+import org.apache.hugegraph.structure.HugeEdge;
 import org.apache.hugegraph.structure.HugeElement;
 import org.apache.hugegraph.structure.HugeProperty;
 import org.apache.hugegraph.type.HugeType;
@@ -1325,7 +1327,12 @@ public final class TraversalUtil {
                     for (Object value : values) {
                         Object actual = id instanceof IdGenerator.StringId && value instanceof String ?
                                         ((Id) id).asString() : id;
-                        if (Compare.eq.test(actual, value)) {
+                        // Edge lookup accepts its serialized ID as well as EdgeId.
+                        // Preserve that contract in local mixed-ID filters without
+                        // collapsing numeric and string vertex IDs.
+                        Object expected = id instanceof EdgeId &&
+                                          value instanceof String ? HugeEdge.getIdValue(value, true) : value;
+                        if (Compare.eq.test(actual, expected)) {
                             return predicate.getBiPredicate() == Contains.within;
                         }
                     }

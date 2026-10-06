@@ -29,6 +29,7 @@ import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -54,6 +55,8 @@ import org.apache.hugegraph.unit.FakeObjects;
 import org.apache.hugegraph.util.Blob;
 import org.apache.hugegraph.util.JsonUtil;
 import org.apache.tinkerpop.gremlin.driver.Result;
+import org.apache.tinkerpop.gremlin.groovy.jsr223.GremlinGroovyScriptEngine;
+import org.apache.tinkerpop.gremlin.jsr223.ImportGremlinPlugin;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.step.util.MutablePath;
 import org.apache.tinkerpop.gremlin.process.traversal.step.util.Tree;
@@ -70,6 +73,7 @@ import org.apache.tinkerpop.gremlin.structure.util.detached.DetachedVertexProper
 import org.apache.tinkerpop.gremlin.structure.util.reference.ReferenceEdge;
 import org.apache.tinkerpop.gremlin.structure.util.reference.ReferenceVertex;
 import org.apache.tinkerpop.gremlin.util.MessageSerializer;
+import org.apache.tinkerpop.gremlin.util.message.RequestMessage;
 import org.apache.tinkerpop.gremlin.util.message.ResponseMessage;
 import org.apache.tinkerpop.gremlin.util.message.ResponseStatusCode;
 import org.apache.tinkerpop.gremlin.util.ser.GraphBinaryMessageSerializerV1;
@@ -154,13 +158,11 @@ public class GremlinConfigCompatibilityTest extends BaseUnitTest {
     );
     private static final List<String> TYPED_FALLBACK_SERIALIZERS =
             Arrays.asList(
-                    SERIALIZER_PACKAGE + "GraphSONMessageSerializerV1",
                     SERIALIZER_PACKAGE + "GraphSONMessageSerializerV2",
                     SERIALIZER_PACKAGE + "GraphSONMessageSerializerV3"
             );
     private static final List<String> TYPED_GRAPHSON_MIME_TYPES =
             Arrays.asList(
-                    "application/vnd.gremlin-v1.0+json",
                     "application/vnd.gremlin-v2.0+json",
                     "application/vnd.gremlin-v3.0+json"
             );
@@ -232,6 +234,70 @@ public class GremlinConfigCompatibilityTest extends BaseUnitTest {
     }
 
     @Test
+    public void testGremlinServerConfigVariantsRejectTypedGraphSONV1() throws Exception {
+        String javaType = UnexpectedGraphSONType.class.getName();
+        String requestJson = "{\"requestId\":\"" + UUID.randomUUID() +
+                             "\",\"op\":\"eval\",\"processor\":\"\",\"args\":{" +
+                             "\"gremlin\":\"1\",\"bindings\":{\"value\":{\"@class\":\"" +
+                             javaType + "\"}}}}";
+        for (String variant : GREMLIN_SERVER_CONFIG_VARIANTS) {
+            Settings settings = Settings.read(serverAssemblyPath().resolve(variant).toString());
+            Map<String, String> mimeTypes = graphSONMimeTypes(settings);
+            Assert.assertFalse(variant + " must not expose Java class-name typing",
+                               mimeTypes.containsKey("application/vnd.gremlin-v1.0+json"));
+            for (Settings.SerializerSettings setting : settings.serializers) {
+                Assert.assertNotEquals(variant, SERIALIZER_PACKAGE + "GraphSONMessageSerializerV1",
+                                       setting.className);
+                if (!GRAPHSON_UNTYPED_V1.equals(setting.className)) {
+                    continue;
+                }
+                MessageTextSerializer<?> serializer = newTextSerializer(setting.className);
+                serializer.configure(config(setting.config), Collections.emptyMap());
+                UnexpectedGraphSONType.constructions = 0;
+                RequestMessage request = serializer.deserializeRequest(requestJson);
+                Map<?, ?> bindings = (Map<?, ?>) request.getArgs().get("bindings");
+                Assert.assertEquals(variant, Map.of("@class", javaType), bindings.get("value"));
+                Assert.assertEquals(variant, 0, UnexpectedGraphSONType.constructions);
+            }
+            Assert.assertEquals(variant, GRAPHSON_UNTYPED_V1, mimeTypes.get("application/json"));
+        }
+    }
+
+    public static class UnexpectedGraphSONType {
+
+        private static int constructions;
+
+        public UnexpectedGraphSONType() {
+            constructions++;
+        }
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    public void testGremlinServerConfigVariantsImportCompatibleCypherFactories() throws Exception {
+        String factory = "org.apache.hugegraph.opencypher.CypherGremlinPredicates";
+        for (String variant : GREMLIN_SERVER_CONFIG_VARIANTS) {
+            Settings settings = Settings.read(serverAssemblyPath().resolve(variant).toString());
+            Map<String, Object> imports = settings.scriptEngines.get("gremlin-groovy")
+                                                  .plugins.get(ImportGremlinPlugin.class.getName());
+            Collection<String> classes = (Collection<String>) imports.get("classImports");
+            Collection<String> methods = (Collection<String>) imports.get("methodImports");
+            Assert.assertTrue(variant, classes.contains(factory));
+            Assert.assertTrue(variant, methods.contains(factory + "#*"));
+            Assert.assertFalse(variant, classes.contains("org.opencypher.gremlin.traversal.CustomPredicate"));
+            ImportGremlinPlugin plugin = ImportGremlinPlugin.build().classImports(classes)
+                                                           .methodImports(methods).create();
+            GremlinGroovyScriptEngine engine = new GremlinGroovyScriptEngine(
+                    plugin.getCustomizers("gremlin-groovy").orElseThrow());
+            Assert.assertEquals(variant, Arrays.asList(true, true, false, false),
+                                engine.eval("[cypherRegex('mar.*').test('marko'), " +
+                                            "cypherIsString().test('marko'), " +
+                                            "cypherIsNode().test(null), " +
+                                            "cypherIsRelationship().test(null)]"));
+        }
+    }
+
+    @Test
     public void testGremlinServerConfigVariantsUseHugeGraphBinaryBuilder()
             throws Exception {
         Path assembly = serverAssemblyPath();
@@ -299,10 +365,7 @@ public class GremlinConfigCompatibilityTest extends BaseUnitTest {
             } else {
                 foundUntyped = true;
             }
-            assertCanSerializeHugeGraphTypes(
-                    serializer,
-                    typed && usesStableGraphSONTypes(
-                            serializerSettings.className));
+            assertCanSerializeHugeGraphTypes(serializer, typed);
         }
 
         Assert.assertTrue("No untyped GraphSON serializer settings found in " +
@@ -685,18 +748,6 @@ public class GremlinConfigCompatibilityTest extends BaseUnitTest {
             }
             MessageTextSerializer<?> serializer = newTextSerializer(setting.className);
             serializer.configure(config(setting.config), Collections.emptyMap());
-            if (setting.className.endsWith("GraphSONMessageSerializerV1")) {
-                // V1's legacy typed format returns ID-keyed maps, rather than a Tree.
-                Map<?, ?> elements = (Map<?, ?>) roundTripResponse(serializer, elementTree()).getResult().getData();
-                Assert.assertEquals(1, elements.size());
-                Map<?, ?> entry = (Map<?, ?>) elements.values().iterator().next();
-                Map<?, ?> vertex = (Map<?, ?>) entry.get("key");
-                Assert.assertEquals("person", vertex.get("label"));
-                Assert.assertContains("marko", JsonUtil.toJson(vertex));
-                Assert.assertInstanceOf(Map.class, entry.get("value"));
-                serializers++;
-                continue;
-            }
             Object data = roundTripResponse(serializer, scalar).getResult().getData();
             Assert.assertInstanceOf(Tree.class, data);
             Assert.assertEquals(scalar, data);
@@ -710,7 +761,7 @@ public class GremlinConfigCompatibilityTest extends BaseUnitTest {
             Assert.assertEquals(0.5D, (Double) edge.value("weight"), 0.0D);
             serializers++;
         }
-        Assert.assertEquals(3, serializers);
+        Assert.assertEquals(2, serializers);
     }
 
     @Test
@@ -1183,12 +1234,6 @@ public class GremlinConfigCompatibilityTest extends BaseUnitTest {
             assertContainsGraphSONType(uuidJson, "hugegraph:UuidId");
             assertContainsGraphSONType(edgeJson, "hugegraph:EdgeId");
         }
-    }
-
-    private static boolean usesStableGraphSONTypes(String serializer) {
-        // GraphSON V1 uses legacy @class wrapping; assert stable
-        // hugegraph:* @type names for V2/V3 typed fallback serializers.
-        return !serializer.endsWith("GraphSONMessageSerializerV1");
     }
 
     private static void assertCanRoundTripHugeGraphIds(

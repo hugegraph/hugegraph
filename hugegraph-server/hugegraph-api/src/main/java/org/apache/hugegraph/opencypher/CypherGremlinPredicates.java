@@ -30,21 +30,37 @@ public final class CypherGremlinPredicates extends TraversalGremlinPredicates {
 
     @Override
     public P<Object> regexMatch(Object value) {
-        return predicate(CustomPredicate.cypherRegex, value);
+        return cypherRegex(value);
     }
 
     @Override
     public P<Object> isNode() {
-        return predicate(CustomPredicate.cypherIsNode, null);
+        return cypherIsNode();
     }
 
     @Override
     public P<Object> isRelationship() {
-        return predicate(CustomPredicate.cypherIsRelationship, null);
+        return cypherIsRelationship();
     }
 
     @Override
     public P<Object> isString() {
+        return cypherIsString();
+    }
+
+    public static P<Object> cypherRegex(Object value) {
+        return predicate(CustomPredicate.cypherRegex, value);
+    }
+
+    public static P<Object> cypherIsNode() {
+        return predicate(CustomPredicate.cypherIsNode, null);
+    }
+
+    public static P<Object> cypherIsRelationship() {
+        return predicate(CustomPredicate.cypherIsRelationship, null);
+    }
+
+    public static P<Object> cypherIsString() {
         return predicate(CustomPredicate.cypherIsString, null);
     }
 
