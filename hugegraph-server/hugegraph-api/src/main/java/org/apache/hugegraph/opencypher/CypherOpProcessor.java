@@ -55,6 +55,8 @@ import org.opencypher.gremlin.translation.groovy.GroovyPredicate;
 import org.opencypher.gremlin.translation.ir.TranslationWriter;
 import org.opencypher.gremlin.translation.ir.model.GremlinStep;
 import org.opencypher.gremlin.translation.translator.Translator;
+import org.opencypher.gremlin.translation.traversal.TraversalGremlinBindings;
+import org.opencypher.gremlin.translation.traversal.TraversalGremlinSteps;
 import org.opencypher.gremlin.traversal.ParameterNormalizer;
 import org.opencypher.gremlin.traversal.ProcedureContext;
 import org.opencypher.gremlin.traversal.ReturnNormalizer;
@@ -139,7 +141,9 @@ public class CypherOpProcessor extends AbstractEvalOpProcessor {
                                                                       .build(translatorDefinition);
 
         Translator<GraphTraversal, P> traversalTranslator = Translator.builder()
-                                                                      .traversal(g)
+                                                                      .custom(new TraversalGremlinSteps(g),
+                                                                              new CypherGremlinPredicates(),
+                                                                              new TraversalGremlinBindings())
                                                                       .build(translatorDefinition);
 
         Seq<GremlinStep> ir = ast.translate(strTranslator.flavor(),

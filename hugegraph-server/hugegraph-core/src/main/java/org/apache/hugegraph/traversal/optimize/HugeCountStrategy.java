@@ -187,11 +187,11 @@ public final class HugeCountStrategy
                 }
 
                 /*
-                 * HugeGraph extracts RangeGlobalStep into backend queries. A
-                 * negative upper bound is never useful for count(), and would
-                 * become an invalid backend range like [0, -3).
+                 * HugeGraph extracts RangeGlobalStep into backend queries.
+                 * Non-positive upper bounds cannot preserve count(). A zero
+                 * bound from without(-1) would replace a nonempty count with 0.
                  */
-                if (highRange != null && highRange < 0L) {
+                if (highRange != null && highRange <= 0L) {
                     highRange = null;
                 }
 

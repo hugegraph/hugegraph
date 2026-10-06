@@ -61,6 +61,22 @@ public class CypherApiTest extends BaseApiTest {
     }
 
     @Test
+    public void testComputedRegexExecutesExtensionPredicate() {
+        String query = "MATCH (n:person) WHERE (n.name + '') =~ 'mar.*' " +
+                       "RETURN n.name AS name";
+        String content = this.testCypherQueryAndContains(query, "marko");
+        Assert.assertEquals(List.of(Map.of("name", "marko")), assertCypherSuccessData(content));
+    }
+
+    @Test
+    public void testComputedRegexRequiresWholeStringMatch() {
+        String query = "MATCH (n:person) WHERE (n.name + '') =~ 'ark' " +
+                       "RETURN n.name AS name";
+        String content = this.testCypherQueryAndContains(query, "data");
+        Assert.assertTrue(assertCypherSuccessData(content).isEmpty());
+    }
+
+    @Test
     public void testCreate() {
         this.testCypherQueryAndContains("CREATE (n:person { name : 'test', " +
                                         "age: 20, city: 'Hefei' }) return n",

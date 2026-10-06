@@ -75,6 +75,9 @@ import org.apache.tinkerpop.gremlin.util.message.ResponseStatusCode;
 import org.apache.tinkerpop.gremlin.util.ser.GraphBinaryMessageSerializerV1;
 import org.apache.tinkerpop.gremlin.util.ser.MessageTextSerializer;
 import org.junit.Test;
+
+import groovy.lang.GString;
+import groovy.lang.GroovyShell;
 import org.mockito.Mockito;
 import org.yaml.snakeyaml.Yaml;
 import org.yaml.snakeyaml.error.YAMLException;
@@ -538,6 +541,44 @@ public class GremlinConfigCompatibilityTest extends BaseUnitTest {
         Assert.assertContains("properties", pathJson);
         Assert.assertContains("tom", pathJson);
         Assert.assertContains("0.75", pathJson);
+    }
+
+    @Test
+    public void testDriverConfigsReturnEvaluatedGroovyStrings() throws Exception {
+        Object value = new GroovyShell().evaluate("def value = 42; \"r3-value:${value}\"");
+        Assert.assertInstanceOf(GString.class, value);
+        Settings.SerializerSettings serverSettings = readGremlinServerSettings().serializers.get(0);
+        MessageSerializer<?> server = newMessageSerializer(serverSettings.className);
+        server.configure(config(serverSettings.config), Collections.emptyMap());
+        List<Object> response = List.of(value, List.of(value), Map.of("value", value));
+        List<Object> expected = List.of("r3-value:42", List.of("r3-value:42"),
+                                       Map.of("value", "r3-value:42"));
+        for (String config : DRIVER_CONFIGS) {
+            RemoteSerializerSettings settings = readRemoteSerializerSettings(config);
+            MessageSerializer<?> client = newMessageSerializer(settings.className);
+            client.configure(config(settings.config), Collections.emptyMap());
+            Assert.assertEquals(config, expected,
+                                roundTripBinaryResponse(server, client, response).getResult().getData());
+        }
+        Assert.assertEquals(expected,
+                            roundTripBinaryResponse(server, new GraphBinaryMessageSerializerV1(), response)
+                            .getResult().getData());
+    }
+
+    @Test
+    public void testUntypedGraphsonKeepsEvaluatedGroovyStringBean() throws Exception {
+        Object value = new GroovyShell().evaluate("def value = 42; \"r3-value:${value}\"");
+        Settings.SerializerSettings settings = readGremlinServerSettings().serializers.stream()
+                                              .filter(s -> s.className.endsWith(
+                                                      "GraphSONUntypedMessageSerializerV1"))
+                                              .findFirst().orElseThrow();
+        MessageTextSerializer<?> serializer = (MessageTextSerializer<?>) newMessageSerializer(settings.className);
+        serializer.configure(config(settings.config), Collections.emptyMap());
+        Object result = roundTripResponse(serializer, value).getResult().getData();
+        Assert.assertInstanceOf(Map.class, result);
+        Map<?, ?> bean = (Map<?, ?>) result;
+        Assert.assertEquals(List.of(42), bean.get("values"));
+        Assert.assertEquals(List.of("r3-value:", ""), bean.get("strings"));
     }
 
     @Test
