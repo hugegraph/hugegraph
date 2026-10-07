@@ -6,6 +6,7 @@ on:
       - master
       - 'release-*'
       - 'test-*'
+      - 'tinkerpop-*'
   pull_request:
   workflow_dispatch:
 

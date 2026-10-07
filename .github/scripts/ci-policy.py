@@ -46,6 +46,16 @@ WORKFLOWS = {
                   "spark-connector-ci.yml": ["spark"], "hubble-ci.yml": ["hubble"],
                   "codeql-analysis.yml": []},
 }
+# Exact maintenance inputs have no product consumers; their checks run in the planner.
+MAINTENANCE_INPUTS = {
+    ".github/PULL_REQUEST_TEMPLATE.md": [],
+    ".github/dependabot.yml": [],
+    ".github/scripts/check-rerun.py": [],
+    ".github/scripts/test_check_rerun.py": [],
+    ".github/scripts/check-docker-images.sh": ["docker"],
+    ".github/scripts/docker-deployment.py": ["docker"],
+    ".github/scripts/test_docker_deployment.py": ["docker"],
+}
 DEPENDENTS = {
     "server": {"commons": ["server", "pd", "store", "hstore", "cluster"],
                "struct": ["server", "pd", "store", "hstore", "cluster"],
@@ -95,6 +105,9 @@ def select(project, paths):
     selected = set()
     for path in paths:
         if documentation(path):
+            continue
+        if project == "server" and path in MAINTENANCE_INPUTS:
+            selected.update(MAINTENANCE_INPUTS[path])
             continue
         if project == "server" and (Path(path).name == "pom.xml" or path.startswith("install-dist/")):
             selected.add("dependency_license")

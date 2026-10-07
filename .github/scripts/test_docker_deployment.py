@@ -18,6 +18,7 @@
 
 import importlib.util
 import json
+import os
 from pathlib import Path
 import unittest
 from unittest.mock import patch
@@ -74,14 +75,54 @@ class ImageIdentityTest(unittest.TestCase):
         with patch.object(deployment, "command", side_effect=identities + containers), \
              patch.object(deployment.subprocess, "run") as run, \
              patch.object(deployment, "verify_server") as server, \
-             patch.object(deployment, "verify_storage") as storage:
+             patch.object(deployment, "verify_storage") as storage, \
+             patch.object(deployment, "verify_graph") as graph:
             deployment.smoke("ci-1-1", "docker-compose-hstore.yml", images)
             startup = run.call_args_list[0].args[0]
             self.assertEqual(startup[-3:], ["pd", "store", "server"])
             self.assertNotIn("hubble", startup)
             server.assert_called_once_with()
             storage.assert_called_once_with()
+            graph.assert_called_once_with("hg_pr_ci_1_1_docker_compose_hstore")
             self.assertEqual(run.call_args_list[-1].args[0][-3:], ["down", "-v", "--remove-orphans"])
+
+
+class GraphSmokeTest(unittest.TestCase):
+    def test_reuses_graph_write_read_and_gremlin_checks_with_auth(self):
+        with patch.dict(os.environ, {"PATH": "/existing/tools"}), \
+             patch.object(deployment.subprocess, "run") as run:
+            deployment.verify_graph("ci_1_1")
+            invocation = run.call_args
+            self.assertTrue(invocation.args[0][1].endswith("run-server-e2e-smoke-test.sh"))
+            self.assertEqual(invocation.args[0][2:], ["http://localhost:8080", "create", "ci_1_1"])
+            self.assertTrue(invocation.kwargs["check"])
+            self.assertEqual(invocation.kwargs["timeout"], 960)
+            environment = invocation.kwargs["env"]
+            self.assertEqual(environment["PATH"], "/existing/tools")
+            self.assertEqual(environment["HUGEGRAPH_USERNAME"], "admin")
+            self.assertEqual(environment["HUGEGRAPH_PASSWORD"], deployment.ADMIN_PASSWORD)
+
+    def test_graph_failure_propagates_and_cleans_both_topologies(self):
+        for topology, images in (
+                ("docker-compose.yml", {"server": "hugegraph/hugegraph"}),
+                ("docker-compose-hstore.yml", {"pd": "hugegraph/pd", "store": "hugegraph/store",
+                                              "server": "hugegraph/server"})):
+            identities = [f"sha256:{service}" for service in images]
+            containers = [value for service in images for value in (service, f"sha256:{service}", "healthy")]
+            failure = deployment.subprocess.CalledProcessError(1, "graph smoke")
+            with self.subTest(topology=topology), \
+                 patch.object(deployment, "command", side_effect=identities + containers), \
+                 patch.object(deployment.subprocess, "run") as run, \
+                 patch.object(deployment, "verify_server"), \
+                 patch.object(deployment, "verify_storage"), \
+                 patch.object(deployment, "verify_graph", side_effect=failure) as graph:
+                with self.assertRaises(deployment.subprocess.CalledProcessError) as caught:
+                    deployment.smoke("ci-1-1", topology, images)
+                self.assertIs(caught.exception, failure)
+                graph.assert_called_once()
+                calls = [call.args[0] for call in run.call_args_list]
+                self.assertTrue(any("logs" in args for args in calls))
+                self.assertEqual(calls[-1][-3:], ["down", "-v", "--remove-orphans"])
 
 
 class PayloadTest(unittest.TestCase):

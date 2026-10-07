@@ -110,6 +110,22 @@ class PolicyTest(unittest.TestCase):
         self.assertEqual({"hubble"}, policy.select("toolchain", [".github/workflows/hubble-ci.yml"]))
         self.assertEqual({"docker"}, policy.select("server", [".github/workflows/docker-build-ci.yml"]))
 
+    def test_known_maintenance_inputs_have_specific_owners(self):
+        for path in [".github/PULL_REQUEST_TEMPLATE.md", ".github/dependabot.yml",
+                     ".github/scripts/check-rerun.py", ".github/scripts/test_check_rerun.py"]:
+            with self.subTest(path=path):
+                self.assertEqual(set(), policy.select("server", [path]))
+        for path in [".github/scripts/check-docker-images.sh", ".github/scripts/docker-deployment.py",
+                     ".github/scripts/test_docker_deployment.py"]:
+            with self.subTest(path=path):
+                self.assertEqual({"docker"}, policy.select("server", [path]))
+                selected = policy.select("server", [path, "hugegraph-pd/hg-pd-core/src/A.java"])
+                self.assertTrue({"docker", "pd", "store", "hstore", "cluster"}.issubset(selected))
+        for path in [".github/scripts/ci-policy.py", ".github/scripts/test_ci_policy.py",
+                     ".github/workflows/rerun-ci.yml", ".github/dependabot-unknown.yml"]:
+            with self.subTest(path=path):
+                self.assertEqual(set(policy.MODULES["server"]), policy.select("server", [path]))
+
     def test_unknown_and_proto_fail_conservative(self):
         for path in ["pom.xml", ".github/scripts/new.py", "hugegraph-pd/api.proto", "mystery"]:
             self.assertEqual(set(policy.MODULES["server"]), policy.select("server", [path]))

@@ -115,6 +115,15 @@ def verify_storage():
         raise RuntimeError("Authenticated PD did not return its registered stores array")
 
 
+def verify_graph(run_id):
+    root = Path(__file__).resolve().parents[2]
+    script = root / "hugegraph-server/hugegraph-dist/src/assembly/travis/run-server-e2e-smoke-test.sh"
+    environment = dict(os.environ, HUGEGRAPH_USERNAME="admin", HUGEGRAPH_PASSWORD=ADMIN_PASSWORD)
+    # Reuse the write/read/Gremlin assertions; allow its readiness and bounded HTTP requests.
+    subprocess.run(["bash", str(script), "http://localhost:8080", "create", run_id],
+                   check=True, timeout=960, env=environment)
+
+
 def smoke(tag, topology, images):
     root = Path(__file__).resolve().parents[2]
     project = f"hg-pr-{tag}-{Path(topology).stem}"
@@ -137,6 +146,7 @@ def smoke(tag, topology, images):
         verify_server()
         if "pd" in images:
             verify_storage()
+        verify_graph(project.replace("-", "_"))
     except BaseException:
         failed = True
         for args in (["ps"], ["logs", "--no-color", "--tail", "200"]):
