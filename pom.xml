@@ -339,6 +339,7 @@
         </pluginManagement>
 
         <plugins>
+            <!-- Publish concrete versions throughout the dependency/parent model chain. -->
             <plugin>
                 <groupId>org.codehaus.mojo</groupId>
                 <artifactId>flatten-maven-plugin</artifactId>
