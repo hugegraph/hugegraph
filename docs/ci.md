@@ -67,8 +67,10 @@ PRs skip compilation, backend services, images and PR CodeQL; lightweight select
 checks still report. A source PR with a later documentation commit still tests its cumulative
 source changes. No result is reused from a previous run.
 
-Plans record the event head, tested base and merge. Checkout and PR source identities must
-match the event. A new source head invalidates the old run; target-branch advancement alone
+Plans record the event head and the actual merge commit and base tested. Checkout must match
+the event merge SHA, whose second parent must match the current PR head. Its first parent is
+the tested base; the event base may lag when master advances before checkout. A new source
+head invalidates the old run; target-branch advancement alone
 does not, matching non-strict branch protection. A selection/API failure conservatively selects
 all suites. A final metadata outage alone cannot invalidate completed Memory tests.
 Plans and actual results are diagnostics, not execution credentials for later runs.

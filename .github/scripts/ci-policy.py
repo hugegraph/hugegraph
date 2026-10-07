@@ -202,8 +202,11 @@ def create_plan(project, event, repository, fetch=api):
             if not all(isinstance(plan[key], str) and plan[key] for key in ("source", "base", "head", "branch")):
                 raise StaleInputError("PR event has an empty input identity")
             parents = git("show", "-s", "--format=%P", plan["testedMergeSHA"]).split()
-            if parents != [plan["base"], plan["head"]]:
+            if (plan["testedMergeSHA"] != os.environ.get("GITHUB_SHA")
+                    or len(parents) != 2 or parents[1] != plan["head"]):
                 raise StaleInputError("checkout is not the event PR merge; start a new PR run")
+            # The event base may lag the synthetic merge after the target branch advances.
+            plan["base"] = parents[0]
             require_current_pr(plan, fetch)
             # head/base objects must exist locally; workflow fetches both before planning.
             ancestor = git("merge-base", plan["base"], plan["head"])
