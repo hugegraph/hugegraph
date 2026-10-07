@@ -96,6 +96,8 @@ public class PDConfig implements InitializingBean {
     private Partition partition;
     @Autowired
     private Discovery discovery;
+    @Autowired
+    private SchemaSync schemaSync;
     private Map<String, String> initialStoreMap = null;
     private ConfigService configService;
     private IdService idService;
@@ -116,6 +118,9 @@ public class PDConfig implements InitializingBean {
             log.error("auth.secret-key is not configured, so every authenticated REST " +
                       "request will be refused. Add it to conf/application.yml (or set " +
                       "HG_PD_AUTH_SECRET_KEY) and give every REST client the same value.");
+        }
+        if (this.schemaSync != null) {
+            this.schemaSync.validate();
         }
     }
 
@@ -337,6 +342,66 @@ public class PDConfig implements InitializingBean {
         // that, the previous registration information will be deleted
         @Value("${discovery.heartbeat-try-count:3}")
         private int heartbeatOutTimes = 3;
+    }
+
+    /**
+     * Delivery of graph record changes to schema sync watches, all in milliseconds
+     */
+    @Data
+    @Configuration
+    public class SchemaSync {
+
+        // A change is sent once no newer one arrived for this long
+        @Value("${schema-sync.coalesce-window:50}")
+        private long coalesceWindow = 50L;
+        // ...but no later than this after the first change that was not sent
+        @Value("${schema-sync.max-wait:500}")
+        private long maxWait = 500L;
+        // First resend of an unacknowledged change; each resend doubles it
+        @Value("${schema-sync.retry-backoff:1000}")
+        private long retryBackoff = 1000L;
+        // A watch whose pending work saw no acknowledgment for this long is closed
+        @Value("${schema-sync.retry-budget:30000}")
+        private long retryBudget = 30000L;
+        // Interval of the Alive frames that renew a schema sync watch
+        @Value("${schema-sync.keepalive-interval:5000}")
+        private long keepaliveInterval = 5000L;
+
+        /**
+         * Rejects timings that would make the schema sync timer reschedule itself without
+         * pause, or close watches before they can answer: each must be between 1 ms and one
+         * day, max-wait at least coalesce-window, and retry-budget above retry-backoff. The
+         * upper bound keeps the deadlines and the doubled backoff far from overflowing.
+         *
+         * @throws IllegalArgumentException naming the option that is wrong
+         */
+        public void validate() {
+            checkRange("schema-sync.coalesce-window", this.coalesceWindow);
+            checkRange("schema-sync.max-wait", this.maxWait);
+            checkRange("schema-sync.retry-backoff", this.retryBackoff);
+            checkRange("schema-sync.retry-budget", this.retryBudget);
+            checkRange("schema-sync.keepalive-interval", this.keepaliveInterval);
+            if (this.maxWait < this.coalesceWindow) {
+                throw new IllegalArgumentException(String.format(
+                        "schema-sync.max-wait (%d ms) must be at least " +
+                        "schema-sync.coalesce-window (%d ms)", this.maxWait,
+                        this.coalesceWindow));
+            }
+            if (this.retryBudget <= this.retryBackoff) {
+                throw new IllegalArgumentException(String.format(
+                        "schema-sync.retry-budget (%d ms) must be greater than " +
+                        "schema-sync.retry-backoff (%d ms)", this.retryBudget,
+                        this.retryBackoff));
+            }
+        }
+
+        private void checkRange(String option, long millis) {
+            // One day
+            if (millis < 1L || millis > 86_400_000L) {
+                throw new IllegalArgumentException(String.format(
+                        "%s must be between 1 and 86400000 ms, got %d", option, millis));
+            }
+        }
     }
 
     @Data

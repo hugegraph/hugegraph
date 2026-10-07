@@ -40,4 +40,18 @@ public class PDConfigTest {
         Assert.assertTrue(text.contains("clusterId=123"));
         Assert.assertTrue(text.contains("dataPath=pd-test-data"));
     }
+
+    @Test
+    public void testInvalidSchemaSyncTimingFailsStartup() {
+        PDConfig config = new PDConfig();
+        PDConfig.SchemaSync sync = config.new SchemaSync();
+        config.setSchemaSync(sync);
+        config.afterPropertiesSet();
+
+        sync.setRetryBackoff(0L);
+        IllegalArgumentException e = Assert.assertThrows(IllegalArgumentException.class,
+                                                         config::afterPropertiesSet);
+        Assert.assertEquals("schema-sync.retry-backoff must be between 1 and 86400000 ms, " +
+                            "got 0", e.getMessage());
+    }
 }

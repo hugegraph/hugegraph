@@ -40,6 +40,7 @@ service KvService {
   rpc putTTL(TTLRequest) returns (TTLResponse);
   rpc keepTTLAlive(TTLRequest) returns (TTLResponse);
   rpc txn(TxnRequest) returns (TxnResponse);
+  rpc watchAck(WatchAckRequest) returns (WatchAckResponse);
 }
 
 /* requests */
@@ -116,6 +117,8 @@ enum WatchState {
   Started = 1;
   Leader_Changed = 2;
   Alive = 3;
+  // Schema sync watch only: every graph record under the prefix was sent, see watchAck
+  Synced = 4;
 }
 
 message WatchRequest {
@@ -123,6 +126,28 @@ message WatchRequest {
   WatchState state = 2;
   string key = 3;
   int64 clientId = 4;
+}
+
+/*
+ * Acknowledges a graph record event of a schema sync watch (a watchPrefix on
+ * HUGEGRAPH/{cluster}/SCHEMA_SYNC/) once the receiver finished processing it. The leader resends
+ * an unacknowledged record with backoff and closes the watch when the retry budget runs out.
+ */
+message WatchAckRequest {
+  pdpb.RequestHeader header = 1;
+  // The session that delivered the event
+  int64 clientId = 2;
+  // The graph record key
+  string key = 3;
+  // The rev of the record value that was processed
+  int64 revision = 4;
+}
+
+message WatchAckResponse {
+  pdpb.ResponseHeader header = 1;
+  // False when the session is unknown, or the revision was not sent to it or a newer accepted
+  // ACK already covers it; safe to ignore
+  bool accepted = 2;
 }
 
 message V{
@@ -147,7 +172,7 @@ message TTLResponse{
  * Atomic multi-key write, applied as one raft entry and one RocksDB write batch. Keys and
  * values share the namespace of put/get/scanPrefix. The compares run first, in order; when
  * one fails, or the graph record rejects the TXN, nothing but the replay guard is written.
- * TXN writes fire no watch events.
+ * TXN writes fire no plain watch events; the record change goes to the schema sync watches.
  */
 message TxnRequest {
   pdpb.RequestHeader header = 1;

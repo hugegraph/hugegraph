@@ -239,6 +239,19 @@ public class KvWatchSubject {
         });
     }
 
+    /**
+     * Ends one prefix watch stream and drops its registration; the client reconnects as a new
+     * session
+     */
+    public void closePrefixClient(String key, long clientId) {
+        String clientsKey = KvService.getKeyWithoutPrefix(ALL_PREFIX, PREFIX_DELIMITER, key,
+                                                          clientId);
+        StreamObserver<WatchResponse> observer = clients.get(clientsKey);
+        if (observer != null) {
+            removeClient(observer, clientsKey, KvService.getKeyWithoutPrefix(ALL_PREFIX, clientId));
+        }
+    }
+
     private void removeClient(StreamObserver<WatchResponse> value, String key, String clientKey) {
         try {
             log.info("remove null observer,client:", clientKey);
@@ -251,7 +264,11 @@ public class KvWatchSubject {
                     ((RaftKVStore) store).doRemoveByPrefix(kvService.getStoreKey(clientKey));
                 }
             }
-
+        } catch (PDException | RuntimeException e) {
+            log.error("remove client with error:", e);
+        } finally {
+            // Also when the registration could not be deleted: a stream left open here would
+            // keep being renewed, and its client would never reconnect
             if (value != null) {
                 synchronized (value) {
                     try {
@@ -262,8 +279,6 @@ public class KvWatchSubject {
                 }
             }
             clients.remove(key);
-        } catch (PDException e) {
-            log.error("remove client with error:", e);
         }
     }
 
