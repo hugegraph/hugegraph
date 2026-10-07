@@ -23,6 +23,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -64,6 +65,8 @@ public final class CachedGraphTransaction extends GraphTransaction {
     private static final float DEFAULT_LEVEL_RATIO = 0.001f;
     private static final long AVG_VERTEX_ENTRY_SIZE = 40L;
     private static final long AVG_EDGE_ENTRY_SIZE = 100L;
+    private static final String VERTEX_CACHE_PREFIX = "vertex";
+    private static final String EDGE_CACHE_PREFIX = "edge";
 
     /*
      * Listener lifetime must cover all active transactions for the graph.
@@ -98,13 +101,13 @@ public final class CachedGraphTransaction extends GraphTransaction {
         String type = conf.get(CoreOptions.VERTEX_CACHE_TYPE);
         long capacity = conf.get(CoreOptions.VERTEX_CACHE_CAPACITY);
         int expire = conf.get(CoreOptions.VERTEX_CACHE_EXPIRE);
-        this.verticesCache = this.cache("vertex", type, capacity,
+        this.verticesCache = this.cache(VERTEX_CACHE_PREFIX, type, capacity,
                                         AVG_VERTEX_ENTRY_SIZE, expire);
 
         type = conf.get(CoreOptions.EDGE_CACHE_TYPE);
         capacity = conf.get(CoreOptions.EDGE_CACHE_CAPACITY);
         expire = conf.get(CoreOptions.EDGE_CACHE_EXPIRE);
-        this.edgesCache = this.cache("edge", type, capacity,
+        this.edgesCache = this.cache(EDGE_CACHE_PREFIX, type, capacity,
                                      AVG_EDGE_ENTRY_SIZE, expire);
 
         this.listenChanges();
@@ -119,9 +122,27 @@ public final class CachedGraphTransaction extends GraphTransaction {
         }
     }
 
+    /**
+     * Clears the vertex and edge caches of the graph, which exist without an open transaction
+     * of it as well
+     */
+    public static void clearGraphCache(String spaceGraphName) {
+        Map<String, Cache<Id, Object>> caches = CacheManager.instance().caches();
+        for (String prefix : new String[]{VERTEX_CACHE_PREFIX, EDGE_CACHE_PREFIX}) {
+            Cache<Id, Object> cache = caches.get(cacheName(prefix, spaceGraphName));
+            if (cache != null) {
+                cache.clear();
+            }
+        }
+    }
+
+    private static String cacheName(String prefix, String spaceGraphName) {
+        return prefix + "-" + spaceGraphName;
+    }
+
     private Cache<Id, Object> cache(String prefix, String type, long capacity,
                                     long entrySize, long expire) {
-        String name = prefix + "-" + this.params().spaceGraphName();
+        String name = cacheName(prefix, this.params().spaceGraphName());
         Cache<Id, Object> cache;
         switch (type) {
             case "l1":

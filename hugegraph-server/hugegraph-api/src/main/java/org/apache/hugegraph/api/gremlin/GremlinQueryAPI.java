@@ -17,6 +17,7 @@
 
 package org.apache.hugegraph.api.gremlin;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -24,6 +25,7 @@ import org.apache.hugegraph.api.API;
 import org.apache.hugegraph.config.HugeConfig;
 import org.apache.hugegraph.config.ServerOptions;
 import org.apache.hugegraph.exception.HugeGremlinException;
+import org.apache.hugegraph.meta.SchemaSyncClient;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -46,6 +48,8 @@ public class GremlinQueryAPI extends API {
             "org.apache.hugegraph.",
             "org.apache.tinkerpop.gremlin.process.traversal.util.FastNoSuchElementException"
     );
+    private static final String SYNCING_EXCEPTION =
+            SchemaSyncClient.SyncingException.class.getName();
 
     @Context
     private Provider<HugeConfig> configProvider;
@@ -89,12 +93,28 @@ public class GremlinQueryAPI extends API {
         @SuppressWarnings("unchecked")
         Map<String, Object> map = response.readEntity(Map.class);
         String exClassName = (String) map.get("Exception-Class");
-        if (FORBIDDEN_REQUEST_EXCEPTIONS.contains(exClassName)) {
+        if (isSyncing(exClassName, map.get("exceptions"))) {
+            // Like a REST request: the graph is served again once its schema synced with PD
+            status = Response.Status.SERVICE_UNAVAILABLE;
+        } else if (FORBIDDEN_REQUEST_EXCEPTIONS.contains(exClassName)) {
             status = Response.Status.FORBIDDEN;
         } else if (matchBadRequestException(exClassName)) {
             status = Response.Status.BAD_REQUEST;
         }
         throw new HugeGremlinException(status.getStatusCode(), map);
+    }
+
+    /**
+     * Whether the Gremlin Server failed the script for a graph whose schema is not synced: it
+     * answers that with 500, as any script failure
+     *
+     * @param exceptions the classes of the exception chain the Gremlin Server reports
+     */
+    private static boolean isSyncing(String exClass, Object exceptions) {
+        if (SYNCING_EXCEPTION.equals(exClass)) {
+            return true;
+        }
+        return exceptions instanceof List && ((List<?>) exceptions).contains(SYNCING_EXCEPTION);
     }
 
     private static boolean matchBadRequestException(String exClass) {

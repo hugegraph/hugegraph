@@ -26,6 +26,7 @@ import org.apache.hugegraph.backend.tx.GraphIndexTransactionTest;
 import org.apache.hugegraph.backend.tx.GraphTransactionTest;
 import org.apache.hugegraph.meta.EtcdMetaDriverTest;
 import org.apache.hugegraph.meta.MetaManagerSchemaCacheClearEventTest;
+import org.apache.hugegraph.meta.SchemaSyncClientTest;
 import org.apache.hugegraph.meta.managers.AuthMetaManagerTest;
 import org.apache.hugegraph.meta.managers.SchemaMetaManagerTest;
 import org.apache.hugegraph.store.client.OrderedScanSecurityTest;
@@ -42,6 +43,7 @@ import org.apache.hugegraph.unit.cache.CacheManagerTest;
 import org.apache.hugegraph.unit.cache.CacheTest;
 import org.apache.hugegraph.unit.cache.CachedGraphTransactionTest;
 import org.apache.hugegraph.unit.cache.CachedSchemaTransactionTest;
+import org.apache.hugegraph.unit.cache.CachedSchemaTransactionV2Test;
 import org.apache.hugegraph.unit.cache.RamTableTest;
 import org.apache.hugegraph.unit.cmd.InitStoreConfigTest;
 import org.apache.hugegraph.unit.core.AnalyzerTest;
@@ -127,6 +129,7 @@ import org.junit.runners.Suite;
         StandardAuthManagerV2Test.class,
         AuthMetaManagerTest.class,
         SchemaMetaManagerTest.class,
+        SchemaSyncClientTest.class,
 
         /* api space */
         GraphSpaceAPITest.class,
@@ -137,6 +140,7 @@ import org.junit.runners.Suite;
         CacheTest.OffheapCacheTest.class,
         CacheTest.LevelCacheTest.class,
         CachedSchemaTransactionTest.class,
+        CachedSchemaTransactionV2Test.class,
         MetaManagerSchemaCacheClearEventTest.class,
         EtcdMetaDriverTest.class,
         CachedGraphTransactionTest.class,

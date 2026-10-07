@@ -83,6 +83,12 @@ public class VertexLabelRemoveJob extends SchemaJob {
                 for (Id ilId : indexLabelIds) {
                     IndexLabelRemoveJob.removeIndexLabel(graph, ilId);
                 }
+                // Removing the index labels saved a new vertex label object: writes
+                // invalidate the schema cache instead of updating the cached one
+                VertexLabel latest = schemaTx.getVertexLabel(id);
+                if (latest != null) {
+                    vertexLabel = latest;
+                }
                 // TODO: use event to replace direct call
                 // Deleting a vertex will automatically deletes the held edge
                 graphTx.removeVertices(vertexLabel);
@@ -94,8 +100,15 @@ public class VertexLabelRemoveJob extends SchemaJob {
                 // Remove vertex label
                 removeSchema(schemaTx, vertexLabel);
             } catch (Throwable e) {
-                schemaTx.updateSchemaStatus(vertexLabel,
-                                            SchemaStatus.UNDELETED);
+                /*
+                 * Restore the status on the label as stored now: the object read before
+                 * still lists the index labels removed meanwhile, saving it would bring their
+                 * ids back
+                 */
+                VertexLabel current = schemaTx.getVertexLabel(id);
+                if (current != null) {
+                    schemaTx.updateSchemaStatus(current, SchemaStatus.UNDELETED);
+                }
                 throw e;
             }
         } finally {

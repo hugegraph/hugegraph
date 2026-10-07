@@ -130,27 +130,35 @@ public class CachedSchemaTransactionV2 extends SchemaTransactionV2 {
         return prefix + "-" + spaceGraphName;
     }
 
-    private static void clearSchemaCache(String spaceGraphName) {
-        Map<String, Cache<Id, Object>> caches = CacheManager.instance().caches();
+    /**
+     * Clears the schema caches of the graph and advances their generation, under their lock,
+     * so a read that started before can't put what it read into them. Clears the vertex and
+     * edge caches of the graph as well: their elements hold the label objects of the schema
+     * from before the change.
+     */
+    public static void clearSchemaCache(String spaceGraphName) {
+        clearSchemaCaches(spaceGraphName);
+        CachedGraphTransaction.clearGraphCache(spaceGraphName);
+    }
 
-        // Clear name cache first so the (name -> id -> object) lookup path
-        // fails fast instead of returning a stale object backed by an
-        // already-empty id cache during the TOCTOU window.
+    private static void clearSchemaCaches(String spaceGraphName) {
+        Map<String, Cache<Id, Object>> caches = CacheManager.instance().caches();
         Cache<Id, Object> nameCache = caches.get(cacheName(NAME_CACHE_PREFIX,
                                                            spaceGraphName));
-        if (nameCache != null) {
-            nameCache.clear();
-        }
-
         Cache<Id, Object> idCache = caches.get(cacheName(ID_CACHE_PREFIX,
                                                          spaceGraphName));
-        if (idCache != null) {
-            SchemaCaches<?> arrayCaches = idCache.attachment();
-            if (arrayCaches != null) {
-                arrayCaches.clear();
+        SchemaCaches<?> arrayCaches = idCache == null ? null : idCache.attachment();
+        if (arrayCaches == null) {
+            // No transaction of the graph got far enough to read through these caches
+            if (nameCache != null) {
+                nameCache.clear();
             }
-            idCache.clear();
+            if (idCache != null) {
+                idCache.clear();
+            }
+            return;
         }
+        arrayCaches.clearAll(nameCache, idCache);
     }
 
     private void listenChanges() {
@@ -179,23 +187,7 @@ public class CachedSchemaTransactionV2 extends SchemaTransactionV2 {
                             "Expect event action argument");
             if (Cache.ACTION_INVALID.equals(args[0])) {
                 event.checkArgs(String.class, HugeType.class, Id.class);
-                HugeType type = (HugeType) args[1];
-                Id id = (Id) args[2];
-                this.arrayCaches.remove(type, id);
-
-                id = generateId(type, id);
-                Object value = this.idCache.get(id);
-                if (value != null) {
-                    // Invalidate id cache
-                    this.idCache.invalidate(id);
-
-                    // Invalidate name cache
-                    SchemaElement schema = (SchemaElement) value;
-                    Id prefixedName = generateId(schema.type(),
-                                                 schema.name());
-                    this.nameCache.invalidate(prefixedName);
-                }
-                this.resetCachedAll(type);
+                this.invalidateCache((HugeType) args[1], (Id) args[2], null);
                 return true;
             } else if (Cache.ACTION_CLEAR.equals(args[0])) {
                 event.checkArgs(String.class, HugeType.class);
@@ -249,6 +241,11 @@ public class CachedSchemaTransactionV2 extends SchemaTransactionV2 {
         if (events == null) {
             return;
         }
+        /*
+         * The cache clear event of Servers before the PD schema sync; SchemaSyncClient now
+         * invalidates every Server, the writer included. Kept for the mixed-version window
+         * (with DDL frozen meanwhile), it can be removed once all Servers run this version.
+         */
         for (SchemaCacheClearEvent event : events) {
             if (SCHEMA_CACHE_CLEAR_SOURCE.equals(event.source())) {
                 continue;
@@ -260,11 +257,7 @@ public class CachedSchemaTransactionV2 extends SchemaTransactionV2 {
     }
 
     public void clearCache(boolean notify) {
-        // Same TOCTOU ordering as clearSchemaCache(String): clear nameCache
-        // first, then the array attachment, then idCache last.
-        this.nameCache.clear();
-        this.arrayCaches.clear();
-        this.idCache.clear();
+        this.arrayCaches.clearAll(this.nameCache, this.idCache);
 
         if (notify) {
             this.maybeNotifySchemaCacheClear();
@@ -293,25 +286,55 @@ public class CachedSchemaTransactionV2 extends SchemaTransactionV2 {
         return this.arrayCaches.cachedTypes();
     }
 
-    private void resetCachedAll(HugeType type) {
-        // Set the cache all flag of the schema type to false
-        this.cachedTypes().put(type, false);
+    /**
+     * Drops an element from the caches and the complete-listing flag of its type, under the
+     * cache lock and advancing the generation, so a read that started before the change can't
+     * put the old element back
+     */
+    private void invalidateCache(HugeType type, Id id, String name) {
+        Id prefixedId = generateId(type, id);
+        synchronized (this.arrayCaches) {
+            Object value = this.idCache.get(prefixedId);
+            this.idCache.invalidate(prefixedId);
+            if (value != null) {
+                SchemaElement schema = (SchemaElement) value;
+                this.nameCache.invalidate(generateId(schema.type(), schema.name()));
+            }
+            if (name != null) {
+                this.nameCache.invalidate(generateId(type, name));
+            }
+            this.arrayCaches.remove(type, id);
+            this.cachedTypes().put(type, false);
+            this.arrayCaches.generation++;
+        }
     }
 
-    private void invalidateCache(HugeType type, Id id) {
-        // remove from id cache and name cache
-        Id prefixedId = generateId(type, id);
-        Object value = this.idCache.get(prefixedId);
-        if (value != null) {
-            this.idCache.invalidate(prefixedId);
-
-            SchemaElement schema = (SchemaElement) value;
-            Id prefixedName = generateId(schema.type(), schema.name());
-            this.nameCache.invalidate(prefixedName);
+    /**
+     * Writes invalidate after the commit instead of caching the written object: a change
+     * notified meanwhile can't be overwritten by an object from before the commit
+     */
+    private void invalidateCache(SchemaElement schema) {
+        this.invalidateCache(schema.type(), schema.id(), schema.name());
+        // Cached vertices and edges hold the label object, no longer updated in place
+        EventHub graphEventHub = this.graphParams().graphEventHub();
+        if (schema.type() == HugeType.VERTEX_LABEL) {
+            graphEventHub.notifySync(Events.CACHE, Cache.ACTION_CLEAR, HugeType.VERTEX);
         }
+        if (schema.type() == HugeType.VERTEX_LABEL || schema.type() == HugeType.EDGE_LABEL) {
+            graphEventHub.notifySync(Events.CACHE, Cache.ACTION_CLEAR, HugeType.EDGE);
+        }
+    }
 
-        // remove from optimized array cache
-        this.arrayCaches.remove(type, id);
+    /**
+     * Puts what a read found into the caches, unless they were invalidated since the read
+     * started at the given generation
+     */
+    private void populate(long generation, Runnable update) {
+        synchronized (this.arrayCaches) {
+            if (this.arrayCaches.generation == generation) {
+                update.run();
+            }
+        }
     }
 
     @Override
@@ -319,7 +342,7 @@ public class CachedSchemaTransactionV2 extends SchemaTransactionV2 {
                                 Consumer<SchemaElement> updateCallback) {
         super.updateSchema(schema, updateCallback);
 
-        this.updateCache(schema);
+        this.invalidateCache(schema);
         // Status transitions are internal bookkeeping; notifying here causes a
         // broadcast storm for every updateSchemaStatus() call from background jobs.
     }
@@ -328,7 +351,7 @@ public class CachedSchemaTransactionV2 extends SchemaTransactionV2 {
     protected void addSchema(SchemaElement schema) {
         super.addSchema(schema);
 
-        this.updateCache(schema);
+        this.invalidateCache(schema);
 
         // Schema additions must always propagate to remote nodes regardless
         // of TASK_SYNC_DELETION (which only gates removal flows).
@@ -339,35 +362,19 @@ public class CachedSchemaTransactionV2 extends SchemaTransactionV2 {
     public void addIndexLabel(SchemaLabel baseLabel, IndexLabel indexLabel) {
         SchemaLabel written = this.saveIndexLabel(baseLabel, indexLabel);
 
-        // Both were written in one commit, cache them as addSchema and updateSchema do; the
-        // base label as written, with the index labels other Servers added to it
-        this.updateCache(indexLabel);
+        // Both were written in one commit, invalidate them as addSchema and updateSchema do
+        this.invalidateCache(indexLabel);
         if (written != null) {
-            this.updateCache(written);
+            this.invalidateCache(written);
         }
         this.notifySchemaCacheClear();
-    }
-
-    private void updateCache(SchemaElement schema) {
-        this.resetCachedAllIfReachedCapacity();
-
-        // update id cache
-        Id prefixedId = generateId(schema.type(), schema.id());
-        this.idCache.update(prefixedId, schema);
-
-        // update name cache
-        Id prefixedName = generateId(schema.type(), schema.name());
-        this.nameCache.update(prefixedName, schema);
-
-        // update optimized array cache
-        this.arrayCaches.updateIfNeeded(schema);
     }
 
     @Override
     public void removeSchema(SchemaElement schema) {
         super.removeSchema(schema);
 
-        this.invalidateCache(schema.type(), schema.id());
+        this.invalidateCache(schema);
 
         this.maybeNotifySchemaCacheClear();
     }
@@ -399,24 +406,26 @@ public class CachedSchemaTransactionV2 extends SchemaTransactionV2 {
             }
         }
 
+        long generation = this.arrayCaches.generation;
         Id prefixedId = generateId(type, id);
         Object value = this.idCache.get(prefixedId);
-        if (value == null) {
+        boolean missed = value == null;
+        if (missed) {
+            // Read outside the cache lock
             value = super.getSchema(type, id);
-            if (value != null) {
-                this.resetCachedAllIfReachedCapacity();
-
-                this.idCache.update(prefixedId, value);
-
-                SchemaElement schema = (SchemaElement) value;
-                Id prefixedName = generateId(schema.type(), schema.name());
-                this.nameCache.update(prefixedName, schema);
-            }
         }
-
-        // update optimized array cache
-        this.arrayCaches.updateIfNeeded((SchemaElement) value);
-
+        if (value != null) {
+            SchemaElement schema = (SchemaElement) value;
+            this.populate(generation, () -> {
+                if (missed) {
+                    this.resetCachedAllIfReachedCapacity();
+                    this.idCache.update(prefixedId, schema);
+                    this.nameCache.update(generateId(schema.type(), schema.name()), schema);
+                }
+                // update optimized array cache
+                this.arrayCaches.updateIfNeeded(schema);
+            });
+        }
         return (T) value;
     }
 
@@ -439,10 +448,12 @@ public class CachedSchemaTransactionV2 extends SchemaTransactionV2 {
 
     @Override
     protected <T extends SchemaElement> List<T> getAllSchema(HugeType type) {
-        Boolean cachedAll = this.cachedTypes().getOrDefault(type, false);
-        List<T> results;
-        if (cachedAll) {
-            results = new ArrayList<>();
+        while (true) {
+            long generation = this.arrayCaches.generation;
+            if (!this.cachedTypes().getOrDefault(type, false)) {
+                break;
+            }
+            List<T> results = new ArrayList<>();
             // Get from cache
             this.idCache.traverse(value -> {
                 @SuppressWarnings("unchecked")
@@ -451,12 +462,19 @@ public class CachedSchemaTransactionV2 extends SchemaTransactionV2 {
                     results.add(schema);
                 }
             });
-            return results;
-        } else {
-            results = super.getAllSchema(type);
-            long free = this.idCache.capacity() - this.idCache.size();
-            if (results.size() <= free) {
-                // Update cache
+            // An invalidation during the traversal may have cut the list short: list again
+            if (this.arrayCaches.generation == generation &&
+                this.cachedTypes().getOrDefault(type, false)) {
+                return results;
+            }
+        }
+
+        long generation = this.arrayCaches.generation;
+        // Read outside the cache lock
+        List<T> results = super.getAllSchema(type);
+        long free = this.idCache.capacity() - this.idCache.size();
+        if (results.size() <= free) {
+            this.populate(generation, () -> {
                 for (T schema : results) {
                     Id prefixedId = generateId(schema.type(), schema.id());
                     this.idCache.update(prefixedId, schema);
@@ -464,10 +482,11 @@ public class CachedSchemaTransactionV2 extends SchemaTransactionV2 {
                     Id prefixedName = generateId(schema.type(), schema.name());
                     this.nameCache.update(prefixedName, schema);
                 }
-                this.cachedTypes().putIfAbsent(type, true);
-            }
-            return results;
+                // Replaces the false an invalidation left; the generation is unchanged
+                this.cachedTypes().put(type, true);
+            });
         }
+        return results;
     }
 
     private void loadAllSchema() {
@@ -503,6 +522,13 @@ public class CachedSchemaTransactionV2 extends SchemaTransactionV2 {
         private final IntObjectMap<V> ils;
 
         private final CachedTypes cachedTypes;
+
+        /*
+         * Advanced by every invalidation, under the lock of this object, which is shared by all
+         * schema transactions of the graph: a read populates the caches only if the generation
+         * did not change since it started
+         */
+        private volatile long generation;
 
         public SchemaCaches(int size) {
             // TODO: improve size of each type for optimized array cache
@@ -619,6 +645,20 @@ public class CachedSchemaTransactionV2 extends SchemaTransactionV2 {
             this.ils.clear();
 
             this.cachedTypes.clear();
+        }
+
+        public synchronized void clearAll(Cache<Id, Object> nameCache,
+                                          Cache<Id, Object> idCache) {
+            // Clear name cache first so the (name -> id -> object) lookup path fails fast
+            // instead of returning a stale object backed by an already-empty id cache
+            if (nameCache != null) {
+                nameCache.clear();
+            }
+            this.clear();
+            if (idCache != null) {
+                idCache.clear();
+            }
+            this.generation++;
         }
 
         public CachedTypes cachedTypes() {

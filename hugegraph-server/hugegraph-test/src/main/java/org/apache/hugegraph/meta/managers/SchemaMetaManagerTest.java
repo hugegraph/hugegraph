@@ -29,6 +29,7 @@ import org.apache.hugegraph.backend.tx.SchemaTransactionV2;
 import org.apache.hugegraph.meta.MetaDriver;
 import org.apache.hugegraph.meta.MetaManager;
 import org.apache.hugegraph.meta.PdMetaDriver;
+import org.apache.hugegraph.meta.SchemaSyncClient;
 import org.apache.hugegraph.pd.grpc.kv.TxnCompare;
 import org.apache.hugegraph.pd.grpc.kv.TxnOp;
 import org.apache.hugegraph.pd.grpc.kv.TxnRecord;
@@ -105,9 +106,12 @@ public class SchemaMetaManagerTest {
     }
 
     @Test
-    public void testOpenIncarnation() {
-        // No record (a graph created before the upgrade): an empty BUMP creates it
-        Assert.assertEquals(1L, this.manager.openIncarnation("DEFAULT", "g"));
+    public void testOpenRecord() {
+        // A graph from before the upgrade: an empty BUMP creates its record at open
+        SchemaSyncClient.Record record = this.manager.openRecord("DEFAULT", "g");
+        Assert.assertEquals(1L, record.incarnation());
+        Assert.assertEquals(7L, record.revision());
+        Assert.assertFalse(record.dropped());
         TxnRequest request = this.lastCommit();
         Assert.assertEquals(0, request.getOpsCount());
         assertBump(request, 0L);
@@ -115,11 +119,13 @@ public class SchemaMetaManagerTest {
         Mockito.clearInvocations(this.driver);
         Mockito.when(this.driver.get(RECORD))
                .thenReturn("{\"rev\":9,\"inc\":3,\"state\":\"LIVE\"}");
-        Assert.assertEquals(3L, this.manager.openIncarnation("DEFAULT", "g"));
+        Assert.assertEquals(3L, this.manager.openRecord("DEFAULT", "g").incarnation());
         // A dropped graph keeps its incarnation, so a later recreate doesn't let it write
         Mockito.when(this.driver.get(RECORD))
                .thenReturn("{\"rev\":10,\"inc\":3,\"state\":\"DROPPED\"}");
-        Assert.assertEquals(3L, this.manager.openIncarnation("DEFAULT", "g"));
+        record = this.manager.openRecord("DEFAULT", "g");
+        Assert.assertEquals(3L, record.incarnation());
+        Assert.assertTrue(record.dropped());
         Mockito.verify(this.driver, Mockito.never()).commit(Mockito.any());
     }
 
@@ -136,15 +142,15 @@ public class SchemaMetaManagerTest {
         AtomicLong incB = new AtomicLong();
         SchemaMetaManager serverB = new SchemaMetaManager(pd.driver(), "hg", null, incB);
 
-        incA.set(serverA.openIncarnation("DEFAULT", "g"));
+        incA.set(serverA.openRecord("DEFAULT", "g").incarnation());
         Assert.assertEquals(1L, incA.get());
-        incB.set(serverB.openIncarnation("DEFAULT", "g"));
+        incB.set(serverB.openRecord("DEFAULT", "g").incarnation());
         Assert.assertEquals(1L, incB.get());
 
         // Server B drops the graph and creates it again
         serverB.dropGraph("DEFAULT", "g", incB.get());
         Assert.assertTrue(serverB.createGraph("DEFAULT", "g").getSucceeded());
-        AtomicLong incNew = new AtomicLong(serverB.openIncarnation("DEFAULT", "g"));
+        AtomicLong incNew = new AtomicLong(serverB.openRecord("DEFAULT", "g").incarnation());
         Assert.assertEquals(2L, incNew.get());
         new SchemaMetaManager(pd.driver(), "hg", null, incNew).saveSchema(
                 "DEFAULT", "g", new PropertyKey(null, IdGenerator.of(1), "new"));
@@ -184,7 +190,7 @@ public class SchemaMetaManagerTest {
     public void testInstanceOpenedOnADroppedGraphCantWriteARecreatedOne() {
         Mockito.when(this.driver.get(RECORD))
                .thenReturn("{\"rev\":10,\"inc\":3,\"state\":\"DROPPED\"}");
-        this.incarnation.set(this.manager.openIncarnation("DEFAULT", "g"));
+        this.incarnation.set(this.manager.openRecord("DEFAULT", "g").incarnation());
         // PD answers as for a record recreated with incarnation 4
         Mockito.when(this.driver.commit(Mockito.any())).thenReturn(
                 TxnResponse.newBuilder()
@@ -311,8 +317,8 @@ public class SchemaMetaManagerTest {
         AtomicLong incB = new AtomicLong();
         SchemaMetaManager serverB = new SchemaMetaManager(pd.driver(), "hg", null, incB);
         serverA.createGraph("DEFAULT", "g");
-        incA.set(serverA.openIncarnation("DEFAULT", "g"));
-        incB.set(serverB.openIncarnation("DEFAULT", "g"));
+        incA.set(serverA.openRecord("DEFAULT", "g").incarnation());
+        incB.set(serverB.openRecord("DEFAULT", "g").incarnation());
         serverA.saveSchema("DEFAULT", "g", new VertexLabel(null, IdGenerator.of(2), "person"));
 
         // Each Server holds the label as it was before either index label

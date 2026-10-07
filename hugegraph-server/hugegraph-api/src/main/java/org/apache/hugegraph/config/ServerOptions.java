@@ -202,6 +202,17 @@ public class ServerOptions extends OptionHolder {
                     300
             );
 
+    public static final ConfigOption<Long> SCHEMA_SYNC_SESSION_TIMEOUT =
+            new ConfigOption<>(
+                    "schema_sync.session_timeout",
+                    "With hstore graphs, the milliseconds the schema sync watch " +
+                    "on PD may send nothing before new requests to the graphs " +
+                    "are refused (HTTP 503) until a new session synced; keep " +
+                    "it about 3 times PD's schema-sync.keepalive-interval.",
+                    positiveInt(),
+                    15000L
+            );
+
     public static final ConfigOption<Boolean> SERVER_USE_K8S =
             new ConfigOption<>(
                     "server.use_k8s",

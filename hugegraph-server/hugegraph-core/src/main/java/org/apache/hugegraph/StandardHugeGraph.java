@@ -74,6 +74,7 @@ import org.apache.hugegraph.masterelection.GlobalMasterInfo;
 import org.apache.hugegraph.memory.MemoryManager;
 import org.apache.hugegraph.memory.util.RoundUtil;
 import org.apache.hugegraph.meta.MetaManager;
+import org.apache.hugegraph.meta.SchemaSyncClient;
 import org.apache.hugegraph.perf.PerfUtil.Watched;
 import org.apache.hugegraph.rpc.RpcServiceConfig4Client;
 import org.apache.hugegraph.rpc.RpcServiceConfig4Server;
@@ -173,6 +174,8 @@ public class StandardHugeGraph implements HugeGraph {
     private final RamTable ramtable;
     private volatile boolean started;
     private volatile boolean closed;
+    // Null unless the graph is on HStore
+    private SchemaSyncClient.GraphSync schemaSync;
     private volatile GraphMode mode;
     private volatile GraphReadMode readMode;
     private volatile HugeVariables variables;
@@ -273,10 +276,7 @@ public class StandardHugeGraph implements HugeGraph {
 
         try {
             if (isHstore()) {
-                // Writes of this instance must not reach a later incarnation of the graph
-                long incarnation = MetaManager.instance().schemaMetaManager()
-                                              .openIncarnation(this.graphSpace(), this.name());
-                this.params.schemaIncarnation().set(incarnation);
+                this.openSchemaSync();
             }
             this.tx = new TinkerPopTransaction(this);
             boolean supportsPersistence = this.backendStoreFeatures().supportsPersistence();
@@ -292,9 +292,34 @@ public class StandardHugeGraph implements HugeGraph {
             }
             this.variables = null;
         } catch (Exception e) {
+            if (this.schemaSync != null) {
+                this.schemaSync.close();
+            }
             this.storeProvider.close();
             LockUtil.destroy(this.spaceGraphName());
             throw e;
+        }
+    }
+
+    private void openSchemaSync() {
+        MetaManager meta = MetaManager.instance();
+        SchemaSyncClient.Record record = meta.schemaMetaManager()
+                                             .openRecord(this.graphSpace(), this.name());
+        // Writes of this instance must not reach a later incarnation of the graph
+        this.params.schemaIncarnation().set(record.incarnation());
+        String spaceGraph = this.spaceGraphName();
+        this.schemaSync = SchemaSyncClient.start(meta).register(
+                this.graphSpace(), this.name(), record,
+                () -> CachedSchemaTransactionV2.clearSchemaCache(spaceGraph));
+    }
+
+    /**
+     * Gremlin requests reach the graph here rather than through the REST gate: the first
+     * access of a request fails while the schema is not synced, later ones are in flight
+     */
+    private void admitRequest() {
+        if (this.schemaSync != null) {
+            this.schemaSync.admit();
         }
     }
 
@@ -682,6 +707,7 @@ public class StandardHugeGraph implements HugeGraph {
 
     private SysTransaction systemTransaction() {
         this.checkGraphNotClosed();
+        this.admitRequest();
         /*
          * NOTE: system operations must be committed manually,
          * Maybe users need to auto open tinkerpop tx by readWrite().
@@ -693,6 +719,7 @@ public class StandardHugeGraph implements HugeGraph {
     @Watched
     private GraphTransaction graphTransaction() {
         this.checkGraphNotClosed();
+        this.admitRequest();
         /*
          * NOTE: graph operations must be committed manually,
          * Maybe users need to auto open tinkerpop tx by readWrite().
@@ -1124,6 +1151,9 @@ public class StandardHugeGraph implements HugeGraph {
             this.authManager.close();
         }
         this.taskManager.closeScheduler(this.params);
+        if (this.schemaSync != null) {
+            this.schemaSync.close();
+        }
         try {
             this.closeTx();
         } finally {
@@ -1215,6 +1245,7 @@ public class StandardHugeGraph implements HugeGraph {
 
     public ISchemaTransaction schemaTransaction() {
         this.checkGraphNotClosed();
+        this.admitRequest();
         /*
          * NOTE: each schema operation will be auto committed,
          * Don't need to open tinkerpop tx by readWrite() and commit manually.

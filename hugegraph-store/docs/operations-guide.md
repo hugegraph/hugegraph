@@ -751,6 +751,47 @@ that line with the prefix your data lives under (1.7.0: `hg-test`; a master
 snapshot from that window: `hg`) and set `cluster` in `rest-server.properties`
 to the prefix that holds your data.
 
+### Schema Cache Sync (PD Before Server)
+
+A Server keeps the schema caches of its HStore graphs in step with PD over one schema sync
+watch on `HUGEGRAPH/<cluster>/SCHEMA_SYNC/`. PD sends every graph record, then `Synced`, then
+each schema change; the Server clears the graph's schema caches (and its vertex and edge
+caches, which hold the old labels) and acknowledges the change. A Server serves its HStore
+graphs only while that watch is synced:
+
+- From startup until the first `Synced`, after the watch closed until a new one is synced,
+  and once PD sent nothing for `schema_sync.session_timeout` (`rest-server.properties`,
+  default `15000` ms, keep it about 3x PD's `schema-sync.keepalive-interval`), new REST and
+  Gremlin requests to these graphs get HTTP 503 with a message naming the state, and the
+  task scheduler starts no task. Requests already running are not interrupted. Retry after
+  a short delay; the Server reconnects on its own.
+- When clearing a graph's caches for a change fails, that graph answers 503 until PD resends
+  the change and the clear succeeds.
+- A graph that was dropped, or dropped and created again, answers 503 with "is no longer
+  served" on the Servers that still have the old instance open.
+- If the watch stops for good after a non-retryable error from PD (for example
+  `PERMISSION_DENIED` or `UNIMPLEMENTED`), every HStore graph of that Server answers 503
+  with "not served until the Server restarts". Fix the cause on PD, then restart the Server.
+
+The state is the gauge `org.apache.hugegraph.meta.SchemaSyncClient.state` in the Server
+metrics: `0` SYNCING, `1` READY, `2` STALE, `3` CLOSED, `-1` when no HStore graph is open.
+PD settings and metrics of the watch are in the
+[PD configuration guide](../../hugegraph-pd/docs/configuration.md#schema-sync-settings).
+
+Upgrading to the first release with schema cache sync:
+
+1. Upgrade every PD node first. A new Server against an old PD never gets `Synced`, so it
+   answers 503 for all of its HStore graphs.
+2. Freeze DDL (schema create, update and remove) until every Server runs the new version. An
+   old Server does not write the graph records, so a change it makes reaches the other
+   Servers only through the old best effort cache clear event, and an old Server never
+   learns of a change from the watch.
+3. Upgrade the Servers one at a time. Each one returns 503 for its HStore graphs from
+   startup until its watch is synced, normally a few seconds.
+4. Allow DDL again once no old Server is left.
+
+To roll back a Server, freeze DDL again before starting the old version.
+
 ### Rollback Procedure
 
 If upgrade fails:

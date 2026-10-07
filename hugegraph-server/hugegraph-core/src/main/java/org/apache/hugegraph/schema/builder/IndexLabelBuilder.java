@@ -213,6 +213,11 @@ public class IndexLabelBuilder extends AbstractBuilder
             // Async delete index label which is prefix of the new index label
             // TODO: use event to replace direct call
             Set<Id> removeTasks = this.removeSubIndex(schemaLabel);
+            if (!removeTasks.isEmpty()) {
+                // A finished removal saved the base label as a new object: the schema cache is
+                // invalidated on writes, not updated in place
+                schemaLabel = this.loadBaseLabel();
+            }
 
             indexLabel = this.build();
             assert indexLabel.name().equals(name);
