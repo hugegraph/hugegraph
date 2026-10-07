@@ -25,7 +25,7 @@ matches the reviewed cluster plus Hubble render:
         app.kubernetes.io/instance: RELEASE-NAME
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: hugegraph
-        app.kubernetes.io/version: 1.8.0
+        app.kubernetes.io/version: latest
         helm.sh/chart: hugegraph-0.1.1
       name: RELEASE-NAME-hugegraph-pd
     spec:
@@ -96,7 +96,7 @@ matches the reviewed cluster plus Hubble render:
         app.kubernetes.io/instance: RELEASE-NAME
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: hugegraph
-        app.kubernetes.io/version: 1.8.0
+        app.kubernetes.io/version: latest
         helm.sh/chart: hugegraph-0.1.1
       name: RELEASE-NAME-hugegraph-store
     spec:
@@ -173,7 +173,7 @@ matches the reviewed cluster plus Hubble render:
         app.kubernetes.io/instance: RELEASE-NAME
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: hugegraph
-        app.kubernetes.io/version: 1.8.0
+        app.kubernetes.io/version: latest
         helm.sh/chart: hugegraph-0.1.1
       name: RELEASE-NAME-hugegraph-server
     spec:
@@ -237,7 +237,7 @@ matches the reviewed cluster plus Hubble render:
         app.kubernetes.io/instance: RELEASE-NAME
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: hugegraph
-        app.kubernetes.io/version: 1.8.0
+        app.kubernetes.io/version: latest
         helm.sh/chart: hugegraph-0.1.1
       name: RELEASE-NAME-hugegraph-hubble
     spec:

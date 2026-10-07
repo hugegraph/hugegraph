@@ -788,7 +788,7 @@ tests:
       # Guard release metadata explicitly until that plugin issue is resolved.
       - equal:
           path: metadata.labels["app.kubernetes.io/version"]
-          value: "1.8.0"
+          value: "latest"
         documentIndex: 0
       - equal:
           path: metadata.labels["helm.sh/chart"]
@@ -796,7 +796,7 @@ tests:
         documentIndex: 0
       - equal:
           path: metadata.labels["app.kubernetes.io/version"]
-          value: "1.8.0"
+          value: "latest"
         documentIndex: 1
       - equal:
           path: metadata.labels["helm.sh/chart"]
@@ -804,7 +804,7 @@ tests:
         documentIndex: 1
       - equal:
           path: metadata.labels["app.kubernetes.io/version"]
-          value: "1.8.0"
+          value: "latest"
         documentIndex: 2
       - equal:
           path: metadata.labels["helm.sh/chart"]
@@ -812,7 +812,7 @@ tests:
         documentIndex: 2
       - equal:
           path: metadata.labels["app.kubernetes.io/version"]
-          value: "1.8.0"
+          value: "latest"
         documentIndex: 3
       - equal:
           path: metadata.labels["helm.sh/chart"]

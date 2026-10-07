@@ -20,7 +20,8 @@ name: hugegraph
 description: Helm chart for Apache HugeGraph HStore cluster (PD + Store + Server)
 type: application
 version: 0.1.1
-appVersion: "1.8.0"
+# TODO: set appVersion to "1.8.0" when the release images are published.
+appVersion: "latest"
 kubeVersion: ">=1.23.0-0"
 keywords:
   - hugegraph
