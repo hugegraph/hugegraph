@@ -24,6 +24,7 @@ import static org.opencypher.gremlin.translation.StatementOption.EXPLAIN;
 import static org.slf4j.LoggerFactory.getLogger;
 
 import java.util.ArrayDeque;
+import java.util.Collection;
 import java.util.Deque;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -31,7 +32,6 @@ import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.Future;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
 
@@ -106,6 +106,9 @@ public class CypherOpProcessor extends AbstractEvalOpProcessor {
     private static final String DEFAULT_TRANSLATOR_DEFINITION =
             "gremlin+cfog_server_extensions+inline_parameters";
 
+    // translation 1.0.4 uses this string as null and cannot preserve it as bound data.
+    private static final String RESERVED_NULL_VALUE = "  cypher.null";
+
     private static final Logger logger = getLogger(CypherOpProcessor.class);
 
     public CypherOpProcessor() {
@@ -135,6 +138,9 @@ public class CypherOpProcessor extends AbstractEvalOpProcessor {
                             break;
                         }
                     }
+                    if (error == null && containsReservedNullValue(bindings)) {
+                        error = "Cypher bindings contain a string reserved for null by the translator";
+                    }
                 }
             }
         }
@@ -144,6 +150,28 @@ public class CypherOpProcessor extends AbstractEvalOpProcessor {
                     .statusMessage(error).create());
         }
         return empty();
+    }
+
+    private static boolean containsReservedNullValue(Map<?, ?> bindings) {
+        Deque<Iterator<?>> pending = new ArrayDeque<>();
+        pending.push(bindings.values().iterator());
+        while (!pending.isEmpty()) {
+            Iterator<?> values = pending.peek();
+            if (!values.hasNext()) {
+                pending.pop();
+                continue;
+            }
+            Object value = values.next();
+            if (RESERVED_NULL_VALUE.equals(value)) {
+                return true;
+            }
+            if (value instanceof Map) {
+                pending.push(((Map<?, ?>) value).values().iterator());
+            } else if (value instanceof Collection) {
+                pending.push(((Collection<?>) value).iterator());
+            }
+        }
+        return false;
     }
 
     @Override
@@ -284,6 +312,22 @@ public class CypherOpProcessor extends AbstractEvalOpProcessor {
                 // The parent commits before sending the terminal success response. Both
                 // iteration and failure rollback must run on this transaction-owning thread.
                 super.handleIterator(context, traversal);
+            } catch (Error error) {
+                try {
+                    attemptRollback(msg, context.getGraphManager(),
+                                    context.getSettings().strictTransactionManagement);
+                } catch (Exception rollbackFailure) {
+                    error.addSuppressed(rollbackFailure);
+                }
+                // FutureTask retains the error, so send a terminal response here as well.
+                // This also covers errors raised after a timeout has cancelled the task.
+                logger.error("Fatal error during traversal iteration", error);
+                context.writeAndFlush(ResponseMessage.build(msg)
+                                                     .code(SERVER_ERROR)
+                                                     .statusMessage(error.getMessage())
+                                                     .statusAttributeException(error)
+                                                     .create());
+                throw error;
             } catch (Exception ex) {
                 try {
                     attemptRollback(msg, context.getGraphManager(),
@@ -304,11 +348,10 @@ public class CypherOpProcessor extends AbstractEvalOpProcessor {
         }
         );
 
-        final Future<?> executionFuture = context.getGremlinExecutor()
-                                                 .getExecutorService().submit(evalFuture);
+        context.getGremlinExecutor().getExecutorService().execute(evalFuture);
         if (timeout > 0) {
             context.getScheduledExecutorService().schedule(
-                    () -> executionFuture.cancel(true)
+                    () -> evalFuture.cancel(true)
                     , timeout, TimeUnit.MILLISECONDS);
         }
 

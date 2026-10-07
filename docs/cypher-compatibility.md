@@ -2,7 +2,7 @@
 
 This note records the Cypher behavior verified for this change. It does not claim full openCypher or Neo4j
 compatibility. The runtime used Java 17.0.20.1, TinkerPop 3.8.1, `org.opencypher.gremlin:translation:1.0.4`,
-and RocksDB, based on `hugegraph/hugegraph@27a7c9b42274d6d4f95eabed6d2051d393ae0eaf`.
+and RocksDB, rebased onto the Apache master that includes the Java 17 / TinkerPop 3.8.1 upgrade.
 
 ## Request forms
 
@@ -12,7 +12,7 @@ The endpoint is `/graphspaces/{graphspace}/graphs/{graph}/cypher`.
 | --- | --- | --- |
 | GET | `?cypher=<URL-encoded statement>` | Query-string form works: `testGet` |
 | POST `application/json` | Raw Cypher text | Legacy raw-body form works: `testPost` |
-| POST `text/plain` | Raw Cypher text | Raw text form works: `testPlainTextPost` |
+| POST `text/plain` | Any body | Rejected with HTTP 415: `testRejectPlainTextPost` |
 | POST `application/json` | JSON object below | Separate bindings work: `testParameters` |
 
 ```json
@@ -22,12 +22,22 @@ The endpoint is `/graphspaces/{graphspace}/graphs/{graph}/cypher`.
 }
 ```
 
+POST bodies containing JSON arrays, strings, numbers, booleans, or null are rejected with HTTP 400.
+Malformed JSON objects and trailing tokens are also request errors and do not fall back to raw Cypher.
+
 For the JSON-object form, `cypher` must be a nonblank string and `parameters`, when present, must be an
 object. Omitting `parameters` means an empty map. Missing bindings produce an execution error; an explicit
 null value is accepted. Tests also cover bindings named `id` and `label`, and the default limit of 16
 parameters. Values containing quotes and newlines remain bound data rather than changing query text.
+The translator's reserved null-marker string `"  cypher.null"` (two leading spaces) is rejected in binding
+values, including nested maps and lists, to avoid silently converting a user string to null. Actual JSON
+null remains accepted. The same marker in query literals or stored properties is an existing translator
+limitation and is outside this compatibility target.
 Check the HTTP status and body `status.code`: execution failures retain HTTP 200 with `status.code` 400
 and null result data.
+
+Traversal iteration failures, including Java errors, attempt rollback on the execution thread and return
+a terminal failure response. A rollback exception is attached to the original failure.
 
 ## Verified behavior
 
@@ -36,7 +46,7 @@ Acceptance tests verified:
 
 | Area | Verified cases and test methods |
 | --- | --- |
-| Reads | Label scans, equality and range predicates, boolean combinations, directed one- and two-hop patterns, empty results: `testGet`, `testExactReadsAndPredicates`, `testRelationQuery` |
+| Reads | Label scans, equality and range predicates, computed regex full-string matching, boolean combinations, directed one- and two-hop patterns, empty results: `testGet`, `testExactReadsAndPredicates`, `testComputedRegexExecutesExtensionPredicate`, `testComputedRegexRequiresWholeStringMatch`, `testRelationQuery` |
 | Results | Aliases, scalar and node values, nested maps/lists, relationship ids, path shape, and null/missing-property semantics: `testReturnNodeIdAsPrimitiveValue`, `testReturnNodeDoesNotLeakInternalIdTypes`, `testReturnNestedIdDoesNotLeakInternalIdTypes`, `testReturnRelationIdDoesNotLeakInternalIdTypes`, `testReturnPathShape`, `testNullAndMissingProperty` |
 | Aggregation and pagination | `DISTINCT`, `count`/`sum`/`min`/`max`/`avg`, `ORDER BY`, `SKIP`, and `LIMIT`: `testDuplicatesDistinctAndPagination`, `testAggregates` |
 | Parameters | String, number, boolean, null, empty and missing bindings; quoting/newline safety: `testParameters`, `testRequestPreservesQueryAndParameterValues`, `testRequestAcceptsEmptyParameters`, `testAcceptCypherParameterNamesAndNullValues`, `testEnforceParameterCountBoundary` |
@@ -49,11 +59,15 @@ after each write. A successful Cypher response alone was not used as proof of pe
 
 ## Verification record
 
-`CypherApiTest` passed 20/20, `CypherClientTest` 7/7, and `CypherOpProcessorTest` 4/4, with no skips.
-Related Gremlin tests passed 10 cases with one inapplicable `testClearAndInit` skip for the non-shared
-backend; Login tests passed 3/3. EditorConfig formatting and the root clean compile also passed. The runtime
-API JAR used for verification had SHA-256
-`cc99f670438306ae0df3ea902c4d4d98a1f5d27c989b081e2a8b0724b42555e2`.
+The final verification covers the rebased tree, including non-object JSON request rejection, the
+unsupported `text/plain` media type, computed regex fixture cases, and fatal-error rollback and response.
+`CypherApiTest` passed all 23 cases, `CypherClientTest` all seven, and `CypherOpProcessorTest` all eight,
+with no Cypher skips. The related predicate and Gremlin HTTP ownership/context tests also passed.
+`AbstractRestClientTest` passed all nine cases, including charset serialization and an ASCII-default JVM.
+Gremlin API tests passed ten cases with one existing non-shared-backend skip; Login API tests passed all
+three. EditorConfig formatting, the root clean compile, and reactor installation passed on Java 17.
+The live RocksDB server reported Gremlin 3.8.1; its packaged API JAR and compiled target JAR were
+byte-identical before the API run.
 
 Test sources: [`CypherApiTest`](../hugegraph-server/hugegraph-test/src/main/java/org/apache/hugegraph/api/CypherApiTest.java),
 [`CypherClientTest`](../hugegraph-server/hugegraph-test/src/main/java/org/apache/hugegraph/api/cypher/CypherClientTest.java),

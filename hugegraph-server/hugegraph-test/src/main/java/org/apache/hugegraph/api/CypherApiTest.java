@@ -91,15 +91,14 @@ public class CypherApiTest extends BaseApiTest {
     }
 
     @Test
-    public void testPlainTextPost() {
+    public void testRejectPlainTextPost() {
         Response response = client().post(PATH, Entity.entity(QUERY, MediaType.TEXT_PLAIN_TYPE));
-        assertColumn(assertCypherSuccessData(assertResponseStatus(200, response)),
-                     "name", "marko", "peter");
+        assertResponseStatus(415, response);
     }
 
     @Test
     public void testComputedRegexExecutesExtensionPredicate() {
-        String query = "MATCH (n:person) WHERE (n.name + '') =~ 'mar.*' " +
+        String query = "MATCH (n:cypher_person) WHERE (n.name + '') =~ 'mar.*' " +
                        "RETURN n.name AS name";
         String content = this.testCypherQueryAndContains(query, "marko");
         Assert.assertEquals(List.of(Map.of("name", "marko")), assertCypherSuccessData(content));
@@ -107,7 +106,7 @@ public class CypherApiTest extends BaseApiTest {
 
     @Test
     public void testComputedRegexRequiresWholeStringMatch() {
-        String query = "MATCH (n:person) WHERE (n.name + '') =~ 'ark' " +
+        String query = "MATCH (n:cypher_person) WHERE (n.name + '') =~ 'ark' " +
                        "RETURN n.name AS name";
         String content = this.testCypherQueryAndContains(query, "data");
         Assert.assertTrue(assertCypherSuccessData(content).isEmpty());
@@ -288,6 +287,17 @@ public class CypherApiTest extends BaseApiTest {
     }
 
     @Test
+    public void testRejectTranslatorNullMarker() {
+        String marker = "  cypher.null";
+        for (Object value : Arrays.asList(marker, List.of(marker), Map.of("nested", marker))) {
+            assertExecutionError(client().post(PATH, JsonUtil.toJson(ImmutableMap.of(
+                    "cypher", "RETURN $value AS value", "parameters", Map.of("value", value)))));
+        }
+        assertColumn(bound("RETURN $value AS value", Map.of("value", "cypher.null")),
+                     "value", "cypher.null");
+    }
+
+    @Test
     public void testNullAndMissingProperty() {
         List<?> rows = query("MATCH (n:cypher_person) RETURN n.note AS note");
         Assert.assertEquals(4, rows.size());
@@ -355,7 +365,8 @@ public class CypherApiTest extends BaseApiTest {
         Assert.assertNull(nativeVertex("wrongtype"));
         assertResponseStatus(400, client().get(PATH, ImmutableMap.of("cypher", "")));
         for (String body : Arrays.asList(" \n", "{", "{}", "{\"cypher\":\" \"}",
-                                        "{\"cypher\":1}",
+                                        "{\"cypher\":1}", "[]", "[1, 2]", "\"RETURN 1\"",
+                                        " null ", "1", "-1.5", "true", "false",
                                         "{\"cypher\":\"RETURN 1\"} garbage",
                                         "{\"cypher\":\"RETURN 1\"} {}",
                                         "{\"cypher\":\"RETURN 1\",\"parameters\":false}",
