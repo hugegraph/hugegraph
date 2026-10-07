@@ -60,13 +60,13 @@ does not, matching non-strict branch protection. A selection/API failure conserv
 all suites. A final metadata outage alone cannot invalidate completed Memory tests.
 Plans and actual results are diagnostics, not execution credentials for later runs.
 
-## Protection migration and retries
+## Protection and retries
 
-`.asf.yaml` requests only `check-license` and `Server memory tests`. Keep existing check names
-through migration and verify live branch protection after merging. The migration PR may need
-one complete run under the old requirements. Do not remove a still-required context or forge
-success for it. Remove obsolete `affected-module-tests`/CodeQL requirements from live protection
-before relying on documentation skips or independently cancelling advisory workflows.
+`.asf.yaml` requests only `check-license` and `Server memory tests`. Keep these required check
+names stable. The Memory workflow runs real unit, core and API tests on the project runtime
+and reports their results through `Server memory tests`; the former Java 11 placeholder is
+removed. `affected-module-tests` and CodeQL remain advisory. Verify live branch protection
+when changing required checks; do not forge a successful result or leave retired contexts required.
 
 Only failed push runs of License Checker and Server Memory CI automatically retry, at most
 twice. The trusted checker verifies the workflow path, attempt, repository and unchanged branch
