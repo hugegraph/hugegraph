@@ -29,6 +29,11 @@ mvn editorconfig:format
 mvn clean compile -Dmaven.javadoc.skip=true
 ```
 
+The root POM and child modules flatten CI-friendly versions during `process-resources`,
+so installed and deployed POMs use a concrete version instead of `${revision}`. Build the
+reactor with `install` before building modules separately; keep Maven Resolver validation
+enabled, including on Maven 3.10+.
+
 Run the affected module tests and add regression coverage when behavior changes.
 A successful build with skipped tests does not validate behavior; Commons tests require
 `-DskipCommonsTests=false`. For documentation-only changes, verify links and paths and run
