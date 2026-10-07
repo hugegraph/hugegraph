@@ -205,6 +205,11 @@ public interface HugeGraph extends Graph {
 
     String spaceGraphName();
 
+    /**
+     * The incarnation of this graph instance in its PD schema sync record, 0 if unknown
+     */
+    long schemaIncarnation();
+
     String backend();
 
     BackendFeatures backendStoreFeatures();
@@ -252,6 +257,13 @@ public interface HugeGraph extends Graph {
     void initBackend();
 
     void clearBackend();
+
+    /**
+     * Clears the backend of a graph that is being dropped. Unlike {@link #clearBackend()} it
+     * leaves the schema in PD to the DROP commit of the graph record, which deletes it in the
+     * same commit that marks the graph DROPPED.
+     */
+    void clearBackendForDrop();
 
     void truncateBackend();
 

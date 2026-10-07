@@ -22,6 +22,8 @@ import java.util.Map;
 import java.util.function.Consumer;
 
 import org.apache.hugegraph.meta.lock.LockResult;
+import org.apache.hugegraph.pd.grpc.kv.TxnRequest;
+import org.apache.hugegraph.pd.grpc.kv.TxnResponse;
 
 public interface MetaDriver {
 
@@ -34,6 +36,12 @@ public interface MetaDriver {
     void deleteWithPrefix(String prefix);
 
     Map<String, String> scanWithPrefix(String prefix);
+
+    /**
+     * Applies all writes of the request and its graph record change in one atomic commit.
+     * A failed compare or a rejected record returns an unsuccessful response.
+     */
+    TxnResponse commit(TxnRequest request);
 
     <T> void listen(String key, Consumer<T> consumer);
 

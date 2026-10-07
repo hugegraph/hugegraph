@@ -86,6 +86,7 @@ import org.apache.hugegraph.meta.MetaDriver;
 import org.apache.hugegraph.meta.MetaManager;
 import org.apache.hugegraph.meta.PdMetaDriver;
 import org.apache.hugegraph.meta.lock.LockResult;
+import org.apache.hugegraph.meta.managers.SchemaMetaManager;
 import org.apache.hugegraph.metrics.MetricsUtil;
 import org.apache.hugegraph.metrics.ServerReporter;
 import org.apache.hugegraph.pd.client.DiscoveryClientImpl;
@@ -100,6 +101,7 @@ import org.apache.hugegraph.pd.grpc.discovery.NodeInfo;
 import org.apache.hugegraph.pd.grpc.discovery.NodeInfos;
 import org.apache.hugegraph.pd.grpc.discovery.Query;
 import org.apache.hugegraph.pd.grpc.discovery.RegisterInfo;
+import org.apache.hugegraph.pd.grpc.kv.TxnResponse;
 import org.apache.hugegraph.rpc.RpcClientProvider;
 import org.apache.hugegraph.rpc.RpcConsumerConfig;
 import org.apache.hugegraph.rpc.RpcProviderConfig;
@@ -1596,8 +1598,15 @@ public final class GraphManager {
 
         HugeConfig config = new HugeConfig(propConfig);
         this.checkOptions(graphSpace, config);
-        HugeGraph graph = this.createGraph(graphSpace, config,
-                                           this.authManager, init);
+        // A new incarnation of the graph, before it writes any schema
+        long incarnation = init ? this.reserveGraph(graphSpace, name) : 0L;
+        HugeGraph graph;
+        try {
+            graph = this.createGraph(graphSpace, config, this.authManager, init);
+        } catch (Throwable e) {
+            this.releaseGraph(graphSpace, name, incarnation);
+            throw e;
+        }
         graph.graphSpace(graphSpace);
         graph.kvStore(this.kvStore);
 
@@ -1616,6 +1625,9 @@ public final class GraphManager {
          */
         try {
             this.notifyEvent(Events.GRAPH_CREATE, graph);
+            if (init) {
+                this.checkReserved(graphSpace, name, incarnation, graph);
+            }
         } catch (Throwable e) {
             this.notifyEventLenient(Events.GRAPH_DROP, graph);
             this.graphs.remove(graphName, graph);
@@ -1627,6 +1639,7 @@ public final class GraphManager {
                 }
             }
             HugeFactory.remove(graph);
+            this.releaseGraph(graphSpace, name, incarnation);
             throw e;
         }
 
@@ -2255,6 +2268,9 @@ public final class GraphManager {
 
         boolean grpcThread = Thread.currentThread().getName().contains("grpc");
         HugeGraph g = this.graph(graphSpace, name);
+        if (g == null && clear && this.dropUnfinishedGraph(graphSpace, name)) {
+            return;
+        }
         E.checkArgumentNotNull(g, "The graph '%s' doesn't exist", name);
         if (this.localGraphs.contains(name)) {
             throw new HugeException("Can't delete graph '%s' loaded from " +
@@ -2265,6 +2281,14 @@ public final class GraphManager {
 
         String graphName = spaceGraphName(graphSpace, name);
         if (clear) {
+            /*
+             * The config and the stores of a graph are shared by its incarnations, so a stale
+             * instance must not remove them for a graph dropped or recreated meanwhile; the
+             * DROP commit below checks the incarnation only after both are gone. CREATE stays
+             * rejected while the stores are cleared, since the record is LIVE until that DROP.
+             */
+            this.metaManager.schemaMetaManager().checkLive(graphSpace, name,
+                                                           g.schemaIncarnation());
             this.removingGraphs.add(graphName);
             try {
                 this.metaManager.removeGraphConfig(graphSpace, name);
@@ -2288,7 +2312,12 @@ public final class GraphManager {
                          t);
             }
 
-            g.clearBackend();
+            // The schema in PD goes with the DROP commit below, not in a commit of its own
+            g.clearBackendForDrop();
+            // Drop only the incarnation this instance belongs to; its writes are rejected
+            // from now on
+            this.metaManager.schemaMetaManager().dropGraph(graphSpace, name,
+                                                           g.schemaIncarnation());
             try {
                 g.close();
             } catch (Exception e) {
@@ -2320,6 +2349,86 @@ public final class GraphManager {
             }
         }
         this.eventHub.notify(Events.GRAPH_DROP, g);
+    }
+
+    /**
+     * Takes the graph name in PD with a CREATE of the graph record, which fails while another
+     * incarnation is LIVE, and returns the new incarnation.
+     * <p>
+     * A LIVE record without a graph config is not taken over: a create in progress on another
+     * Server publishes its config only after its graph opened, and a drop removes the config
+     * before its DROP commit, so a missing config doesn't show that the record is left over.
+     * A record left by a create or drop that never finished is released by dropping the graph
+     * by name, see dropUnfinishedGraph.
+     */
+    private long reserveGraph(String graphSpace, String name) {
+        String graphName = spaceGraphName(graphSpace, name);
+        TxnResponse response = this.metaManager.schemaMetaManager()
+                                               .createGraph(graphSpace, name);
+        if (!response.getSucceeded()) {
+            if (!this.metaManager.graphConfigs(graphSpace).containsKey(graphName)) {
+                LOG.warn("Graph '{}' has no config but its schema sync record is LIVE " +
+                         "(incarnation {}): a create or drop of it is running or didn't finish; " +
+                         "if none is running, drop the graph to release the name", graphName,
+                         response.getIncarnation());
+            }
+            throw new ExistedException("graph", graphName);
+        }
+        return response.getIncarnation();
+    }
+
+    /**
+     * Fails a create whose reservation was dropped while its graph was opening, or whose graph
+     * opened with another incarnation than the reserved one, before its config is published
+     */
+    private void checkReserved(String graphSpace, String name, long incarnation,
+                               HugeGraph graph) {
+        long opened = graph.schemaIncarnation();
+        if (opened != 0L && opened != incarnation) {
+            throw new HugeException("Graph '%s' in graph space '%s' opened with incarnation " +
+                                    "%s instead of the reserved %s", name, graphSpace, opened,
+                                    incarnation);
+        }
+        this.metaManager.schemaMetaManager().checkLive(graphSpace, name, incarnation);
+    }
+
+    /**
+     * Drops a graph record that is LIVE while the graph has no config and no instance on this
+     * Server. A create that never finished (its Server crashed, or failed to drop the record
+     * after a failed init) or a drop that crashed before its DROP commit leaves such a record,
+     * and it keeps the name from being created again. The record is dropped with its stored
+     * incarnation. Returns false if there is no such record.
+     */
+    private boolean dropUnfinishedGraph(String graphSpace, String name) {
+        String graphName = spaceGraphName(graphSpace, name);
+        if (this.metaManager.graphConfigs(graphSpace).containsKey(graphName)) {
+            return false;
+        }
+        SchemaMetaManager schemaMeta = this.metaManager.schemaMetaManager();
+        long incarnation = schemaMeta.liveIncarnation(graphSpace, name);
+        if (incarnation == 0L) {
+            return false;
+        }
+        LOG.warn("Drop the schema sync record of graph '{}' (incarnation {}), which has no " +
+                 "config: a create or drop of it didn't finish", graphName, incarnation);
+        schemaMeta.dropGraph(graphSpace, name, incarnation);
+        return true;
+    }
+
+    /**
+     * Gives the name reserved by reserveGraph back after the graph failed to initialize; a
+     * failure here leaves an orphaned record, which a drop of the graph by name releases
+     */
+    private void releaseGraph(String graphSpace, String name, long incarnation) {
+        if (incarnation == 0L) {
+            return;
+        }
+        try {
+            this.metaManager.schemaMetaManager().dropGraph(graphSpace, name, incarnation);
+        } catch (Throwable e) {
+            LOG.warn("Failed to drop the schema sync record of graph '{}' after its create " +
+                     "failed", spaceGraphName(graphSpace, name), e);
+        }
     }
 
     private void checkOptions(String graphSpace, HugeConfig config) {

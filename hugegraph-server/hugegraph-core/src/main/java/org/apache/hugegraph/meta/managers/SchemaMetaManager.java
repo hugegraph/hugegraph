@@ -26,62 +26,125 @@ import static org.apache.hugegraph.meta.MetaManager.META_PATH_INDEX_LABEL;
 import static org.apache.hugegraph.meta.MetaManager.META_PATH_NAME;
 import static org.apache.hugegraph.meta.MetaManager.META_PATH_PROPERTY_KEY;
 import static org.apache.hugegraph.meta.MetaManager.META_PATH_SCHEMA;
+import static org.apache.hugegraph.meta.MetaManager.META_PATH_SCHEMA_SYNC;
 import static org.apache.hugegraph.meta.MetaManager.META_PATH_VERTEX_LABEL;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicLong;
 
+import org.apache.hugegraph.HugeException;
 import org.apache.hugegraph.HugeGraph;
 import org.apache.hugegraph.backend.id.Id;
-import org.apache.hugegraph.backend.id.IdGenerator;
 import org.apache.hugegraph.meta.MetaDriver;
-import org.apache.hugegraph.meta.PdMetaDriver;
+import org.apache.hugegraph.pd.grpc.kv.TxnCompare;
+import org.apache.hugegraph.pd.grpc.kv.TxnOp;
+import org.apache.hugegraph.pd.grpc.kv.TxnRecord;
+import org.apache.hugegraph.pd.grpc.kv.TxnRequest;
+import org.apache.hugegraph.pd.grpc.kv.TxnResponse;
 import org.apache.hugegraph.schema.EdgeLabel;
 import org.apache.hugegraph.schema.IndexLabel;
 import org.apache.hugegraph.schema.PropertyKey;
+import org.apache.hugegraph.schema.SchemaElement;
+import org.apache.hugegraph.schema.SchemaLabel;
 import org.apache.hugegraph.schema.VertexLabel;
+import org.apache.hugegraph.type.HugeType;
+import org.apache.hugegraph.util.E;
 import org.apache.hugegraph.util.JsonUtil;
+import org.apache.hugegraph.util.Log;
+import org.slf4j.Logger;
 
 public class SchemaMetaManager extends AbstractMetaManager {
+
+    private static final Logger LOG = Log.logger(SchemaMetaManager.class);
+
+    /**
+     * Commits tried by addIndexLabel while other Servers keep changing the base label
+     */
+    private static final int INDEX_LABEL_COMMIT_ATTEMPTS = 3;
+
     private final HugeGraph graph;
+    // The incarnation of the graph instance that writes, shared by its schema transactions;
+    // null where no single graph instance writes, which skips the incarnation check
+    private final AtomicLong incarnation;
 
     public SchemaMetaManager(MetaDriver metaDriver, String cluster, HugeGraph graph) {
+        this(metaDriver, cluster, graph, null);
+    }
+
+    public SchemaMetaManager(MetaDriver metaDriver, String cluster, HugeGraph graph,
+                             AtomicLong incarnation) {
         super(metaDriver, cluster);
         this.graph = graph;
+        this.incarnation = incarnation;
     }
 
-    public static void main(String[] args) {
-        MetaDriver metaDriver = new PdMetaDriver("127.0.0.1:8686");
-        SchemaMetaManager schemaMetaManager = new SchemaMetaManager(metaDriver, "hg", null);
-        PropertyKey propertyKey = new PropertyKey(null, IdGenerator.of(5), "test");
-        propertyKey.userdata("key1", "value1");
-        propertyKey.userdata("key2", 23);
-        schemaMetaManager.addPropertyKey("DEFAULT1", "hugegraph", propertyKey);
-
-//        PropertyKey propertyKey1 = schemaMetaManager.getPropertyKey("DEFAULT1", "hugegraph",
-//        IdGenerator.of(1));
-        schemaMetaManager.removePropertyKey("DEFAULT", "hugegraph", IdGenerator.of(1));
-
-//        propertyKey1 = schemaMetaManager.getPropertyKey("DEFAULT1", "hugegraph", "test");
-//        System.out.println(propertyKey1 );
-//
-//        propertyKey1 = schemaMetaManager.getPropertyKey("DEFAULT1", "hugegraph", "5");
-//        System.out.println(propertyKey1 );
+    /**
+     * Writes the ID and NAME keys of the schema elements in one commit that bumps the graph
+     * record, so a crash can't leave half of a change behind
+     */
+    public void saveSchema(String graphSpace, String graph, SchemaElement... schemas) {
+        TxnRequest.Builder txn = TxnRequest.newBuilder();
+        for (SchemaElement schema : schemas) {
+            this.addPuts(txn, graphSpace, graph, schema);
+        }
+        this.bump(graphSpace, graph, txn);
     }
 
-    public void addPropertyKey(String graphSpace, String graph,
-                               PropertyKey propertyKey) {
-        String content = serialize(propertyKey);
-        this.metaDriver.put(propertyKeyIdKey(graphSpace, graph,
-                                             propertyKey.id()), content);
-        this.metaDriver.put(propertyKeyNameKey(graphSpace, graph,
-                                               propertyKey.name()), content);
+    /**
+     * Writes the index label and adds it to its base label (VL/EL) in one commit, and returns
+     * the base label as written.
+     * <p>
+     * The JVM locks of SchemaTransactionV2 don't serialize two Servers adding index labels to
+     * the same base label: both would read it, add their own index label, and the later write
+     * would drop the earlier reference. So the base label is read from PD, and the commit only
+     * holds while its ID key still has the value read; otherwise it is read again and retried.
+     * This covers only this read-modify-write of the base label. Whether other concurrent DDL
+     * across Servers needs conditional commits as well is an open question for the maintainers
+     * (design section 7, concurrency and idempotency).
+     */
+    public SchemaLabel addIndexLabel(String graphSpace, String graph, SchemaLabel baseLabel,
+                                     IndexLabel indexLabel) {
+        String idKey = this.schemaKeys(graphSpace, graph, baseLabel).get(0);
+        for (int i = 0; i < INDEX_LABEL_COMMIT_ATTEMPTS; i++) {
+            String stored = this.metaDriver.get(idKey);
+            if (stored == null || stored.isEmpty()) {
+                throw new HugeException("The %s '%s' of index label '%s' doesn't exist",
+                                        baseLabel.type().readableName(), baseLabel.name(),
+                                        indexLabel.name());
+            }
+            SchemaLabel label = this.parseLabel(baseLabel.type(), stored);
+            label.addIndexLabel(indexLabel.id());
+
+            TxnRequest.Builder txn = TxnRequest.newBuilder().addCompares(
+                    TxnCompare.newBuilder().setKey(idKey).setKind(TxnCompare.Kind.EQUALS)
+                              .setValue(stored));
+            this.addPuts(txn, graphSpace, graph, indexLabel);
+            this.addPuts(txn, graphSpace, graph, label);
+            TxnResponse response = this.tryBump(graphSpace, graph, txn);
+            if (response.getSucceeded()) {
+                return label;
+            }
+            if (response.getFailure() != TxnResponse.Failure.COMPARE_FAILED) {
+                throw rejected(graphSpace, graph, response);
+            }
+            LOG.info("The {} '{}' changed while index label '{}' was added to it, retry",
+                     baseLabel.type().readableName(), baseLabel.name(), indexLabel.name());
+        }
+        throw new HugeException("Failed to add index label '%s' to %s '%s': it kept " +
+                                "changing on other servers in %s attempts", indexLabel.name(),
+                                baseLabel.type().readableName(), baseLabel.name(),
+                                INDEX_LABEL_COMMIT_ATTEMPTS);
     }
 
-    public void updatePropertyKey(String graphSpace, String graph,
-                                  PropertyKey pkey) {
-        this.addPropertyKey(graphSpace, graph, pkey);
+    public void removeSchema(String graphSpace, String graph, SchemaElement schema) {
+        TxnRequest.Builder txn = TxnRequest.newBuilder();
+        for (String key : this.schemaKeys(graphSpace, graph, schema)) {
+            txn.addOps(TxnOp.newBuilder().setType(TxnOp.Type.DELETE).setKey(key));
+        }
+        this.bump(graphSpace, graph, txn);
     }
 
     @SuppressWarnings("unchecked")
@@ -119,30 +182,6 @@ public class SchemaMetaManager extends AbstractMetaManager {
             propertyKeys.add(PropertyKey.fromMap(JsonUtil.fromJson(value, Map.class), this.graph));
         }
         return propertyKeys;
-    }
-
-    public Id removePropertyKey(String graphSpace, String graph,
-                                Id propertyKey) {
-        PropertyKey p = this.getPropertyKey(graphSpace, graph, propertyKey);
-        this.metaDriver.delete(propertyKeyNameKey(graphSpace, graph,
-                                                  p.name()));
-        this.metaDriver.delete(propertyKeyIdKey(graphSpace, graph,
-                                                propertyKey));
-        return IdGenerator.ZERO;
-    }
-
-    public void addVertexLabel(String graphSpace, String graph,
-                               VertexLabel vertexLabel) {
-        String content = serialize(vertexLabel);
-        this.metaDriver.put(vertexLabelIdKey(graphSpace, graph,
-                                             vertexLabel.id()), content);
-        this.metaDriver.put(vertexLabelNameKey(graphSpace, graph,
-                                               vertexLabel.name()), content);
-    }
-
-    public void updateVertexLabel(String graphSpace, String graph,
-                                  VertexLabel vertexLabel) {
-        this.addVertexLabel(graphSpace, graph, vertexLabel);
     }
 
     @SuppressWarnings("unchecked")
@@ -183,31 +222,6 @@ public class SchemaMetaManager extends AbstractMetaManager {
         return vertexLabels;
     }
 
-    public Id removeVertexLabel(String graphSpace, String graph,
-                                Id vertexLabel) {
-        VertexLabel v = this.getVertexLabel(graphSpace, graph,
-                                            vertexLabel);
-        this.metaDriver.delete(vertexLabelNameKey(graphSpace, graph,
-                                                  v.name()));
-        this.metaDriver.delete(vertexLabelIdKey(graphSpace, graph,
-                                                vertexLabel));
-        return IdGenerator.ZERO;
-    }
-
-    public void addEdgeLabel(String graphSpace, String graph,
-                             EdgeLabel edgeLabel) {
-        String content = serialize(edgeLabel);
-        this.metaDriver.put(edgeLabelIdKey(graphSpace, graph,
-                                           edgeLabel.id()), content);
-        this.metaDriver.put(edgeLabelNameKey(graphSpace, graph,
-                                             edgeLabel.name()), content);
-    }
-
-    public void updateEdgeLabel(String graphSpace, String graph,
-                                EdgeLabel edgeLabel) {
-        this.addEdgeLabel(graphSpace, graph, edgeLabel);
-    }
-
     @SuppressWarnings("unchecked")
     public EdgeLabel getEdgeLabel(String graphSpace, String graph,
                                   Id edgeLabel) {
@@ -246,31 +260,6 @@ public class SchemaMetaManager extends AbstractMetaManager {
         return edgeLabels;
     }
 
-    public Id removeEdgeLabel(String graphSpace, String graph,
-                              Id edgeLabel) {
-        EdgeLabel e = this.getEdgeLabel(graphSpace, graph,
-                                        edgeLabel);
-        this.metaDriver.delete(edgeLabelNameKey(graphSpace, graph,
-                                                e.name()));
-        this.metaDriver.delete(edgeLabelIdKey(graphSpace, graph,
-                                              edgeLabel));
-        return IdGenerator.ZERO;
-    }
-
-    public void addIndexLabel(String graphSpace, String graph,
-                              IndexLabel indexLabel) {
-        String content = serialize(indexLabel);
-        this.metaDriver.put(indexLabelIdKey(graphSpace, graph,
-                                            indexLabel.id()), content);
-        this.metaDriver.put(indexLabelNameKey(graphSpace, graph,
-                                              indexLabel.name()), content);
-    }
-
-    public void updateIndexLabel(String graphSpace, String graph,
-                                 IndexLabel indexLabel) {
-        this.addIndexLabel(graphSpace, graph, indexLabel);
-    }
-
     @SuppressWarnings("unchecked")
     public IndexLabel getIndexLabel(String graphSpace, String graph,
                                     Id indexLabel) {
@@ -307,16 +296,6 @@ public class SchemaMetaManager extends AbstractMetaManager {
                     JsonUtil.fromJson(value, Map.class), this.graph));
         }
         return indexLabels;
-    }
-
-    public Id removeIndexLabel(String graphSpace, String graph, Id indexLabel) {
-        IndexLabel i = this.getIndexLabel(graphSpace, graph,
-                                          indexLabel);
-        this.metaDriver.delete(indexLabelNameKey(graphSpace, graph,
-                                                 i.name()));
-        this.metaDriver.delete(indexLabelIdKey(graphSpace, graph,
-                                               indexLabel));
-        return IdGenerator.ZERO;
     }
 
     private String propertyKeyPrefix(String graphSpace, String graph) {
@@ -511,7 +490,213 @@ public class SchemaMetaManager extends AbstractMetaManager {
     }
 
     public void clearAllSchema(String graphSpace, String graph) {
-        this.metaDriver.deleteWithPrefix(graphNameKey(graphSpace, graph));
+        this.bump(graphSpace, graph, TxnRequest.newBuilder().addOps(
+                TxnOp.newBuilder().setType(TxnOp.Type.DELETE_PREFIX)
+                     .setKey(graphNameKey(graphSpace, graph))));
     }
 
+    /**
+     * Starts a new incarnation of the graph; it must come before the graph writes schema. PD
+     * rejects it with GRAPH_EXISTS while the record is LIVE, so of two Servers creating the
+     * same graph only one gets the name: that response is returned, with the LIVE incarnation,
+     * and any other rejection throws.
+     */
+    public TxnResponse createGraph(String graphSpace, String graph) {
+        TxnResponse response = this.tryCommit(graphSpace, graph, TxnRequest.newBuilder(),
+                                              TxnRecord.Op.CREATE, 0L);
+        if (!response.getSucceeded() &&
+            response.getFailure() != TxnResponse.Failure.GRAPH_EXISTS) {
+            throw rejected(graphSpace, graph, response);
+        }
+        return response;
+    }
+
+    /**
+     * Clears the schema of the graph and marks it DROPPED in one commit, after which writes
+     * of this incarnation are rejected. A dropping instance passes its own incarnation, so it
+     * can't drop a newer one; 0 skips the check.
+     */
+    public void dropGraph(String graphSpace, String graph, long expectedIncarnation) {
+        TxnRequest.Builder txn = TxnRequest.newBuilder().addOps(
+                TxnOp.newBuilder().setType(TxnOp.Type.DELETE_PREFIX)
+                     .setKey(graphNameKey(graphSpace, graph)));
+        this.commit(graphSpace, graph, txn, TxnRecord.Op.DROP, expectedIncarnation);
+    }
+
+    /**
+     * The incarnation a graph instance opens with, read from its record: every BUMP and DROP
+     * of the instance then carries it, so the instance can't write into a later incarnation.
+     * An absent record (a graph created before the upgrade) is created here by an empty BUMP,
+     * so the instance never writes with the unchecked incarnation 0. The incarnation of a
+     * DROPPED record is kept as well, so the writes of the instance are rejected as
+     * GRAPH_DROPPED while the graph stays dropped, and as INCARNATION_MISMATCH once it is
+     * recreated.
+     */
+    public long openIncarnation(String graphSpace, String graph) {
+        Map<String, Object> value = this.readRecord(graphSpace, graph);
+        if (value == null) {
+            return this.commit(graphSpace, graph, TxnRequest.newBuilder(), TxnRecord.Op.BUMP,
+                               0L).getIncarnation();
+        }
+        if (!"LIVE".equals(value.get("state"))) {
+            LOG.warn("Graph '{}' in graph space '{}' opens with a {} schema sync record {}",
+                     graph, graphSpace, value.get("state"), value);
+        }
+        return ((Number) value.get("inc")).longValue();
+    }
+
+    /**
+     * The incarnation of the graph while its record is LIVE, 0 if the record is absent or
+     * DROPPED
+     */
+    public long liveIncarnation(String graphSpace, String graph) {
+        Map<String, Object> value = this.readRecord(graphSpace, graph);
+        if (value == null || !"LIVE".equals(value.get("state"))) {
+            return 0L;
+        }
+        return ((Number) value.get("inc")).longValue();
+    }
+
+    /**
+     * Fails unless the graph record is LIVE with the given incarnation (0 skips the check).
+     * The commits of an incarnation are checked by PD, but a step outside PD that can't be
+     * undone, such as clearing the stores of a graph before its DROP commit, must be checked
+     * before it runs: the stores of a graph are shared by all of its incarnations.
+     */
+    public void checkLive(String graphSpace, String graph, long incarnation) {
+        if (incarnation == 0L) {
+            return;
+        }
+        long live = this.liveIncarnation(graphSpace, graph);
+        if (live != incarnation) {
+            throw new HugeException("Graph '%s' in graph space '%s' was dropped or recreated " +
+                                    "(incarnation %s, LIVE incarnation %s)", graph, graphSpace,
+                                    incarnation, live);
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> readRecord(String graphSpace, String graph) {
+        String record = this.metaDriver.get(this.recordKey(graphSpace, graph));
+        if (record == null || record.isEmpty()) {
+            return null;
+        }
+        return JsonUtil.fromJson(record, Map.class);
+    }
+
+    private void bump(String graphSpace, String graph, TxnRequest.Builder txn) {
+        long expected = this.incarnation == null ? 0L : this.incarnation.get();
+        TxnResponse response = this.commit(graphSpace, graph, txn, TxnRecord.Op.BUMP,
+                                           expected);
+        if (this.incarnation != null) {
+            // An incarnation not learned at open: this BUMP created the record
+            this.incarnation.compareAndSet(0L, response.getIncarnation());
+        }
+    }
+
+    /**
+     * Like bump, but returns a rejected commit instead of throwing
+     */
+    private TxnResponse tryBump(String graphSpace, String graph, TxnRequest.Builder txn) {
+        long expected = this.incarnation == null ? 0L : this.incarnation.get();
+        TxnResponse response = this.tryCommit(graphSpace, graph, txn, TxnRecord.Op.BUMP,
+                                              expected);
+        if (response.getSucceeded() && this.incarnation != null) {
+            this.incarnation.compareAndSet(0L, response.getIncarnation());
+        }
+        return response;
+    }
+
+    private TxnResponse commit(String graphSpace, String graph, TxnRequest.Builder txn,
+                               TxnRecord.Op op, long expectedIncarnation) {
+        TxnResponse response = this.tryCommit(graphSpace, graph, txn, op, expectedIncarnation);
+        if (!response.getSucceeded()) {
+            throw rejected(graphSpace, graph, response);
+        }
+        return response;
+    }
+
+    private TxnResponse tryCommit(String graphSpace, String graph, TxnRequest.Builder txn,
+                                  TxnRecord.Op op, long expectedIncarnation) {
+        txn.setRecord(TxnRecord.newBuilder().setKey(this.recordKey(graphSpace, graph))
+                               .setOp(op).setExpectedIncarnation(expectedIncarnation));
+        return this.metaDriver.commit(txn.build());
+    }
+
+    private static HugeException rejected(String graphSpace, String graph,
+                                          TxnResponse response) {
+        String reason;
+        switch (response.getFailure()) {
+            case GRAPH_DROPPED:
+            case INCARNATION_MISMATCH:
+                reason = "the graph was dropped or recreated";
+                break;
+            case GRAPH_EXISTS:
+                reason = "the graph exists";
+                break;
+            case INVALID_RECORD:
+                reason = "its schema sync record in PD can't be read";
+                break;
+            default:
+                reason = "a compare failed";
+                break;
+        }
+        return new HugeException("The schema change of graph '%s' in graph space '%s' was " +
+                                 "rejected (%s): %s", graph, graphSpace,
+                                 response.getFailure(), reason);
+    }
+
+    private void addPuts(TxnRequest.Builder txn, String graphSpace, String graph,
+                         SchemaElement schema) {
+        String content = serialize(schema);
+        for (String key : this.schemaKeys(graphSpace, graph, schema)) {
+            txn.addOps(TxnOp.newBuilder().setKey(key).setValue(content));
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private SchemaLabel parseLabel(HugeType type, String content) {
+        Map<String, Object> map = JsonUtil.fromJson(content, Map.class);
+        if (type == HugeType.VERTEX_LABEL) {
+            return VertexLabel.fromMap(map, this.graph);
+        }
+        E.checkArgument(type == HugeType.EDGE_LABEL,
+                        "Invalid base type '%s' of an index label", type);
+        return EdgeLabel.fromMap(map, this.graph);
+    }
+
+    private List<String> schemaKeys(String graphSpace, String graph, SchemaElement schema) {
+        Id id = schema.id();
+        String name = schema.name();
+        switch (schema.type()) {
+            case PROPERTY_KEY:
+                return Arrays.asList(propertyKeyIdKey(graphSpace, graph, id),
+                                     propertyKeyNameKey(graphSpace, graph, name));
+            case VERTEX_LABEL:
+                return Arrays.asList(vertexLabelIdKey(graphSpace, graph, id),
+                                     vertexLabelNameKey(graphSpace, graph, name));
+            case EDGE_LABEL:
+                return Arrays.asList(edgeLabelIdKey(graphSpace, graph, id),
+                                     edgeLabelNameKey(graphSpace, graph, name));
+            case INDEX_LABEL:
+                return Arrays.asList(indexLabelIdKey(graphSpace, graph, id),
+                                     indexLabelNameKey(graphSpace, graph, name));
+            default:
+                throw new AssertionError(String.format(
+                        "Invalid type '%s' for a schema commit", schema.type()));
+        }
+    }
+
+    /**
+     * HUGEGRAPH/{cluster}/SCHEMA_SYNC/{graphspace}/{graph}, outside the SCHEMA directory of the
+     * graph that clearAllSchema deletes by prefix
+     */
+    private String recordKey(String graphSpace, String graph) {
+        return String.join(META_PATH_DELIMITER,
+                           META_PATH_HUGEGRAPH,
+                           this.cluster,
+                           META_PATH_SCHEMA_SYNC,
+                           graphSpace,
+                           graph);
+    }
 }

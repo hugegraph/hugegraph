@@ -34,6 +34,8 @@ import org.apache.commons.io.FileUtils;
 import org.apache.hugegraph.HugeException;
 import org.apache.hugegraph.meta.lock.EtcdDistributedLock;
 import org.apache.hugegraph.meta.lock.LockResult;
+import org.apache.hugegraph.pd.grpc.kv.TxnRequest;
+import org.apache.hugegraph.pd.grpc.kv.TxnResponse;
 import org.apache.hugegraph.type.define.CollectionType;
 import org.apache.hugegraph.util.E;
 import org.apache.hugegraph.util.Log;
@@ -238,6 +240,15 @@ public class EtcdMetaDriver implements MetaDriver {
             throw new HugeException(
                     "Failed to delete prefix '%s' from etcd", e, prefix);
         }
+    }
+
+    /**
+     * The graph record is kept by PD alone, and schema commits come only from graphs on the
+     * PD meta driver (SchemaTransactionV2 and the PD mode of GraphManager)
+     */
+    @Override
+    public TxnResponse commit(TxnRequest request) {
+        throw new UnsupportedOperationException("Atomic commits need the PD meta driver");
     }
 
     @Override

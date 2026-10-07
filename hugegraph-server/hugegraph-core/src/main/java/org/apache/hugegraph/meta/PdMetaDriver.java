@@ -35,6 +35,8 @@ import org.apache.hugegraph.pd.grpc.kv.KResponse;
 import org.apache.hugegraph.pd.grpc.kv.LockResponse;
 import org.apache.hugegraph.pd.grpc.kv.ScanPrefixResponse;
 import org.apache.hugegraph.pd.grpc.kv.TTLResponse;
+import org.apache.hugegraph.pd.grpc.kv.TxnRequest;
+import org.apache.hugegraph.pd.grpc.kv.TxnResponse;
 import org.apache.hugegraph.pd.grpc.kv.WatchEvent;
 import org.apache.hugegraph.pd.grpc.kv.WatchResponse;
 import org.apache.hugegraph.pd.grpc.kv.WatchType;
@@ -104,6 +106,16 @@ public class PdMetaDriver implements MetaDriver {
             return response.getKvsMap();
         } catch (PDException e) {
             throw new HugeException("Failed to scanWithPrefix '%s' from pd", e, prefix);
+        }
+    }
+
+    @Override
+    public TxnResponse commit(TxnRequest request) {
+        try {
+            return this.client.txn(request);
+        } catch (PDException e) {
+            throw new HugeException("Failed to commit a txn of %s ops to pd", e,
+                                    request.getOpsCount());
         }
     }
 
