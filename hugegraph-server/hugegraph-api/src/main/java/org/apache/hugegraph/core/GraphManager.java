@@ -1113,17 +1113,20 @@ public final class GraphManager {
         // Clear all schemaTemplate
         this.metaManager.clearSchemaTemplate(name);
 
-        // Clear all graphs
+        // Clear all graphs. Match the key up to the delimiter, or clearing
+        // graph space "gs" would also drop the graphs of "gs2" and "gs_x"
+        String graphPrefix = spaceGraphName(name, "");
         for (String key : this.graphs.keySet()) {
-            if (key.startsWith(name)) {
+            if (key.startsWith(graphPrefix)) {
                 String[] parts = key.split(DELIMITER);
                 this.dropGraph(parts[0], parts[1], true);
             }
         }
 
         // Clear all services
+        String servicePrefix = serviceName(name, "");
         for (String key : this.services.keySet()) {
-            if (key.startsWith(name)) {
+            if (key.startsWith(servicePrefix)) {
                 String[] parts = key.split(DELIMITER);
                 this.dropService(parts[0], parts[1]);
             }
