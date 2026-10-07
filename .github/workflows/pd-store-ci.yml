@@ -87,6 +87,9 @@ jobs:
       - name: Run Codecov upload configuration tests
         run: hugegraph-server/hugegraph-dist/src/assembly/travis/test-codecov-upload-config.sh
 
+      - name: Check TinkerPop branch and report gates
+        run: bash hugegraph-server/hugegraph-dist/src/assembly/travis/test-tinkerpop-reports.sh
+
       - name: Use staged maven repo settings
         if: ${{ env.USE_STAGE == 'true' }}
         run: |

@@ -123,7 +123,7 @@ def select(project, paths):
             selected.update(["client", "go"])
             continue
         if project == "server":
-            if path == "hugegraph-server/hugegraph-api/pom.xml":
+            if path in {"hugegraph-server/pom.xml", "hugegraph-server/hugegraph-api/pom.xml"}:
                 selected.add("docker")
             if path.startswith(("hugegraph-pd/hg-pd-dist/", "hugegraph-store/hg-store-dist/")):
                 selected.add("docker")

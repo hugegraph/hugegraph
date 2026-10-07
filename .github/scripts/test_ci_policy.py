@@ -211,8 +211,10 @@ class PolicyTest(unittest.TestCase):
         self.assertEqual("cancelled", failure.exception.report["results"]["cluster"])
         self.assertNotIn("server_memory", failure.exception.report["results"])
 
-    def test_api_pom_is_a_docker_input(self):
-        self.assertIn("docker", policy.select("server", ["hugegraph-server/hugegraph-api/pom.xml"]))
+    def test_server_and_api_poms_are_docker_inputs(self):
+        for path in ["hugegraph-server/pom.xml", "hugegraph-server/hugegraph-api/pom.xml"]:
+            with self.subTest(path=path):
+                self.assertIn("docker", policy.select("server", [path]))
         self.assertNotIn("docker", policy.select("server", ["hugegraph-server/hugegraph-api/src/main/A.java"]))
 
     def test_codeql_and_smoke_follow_affected_inputs(self):

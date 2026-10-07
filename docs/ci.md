@@ -26,7 +26,7 @@ maintainers decide whether they need another run or a requested change.
 | Commons or Struct | Their tests and affected Server, PD, Store, HStore and Cluster tests |
 | PD or Store distribution scripts, config, assembly or POM | PD/Store/HStore, Cluster and Docker |
 | Other PD or Store inputs | PD/Store/HStore and Cluster |
-| Server API POM or Commons version resource | Normal module coverage plus Docker artifact checks |
+| Server parent/API POM or Commons version resource | Normal module coverage plus Docker artifact checks |
 | Cluster, Docker or Helm | Their suite and known consumers |
 | PR template, Dependabot configuration or retry checker/tests | Planner checks and license checks; no product suites |
 | Docker image/deployment checkers and their tests | Docker |
@@ -50,7 +50,8 @@ ends the advisory check without falling back to a tar download. Existing HBase b
 remain. This changes CI preparation, not product support or backend deprecation policy.
 
 TinkerPop suites run only when the source, target or push/manual branch starts with
-`release-`, `test-` or `tinkerpop-`. Ordinary PRs, including `upgrade/1.8.0`, do not run them.
+`release-`, `test-` or `tinkerpop-`. PRs run no TP suites when neither source nor target
+branch matches these prefixes, including `upgrade/1.8.0` targeting `master`.
 Historical task-branch exceptions and the temporary TP skip are removed. Executed TP suites
 still require non-empty reports with actual executed tests.
 
