@@ -25,6 +25,8 @@ import java.util.concurrent.TimeUnit;
 import org.apache.hugegraph.pd.common.PDException;
 import org.apache.hugegraph.pd.config.PDConfig;
 import org.apache.hugegraph.pd.grpc.Pdpb;
+import org.apache.hugegraph.pd.grpc.kv.TxnRequest;
+import org.apache.hugegraph.pd.grpc.kv.TxnResponse;
 import org.apache.hugegraph.pd.raft.KVOperation;
 import org.apache.hugegraph.pd.raft.KVStoreClosure;
 import org.apache.hugegraph.pd.raft.RaftEngine;
@@ -34,6 +36,7 @@ import org.apache.hugegraph.pd.raft.RaftTaskHandler;
 import com.alipay.sofa.jraft.Status;
 import com.alipay.sofa.jraft.entity.Task;
 import com.alipay.sofa.jraft.error.RaftError;
+import com.google.protobuf.InvalidProtocolBufferException;
 
 import lombok.extern.slf4j.Slf4j;
 
@@ -174,6 +177,27 @@ public class RaftKVStore implements HgKVStore, RaftTaskHandler {
         return store.scanRange(start, end);
     }
 
+    /**
+     * A batch reaches the local store only from inside a TXN apply
+     */
+    @Override
+    public void writeBatch(List<KV> kvs) {
+        throw new UnsupportedOperationException("Write a batch through txn");
+    }
+
+    /**
+     * Proposes the TXN as one raft entry and returns its outcome on this node
+     */
+    @Override
+    public TxnResponse txn(TxnRequest request) throws PDException {
+        try {
+            return this.<TxnResponse>applyOperation(KVOperation.createTxn(request.toByteArray()))
+                       .get();
+        } catch (Exception e) {
+            throw new PDException(Pdpb.ErrorType.UNKNOWN_VALUE, e.getMessage());
+        }
+    }
+
     @Override
     public void close() {
         store.close();
@@ -219,6 +243,14 @@ public class RaftKVStore implements HgKVStore, RaftTaskHandler {
     public void doPutWithTTL(byte[] key, byte[] value, long ttl, TimeUnit timeUnit) throws
                                                                                     PDException {
         this.store.putWithTTL(key, value, ttl, timeUnit);
+    }
+
+    public TxnResponse doTxn(byte[] request, long index) throws PDException {
+        try {
+            return KvTxnApplier.apply(this.store, TxnRequest.parseFrom(request), index);
+        } catch (InvalidProtocolBufferException e) {
+            throw new PDException(Pdpb.ErrorType.UNKNOWN_VALUE, e);
+        }
     }
 
     public void doSaveSnapshot(String snapshotPath) throws PDException {
@@ -316,6 +348,12 @@ public class RaftKVStore implements HgKVStore, RaftTaskHandler {
                 break;
             case KVOperation.CLEAR:
                 doClear();
+                break;
+            case KVOperation.TXN:
+                TxnResponse result = doTxn(op.getValue(), op.getIndex());
+                if (response != null) {
+                    response.setData(result);
+                }
                 break;
             case KVOperation.SAVE_SNAPSHOT:
                 doSaveSnapshot((String) op.getAttach());
