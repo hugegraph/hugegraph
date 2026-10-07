@@ -53,6 +53,12 @@ import org.apache.hugegraph.type.HugeType;
 import org.apache.hugegraph.unit.BaseUnitTest;
 import org.apache.hugegraph.unit.FakeObjects;
 import org.apache.hugegraph.util.Events;
+import org.apache.hugegraph.meta.PdMetaDriver;
+import org.apache.hugegraph.schema.PropertyKey;
+import org.apache.hugegraph.schema.VertexLabel;
+import org.apache.hugegraph.structure.HugeVertex;
+import org.apache.hugegraph.type.define.IdStrategy;
+import org.apache.tinkerpop.gremlin.structure.VertexProperty;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -1006,4 +1012,62 @@ public class CachedSchemaTransactionTest extends BaseUnitTest {
             Whitebox.setInternalState(cache, "idCache.capacity", old);
         }
     }
+    @Test
+    public void testV2SchemaIdentityAndInvalidationSurviveRequestClose() throws Exception {
+        Field flag = CachedSchemaTransactionV2.class.getDeclaredField("metaEventListenerRegistered");
+        flag.setAccessible(true);
+        AtomicBoolean registered = (AtomicBoolean) flag.get(null);
+        boolean previous = registered.getAndSet(true);
+        CachedSchemaTransactionV2 owner = null;
+        CachedSchemaTransactionV2 next = null;
+        try {
+            PdMetaDriver driver =
+                    Mockito.mock(PdMetaDriver.class);
+            owner = new CachedSchemaTransactionV2(driver, "test", this.params);
+            FakeObjects objects = new FakeObjects("unit-test");
+            PropertyKey property =
+                    objects.newPropertyKey(IdGenerator.of(1), "v2-retained");
+            Whitebox.invoke(CachedSchemaTransactionV2.class, new Class<?>[]{SchemaElement.class},
+                            "updateCache", owner, property);
+            VertexLabel label = objects.newVertexLabel(
+                    IdGenerator.of(3), "v2-retained-label",
+                    IdStrategy.CUSTOMIZE_NUMBER, property.id());
+            Whitebox.invoke(CachedSchemaTransactionV2.class, new Class<?>[]{SchemaElement.class},
+                            "updateCache", owner, label);
+            HugeVertex retained = new HugeVertex(
+                    objects.graph(), IdGenerator.of(4), label);
+            owner.close();
+            next = new CachedSchemaTransactionV2(driver, "test", this.params);
+            Assert.assertSame(property, next.getPropertyKey(property.id()));
+            VertexLabel current = next.getVertexLabel(label.id());
+            Assert.assertSame(retained.schemaLabel(), current);
+            PropertyKey appended =
+                    objects.newPropertyKey(IdGenerator.of(2), "v2-appended");
+            current.properties(appended.id());
+            current.nullableKeys(appended.id());
+            Assert.assertEquals("accepted", retained.property(
+                    VertexProperty.Cardinality.single,
+                    appended.name(), "accepted").value());
+            next.close();
+            next = null;
+            this.params.schemaEventHub().notify(Events.CACHE, Cache.ACTION_CLEAR, null).get();
+            Assert.assertEquals(0L, Whitebox.invoke(owner, "idCache", "size"));
+            Field registryField = CachedSchemaTransactionV2.class.getDeclaredField("SCHEMA_CACHE_EVENT_LISTENERS");
+            registryField.setAccessible(true);
+            Map<?, ?> registry = (Map<?, ?>) registryField.get(null);
+            Assert.assertTrue(registry.containsKey(this.params.spaceGraphName()));
+            CachedSchemaTransactionV2.closeGraph(this.params);
+            Assert.assertFalse(registry.containsKey(this.params.spaceGraphName()));
+        } finally {
+            if (owner != null) {
+                owner.close();
+            }
+            if (next != null) {
+                next.close();
+            }
+            CachedSchemaTransactionV2.closeGraph(this.params);
+            registered.set(previous);
+        }
+    }
+
 }

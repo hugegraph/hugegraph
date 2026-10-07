@@ -1116,7 +1116,11 @@ public class StandardHugeGraph implements HugeGraph {
                 CachedGraphTransaction.closeGraph(this.params);
             } finally {
                 try {
-                    CachedSchemaTransaction.closeGraph(this.params);
+                    try {
+                        CachedSchemaTransaction.closeGraph(this.params);
+                    } finally {
+                        CachedSchemaTransactionV2.closeGraph(this.params);
+                    }
                 } finally {
                     try {
                         this.storeProvider.close();
@@ -1355,22 +1359,25 @@ public class StandardHugeGraph implements HugeGraph {
         }
 
         public void close() {
-            try {
-                this.graphTx.close();
-            } catch (Exception e) {
-                LOG.error("Failed to close GraphTransaction", e);
+            Throwable failure = null;
+            for (Runnable close : new Runnable[]{this.graphTx::close,
+                                                   this.systemTx::close,
+                                                   this.schemaTx::close}) {
+                try {
+                    close.run();
+                } catch (RuntimeException | Error error) {
+                    if (failure == null) {
+                        failure = error;
+                    } else if (failure != error) {
+                        failure.addSuppressed(error);
+                    }
+                }
             }
-
-            try {
-                this.systemTx.close();
-            } catch (Exception e) {
-                LOG.error("Failed to close SystemTransaction", e);
+            if (failure instanceof Error) {
+                throw (Error) failure;
             }
-
-            try {
-                this.schemaTx.close();
-            } catch (Exception e) {
-                LOG.error("Failed to close SchemaTransaction", e);
+            if (failure != null) {
+                throw (RuntimeException) failure;
             }
         }
 

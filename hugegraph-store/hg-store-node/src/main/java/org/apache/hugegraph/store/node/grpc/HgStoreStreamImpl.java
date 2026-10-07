@@ -25,6 +25,10 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
+import org.apache.hugegraph.store.business.BusinessHandler;
+import org.apache.hugegraph.store.grpc.Graphpb.ScanPartitionRequest;
+import org.apache.hugegraph.store.grpc.Graphpb.ScanResponse;
+import org.apache.hugegraph.store.node.grpc.scan.ScanResponseObserver;
 import org.apache.hugegraph.store.grpc.state.ScanState;
 import org.apache.hugegraph.store.grpc.stream.HgStoreStreamGrpc;
 import org.apache.hugegraph.store.grpc.stream.KvPageRes;
@@ -171,6 +175,18 @@ public class HgStoreStreamImpl extends HgStoreStreamGrpc.HgStoreStreamImplBase {
                 }
             }
         };
+    }
+
+    public StreamObserver<ScanPartitionRequest> scanGraphPartition(
+            StreamObserver<ScanResponse> response,
+            BusinessHandler handler) {
+        synchronized (this) {
+            checkAcceptingScans();
+            return register(new ScanLifecycle(), lifecycle ->
+                    new ScanResponseObserver<>(
+                            lifecycle.response(response), handler,
+                            task -> lifecycle.execute(getExecutor(), task), lifecycle::failedCleanup));
+        }
     }
 
     private <T> void oneShot(StreamObserver<T> response, Consumer<ScanLifecycle> action) {

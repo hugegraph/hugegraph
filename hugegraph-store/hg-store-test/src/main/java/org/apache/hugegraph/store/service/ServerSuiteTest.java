@@ -32,7 +32,8 @@ import lombok.extern.slf4j.Slf4j;
         ContextClosedListenerTest.class,
         AggregativeQueryShutdownTest.class,
         GrpcShutdownBarrierTest.class,
-        ScanShutdownTest.class
+        ScanShutdownTest.class,
+        GraphPartitionScanShutdownTest.class
 })
 
 @Slf4j

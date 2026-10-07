@@ -17,6 +17,8 @@
 
 package org.apache.hugegraph.unit.cache;
 
+import java.lang.reflect.Constructor;
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.Collections;
@@ -42,6 +44,9 @@ import org.apache.tinkerpop.gremlin.structure.Direction;
 import org.apache.tinkerpop.gremlin.structure.Edge;
 import org.apache.tinkerpop.gremlin.structure.T;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
+import org.apache.hugegraph.backend.tx.GraphTransaction;
+import org.apache.hugegraph.backend.tx.ISchemaTransaction;
+import org.mockito.Mockito;
 import org.junit.Test;
 import sun.misc.Unsafe;
 
@@ -184,4 +189,38 @@ public class RequestCacheLifetimeTest {
                                                 "DEFAULT", graph.name(), id, "append", body);
         Assert.assertTrue(response.contains(value));
     }
+    @Test
+    public void testTransactionClosePreservesFailureAndAttemptsEveryOwner() throws Exception {
+        Class<?> holderType = Class.forName("org.apache.hugegraph.StandardHugeGraph$Txs");
+        Class<?> systemType = Class.forName("org.apache.hugegraph.StandardHugeGraph$SysTransaction");
+        GraphTransaction graphTx =
+                Mockito.mock(GraphTransaction.class);
+        GraphTransaction systemTx =
+                (GraphTransaction) Mockito.mock(systemType);
+        ISchemaTransaction schemaTx =
+                Mockito.mock(ISchemaTransaction.class);
+        RuntimeException first = new IllegalStateException("graph close failed");
+        RuntimeException second = new IllegalArgumentException("system close failed");
+        Mockito.doThrow(first).when(graphTx).close();
+        Mockito.doThrow(second).when(systemTx).close();
+        Constructor<?> constructor = holderType.getDeclaredConstructor(
+                ISchemaTransaction.class, systemType,
+                GraphTransaction.class);
+        constructor.setAccessible(true);
+        Object holder = constructor.newInstance(schemaTx, systemTx, graphTx);
+        Method close = holderType.getDeclaredMethod("close");
+        close.setAccessible(true);
+        try {
+            close.invoke(holder);
+            Assert.fail("Failed cleanup must reach the request boundary");
+        } catch (InvocationTargetException error) {
+            Assert.assertSame(first, error.getCause());
+            Assert.assertEquals(1, first.getSuppressed().length);
+            Assert.assertSame(second, first.getSuppressed()[0]);
+        }
+        Mockito.verify(graphTx).close();
+        Mockito.verify(systemTx).close();
+        Mockito.verify(schemaTx).close();
+    }
+
 }
