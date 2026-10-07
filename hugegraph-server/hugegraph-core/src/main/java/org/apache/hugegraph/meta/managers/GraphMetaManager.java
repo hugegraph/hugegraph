@@ -202,10 +202,14 @@ public class GraphMetaManager extends AbstractMetaManager {
     }
 
     private String graphConfKey(String graphSpace, String graph) {
+        return graphConfKey(this.cluster, graphSpace, graph);
+    }
+
+    static String graphConfKey(String cluster, String graphSpace, String graph) {
         // HUGEGRAPH/{cluster}/GRAPHSPACE/{graphspace}/GRAPH_CONF/{graph}
         return String.join(META_PATH_DELIMITER,
                            META_PATH_HUGEGRAPH,
-                           this.cluster,
+                           cluster,
                            META_PATH_GRAPHSPACE,
                            graphSpace,
                            META_PATH_GRAPH_CONF,

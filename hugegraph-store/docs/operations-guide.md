@@ -725,7 +725,21 @@ tail -f logs/hugegraph-store.log
 
 #### Step 2: Upgrade PD Nodes (one at a time)
 
-Same process as Store, but upgrade PD cluster first or last (check release notes).
+Same process as Store. Upgrade every PD node before the first Server of the release that
+adds atomic schema commits. Such a Server writes the schema of its HStore graphs, and the
+graph records under `HUGEGRAPH/<cluster>/SCHEMA_SYNC/`, through PD's `txn` RPC, which
+earlier PD releases don't have:
+
+- Against an old PD, the new Server fails every schema change, and fails to open an HStore
+  graph that has no graph record yet. It does not fall back to writing without the record.
+- An old PD follower skips each TXN entry it applies and logs `Err op 10`, with no other
+  error. Its schema and graph records fall behind, and it serves that stale state if it
+  becomes leader. A snapshot or a restart doesn't repair this.
+
+If a PD node logged `Err op 10`, rebuild it after it runs the new release: stop it, move its
+data directory (`pd.data-path`, `./pd_data` by default) aside, and start it again with the
+same configuration while the other PD nodes are up. It then copies the state from the
+leader. Rebuild one node at a time.
 
 #### Step 3: Upgrade Server Nodes (one at a time)
 

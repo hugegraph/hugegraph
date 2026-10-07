@@ -80,7 +80,8 @@ public class SchemaTransactionV2 implements ISchemaTransaction {
         this.graphSpace = graphParams.graph().graphSpace();
         this.graph = graphParams.name();
         this.schemaMetaManager =
-                new SchemaMetaManager(metaDriver, cluster, this.graph());
+                new SchemaMetaManager(metaDriver, cluster, this.graph(),
+                                      graphParams.schemaIncarnation());
         this.idCounter = new IdCounter(((PdMetaDriver) metaDriver).pdClient(),
                                        idKeyName(this.graphSpace, this.graph));
     }
@@ -304,20 +305,38 @@ public class SchemaTransactionV2 implements ISchemaTransaction {
 
     @Watched(prefix = "schema")
     public void addIndexLabel(SchemaLabel baseLabel, IndexLabel indexLabel) {
-        /*
-         * Create index and update index name in base-label(VL/EL)
-         * TODO: should wrap update base-label and create index in one tx.
-         */
-        this.addSchema(indexLabel);
+        this.saveIndexLabel(baseLabel, indexLabel);
+    }
 
+    /**
+     * Creates the index label and adds it to the base label (VL/EL) in one commit
+     *
+     * @return the base label as written, which may hold index labels that other Servers
+     * added meanwhile, or null for the OLAP base label, which isn't stored
+     */
+    protected SchemaLabel saveIndexLabel(SchemaLabel baseLabel, IndexLabel indexLabel) {
+        LOG.debug("SchemaTransaction add index label '{}' to {} '{}'",
+                  indexLabel.id(), baseLabel.type(), baseLabel.id());
+        setCreateTimeIfNeeded(indexLabel);
         if (baseLabel.equals(VertexLabel.OLAP_VL)) {
-            return;
+            this.saveSchema(indexLabel, null);
+            return null;
         }
-
-        this.updateSchema(baseLabel, schema -> {
+        LockUtil.Locks locks = new LockUtil.Locks(this.graphParams().graph().spaceGraphName());
+        try {
+            locks.lockWrites(LockUtil.hugeType2Group(HugeType.INDEX_LABEL), indexLabel.id());
+            locks.lockWrites(LockUtil.hugeType2Group(baseLabel.type()), baseLabel.id());
             // NOTE: Do schema update in the lock block
+            SchemaLabel written = this.schemaMetaManager.addIndexLabel(this.graphSpace,
+                                                                       this.graph, baseLabel,
+                                                                       indexLabel);
+            // The caller's base label gets the index label as it did before
             baseLabel.addIndexLabel(indexLabel.id());
-        });
+            this.notifyGraphCacheClear(written);
+            return written;
+        } finally {
+            locks.unlock();
+        }
     }
 
     @Watched(prefix = "schema")
@@ -372,6 +391,16 @@ public class SchemaTransactionV2 implements ISchemaTransaction {
 
     @Override
     public void removeIndexLabelFromBaseLabel(IndexLabel indexLabel) {
+        this.unlinkIndexLabel(indexLabel);
+    }
+
+    /**
+     * Removes the index label from its base label (VL/EL) with the compare and retry of
+     * saveIndexLabel, so a change of the base label on another Server is not undone
+     *
+     * @return the base label as written, or null if there is none to change
+     */
+    protected SchemaLabel unlinkIndexLabel(IndexLabel indexLabel) {
         HugeType baseType = indexLabel.baseType();
         Id baseValue = indexLabel.baseValue();
         SchemaLabel baseLabel;
@@ -385,34 +414,48 @@ public class SchemaTransactionV2 implements ISchemaTransaction {
         if (baseLabel == null) {
             LOG.info("The base label '{}' of index label '{}' " +
                      "may be deleted before", baseValue, indexLabel);
-            return;
+            return null;
         }
         if (baseLabel.equals(VertexLabel.OLAP_VL)) {
-            return;
+            return null;
         }
 
-        this.updateSchema(baseLabel, schema -> {
+        LockUtil.Locks locks = new LockUtil.Locks(this.graphParams().graph().spaceGraphName());
+        try {
+            locks.lockWrites(LockUtil.hugeType2Group(baseLabel.type()), baseLabel.id());
             // NOTE: Do schema update in the lock block
+            SchemaLabel written = this.schemaMetaManager.removeIndexLabel(this.graphSpace,
+                                                                          this.graph,
+                                                                          baseLabel,
+                                                                          indexLabel);
+            if (written == null) {
+                LOG.info("The base label '{}' of index label '{}' " +
+                         "may be deleted before", baseValue, indexLabel);
+                return null;
+            }
             baseLabel.removeIndexLabel(indexLabel.id());
-        });
+            this.notifyGraphCacheClear(written);
+            return written;
+        } finally {
+            locks.unlock();
+        }
     }
 
     protected void updateSchema(SchemaElement schema,
                                 Consumer<SchemaElement> updateCallback) {
         LOG.debug("SchemaTransaction update {} with id '{}'",
                   schema.type(), schema.id());
-        this.saveSchema(schema, true, updateCallback);
+        this.saveSchema(schema, updateCallback);
     }
 
     protected void addSchema(SchemaElement schema) {
         LOG.debug("SchemaTransaction add {} with id '{}'",
                   schema.type(), schema.id());
         setCreateTimeIfNeeded(schema);
-        this.saveSchema(schema, false, null);
+        this.saveSchema(schema, null);
     }
 
-    @SuppressWarnings("unchecked")
-    private void saveSchema(SchemaElement schema, boolean update,
+    private void saveSchema(SchemaElement schema,
                             Consumer<SchemaElement> updateCallback) {
         // Lock for schema update
         String spaceGraph = this.graphParams()
@@ -425,40 +468,20 @@ public class SchemaTransactionV2 implements ISchemaTransaction {
                 // NOTE: Do schema update in the lock block
                 updateCallback.accept(schema);
             }
-            // Call the corresponding method
-            switch (schema.type()) {
-                case PROPERTY_KEY:
-                    this.schemaMetaManager.addPropertyKey(this.graphSpace,
-                                                          this.graph,
-                                                          (PropertyKey) schema);
-                    break;
-                case VERTEX_LABEL:
-                    this.schemaMetaManager.addVertexLabel(this.graphSpace,
-                                                          this.graph,
-                                                          (VertexLabel) schema);
-                    // Point's label changes, clear the corresponding graph's point cache
-                    // information
-                    MetaManager.instance().notifyGraphVertexCacheClear(this.graphSpace, this.graph);
-                    break;
-                case EDGE_LABEL:
-                    this.schemaMetaManager.addEdgeLabel(this.graphSpace,
-                                                        this.graph,
-                                                        (EdgeLabel) schema);
-                    // Side label changes, clear the corresponding edge cache information of the
-                    // graph.
-                    MetaManager.instance().notifyGraphEdgeCacheClear(this.graphSpace, this.graph);
-                    break;
-                case INDEX_LABEL:
-                    this.schemaMetaManager.addIndexLabel(this.graphSpace,
-                                                         this.graph,
-                                                         (IndexLabel) schema);
-                    break;
-                default:
-                    throw new AssertionError(String.format(
-                            "Invalid key '%s' for saveSchema", schema.type()));
-            }
+            this.schemaMetaManager.saveSchema(this.graphSpace, this.graph, schema);
+            this.notifyGraphCacheClear(schema);
         } finally {
             locks.unlock();
+        }
+    }
+
+    private void notifyGraphCacheClear(SchemaElement schema) {
+        if (schema.type() == HugeType.VERTEX_LABEL) {
+            // Point's label changes, clear the corresponding graph's point cache information
+            MetaManager.instance().notifyGraphVertexCacheClear(this.graphSpace, this.graph);
+        } else if (schema.type() == HugeType.EDGE_LABEL) {
+            // Side label changes, clear the corresponding edge cache information of the graph
+            MetaManager.instance().notifyGraphEdgeCacheClear(this.graphSpace, this.graph);
         }
     }
 
@@ -546,27 +569,7 @@ public class SchemaTransactionV2 implements ISchemaTransaction {
         try {
             locks.lockWrites(LockUtil.hugeType2Group(schema.type()),
                              schema.id());
-            switch (schema.type()) {
-                case PROPERTY_KEY:
-                    this.schemaMetaManager.removePropertyKey(this.graphSpace, this.graph,
-                                                             schema.id());
-                    break;
-                case VERTEX_LABEL:
-                    this.schemaMetaManager.removeVertexLabel(this.graphSpace, this.graph,
-                                                             schema.id());
-                    break;
-                case EDGE_LABEL:
-                    this.schemaMetaManager.removeEdgeLabel(this.graphSpace, this.graph,
-                                                           schema.id());
-                    break;
-                case INDEX_LABEL:
-                    this.schemaMetaManager.removeIndexLabel(this.graphSpace, this.graph,
-                                                            schema.id());
-                    break;
-                default:
-                    throw new AssertionError(String.format(
-                            "Invalid key '%s' for saveSchema", schema.type()));
-            }
+            this.schemaMetaManager.removeSchema(this.graphSpace, this.graph, schema);
         } finally {
             locks.unlock();
         }

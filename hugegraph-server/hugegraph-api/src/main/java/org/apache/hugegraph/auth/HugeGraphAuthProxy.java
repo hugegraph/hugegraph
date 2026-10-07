@@ -774,6 +774,11 @@ public final class HugeGraphAuthProxy implements HugeGraph {
     }
 
     @Override
+    public long schemaIncarnation() {
+        return this.hugegraph.schemaIncarnation();
+    }
+
+    @Override
     public String backend() {
         this.verifyAnyPermission();
         return this.hugegraph.backend();
@@ -899,6 +904,12 @@ public final class HugeGraphAuthProxy implements HugeGraph {
     public void clearBackend() {
         this.verifyAdminPermission();
         this.hugegraph.clearBackend();
+    }
+
+    @Override
+    public void clearBackendForDrop() {
+        this.verifyAdminPermission();
+        this.hugegraph.clearBackendForDrop();
     }
 
     @Override

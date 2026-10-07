@@ -81,6 +81,8 @@ public class MetaManager {
     public static final String META_PATH_CONF = "CONF";
     public static final String META_PATH_GRAPH = "GRAPH";
     public static final String META_PATH_SCHEMA = "SCHEMA";
+    public static final String META_PATH_SCHEMA_SYNC = "SCHEMA_SYNC";
+    public static final String META_PATH_SCHEMA_SYNC_OWNER = "SCHEMA_SYNC_OWNER";
     public static final String META_PATH_PROPERTY_KEY = "PROPERTY_KEY";
     public static final String META_PATH_VERTEX_LABEL = "VERTEX_LABEL";
     public static final String META_PATH_EDGE_LABEL = "EDGE_LABEL";
@@ -749,13 +751,13 @@ public class MetaManager {
 
     public Id addPropertyKey(String graphSpace, String graph,
                              PropertyKey propertyKey) {
-        this.schemaMetaManager.addPropertyKey(graphSpace, graph, propertyKey);
+        this.schemaMetaManager.saveSchema(graphSpace, graph, propertyKey);
         return IdGenerator.ZERO;
     }
 
     public void updatePropertyKey(String graphSpace, String graph,
                                   PropertyKey pkey) {
-        this.schemaMetaManager.updatePropertyKey(graphSpace, graph, pkey);
+        this.schemaMetaManager.saveSchema(graphSpace, graph, pkey);
     }
 
     public PropertyKey getPropertyKey(String graphSpace, String graph,
@@ -776,19 +778,19 @@ public class MetaManager {
 
     public Id removePropertyKey(String graphSpace, String graph,
                                 Id propertyKey) {
-        return this.schemaMetaManager.removePropertyKey(graphSpace, graph,
-                                                        propertyKey);
+        this.schemaMetaManager.removeSchema(graphSpace, graph,
+                this.getPropertyKey(graphSpace, graph, propertyKey));
+        return IdGenerator.ZERO;
     }
 
     public void addVertexLabel(String graphSpace, String graph,
                                VertexLabel vertexLabel) {
-        this.schemaMetaManager.addVertexLabel(graphSpace, graph, vertexLabel);
+        this.schemaMetaManager.saveSchema(graphSpace, graph, vertexLabel);
     }
 
     public void updateVertexLabel(String graphSpace, String graph,
                                   VertexLabel vertexLabel) {
-        this.schemaMetaManager.updateVertexLabel(graphSpace, graph,
-                                                 vertexLabel);
+        this.schemaMetaManager.saveSchema(graphSpace, graph, vertexLabel);
     }
 
     public VertexLabel getVertexLabel(String graphSpace, String graph,
@@ -809,18 +811,19 @@ public class MetaManager {
 
     public Id removeVertexLabel(String graphSpace, String graph,
                                 Id vertexLabel) {
-        return this.schemaMetaManager.removeVertexLabel(graphSpace, graph,
-                                                        vertexLabel);
+        this.schemaMetaManager.removeSchema(graphSpace, graph,
+                this.getVertexLabel(graphSpace, graph, vertexLabel));
+        return IdGenerator.ZERO;
     }
 
     public void addEdgeLabel(String graphSpace, String graph,
                              EdgeLabel edgeLabel) {
-        this.schemaMetaManager.addEdgeLabel(graphSpace, graph, edgeLabel);
+        this.schemaMetaManager.saveSchema(graphSpace, graph, edgeLabel);
     }
 
     public void updateEdgeLabel(String graphSpace, String graph,
                                 EdgeLabel edgeLabel) {
-        this.schemaMetaManager.updateEdgeLabel(graphSpace, graph, edgeLabel);
+        this.schemaMetaManager.saveSchema(graphSpace, graph, edgeLabel);
     }
 
     public EdgeLabel getEdgeLabel(String graphSpace, String graph,
@@ -840,18 +843,19 @@ public class MetaManager {
     }
 
     public Id removeEdgeLabel(String graphSpace, String graph, Id edgeLabel) {
-        return this.schemaMetaManager.removeEdgeLabel(graphSpace, graph,
-                                                      edgeLabel);
+        this.schemaMetaManager.removeSchema(graphSpace, graph,
+                this.getEdgeLabel(graphSpace, graph, edgeLabel));
+        return IdGenerator.ZERO;
     }
 
     public void addIndexLabel(String graphSpace, String graph,
                               IndexLabel indexLabel) {
-        this.schemaMetaManager.addIndexLabel(graphSpace, graph, indexLabel);
+        this.schemaMetaManager.saveSchema(graphSpace, graph, indexLabel);
     }
 
     public void updateIndexLabel(String graphSpace, String graph,
                                  IndexLabel indexLabel) {
-        this.schemaMetaManager.updateIndexLabel(graphSpace, graph, indexLabel);
+        this.schemaMetaManager.saveSchema(graphSpace, graph, indexLabel);
     }
 
     public IndexLabel getIndexLabel(String graphSpace, String graph,
@@ -871,8 +875,9 @@ public class MetaManager {
     }
 
     public Id removeIndexLabel(String graphSpace, String graph, Id indexLabel) {
-        return this.schemaMetaManager.removeIndexLabel(graphSpace, graph,
-                                                       indexLabel);
+        this.schemaMetaManager.removeSchema(graphSpace, graph,
+                this.getIndexLabel(graphSpace, graph, indexLabel));
+        return IdGenerator.ZERO;
     }
 
     public void createUser(HugeUser user) throws IOException {
