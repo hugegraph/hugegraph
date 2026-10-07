@@ -85,6 +85,7 @@ import org.apache.hugegraph.masterelection.GlobalMasterInfo;
 import org.apache.hugegraph.meta.MetaDriver;
 import org.apache.hugegraph.meta.MetaManager;
 import org.apache.hugegraph.meta.PdMetaDriver;
+import org.apache.hugegraph.meta.SchemaSyncClient;
 import org.apache.hugegraph.meta.lock.LockResult;
 import org.apache.hugegraph.metrics.MetricsUtil;
 import org.apache.hugegraph.metrics.ServerReporter;
@@ -135,6 +136,7 @@ import org.apache.tinkerpop.gremlin.structure.util.GraphFactory;
 import org.slf4j.Logger;
 
 import com.alipay.sofa.rpc.config.ServerConfig;
+import com.codahale.metrics.MetricRegistry;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -221,6 +223,8 @@ public final class GraphManager {
         this.rpcServer = new RpcServer(conf);
         this.rpcClient = new RpcClientProvider(conf);
         this.pdPeers = conf.get(ServerOptions.PD_PEERS);
+        SchemaSyncClient.sessionTimeout(conf.get(ServerOptions.SCHEMA_SYNC_SESSION_TIMEOUT));
+        registerSchemaSyncMetrics();
 
         this.globalNodeRoleInfo = new GlobalMasterInfo();
 
@@ -312,6 +316,20 @@ public final class GraphManager {
             MetricsUtil.registerGauge(Cache.class, size, cache::size);
             MetricsUtil.registerGauge(Cache.class, cap, cache::capacity);
         }
+    }
+
+    private static void registerSchemaSyncMetrics() {
+        String state = MetricRegistry.name(SchemaSyncClient.class, "state");
+        if (MetricManager.INSTANCE.getRegistry().getNames().contains(state)) {
+            return;
+        }
+        // The ordinal of the session state, -1 while no HStore graph is open
+        MetricsUtil.registerGauge(SchemaSyncClient.class, "state", () -> {
+            SchemaSyncClient.State current = SchemaSyncClient.currentState();
+            return current == null ? -1 : current.ordinal();
+        });
+        MetricsUtil.registerGauge(SchemaSyncClient.class, "invalidations",
+                                  SchemaSyncClient::invalidationCount);
     }
 
     private static void sleep1s() {

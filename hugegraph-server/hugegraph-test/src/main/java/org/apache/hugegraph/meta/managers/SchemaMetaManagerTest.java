@@ -28,6 +28,7 @@ import org.apache.hugegraph.backend.tx.SchemaTransactionV2;
 import org.apache.hugegraph.meta.MetaDriver;
 import org.apache.hugegraph.meta.MetaManager;
 import org.apache.hugegraph.meta.PdMetaDriver;
+import org.apache.hugegraph.meta.SchemaSyncClient;
 import org.apache.hugegraph.pd.grpc.kv.TxnOp;
 import org.apache.hugegraph.pd.grpc.kv.TxnRecord;
 import org.apache.hugegraph.pd.grpc.kv.TxnRequest;
@@ -99,22 +100,33 @@ public class SchemaMetaManagerTest {
     }
 
     @Test
-    public void testOpenIncarnation() {
-        Assert.assertEquals(0L, this.manager.openIncarnation("DEFAULT", "g"));
+    public void testOpenRecord() {
+        // A graph from before the upgrade: an empty BUMP creates its record at open
+        SchemaSyncClient.Record record = this.manager.openRecord("DEFAULT", "g");
+        Assert.assertEquals(1L, record.incarnation());
+        Assert.assertEquals(7L, record.revision());
+        Assert.assertFalse(record.dropped());
+        TxnRequest request = this.lastCommit();
+        Assert.assertEquals(0, request.getOpsCount());
+        assertBump(request, 0L);
+
         Mockito.when(this.driver.get(RECORD))
                .thenReturn("{\"rev\":9,\"inc\":3,\"state\":\"LIVE\"}");
-        Assert.assertEquals(3L, this.manager.openIncarnation("DEFAULT", "g"));
+        Assert.assertEquals(3L, this.manager.openRecord("DEFAULT", "g").incarnation());
         // A dropped graph keeps its incarnation, so a later recreate doesn't let it write
         Mockito.when(this.driver.get(RECORD))
                .thenReturn("{\"rev\":10,\"inc\":3,\"state\":\"DROPPED\"}");
-        Assert.assertEquals(3L, this.manager.openIncarnation("DEFAULT", "g"));
+        record = this.manager.openRecord("DEFAULT", "g");
+        Assert.assertEquals(3L, record.incarnation());
+        Assert.assertTrue(record.dropped());
+        Mockito.verify(this.driver, Mockito.times(1)).commit(Mockito.any());
     }
 
     @Test
     public void testInstanceOpenedOnADroppedGraphCantWriteARecreatedOne() {
         Mockito.when(this.driver.get(RECORD))
                .thenReturn("{\"rev\":10,\"inc\":3,\"state\":\"DROPPED\"}");
-        this.incarnation.set(this.manager.openIncarnation("DEFAULT", "g"));
+        this.incarnation.set(this.manager.openRecord("DEFAULT", "g").incarnation());
         // PD answers as for a record recreated with incarnation 4
         Mockito.when(this.driver.commit(Mockito.any())).thenReturn(
                 TxnResponse.newBuilder()

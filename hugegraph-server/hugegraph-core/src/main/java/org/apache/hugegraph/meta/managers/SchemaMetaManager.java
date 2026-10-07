@@ -39,6 +39,7 @@ import org.apache.hugegraph.HugeException;
 import org.apache.hugegraph.HugeGraph;
 import org.apache.hugegraph.backend.id.Id;
 import org.apache.hugegraph.meta.MetaDriver;
+import org.apache.hugegraph.meta.SchemaSyncClient;
 import org.apache.hugegraph.pd.grpc.kv.TxnOp;
 import org.apache.hugegraph.pd.grpc.kv.TxnRecord;
 import org.apache.hugegraph.pd.grpc.kv.TxnRequest;
@@ -463,26 +464,27 @@ public class SchemaMetaManager extends AbstractMetaManager {
     }
 
     /**
-     * The incarnation a graph instance opens with, read from its record: every BUMP of the
-     * instance then carries it, so the instance can't write into a later incarnation. It is
-     * 0 (not checked) when the record is absent, which only happens for a graph created
-     * before the upgrade: its first BUMP creates the record with incarnation 1. The
-     * incarnation of a DROPPED record is kept as well, so the writes of the instance are
-     * rejected as GRAPH_DROPPED while the graph stays dropped, and as INCARNATION_MISMATCH
-     * once it is recreated.
+     * The record a graph instance opens with: every BUMP of the instance then carries its
+     * incarnation, so the instance can't write into a later incarnation. An absent record
+     * (a graph created before the upgrade) is created here by an empty BUMP, so a schema sync
+     * handshake that misses a record can treat the graph as gone. The incarnation of a DROPPED
+     * record is kept as well, so the writes of the instance are rejected as GRAPH_DROPPED while
+     * the graph stays dropped, and as INCARNATION_MISMATCH once it is recreated.
      */
-    @SuppressWarnings("unchecked")
-    public long openIncarnation(String graphSpace, String graph) {
+    public SchemaSyncClient.Record openRecord(String graphSpace, String graph) {
         String record = this.metaDriver.get(this.recordKey(graphSpace, graph));
         if (record == null || record.isEmpty()) {
-            return 0L;
+            TxnResponse response = this.commit(graphSpace, graph, TxnRequest.newBuilder(),
+                                               TxnRecord.Op.BUMP, 0L);
+            return new SchemaSyncClient.Record(response.getRevision(),
+                                               response.getIncarnation(), false);
         }
-        Map<String, Object> value = JsonUtil.fromJson(record, Map.class);
-        if (!"LIVE".equals(value.get("state"))) {
-            LOG.warn("Graph '{}' in graph space '{}' opens with a {} schema sync record {}",
-                     graph, graphSpace, value.get("state"), record);
+        SchemaSyncClient.Record value = SchemaSyncClient.Record.parse(record);
+        if (value.dropped()) {
+            LOG.warn("Graph '{}' in graph space '{}' opens with a DROPPED schema sync " +
+                     "record {}", graph, graphSpace, record);
         }
-        return ((Number) value.get("inc")).longValue();
+        return value;
     }
 
     private void bump(String graphSpace, String graph, TxnRequest.Builder txn) {
@@ -490,7 +492,7 @@ public class SchemaMetaManager extends AbstractMetaManager {
         TxnResponse response = this.commit(graphSpace, graph, txn, TxnRecord.Op.BUMP,
                                            expected);
         if (this.incarnation != null) {
-            // A graph from before the upgrade: this BUMP created its record
+            // An incarnation not learned at open: this BUMP created the record
             this.incarnation.compareAndSet(0L, response.getIncarnation());
         }
     }

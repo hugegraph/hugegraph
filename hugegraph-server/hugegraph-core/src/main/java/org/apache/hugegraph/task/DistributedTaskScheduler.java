@@ -41,6 +41,7 @@ import org.apache.hugegraph.config.CoreOptions;
 import org.apache.hugegraph.exception.ConnectionException;
 import org.apache.hugegraph.exception.NotFoundException;
 import org.apache.hugegraph.meta.MetaManager;
+import org.apache.hugegraph.meta.SchemaSyncClient;
 import org.apache.hugegraph.meta.lock.LockResult;
 import org.apache.hugegraph.structure.HugeVertex;
 import org.apache.hugegraph.util.E;
@@ -127,6 +128,11 @@ public class DistributedTaskScheduler extends TaskAndResultScheduler {
         }
 
         if (!this.graph.started() || this.graph.closed()) {
+            return;
+        }
+
+        // No task starts while the schema cache of the graph may be stale
+        if (!SchemaSyncClient.serving(this.graphSpace, this.graphName)) {
             return;
         }
 
