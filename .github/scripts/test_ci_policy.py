@@ -402,6 +402,66 @@ class PolicyTest(unittest.TestCase):
                     policy.gate(plan, results)
                 git("checkout", "-q", "feature")
 
+    def test_queued_pr_uses_actual_merge_base_and_rejects_changed_identity(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            def git(*args):
+                return subprocess.check_output(["git", *args], cwd=root, text=True).strip()
+            git("init", "-q")
+            git("config", "user.email", "ci@example.invalid")
+            git("config", "user.name", "CI")
+            (root / "README.md").write_text("base")
+            git("add", ".")
+            git("commit", "-qm", "event base")
+            event_base = git("rev-parse", "HEAD")
+            git("checkout", "-qb", "feature")
+            (root / "hugegraph-server").mkdir()
+            (root / "hugegraph-server/A.java").write_text("PR source")
+            git("add", ".")
+            git("commit", "-qm", "PR head")
+            head = git("rev-parse", "HEAD")
+            event_live = self.live_pr()
+            event_live["head"]["sha"], event_live["base"]["sha"] = head, event_base
+            event = {"pull_request": dict(event_live, number=7)}
+            git("checkout", "--detach", "-q", event_base)
+            (root / "README.md").write_text("target advanced while run was queued")
+            git("commit", "-qam", "new target base")
+            tested_base = git("rev-parse", "HEAD")
+            git("merge", "--no-ff", "-qm", "current PR merge", "feature")
+            merge = git("rev-parse", "HEAD")
+            live = dict(event_live, base=dict(event_live["base"], sha=tested_base))
+            old = os.getcwd()
+            try:
+                os.chdir(root)
+                os.environ["GITHUB_SHA"] = merge
+                plan = policy.create_plan("server", event, "apache/server", lambda _: live)
+                self.assertEqual(tested_base, plan["base"])
+                self.assertNotEqual(event_base, plan["base"])
+                self.assertEqual(head, plan["head"])
+                self.assertEqual(merge, plan["testedMergeSHA"])
+                self.assertEqual(["hugegraph-server/A.java"], plan["changedPaths"])
+                self.assertIn("server_memory", plan["expected"])
+                results = {suite: {"result": "success"} for suite in plan["expected"]}
+                results["plan"] = {"result": "success"}
+                self.assertEqual(plan["expected"], policy.gate(plan, results, lambda _: live)["executed"])
+                changed = dict(live, head=dict(live["head"], sha=tested_base))
+                with self.assertRaises(policy.StaleInputError):
+                    policy.create_plan("server", event, "apache/server", lambda _: changed)
+                with self.assertRaises(policy.StaleInputError):
+                    policy.gate(plan, results, lambda _: changed)
+                wrong_merge = git("commit-tree", git("rev-parse", merge + "^{tree}"),
+                                  "-p", tested_base, "-p", event_base, "-m", "wrong PR head")
+                unrelated_base = git("commit-tree", git("rev-parse", tested_base + "^{tree}"),
+                                     "-m", "unrelated target history")
+                unrelated_merge = git("commit-tree", git("rev-parse", merge + "^{tree}"),
+                                      "-p", unrelated_base, "-p", head, "-m", "unrelated target merge")
+                for checkout in [wrong_merge, head, unrelated_merge]:
+                    git("checkout", "--detach", "-q", checkout)
+                    with self.subTest(checkout=checkout), self.assertRaises(policy.StaleInputError):
+                        policy.create_plan("server", event, "apache/server", lambda _: live)
+            finally:
+                os.chdir(old)
+
     def test_pure_docs_pr_and_metadata_fail_closed(self):
         live = self.live_pr()
         event = {"pull_request": dict(live, number=7)}

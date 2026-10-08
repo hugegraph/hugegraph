@@ -207,6 +207,11 @@ jobs:
           done
           echo "can_run=true" >> "$GITHUB_OUTPUT"
 
+      - name: Check explicit Topling launcher selection
+        run: |
+          bash $TRAVIS_DIR/test-topling-selection.sh
+          bash hugegraph-store/hg-store-dist/src/assembly/travis/test-store-preloads.sh
+
       - name: Run PD docker entrypoint secret override tests
         run: |
           $TRAVIS_DIR/test-pd-docker-entrypoint.sh
