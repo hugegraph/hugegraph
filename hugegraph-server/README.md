@@ -1,5 +1,7 @@
 # HugeGraph Server
 
+<!-- TODO: update release image tags and version examples after 1.8.0 is published. -->
+
 HugeGraph Server consists of two layers of functionality: the graph engine layer, and the storage layer.
 
 - Graph Engine Layer:

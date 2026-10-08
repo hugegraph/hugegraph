@@ -160,6 +160,8 @@ flowchart TB
 
 ## Quick Start
 
+<!-- TODO: update release downloads, package names, image tags and version examples after 1.8.0 is published. -->
+
 ### 5 Minutes Quick Start
 
 ```bash

@@ -635,7 +635,6 @@ the corresponding per-component license file.
     https://central.sonatype.com/artifact/org.gridkit.jvmtool/sjk-stacktrace/0.22 -> Apache 2.0
     https://central.sonatype.com/artifact/org.gridkit.lab/jvm-attach-api/1.5 -> Apache 2.0
     https://central.sonatype.com/artifact/org.javassist/javassist/3.21.0-GA -> Apache 2.0
-    https://central.sonatype.com/artifact/org.javassist/javassist/3.25.0-GA -> Apache 2.0
     https://central.sonatype.com/artifact/org.javassist/javassist/3.28.0-GA -> Apache 2.0
     https://central.sonatype.com/artifact/org.javatuples/javatuples/1.2 -> Apache 2.0
     https://central.sonatype.com/artifact/org.jctools/jctools-core/2.1.1 -> Apache 2.0
