@@ -232,7 +232,11 @@ public class HgStoreEngine implements Lifecycle<HgStoreEngineOptions>, StoreStat
         // exists even shut down.
         rpcServer = null;
         // close all db session
-        RocksDBFactory.getInstance().releaseAllGraphDB();
+        try {
+            RocksDBFactory.getInstance().releaseAllGraphDB();
+        } finally {
+            BusinessHandlerImpl.closeSchemaResources();
+        }
     }
 
     public void snapshotForTest() {
@@ -250,7 +254,13 @@ public class HgStoreEngine implements Lifecycle<HgStoreEngineOptions>, StoreStat
         if (newState == Metapb.StoreState.Up) {
             // Status changes to online, record store information
             partitionManager.setStore(store);
-            partitionManager.loadPartition();
+            try {
+                partitionManager.loadPartition();
+            } catch (PartitionManager.InvalidShardException e) {
+                // Never wait for shutdown hooks while owning the state callback lock.
+                heartbeatService.requestExit(0);
+                return;
+            }
             restoreLocalPartitionEngine();
         }
     }
@@ -260,6 +270,12 @@ public class HgStoreEngine implements Lifecycle<HgStoreEngineOptions>, StoreStat
      * 1. Need to check the partition saved this time, delete the invalid partitions.
      */
     public void restoreLocalPartitionEngine() {
+        // TODO: surface the outcome of this restore (a per-group ready signal, or a failed state
+        // reported to PD) instead of logging only; a Store is marked Up before this runs and a
+        // failed restore leaves it Up with missing shard groups. Paired with the TODO in
+        // StoreNodeService, which also says why this signal alone does not retire the manual
+        // Store rollout barrier in the Helm chart (helm/hugegraph) cluster preset.
+        // https://github.com/apache/hugegraph/issues/3229
         try {
             if (!options.isFakePD()) {  // FakePD mode does not require synchronization
                 partitionManager.syncPartitionsFromPD(partition -> {

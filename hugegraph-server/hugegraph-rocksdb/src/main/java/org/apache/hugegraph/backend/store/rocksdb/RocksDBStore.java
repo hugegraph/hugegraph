@@ -44,10 +44,10 @@ import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 import org.apache.commons.io.FileUtils;
-import org.apache.hugegraph.HugeException;
-import org.apache.hugegraph.backend.BackendException;
-import org.apache.hugegraph.backend.id.Id;
-import org.apache.hugegraph.backend.query.Query;
+import org.apache.hugegraph.exception.HugeException;
+import org.apache.hugegraph.exception.BackendException;
+import org.apache.hugegraph.id.Id;
+import org.apache.hugegraph.query.Query;
 import org.apache.hugegraph.backend.serializer.MergeIterator;
 import org.apache.hugegraph.backend.store.AbstractBackendStore;
 import org.apache.hugegraph.backend.store.BackendAction;
@@ -60,6 +60,7 @@ import org.apache.hugegraph.backend.store.BackendTable;
 import org.apache.hugegraph.config.CoreOptions;
 import org.apache.hugegraph.config.HugeConfig;
 import org.apache.hugegraph.exception.ConnectionException;
+import org.apache.hugegraph.exception.NotSupportException;
 import org.apache.hugegraph.type.HugeType;
 import org.apache.hugegraph.util.Consumers;
 import org.apache.hugegraph.util.E;
@@ -103,6 +104,7 @@ public abstract class RocksDBStore extends AbstractBackendStore<RocksDBSessions.
      */
     private static final int OPEN_POOL_THREADS = 8;
     private boolean isGraphStore;
+    private boolean toplingProvider;
 
     public RocksDBStore(final BackendStoreProvider provider,
                         final String database, final String store) {
@@ -212,6 +214,7 @@ public abstract class RocksDBStore extends AbstractBackendStore<RocksDBSessions.
         E.checkNotNull(config, "config");
         String graphStore = config.get(CoreOptions.STORE_GRAPH);
         this.isGraphStore = this.store.equals(graphStore);
+        this.toplingProvider = "topling".equals(config.get(RocksDBOptions.PROVIDER));
         this.dataPath = config.get(RocksDBOptions.DATA_PATH);
 
         if (this.sessions != null && !this.sessions.closed()) {
@@ -640,13 +643,45 @@ public abstract class RocksDBStore extends AbstractBackendStore<RocksDBSessions.
         try {
             this.checkOpened();
 
-            this.clear(false);
-            this.init();
-            // Clear write-batch
-            this.dbs.values().forEach(BackendSessionPool::forceResetSessions);
+            if (this.toplingProvider) {
+                if (!(this.sessions instanceof RocksDBStdSessions)) {
+                    throw new NotSupportException("Topling does not support truncate for SST generation");
+                }
+                // Discard pending writes before committing the truncate batch.
+                this.dbs.values().forEach(BackendSessionPool::forceResetSessions);
+                this.clearTables();
+                this.init();
+            } else {
+                this.clear(false);
+                this.init();
+                this.dbs.values().forEach(BackendSessionPool::forceResetSessions);
+            }
             LOG.debug("Store truncated: {}", this.store);
         } finally {
             writeLock.unlock();
+        }
+    }
+
+    private void clearTables() {
+        Map<String, RocksDBSessions> tableDBMap = this.tableDBMapping();
+        List<String> mainTables = new ArrayList<>(this.tableNames());
+        for (String table : tableDBMap.keySet()) {
+            if (table.equals(HugeType.OLAP.string())) {
+                mainTables.removeAll(this.olapTables());
+            } else {
+                mainTables.remove(table);
+            }
+        }
+        this.sessions.clearTables(mainTables);
+        for (Map.Entry<String, RocksDBSessions> entry :
+                tableDBMap.entrySet()) {
+            Collection<String> tables;
+            if (entry.getKey().equals(HugeType.OLAP.string())) {
+                tables = this.olapTables();
+            } else {
+                tables = Collections.singletonList(entry.getKey());
+            }
+            entry.getValue().clearTables(tables);
         }
     }
 
@@ -1138,10 +1173,16 @@ public abstract class RocksDBStore extends AbstractBackendStore<RocksDBSessions.
             Lock writeLock = this.storeLock().writeLock();
             writeLock.lock();
             try {
-                RocksDBSessions.Session session = super.session(HugeType.META);
-                String driverVersion = this.provider().driverVersion();
-                this.meta.writeVersion(session, driverVersion);
-                LOG.info("Write down the backend version: {}", driverVersion);
+                RocksDBSessions sessions = super.db(HugeType.META);
+                sessions.useSession();
+                try {
+                    RocksDBSessions.Session session = super.session(HugeType.META);
+                    String driverVersion = this.provider().driverVersion();
+                    this.meta.writeVersion(session, driverVersion);
+                    LOG.info("Write down the backend version: {}", driverVersion);
+                } finally {
+                    sessions.close();
+                }
             } finally {
                 writeLock.unlock();
             }

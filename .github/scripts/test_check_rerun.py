@@ -14,8 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Behavioral tests for retry freshness, without credentials or network."""
-import copy
+"""Behavioral tests for push retry freshness, without credentials or network."""
 import importlib.util
 from pathlib import Path
 import unittest
@@ -31,35 +30,31 @@ spec.loader.exec_module(checker)
 
 class FreshnessTest(unittest.TestCase):
     def setUp(self):
-        self.repository = "hugegraph/hugegraph-toolchain"
+        self.repository = "apache/hugegraph"
         self.run = {"status": "completed", "conclusion": "failure", "run_attempt": 1,
-                    "event": "pull_request", "head_sha": "old", "head_branch": "feature"}
-        self.pr = {"number": 7, "state": "open", "head": {"sha": "old"},
-                   "base": {"repo": {"full_name": self.repository}}}
-        self.run["pull_requests"] = [copy.deepcopy(self.pr)]
+                    "path": ".github/workflows/server-memory-ci.yml", "event": "push", "head_sha": "old", "head_branch": "release/test",
+                    "repository": {"full_name": self.repository},
+                    "head_repository": {"full_name": self.repository}}
+        self.current_head = "old"
         self.calls = []
 
     def fetch(self, path):
         self.calls.append(path)
-        if "/actions/runs/" in path:
+        if path == f"repos/{self.repository}/actions/runs/42":
             return self.run
-        if "/commits/" in path:
-            return [self.pr]
-        if "/commits?" in path:
-            return [{"sha": self.pr["head"]["sha"]}]
-        if "/pulls/" in path:
-            return self.pr
-        raise AssertionError(path)
+        if path == f"repos/{self.repository}/commits?sha=release%2Ftest&per_page=1":
+            return [{"sha": self.current_head}] if self.current_head else []
+        raise AssertionError("Unexpected lookup: " + path)
 
     def decide(self):
         return checker.decide(self.repository, 42, 1, 2, self.fetch)[0]
 
-    def test_current_open_pr(self):
-        self.assertEqual("rerun", self.decide())
-
-    def test_slim_workflow_run_pr_association(self):
-        self.run["pull_requests"] = [{"number": 7, "base": {"repo": {"id": 1, "name": "hugegraph-toolchain",
-                                                                   "url": f"https://api.github.com/repos/{self.repository}"}}}]
+    def test_only_required_workflows_retry(self):
+        for path in [".github/workflows/server-ci.yml", ".github/workflows/codeql-analysis.yml",
+                     ".github/workflows/server-compatibility-ci.yml"]:
+            self.run["path"] = path
+            self.assertEqual("skip", self.decide())
+        self.run["path"] = ".github/workflows/licence-checker.yml"
         self.assertEqual("rerun", self.decide())
 
     def test_api_failure_fails_closed(self):
@@ -72,28 +67,10 @@ class FreshnessTest(unittest.TestCase):
                 checker.main()
             self.assertIn("action=skip\n", output.read_text())
 
-    def test_closed_pr(self):
-        self.pr["state"] = "closed"
+    def test_pr_is_paused_without_reading_artifacts_or_candidates(self):
+        self.run.update(event="pull_request", head_repository={"full_name": "alice/hugegraph"})
         self.assertEqual("skip", self.decide())
-
-    def test_updated_pr(self):
-        self.pr["head"]["sha"] = "new"
-        self.assertEqual("skip", self.decide())
-
-    def test_empty_association_falls_back_to_commit(self):
-        self.run["pull_requests"] = []
-        self.assertEqual("rerun", self.decide())
-        self.assertTrue(any("/commits/old/pulls" in p for p in self.calls))
-
-    def test_other_repository_pr_is_ignored(self):
-        self.run["pull_requests"][0]["base"]["repo"]["full_name"] = "apache/hugegraph-toolchain"
-        self.assertEqual("rerun", self.decide())
-        self.assertTrue(any("/commits/old/pulls" in p for p in self.calls))
-
-    def test_foreign_pr_fallback_still_rejects_foreign_pr(self):
-        self.run["pull_requests"][0]["base"]["repo"]["full_name"] = "apache/hugegraph-toolchain"
-        self.pr["base"]["repo"]["full_name"] = "apache/hugegraph-toolchain"
-        self.assertEqual("skip", self.decide())
+        self.assertEqual([f"repos/{self.repository}/actions/runs/42"], self.calls)
 
     def test_changed_attempt(self):
         self.run["run_attempt"] = 2
@@ -111,20 +88,31 @@ class FreshnessTest(unittest.TestCase):
     def test_retry_limit(self):
         self.run["run_attempt"] = 3
         self.assertEqual("skip", checker.decide(self.repository, 42, 3, 2, self.fetch)[0])
+        self.run["run_attempt"] = 2
+        self.assertEqual("rerun", checker.decide(self.repository, 42, 2, 2, self.fetch)[0])
 
     def test_push_checks_repository_and_encodes_branch(self):
-        self.run.update(event="push", head_branch="release/test")
         self.assertEqual("rerun", self.decide())
         self.assertIn(f"repos/{self.repository}/commits?sha=release%2Ftest&per_page=1", self.calls)
-        self.pr["head"]["sha"] = "new"
+        self.current_head = "new"
+        self.assertEqual("skip", self.decide())
+        self.current_head = None
         self.assertEqual("skip", self.decide())
 
-    def test_unsupported_event(self):
+    def test_push_rejects_other_repository(self):
+        for field in ["repository", "head_repository"]:
+            with self.subTest(field=field):
+                self.run[field] = {"full_name": "alice/hugegraph"}
+                self.assertEqual("skip", self.decide())
+                self.run[field] = {"full_name": self.repository}
+
+    def test_missing_metadata_and_unsupported_event(self):
+        for field in ["head_sha", "head_branch", "repository", "head_repository"]:
+            old = self.run.pop(field)
+            with self.subTest(field=field):
+                self.assertEqual("skip", self.decide())
+            self.run[field] = old
         self.run["event"] = "workflow_dispatch"
-        self.assertEqual("skip", self.decide())
-
-    def test_missing_metadata(self):
-        self.run["head_sha"] = None
         self.assertEqual("skip", self.decide())
 
 

@@ -2,30 +2,11 @@
 name: "3rd-party"
 
 on:
-  push:
-    branches:
-      - 'release-*'
-  pull_request:
-    # Keep source/resources and shared build inputs; skip named documentation files.
-    paths:
-      - '.github/workflows/.java-version'
-      - '**/pom.xml'
-      - '.mvn/**'
-      - '.github/configs/**'
-      - 'install-dist/**'
-      - '**/*.jar'
-      - '.github/workflows/check-dependencies.yml'
-      - '!**/README*'
-      - '!**/AGENTS.md'
-      - '!**/CLAUDE.md'
+  workflow_call:
+  workflow_dispatch:
 
 permissions:
   contents: read
-
-# Keep the newest PR run; preserve independent push, release and manual runs.
-concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   dependency-check:
@@ -33,6 +14,7 @@ jobs:
     env:
       USE_STAGE: 'false' # Whether to include the stage repository.
       SCRIPT_DEPENDENCY: install-dist/scripts/dependency
+      PYTHONDONTWRITEBYTECODE: '1' # Keep generated Python caches out of source style checks.
     steps:
       - name: Checkout source
         uses: actions/checkout@v7
@@ -48,15 +30,27 @@ jobs:
           cp $HOME/.m2/settings.xml /tmp/settings.xml
           mv -vf .github/configs/settings.xml $HOME/.m2/settings.xml
 
+      - name: Test shared foundation checks
+        run: python3 -m unittest discover -s install-dist/scripts/shared-foundation -p 'test_*.py'
+
+      - name: Test dependency inventory producer and checker
+        run: python3 -m unittest discover -s install-dist/scripts/dependency -p 'test_*.py'
+
       - name: mvn install
         run: |
           mvn install -Dmaven.test.skip=true -ntp --fail-at-end
+      - name: Check shared foundation boundaries and shipped classes
+        run: |
+          REVISION=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)
+          python3 install-dist/scripts/shared-foundation/check_shared_foundation.py --revision "$REVISION"
+
       - name: generate current dependencies
         run: |
-          bash $SCRIPT_DEPENDENCY/regenerate_known_dependencies.sh current-dependencies.txt
+          bash $SCRIPT_DEPENDENCY/regenerate_known_dependencies.sh "$PWD/target/dependency/current-dependencies.txt"
       - name: check third dependencies
         run: |
-          bash $SCRIPT_DEPENDENCY/check_dependencies.sh
+          bash $SCRIPT_DEPENDENCY/check_dependencies.sh \
+            "$SCRIPT_DEPENDENCY/known-dependencies.txt" "$PWD/target/dependency/current-dependencies.txt"
 
   dependency-review:
     runs-on: ubuntu-latest
@@ -64,6 +58,7 @@ jobs:
       - name: 'Checkout Repository'
         uses: actions/checkout@v7
       - name: 'Dependency Review'
+        if: github.event_name == 'pull_request'
         uses: actions/dependency-review-action@v5
         # Refer: https://github.com/actions/dependency-review-action
         with:

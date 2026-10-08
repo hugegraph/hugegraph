@@ -66,7 +66,7 @@ HugeGraph supports both **standalone** and **distributed** deployments:
                         │             HugeGraph Server (:8080)                │
                         │  ┌──────────┐  ┌──────────┐  ┌──────────────────┐   │
                         │  │ REST API │  │ Gremlin  │  │   Cypher Engine  │   │
-                        │  │(Jersey 3)│  │(TP 3.5.1)│  │   (OpenCypher)   │   │
+                        │  │(Jersey 3)│  │(TP 3.8.1)│  │   (OpenCypher)   │   │
                         │  └────┬─────┘  └────┬─────┘  └────────┬─────────┘   │
                         │       └─────────────┼─────────────────┘             │
                         │            ┌────────▼────────┐                      │
@@ -100,6 +100,8 @@ HugeGraph supports both **standalone** and **distributed** deployments:
 
 See the [backend evolution guide](hugegraph-server/README.md#backend-evolution-and-compatibility) for lifecycle and historical compatibility guidance.
 
+To use ToplingDB with the RocksDB backend, follow the [three-step switching guide](docs/toplingdb.md).
+
 ### Deployment Mode Comparison
 
 | Mode | Components | Use Case | Data Scale | High Availability |
@@ -115,6 +117,9 @@ See the [backend evolution guide](hugegraph-server/README.md#backend-evolution-a
 | [hugegraph-pd](hugegraph-pd/README.md) | Placement Driver for distributed mode - handles meta storage, partition management and cluster scheduling |
 | [hugegraph-store](hugegraph-store/README.md) | Distributed storage with Raft consensus for high availability and horizontal scaling |
 | [hugegraph-commons](hugegraph-commons) | Shared utilities, RPC framework and common components |
+| [hugegraph-struct](hugegraph-struct/README.md) | Shared schema, IDs, base elements, queries and encoding used by Server and Store |
+
+See the [1.8.0 shared-foundation migration guide](docs/shared-foundation-migration.md) for Java API changes, module ownership and coordinated upgrade requirements.
 
 <details>
 <summary><b>📊 Click to view detailed architecture diagram (Mermaid)</b></summary>
@@ -125,7 +130,7 @@ flowchart TB
 
     subgraph Server["HugeGraph Server :8080"]
         API[REST API<br/>Jersey 3]
-        GS[Gremlin Server<br/>TinkerPop 3.5.1]
+        GS[Gremlin Server<br/>TinkerPop 3.8.1]
         CS[Cypher Engine<br/>OpenCypher]
         CORE[Graph Engine<br/>hugegraph-core]
 
@@ -157,6 +162,8 @@ flowchart TB
 
 ## Quick Start
 
+<!-- TODO: update release downloads, package names, image tags and version examples after 1.8.0 is published. -->
+
 ### 5 Minutes Quick Start
 
 ```bash
@@ -182,6 +189,9 @@ curl -X POST http://localhost:8080/gremlin \
 The launch scripts reject Java versions older than 17. That minimum-version
 check does not qualify later Java releases; use Java 17 unless another release
 is explicitly listed as supported.
+
+For this upgrade, read the [TinkerPop 3.8.1 migration guide](docs/upgrade-tinkerpop-3.8.md)
+for client configuration and query compatibility checks.
 
 ### Option 1: Docker (Fastest)
 
@@ -292,7 +302,7 @@ curl http://localhost:8080/versions
 #   "versions": {
 #     "version": "v1",
 #     "core": "1.7.0",
-#     "gremlin": "3.5.1",
+#     "gremlin": "3.8.1",
 #     "api": "1.7.0"
 #   }
 # }

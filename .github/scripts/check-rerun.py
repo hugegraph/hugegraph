@@ -20,19 +20,21 @@ import argparse
 import json
 import os
 import subprocess
-from urllib.parse import quote, urlencode
+from urllib.parse import urlencode
 
 
 def api(path):
     result = subprocess.run(
         ["gh", "api", "--method", "GET", path], check=True,
-        capture_output=True, text=True,
+        capture_output=True, timeout=30,
     )
     return json.loads(result.stdout)
 
 
 def decide(repository, run_id, expected_attempt, max_reruns, fetch=api):
     run = fetch(f"repos/{repository}/actions/runs/{run_id}")
+    if run.get("path") not in {".github/workflows/server-memory-ci.yml", ".github/workflows/licence-checker.yml"}:
+        return "skip", "only required workflows automatically retry"
     if (run.get("status") != "completed" or run.get("conclusion") != "failure"
             or run.get("run_attempt") != expected_attempt):
         return "skip", "source run changed or is no longer a completed failure"
@@ -42,25 +44,11 @@ def decide(repository, run_id, expected_attempt, max_reruns, fetch=api):
     if not sha:
         return "skip", "missing head SHA"
     if run.get("event") == "pull_request":
-        def local(candidate):
-            base_repository = candidate.get("base", {}).get("repo", {})
-            return (base_repository.get("full_name") == repository
-                    or base_repository.get("url") == f"https://api.github.com/repos/{repository}")
-
-        candidates = [pr for pr in run.get("pull_requests", []) if local(pr)]
-        if not candidates:
-            candidates = [pr for pr in fetch(
-                f"repos/{repository}/commits/{quote(sha, safe='')}/pulls") if local(pr)]
-        for candidate in candidates:
-            number = candidate.get("number")
-            if not isinstance(number, int):
-                continue
-            pr = fetch(f"repos/{repository}/pulls/{number}")
-            if (pr.get("base", {}).get("repo", {}).get("full_name") == repository
-                    and pr.get("state") == "open" and pr.get("head", {}).get("sha") == sha):
-                return "rerun", "open PR head unchanged"
-        return "skip", "no open PR in this repository with the failed head"
+        return "skip", "PR automatic retry paused: CI artifacts cannot independently prove the tested code"
     if run.get("event") == "push":
+        if (run.get("repository", {}).get("full_name") != repository
+                or run.get("head_repository", {}).get("full_name") != repository):
+            return "skip", "push source repository differs"
         branch = run.get("head_branch")
         if not branch:
             return "skip", "missing push branch"
