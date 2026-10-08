@@ -19,6 +19,7 @@ package org.apache.hugegraph;
 
 import java.util.Arrays;
 
+import org.apache.hugegraph.exception.HugeException;
 import org.apache.hugegraph.testutil.Assert;
 import org.junit.Test;
 import org.mockito.Mockito;

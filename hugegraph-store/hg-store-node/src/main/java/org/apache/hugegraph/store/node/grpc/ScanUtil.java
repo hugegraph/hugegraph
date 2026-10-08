@@ -36,7 +36,9 @@ import javax.annotation.concurrent.NotThreadSafe;
 
 import org.apache.hugegraph.pd.common.KVPair;
 import org.apache.hugegraph.rocksdb.access.ScanIterator;
+import org.apache.hugegraph.store.business.BusinessHandlerImpl;
 import org.apache.hugegraph.store.business.SelectIterator;
+import org.apache.hugegraph.store.constant.HugeServerTables;
 import org.apache.hugegraph.store.grpc.common.ScanMethod;
 import org.apache.hugegraph.store.grpc.common.ScanOrderType;
 import org.apache.hugegraph.store.grpc.stream.ScanQueryRequest;
@@ -105,7 +107,26 @@ class ScanUtil {
         if (selects != null) {
             properties = selects.getPropertiesList();
         }
-        iter = new SelectIterator(iter, properties);
+        if (properties != null && !properties.isEmpty()) {
+            boolean isVertex = HugeServerTables.VERTEX_TABLE.equals(table) ||
+                               HugeServerTables.TASK_TABLE.equals(table);
+            try {
+                if (!isVertex && !HugeServerTables.isEdgeTable(table)) {
+                    throw new IllegalArgumentException("Property selection requires a vertex or edge table: " + table);
+                }
+                iter = new SelectIterator(iter, properties, BusinessHandlerImpl.getGraphSupplier(graph), isVertex);
+            } catch (RuntimeException | Error failure) {
+                try {
+                    iter.close();
+                } catch (RuntimeException | Error closeFailure) {
+                    cleanupFailure.accept(closeFailure);
+                    if (failure != closeFailure) {
+                        failure.addSuppressed(closeFailure);
+                    }
+                }
+                throw failure;
+            }
+        }
         seek(iter, request.getPosition().toByteArray(), cleanupFailure);
         return iter;
     }

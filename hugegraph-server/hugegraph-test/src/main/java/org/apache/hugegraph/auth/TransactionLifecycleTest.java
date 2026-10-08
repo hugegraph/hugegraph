@@ -22,7 +22,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.apache.hugegraph.HugeFactory;
 import org.apache.hugegraph.auth.HugeGraphAuthProxy.Context;
 import org.apache.hugegraph.auth.HugeGraphAuthProxy.ContextTask;
-import org.apache.hugegraph.backend.id.IdGenerator;
+import org.apache.hugegraph.id.IdGenerator;
 import org.apache.hugegraph.core.BaseCoreTest;
 import org.apache.hugegraph.testutil.Assert;
 import org.apache.hugegraph.traversal.algorithm.KneighborTraverser;

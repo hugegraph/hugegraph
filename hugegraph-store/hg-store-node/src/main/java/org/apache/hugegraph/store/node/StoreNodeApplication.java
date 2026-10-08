@@ -18,6 +18,7 @@
 package org.apache.hugegraph.store.node;
 
 import org.apache.hugegraph.store.node.listener.PdConfigureListener;
+import org.apache.hugegraph.util.RocksDBRuntime;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.ConfigurableApplicationContext;
@@ -31,10 +32,14 @@ import com.alipay.remoting.util.StringUtils;
 public class StoreNodeApplication {
 
     public static void main(String[] args) {
-        start();
+        start(args);
     }
 
     public static void start() {
+        start(new String[0]);
+    }
+
+    public static void start(String... args) {
         // Set the log location for the slot usage
         String logPath = System.getProperty("logging.path");
         if (StringUtils.isBlank(logPath)) {
@@ -52,7 +57,10 @@ public class StoreNodeApplication {
         SpringApplication application = new SpringApplication(StoreNodeApplication.class);
         PdConfigureListener listener = new PdConfigureListener();
         application.addListeners(listener);
-        ConfigurableApplicationContext context = application.run();
+        // PD environment overrides are applied before context initialization.
+        application.addInitializers(context -> RocksDBRuntime.verify(
+                context.getEnvironment().getProperty("rocksdb.provider", "rocksdb")));
+        ConfigurableApplicationContext context = application.run(args);
         listener.setContext(context);
         System.out.println("StoreNodeApplication started.");
     }

@@ -17,6 +17,8 @@
 
 package org.apache.hugegraph;
 
+import org.apache.hugegraph.exception.HugeException;
+
 import java.io.File;
 import java.net.URL;
 import java.util.ArrayList;
@@ -129,14 +131,13 @@ public class HugeFactory {
             } catch (Throwable e) {
                 if (failure == null) {
                     failure = e;
-                } else {
+                } else if (failure != e) {
                     failure.addSuppressed(e);
                 }
             }
         }
         if (failure != null) {
-            throw new HugeException("Failed to close current thread " +
-                                    "transactions", failure);
+            throw new HugeException("Failed to close current thread transactions", failure);
         }
     }
 

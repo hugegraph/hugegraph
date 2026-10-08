@@ -20,7 +20,7 @@ package org.apache.hugegraph.task;
 import java.util.Collections;
 
 import org.apache.hugegraph.HugeGraph;
-import org.apache.hugegraph.backend.id.IdGenerator;
+import org.apache.hugegraph.id.IdGenerator;
 import org.apache.hugegraph.core.BaseCoreTest;
 import org.junit.Assert;
 import org.junit.Test;

@@ -74,7 +74,7 @@ public class RequestCacheLifetimeTest {
         }
         System.out.println("REOPEN_FAILURE=" + failure + "; DIRECTORY_EXISTS=" + Files.exists(path));
         Assert.assertNotNull(failure);
-        Assert.assertTrue(failure instanceof org.apache.hugegraph.HugeException);
+        Assert.assertTrue(failure instanceof org.apache.hugegraph.exception.HugeException);
         Assert.assertEquals("Failed to load backend store provider", failure.getMessage());
         Assert.assertFalse(Files.exists(path));
     }

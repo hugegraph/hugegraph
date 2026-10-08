@@ -266,26 +266,44 @@ public class GraphPartitionScanShutdownTest {
         final int window = 8;
         final int total = batchSize * window + 7;
         AtomicInteger closes = new AtomicInteger();
-        GraphStoreIterator<Graphpb.Vertex> iterator = new GraphStoreIterator<Graphpb.Vertex>(
-                mock(ScanIterator.class), request(0)) {
-            private int row;
+        Field suppliers = org.apache.hugegraph.store.business.BusinessHandlerImpl.class
+                .getDeclaredField("GRAPH_SUPPLIER_CACHE");
+        suppliers.setAccessible(true);
+        @SuppressWarnings("unchecked")
+        Map<String, org.apache.hugegraph.HugeGraphSupplier> graphCache =
+                (Map<String, org.apache.hugegraph.HugeGraphSupplier>) suppliers.get(null);
+        String graphName = "TEST/credit-window";
+        org.apache.hugegraph.HugeGraphSupplier previous =
+                graphCache.put(graphName, mock(org.apache.hugegraph.HugeGraphSupplier.class));
+        GraphStoreIterator<Graphpb.Vertex> iterator;
+        try {
+            iterator = new GraphStoreIterator<Graphpb.Vertex>(
+                    mock(ScanIterator.class), request(0)) {
+                private int row;
 
-            @Override
-            public boolean hasNext() {
-                return this.row < total;
-            }
+                @Override
+                public boolean hasNext() {
+                    return this.row < total;
+                }
 
-            @Override
-            public Graphpb.Vertex next() {
-                return Graphpb.Vertex.newBuilder().setId(Graphpb.Variant.newBuilder()
-                        .setType(Graphpb.VariantType.VT_LONG).setValueInt64(this.row++)).build();
-            }
+                @Override
+                public Graphpb.Vertex next() {
+                    return Graphpb.Vertex.newBuilder().setId(Graphpb.Variant.newBuilder()
+                            .setType(Graphpb.VariantType.VT_LONG).setValueInt64(this.row++)).build();
+                }
 
-            @Override
-            public void close() {
-                closes.incrementAndGet();
+                @Override
+                public void close() {
+                    closes.incrementAndGet();
+                }
+            };
+        } finally {
+            if (previous == null) {
+                graphCache.remove(graphName);
+            } else {
+                graphCache.put(graphName, previous);
             }
-        };
+        }
         LinkedBlockingQueue<ScanResponse> responses = new LinkedBlockingQueue<>();
         AtomicInteger terminals = new AtomicInteger();
         AtomicReference<Throwable> error = new AtomicReference<>();
@@ -355,6 +373,7 @@ public class GraphPartitionScanShutdownTest {
 
     private static ScanPartitionRequest request(long limit) {
         return ScanPartitionRequest.newBuilder().setScanRequest(Graphpb.ScanPartitionRequest.Request.newBuilder()
+                .setGraphName("TEST/credit-window")
                 .setScanType(Graphpb.ScanPartitionRequest.ScanType.SCAN_VERTEX).setLimit(limit)).build();
     }
 

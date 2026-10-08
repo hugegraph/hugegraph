@@ -1,37 +1,11 @@
 name: "HugeGraph-PD & Store & Hstore CI"
 
 on:
-  push:
-    branches:
-      - master
-      - 'release-*'
-      - 'test-*'
-  pull_request:
-    # Keep source/resources and shared build inputs; skip named documentation files.
-    paths:
-      - '.github/workflows/.java-version'
-      - 'pom.xml'
-      - '.mvn/**'
-      - 'style/**'
-      - '.editorconfig'
-      - '.github/configs/**'
-      - 'hugegraph-commons/**'
-      - 'hugegraph-struct/**'
-      - 'hugegraph-pd/**'
-      - 'hugegraph-store/**'
-      - 'hugegraph-server/**'
-      - '.github/workflows/pd-store-ci.yml'
-      - 'docker/**'
-      - 'install-dist/**'
-      - '!**/README*'
-      - '!**/AGENTS.md'
-      - '!**/CLAUDE.md'
+  workflow_call:
+  workflow_dispatch:
 
-# TODO: consider merge to one ci.yml file
-# Keep the newest PR run; preserve independent push, release and manual runs.
-concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+permissions:
+  contents: read
 
 jobs:
   store-stop-shell-test:
@@ -54,8 +28,8 @@ jobs:
       contents: read
     runs-on: ubuntu-24.04
     env:
-      BEFORE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
-      AFTER_SHA: ${{ github.event.pull_request.head.sha || github.event.after }}
+      BEFORE_SHA: ${{ github.event.pull_request.base.sha || github.event.before || github.sha }}
+      AFTER_SHA: ${{ github.event.pull_request.head.sha || github.event.after || github.sha }}
     steps:
       - name: Require exact comparison revisions
         run: |
@@ -128,7 +102,11 @@ jobs:
       - name: Run Codecov upload configuration tests
         run: hugegraph-server/hugegraph-dist/src/assembly/travis/test-codecov-upload-config.sh
 
+      - name: Check TinkerPop branch and report gates
+        run: bash hugegraph-server/hugegraph-dist/src/assembly/travis/test-tinkerpop-reports.sh
+
       - name: Use staged maven repo settings
+        if: ${{ env.USE_STAGE == 'true' }}
         run: |
           cp $HOME/.m2/settings.xml /tmp/settings.xml || true
           mv -vf .github/configs/settings.xml $HOME/.m2/settings.xml
@@ -153,6 +131,7 @@ jobs:
           mvn -U -ntp -pl hugegraph-struct test
 
   pd:
+    timeout-minutes: 30
     needs: struct
     runs-on: ubuntu-latest
     env:
@@ -238,10 +217,15 @@ jobs:
             if ! command -v "$tool" >/dev/null 2>&1; then
               echo "can_run=false" >> "$GITHUB_OUTPUT"
               echo "skip_reason=missing tool: $tool" >> "$GITHUB_OUTPUT"
-              exit 0
+              exit 1
             fi
           done
           echo "can_run=true" >> "$GITHUB_OUTPUT"
+
+      - name: Check explicit Topling launcher selection
+        run: |
+          bash $TRAVIS_DIR/test-topling-selection.sh
+          bash hugegraph-store/hg-store-dist/src/assembly/travis/test-store-preloads.sh
 
       - name: Run PD docker entrypoint secret override tests
         run: |
@@ -329,6 +313,7 @@ jobs:
           fail_ci_if_error: false
 
   store:
+    timeout-minutes: 45
     needs: struct
     runs-on: ubuntu-latest
     env:
@@ -401,14 +386,14 @@ jobs:
             if ! command -v "$tool" >/dev/null 2>&1; then
               echo "can_run=false" >> "$GITHUB_OUTPUT"
               echo "skip_reason=missing tool: $tool" >> "$GITHUB_OUTPUT"
-              exit 0
+              exit 1
             fi
           done
           LIMIT_N=$(ulimit -n)
           if [[ "$LIMIT_N" != "unlimited" ]] && (( LIMIT_N < 1024 )); then
             echo "can_run=false" >> "$GITHUB_OUTPUT"
             echo "skip_reason=ulimit -n is $LIMIT_N (store requires >= 1024)" >> "$GITHUB_OUTPUT"
-            exit 0
+            exit 1
           fi
           echo "can_run=true" >> "$GITHUB_OUTPUT"
 
@@ -428,6 +413,13 @@ jobs:
         run: |
           $TRAVIS_DIR/start-pd.sh
           $TRAVIS_DIR/start-store.sh
+
+      - name: Run historical Store ingress tests
+        run: |
+          mvn test -pl hugegraph-store/hg-store-node -am \
+            -Dtest=StoredRowIngressTest -Dsurefire.failIfNoSpecifiedTests=false \
+            -Djacoco.sessionId=store-node-test \
+            -Djacoco.destFile="$PWD/hugegraph-store/hg-store-test/target/store-node-test.exec"
 
       - name: Run common test
         run: |
@@ -479,6 +471,8 @@ jobs:
             "$TEST_REPORT_DIR/TEST-org.apache.hugegraph.store.core.CoreSuiteTest.xml" \
             --require-test-report \
             "$TEST_REPORT_DIR/TEST-org.apache.hugegraph.store.service.ServerSuiteTest.xml" \
+            --require-test-report \
+            "hugegraph-store/hg-store-node/target/surefire-reports/TEST-org.apache.hugegraph.store.business.StoredRowIngressTest.xml" \
             --require-covered-group hg-store-common \
             --require-covered-group hg-store-client \
             --require-covered-group hg-store-rocksdb \
@@ -489,6 +483,7 @@ jobs:
             --require-session store-raftcore-test \
             --require-session store-core-test \
             --require-session store-server-test \
+            --require-session store-node-test \
             "$REPORT_FILE" \
             hg-store-grpc hg-store-common hg-store-client hg-store-rocksdb hg-store-core
 
@@ -527,7 +522,19 @@ jobs:
       TRAVIS_DIR: hugegraph-server/hugegraph-dist/src/assembly/travis
       REPORT_DIR: target/site/jacoco
       BACKEND: hstore
-      RELEASE_BRANCH: ${{ startsWith(github.ref_name, 'release-') || startsWith(github.ref_name, 'test-') || startsWith(github.base_ref, 'release-') }}
+      # Long TP suites run only on dedicated validation branches.
+      RUN_TINKERPOP_TESTS: >-
+        ${{
+          startsWith(github.ref_name, 'release-') ||
+          startsWith(github.ref_name, 'test-') ||
+          startsWith(github.ref_name, 'tinkerpop-') ||
+          startsWith(github.head_ref, 'release-') ||
+          startsWith(github.head_ref, 'test-') ||
+          startsWith(github.head_ref, 'tinkerpop-') ||
+          startsWith(github.base_ref, 'release-') ||
+          startsWith(github.base_ref, 'test-') ||
+          startsWith(github.base_ref, 'tinkerpop-')
+        }}
 
     steps:
       - name: Checkout
@@ -613,11 +620,74 @@ jobs:
         run: |
           $TRAVIS_DIR/run-api-test-for-raft.sh $BACKEND $REPORT_DIR
 
-      - name: Run TinkerPop test
-        if: ${{ env.RELEASE_BRANCH == 'true' }}
+      # Include HStore in the upgrade compatibility gate. The dedicated HStore
+      # service setup above makes its structure/process suites exercise the
+      # distributed backend rather than only the memory and RocksDB paths.
+      - name: Run TinkerPop structure test
+        if: ${{ env.RUN_TINKERPOP_TESTS == 'true' }}
+        # The HStore suite needs close to one hour before global cleanup, so
+        # keep enough headroom to finish cleanup and emit Surefire results.
+        timeout-minutes: 120
+        env:
+          HUGEGRAPH_TEST_TASK_LOG_LEVEL: WARN
         run: |
-          $TRAVIS_DIR/run-tinkerpop-test.sh $BACKEND tinkerpop
+          # Emit lightweight samples during execution: a lost runner cannot
+          # upload the failure-only diagnostics below.
+          python3 - "$TRAVIS_DIR/run-tinkerpop-test.sh" "$BACKEND" structure <<'PYTHON'
+          import datetime
+          import os
+          import pathlib
+          import subprocess
+          import sys
 
+          with subprocess.Popen(sys.argv[1:]) as test:
+              while test.poll() is None:
+                  try:
+                      print("[hstore-resources] " + datetime.datetime.now(
+                          datetime.timezone.utc).isoformat(), flush=True)
+                      subprocess.run(["free", "-m"], check=False)
+                      processes = subprocess.run(
+                          ["ps", "-eo", "pid,comm,rss,pcpu", "--sort=-rss"],
+                          capture_output=True, text=True, check=False)
+                      print("\n".join(processes.stdout.splitlines()[:12]), flush=True)
+                      for name in ("/proc/pressure/memory", "/sys/fs/cgroup/memory.events"):
+                          path = pathlib.Path(name)
+                          if path.is_file():
+                              try:
+                                  print(f"{name}: {path.read_text().strip()}", flush=True)
+                              except OSError:
+                                  pass
+                      java = subprocess.run(["pgrep", "-x", "java"],
+                                            capture_output=True, text=True, check=False)
+                      for pid in java.stdout.split():
+                          try:
+                              with os.scandir(f"/proc/{pid}/fd") as entries:
+                                  count = sum(1 for _ in entries)
+                              print(f"java pid={pid} open_fds={count}", flush=True)
+                          except OSError:
+                              pass
+                  except (OSError, UnicodeError) as error:
+                      print(f"[hstore-resources] sampling unavailable: {error}", flush=True)
+                  try:
+                      result = test.wait(timeout=60)
+                      sys.exit(result if result >= 0 else 128 - result)
+                  except subprocess.TimeoutExpired:
+                      pass
+              result = test.returncode
+              sys.exit(result if result >= 0 else 128 - result)
+          PYTHON
+
+      - name: Run TinkerPop process standard test
+        if: ${{ env.RUN_TINKERPOP_TESTS == 'true' }}
+        timeout-minutes: 120
+        run: |
+          $TRAVIS_DIR/run-tinkerpop-test.sh $BACKEND process-standard
+
+      - name: Run TinkerPop process feature test
+        if: ${{ env.RUN_TINKERPOP_TESTS == 'true' }}
+        timeout-minutes: 120
+        run: |
+          $TRAVIS_DIR/run-tinkerpop-test.sh $BACKEND process-feature
 
       - name: Collect HStore diagnostics on failure or timeout
         if: ${{ failure() || cancelled() }}

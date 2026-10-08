@@ -29,9 +29,9 @@ import java.util.concurrent.ConcurrentMap;
 
 import org.apache.hugegraph.HugeGraphParams;
 import org.apache.hugegraph.backend.cache.CachedBackendStore.QueryId;
-import org.apache.hugegraph.backend.id.Id;
-import org.apache.hugegraph.backend.query.IdQuery;
-import org.apache.hugegraph.backend.query.Query;
+import org.apache.hugegraph.id.Id;
+import org.apache.hugegraph.query.IdQuery;
+import org.apache.hugegraph.query.Query;
 import org.apache.hugegraph.backend.query.QueryBatch;
 import org.apache.hugegraph.backend.query.QueryResultContext;
 import org.apache.hugegraph.backend.query.QueryResults;
@@ -48,7 +48,7 @@ import org.apache.hugegraph.exception.NotSupportException;
 import org.apache.hugegraph.iterator.ExtendableIterator;
 import org.apache.hugegraph.iterator.ListIterator;
 import org.apache.hugegraph.perf.PerfUtil.Watched;
-import org.apache.hugegraph.schema.IndexLabel;
+import org.apache.hugegraph.struct.schema.IndexLabel;
 import org.apache.hugegraph.structure.HugeEdge;
 import org.apache.hugegraph.structure.HugeVertex;
 import org.apache.hugegraph.type.HugeType;
@@ -161,8 +161,7 @@ public final class CachedGraphTransaction extends GraphTransaction {
         String graphName = this.params().spaceGraphName();
         StoreListenerHolder storeAcquired = STORE_EVENT_LISTENERS.compute(
                 graphName, (key, existing) -> {
-                    if (existing == null || existing.provider != provider ||
-                        existing.hub != graphEventHub) {
+                    if (existing == null || existing.provider != provider || existing.hub != graphEventHub) {
                         // Graph close/reopen creates a new provider for the
                         // same graph name; replace the stale holder. Old
                         // transactions skip decrement via identity check.
@@ -234,8 +233,7 @@ public final class CachedGraphTransaction extends GraphTransaction {
                             existing.close();
                         }
                         graphEventHub.listen(Events.CACHE, listener);
-                        return new CacheListenerHolder(listener, graphEventHub,
-                                                       () -> this.clearCache(null, false));
+                        return new CacheListenerHolder(listener, graphEventHub, () -> this.clearCache(null, false));
                     }
                     existing.refCount++;
                     return existing;

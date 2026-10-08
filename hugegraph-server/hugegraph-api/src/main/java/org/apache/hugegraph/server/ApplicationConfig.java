@@ -17,12 +17,12 @@
 
 package org.apache.hugegraph.server;
 
-import org.apache.hugegraph.HugeException;
 import org.apache.hugegraph.HugeFactory;
 import org.apache.hugegraph.config.HugeConfig;
 import org.apache.hugegraph.core.GraphManager;
 import org.apache.hugegraph.define.WorkLoad;
 import org.apache.hugegraph.event.EventHub;
+import org.apache.hugegraph.exception.HugeException;
 import org.apache.hugegraph.util.E;
 import org.apache.hugegraph.util.Log;
 import org.apache.hugegraph.version.CoreVersion;
@@ -67,6 +67,7 @@ import jakarta.ws.rs.core.Context;
 )
 @ApplicationPath("/")
 public class ApplicationConfig extends ResourceConfig {
+
     private static final Logger LOG = Log.logger(ApplicationConfig.class);
 
     @Context

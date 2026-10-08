@@ -22,7 +22,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 
-import org.apache.hugegraph.backend.query.Aggregate;
+import org.apache.hugegraph.query.Aggregate;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.TraversalStrategy.ProviderOptimizationStrategy;
@@ -30,8 +30,7 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.TraversalParent;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.CountGlobalStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.GraphStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.NoOpBarrierStep;
-import org.apache.tinkerpop.gremlin.process.traversal.step.sideEffect.AggregateGlobalStep;
-import org.apache.tinkerpop.gremlin.process.traversal.step.sideEffect.AggregateLocalStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.sideEffect.AggregateStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.sideEffect.IdentityStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.sideEffect.SideEffectStep;
 import org.apache.tinkerpop.gremlin.process.traversal.strategy.AbstractTraversalStrategy;
@@ -72,6 +71,7 @@ public final class HugeCountStepStrategy
         HugeGraphStep<?, ? extends Element> graphStep = null;
         Step<?, ?> step = originStep;
         do {
+            // Collecting barriers can filter inputs (for example, unproductive order().by()).
             // Only skip steps that preserve the number of traversers.
             if (!(step instanceof CountGlobalStep ||
                   step instanceof GraphStep ||
@@ -80,8 +80,7 @@ public final class HugeCountStepStrategy
                 (step instanceof TraversalParent &&
                  TraversalHelper.anyStepRecursively(s -> {
                      return s instanceof SideEffectStep ||
-                            s instanceof AggregateGlobalStep ||
-                            s instanceof AggregateLocalStep;
+                            s instanceof AggregateStep;
                  }, (TraversalParent) step))) {
                 return;
             }

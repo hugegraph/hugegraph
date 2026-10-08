@@ -20,17 +20,17 @@ package org.apache.hugegraph.core;
 import java.util.Date;
 import java.util.List;
 
-import org.apache.hugegraph.HugeException;
+import org.apache.hugegraph.exception.HugeException;
 import org.apache.hugegraph.HugeGraph;
 import org.apache.hugegraph.HugeGraphParams;
 import org.apache.hugegraph.exception.ExistedException;
 import org.apache.hugegraph.exception.NoIndexException;
 import org.apache.hugegraph.exception.NotFoundException;
-import org.apache.hugegraph.schema.EdgeLabel;
-import org.apache.hugegraph.schema.IndexLabel;
+import org.apache.hugegraph.struct.schema.EdgeLabel;
+import org.apache.hugegraph.struct.schema.IndexLabel;
 import org.apache.hugegraph.schema.SchemaManager;
-import org.apache.hugegraph.schema.Userdata;
-import org.apache.hugegraph.schema.VertexLabel;
+import org.apache.hugegraph.struct.schema.Userdata;
+import org.apache.hugegraph.struct.schema.VertexLabel;
 import org.apache.hugegraph.testutil.Assert;
 import org.apache.hugegraph.testutil.Whitebox;
 import org.apache.hugegraph.type.HugeType;
@@ -1304,10 +1304,8 @@ public class IndexLabelCoreTest extends SchemaCoreTest {
     public void testUpdateCachedVertexAfterIndexRemoval() throws Exception {
         super.initPropertyKeys();
         SchemaManager schema = graph().schema();
-        schema.vertexLabel("person").properties("name", "city")
-              .primaryKeys("name").create();
-        schema.indexLabel("personByCity").onV("person").secondary()
-              .by("city").create();
+        schema.vertexLabel("person").properties("name", "city").primaryKeys("name").create();
+        schema.indexLabel("personByCity").onV("person").secondary().by("city").create();
         Vertex original = graph().addVertex(T.label, "person", "name", "cache-test", "city", "old");
         graph().tx().commit();
         Vertex cached = graph().vertices(original.id()).next();
@@ -1343,10 +1341,8 @@ public class IndexLabelCoreTest extends SchemaCoreTest {
         SchemaManager schema = graph().schema();
         schema.vertexLabel("author").properties("id", "name").primaryKeys("id").create();
         schema.vertexLabel("book").properties("name").primaryKeys("name").create();
-        schema.edgeLabel("authored").singleTime().link("author", "book")
-              .properties("contribution").create();
-        schema.indexLabel("authoredByContri").onE("authored").secondary()
-              .by("contribution").create();
+        schema.edgeLabel("authored").singleTime().link("author", "book").properties("contribution").create();
+        schema.indexLabel("authoredByContri").onE("authored").secondary().by("contribution").create();
         Vertex author = graph().addVertex(T.label, "author", "id", 1, "name", "author");
         Vertex book = graph().addVertex(T.label, "book", "name", "book");
         Edge original = author.addEdge("authored", book, "contribution", "old");
@@ -1362,8 +1358,7 @@ public class IndexLabelCoreTest extends SchemaCoreTest {
         graph().tx().commit();
         Assert.assertEquals("new", graph().edges(original.id()).next().value("contribution"));
         graph().tx().commit();
-        schema.indexLabel("authoredByContri").onE("authored").secondary()
-              .by("contribution").create();
+        schema.indexLabel("authoredByContri").onE("authored").secondary().by("contribution").create();
         graph().taskScheduler().waitUntilAllTasksCompleted(30);
         cached.property("contribution", "newer");
         graph().tx().commit();

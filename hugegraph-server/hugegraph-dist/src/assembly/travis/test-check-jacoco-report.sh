@@ -430,8 +430,8 @@ def validation_command(job):
 
 def reports_for_option(job, option):
     pattern = re.escape(option) + (
-        r'\s+\\?\s*"\$TEST_REPORT_DIR/'
-        r'(TEST-[A-Za-z0-9_.]+SuiteTest[.]xml)"'
+        r'\s+\\?\s*"[^"]*/'
+        r'(TEST-[A-Za-z0-9_.]+Test[.]xml)"'
     )
     return set(re.findall(pattern, validation_command(job)))
 
@@ -516,9 +516,10 @@ assert reports_for_option(store_job, "--require-test-report") == {
     "TEST-org.apache.hugegraph.store.raftcore.RaftSuiteTest.xml",
     "TEST-org.apache.hugegraph.store.core.CoreSuiteTest.xml",
     "TEST-org.apache.hugegraph.store.service.ServerSuiteTest.xml",
+    "TEST-org.apache.hugegraph.store.business.StoredRowIngressTest.xml",
 }
 assert not reports_for_option(store_job, "--require-suite-report")
-assert values_for_option(store_job, "--require-session") == selected_profiles(store_job, "store")
+assert values_for_option(store_job, "--require-session") == (selected_profiles(store_job, "store") | {"store-node-test"})
 assert values_for_option(store_job, "--require-covered-group") == {
     "hg-store-common", "hg-store-client", "hg-store-rocksdb", "hg-store-core",
 }

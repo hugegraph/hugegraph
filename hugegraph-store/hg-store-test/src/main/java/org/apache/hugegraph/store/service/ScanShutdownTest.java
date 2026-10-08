@@ -96,6 +96,53 @@ import io.grpc.stub.StreamObserver;
 
 public class ScanShutdownTest {
 
+    @Test
+    public void testFailedSelectionCleanupBlocksLifecycleCompletion() throws Exception {
+        ScanIterator iterator = mock(ScanIterator.class);
+        IllegalStateException closing = new IllegalStateException("native release failed");
+        doThrow(closing).when(iterator).close();
+        HgStoreWrapperEx wrapper = mock(HgStoreWrapperEx.class);
+        when(wrapper.scanAll(anyString(), anyString(), any(byte[].class))).thenReturn(iterator);
+        Class<?> lifecycleType = Class.forName("org.apache.hugegraph.store.node.grpc.ScanLifecycle");
+        java.lang.reflect.Constructor<?> constructor = lifecycleType.getDeclaredConstructor();
+        constructor.setAccessible(true);
+        Object lifecycle = constructor.newInstance();
+        Method failedCleanup = lifecycleType.getDeclaredMethod("failedCleanup", Throwable.class);
+        failedCleanup.setAccessible(true);
+        AtomicBoolean finished = new AtomicBoolean();
+        Method onFinished = lifecycleType.getDeclaredMethod("onFinished", Runnable.class);
+        onFinished.setAccessible(true);
+        onFinished.invoke(lifecycle, (Runnable) () -> finished.set(true));
+        java.util.function.Consumer<Throwable> cleanup = failure -> {
+            try {
+                failedCleanup.invoke(lifecycle, failure);
+            } catch (ReflectiveOperationException error) {
+                throw new AssertionError(error);
+            }
+        };
+        Class<?> selector = Class.forName("org.apache.hugegraph.store.node.grpc.ScanUtil");
+        Method getIterator = selector.getDeclaredMethod("getIterator", ScanStreamReq.class,
+                                                       HgStoreWrapperEx.class,
+                                                       java.util.function.Consumer.class);
+        getIterator.setAccessible(true);
+        ScanStreamReq request = ScanStreamReq.newBuilder().setMethod(ScanMethod.ALL)
+                .setHeader(Header.newBuilder().setGraph("selection-cleanup"))
+                .setTable("unsupported-property-table")
+                .setSelects(org.apache.hugegraph.store.grpc.stream.SelectParam.newBuilder().addProperties(1)).build();
+        try {
+            getIterator.invoke(null, request, wrapper, cleanup);
+            fail("Invalid property selection must fail");
+        } catch (java.lang.reflect.InvocationTargetException error) {
+            assertTrue(error.getCause() instanceof IllegalArgumentException);
+            assertEquals(Collections.singletonList(closing), Arrays.asList(error.getCause().getSuppressed()));
+        }
+        Method finish = lifecycleType.getDeclaredMethod("finishWithoutResponse");
+        finish.setAccessible(true);
+        finish.invoke(lifecycle);
+        assertFalse("Failed native release must remain a shutdown blocker", finished.get());
+        verify(iterator).close();
+    }
+
     @Test(timeout = 5000)
     public void testInFlightReceiptDoesNotPublishOverAfterErrorCancellation() throws Exception {
         ThreadPoolExecutor executor = (ThreadPoolExecutor) Executors.newFixedThreadPool(1);

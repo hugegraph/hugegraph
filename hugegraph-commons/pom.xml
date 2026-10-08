@@ -89,9 +89,6 @@
     </scm>
 
     <properties>
-        <!-- Note: We need also update the version in CommonVersion.java & RpcVersion.java now -->
-        <!-- TODO: Remove the revision property below after verifying parent POM inheritance works correctly -->
-        <revision>1.7.0</revision>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <top.level.dir>${project.basedir}/..</top.level.dir>
         <maven.compiler.release>11</maven.compiler.release>
@@ -109,7 +106,6 @@
         <javassist.version>3.28.0-GA</javassist.version>
         <jersey.version>3.0.3</jersey.version>
         <jersey.hk2.version>3.0.3</jersey.hk2.version>
-        <jackson.version>2.14.0-rc1</jackson.version>
         <junit.version>4.13.1</junit.version>
         <mockito.version>4.1.0</mockito.version>
         <jakarta.xml.version>4.0.0-RC2</jakarta.xml.version>
