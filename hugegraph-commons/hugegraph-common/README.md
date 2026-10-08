@@ -10,6 +10,12 @@ hugegraph-common encapsulates locks, configurations, events, iterators, rest and
 numeric or collection util classes to simplify the development of HugeGraph and 
 its components.
 
+## REST request encoding
+
+The shared REST client encodes request bodies using the charset declared in
+`Content-Type`, or UTF-8 when no charset is declared. JSON and text requests do
+not depend on the JVM's default charset. Gzip compresses those same encoded bytes.
+
 ## Components
 
 - Lock: atomic lock, key lock, lock group and lock manager
