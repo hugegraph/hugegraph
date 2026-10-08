@@ -44,6 +44,7 @@ import org.apache.hugegraph.unit.cache.CacheTest;
 import org.apache.hugegraph.unit.cache.CachedGraphTransactionTest;
 import org.apache.hugegraph.unit.cache.CachedSchemaTransactionTest;
 import org.apache.hugegraph.unit.cache.RamTableTest;
+import org.apache.hugegraph.unit.cache.RequestCacheLifetimeTest;
 import org.apache.hugegraph.unit.cmd.InitStoreConfigTest;
 import org.apache.hugegraph.unit.config.GremlinConfigCompatibilityTest;
 import org.apache.hugegraph.unit.config.GraphBinarySchemaCompatibilityTest;
@@ -148,6 +149,7 @@ import org.junit.runners.Suite;
         MetaManagerSchemaCacheClearEventTest.class,
         EtcdMetaDriverTest.class,
         CachedGraphTransactionTest.class,
+        RequestCacheLifetimeTest.class,
         CacheManagerTest.class,
         RamTableTest.class,
 
