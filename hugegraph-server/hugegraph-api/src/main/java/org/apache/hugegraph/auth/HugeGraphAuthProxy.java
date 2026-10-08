@@ -40,6 +40,7 @@ import java.util.function.Supplier;
 import javax.security.sasl.AuthenticationException;
 
 import org.apache.commons.configuration2.Configuration;
+import org.apache.hugegraph.HugeFactory;
 import org.apache.hugegraph.HugeGraph;
 import org.apache.hugegraph.HugeGraphSupplier;
 import org.apache.hugegraph.auth.HugeAuthenticator.RolePerm;
@@ -1303,7 +1304,13 @@ public final class HugeGraphAuthProxy implements HugeGraph {
             try {
                 this.runner.run();
             } finally {
-                resetContext();
+                try {
+                    HugeFactory.closeCurrentThreadTransactions();
+                } catch (Throwable e) {
+                    LOG.error("Failed to close Gremlin worker transactions", e);
+                } finally {
+                    resetContext();
+                }
             }
         }
     }

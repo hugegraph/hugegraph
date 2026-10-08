@@ -43,6 +43,7 @@ import org.apache.hugegraph.config.HugeConfig;
 import org.apache.hugegraph.util.Bytes;
 import org.apache.hugegraph.util.E;
 import org.apache.hugegraph.util.Log;
+import org.apache.hugegraph.util.RocksDBRuntime;
 import org.apache.hugegraph.util.StringEncoding;
 import org.rocksdb.BlockBasedTableConfig;
 import org.rocksdb.BloomFilter;
@@ -367,6 +368,7 @@ public class RocksDBStdSessions extends RocksDBSessions {
 
     private static OpenedRocksDB openRocksDB(HugeConfig config, String dataPath,
                                              String walPath) throws RocksDBException {
+        RocksDBRuntime.verify(config.get(RocksDBOptions.PROVIDER));
         // Init options
         Options options = new Options();
         RocksDBStdSessions.initOptions(config, options, options, options, options);
@@ -385,6 +387,7 @@ public class RocksDBStdSessions extends RocksDBSessions {
     private static OpenedRocksDB openRocksDB(HugeConfig config,
                                              List<String> cfNames, String dataPath,
                                              String walPath) throws RocksDBException {
+        RocksDBRuntime.verify(config.get(RocksDBOptions.PROVIDER));
         // Old CFs should always be opened
         Set<String> mergedCFs = RocksDBStdSessions.mergeOldCFs(dataPath,
                                                                cfNames);
@@ -731,7 +734,15 @@ public class RocksDBStdSessions extends RocksDBSessions {
         @Override
         public void close() {
             assert this.closeable();
-            this.opened = false;
+            try {
+                this.batch.close();
+            } finally {
+                try {
+                    this.writeOptions.close();
+                } finally {
+                    this.opened = false;
+                }
+            }
         }
 
         @Override
@@ -741,7 +752,7 @@ public class RocksDBStdSessions extends RocksDBSessions {
 
         @Override
         public void reset() {
-            this.batch = new WriteBatch();
+            this.batch.clear();
         }
 
         /**
@@ -782,14 +793,18 @@ public class RocksDBStdSessions extends RocksDBSessions {
                  RocksIterator iter = rocksdb().newIterator(cf.get())) {
                 iter.seekToFirst();
                 if (!iter.isValid()) {
+                    iter.status();
                     return null;
                 }
                 startKey = iter.key();
                 iter.seekToLast();
                 if (!iter.isValid()) {
-                    return Pair.of(startKey, null);
+                    iter.status();
+                    throw new BackendException("Missing last key in table '%s'", table);
                 }
                 endKey = iter.key();
+            } catch (RocksDBException e) {
+                throw new BackendException("Failed to read key range of table '%s'", e, table);
             }
             return Pair.of(startKey, endKey);
         }

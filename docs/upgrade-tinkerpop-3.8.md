@@ -221,6 +221,19 @@ The response has rows under `result.data`; each row is a map and `nodeId` is a
 JSON scalar, not a HugeGraph internal ID class. The Cypher API test covers this
 shape, nested IDs and paths.
 
+## HTTP request errors
+
+The supplied WebSocket/HTTP channelizer releases each HTTP request buffer once,
+including when a traversal alias is unknown. Such a request returns one HTTP 400,
+and a later valid request on the same keep-alive connection receives its own
+response. This avoids TinkerPop 3.8.1's duplicate release and second HTTP 500,
+which could be mistaken for the next request's response by a connection pool.
+The correction applies when the configured channelizer is TinkerPop's standard
+`WsAndHttpChannelizer`; HugeGraph selects its compatibility implementation at
+startup and retains TinkerPop's WebSocket handling. Custom channelizer classes
+keep their configured behavior. Unknown aliases still require the caller to
+use a graph or traversal-source name exposed by the server.
+
 ## Compatibility verification
 
 The repository's checked-in tests establish the following boundaries:
