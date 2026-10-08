@@ -435,6 +435,7 @@ final class RocksDBSnapshotRestore {
         try (FileChannel channel = FileChannel.open(this.marker, StandardOpenOption.WRITE)) {
             channel.force(true);
         }
+        this.files.forceDirectory(this.marker.getParent());
     }
 
     static RocksDBSnapshotRestore prepareOpen(String data, String wal) {
@@ -521,6 +522,8 @@ final class RocksDBSnapshotRestore {
         if (!this.generation.equals(generation(this.snapshot))) {
             throw new IOException("Checkpoint generation changed: " + this.snapshot);
         }
+        // A preceding publication fsync may have failed. Persist its entry before retry deletes live data.
+        this.files.forceDirectory(this.marker.getParent());
         // Copy, never move: partial data copies and WAL failures must be retryable.
         this.files.deleteDirectory(this.data);
         this.files.copyDirectory(this.snapshot, this.data);
@@ -564,6 +567,8 @@ final class RocksDBSnapshotRestore {
             // Only this operation's staging is reclaimed, after successful native reopen.
             FileUtils.deleteDirectory(this.staging().toFile());
             Files.delete(this.marker);
+            // Do not consume the only retry source until marker removal is durable.
+            this.files.forceDirectory(this.marker.getParent());
         } catch (IOException e) {
             throw new BackendException("Failed to finish snapshot recovery at '%s'", e, this.marker);
         }
@@ -668,6 +673,15 @@ final class RocksDBSnapshotRestore {
                 throw failure;
             }
             Files.delete(staged);
+        }
+
+        void forceDirectory(Path directory) throws IOException {
+            if (!System.getProperty("os.name").startsWith("Linux")) {
+                return;
+            }
+            try (FileChannel channel = FileChannel.open(directory, StandardOpenOption.READ)) {
+                channel.force(true);
+            }
         }
 
         OutputStream markerOutput(Path staged) throws IOException {

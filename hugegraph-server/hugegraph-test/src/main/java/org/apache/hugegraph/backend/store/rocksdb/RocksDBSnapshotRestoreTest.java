@@ -1000,6 +1000,88 @@ public class RocksDBSnapshotRestoreTest {
     }
 
     @Test
+    public void testMarkerDirectorySyncPrecedesInstallAndCheckpointCleanup() throws Exception {
+        this.checkMarkerDirectorySync(0);
+    }
+
+    @Test
+    public void testPublicationDirectorySyncFailurePreservesLiveData() throws Exception {
+        this.checkMarkerDirectorySync(1);
+    }
+
+    @Test
+    public void testRetryDirectorySyncFailurePreservesLiveData() throws Exception {
+        this.checkMarkerDirectorySync(2);
+    }
+
+    @Test
+    public void testCompletionDirectorySyncFailurePreservesCheckpoint() throws Exception {
+        this.checkMarkerDirectorySync(3);
+    }
+
+    private void checkMarkerDirectorySync(int failAt) throws Exception {
+        File root = this.temporary.newFolder("directory-sync-" + failAt);
+        File data = new File(root, "data");
+        File snapshot = new File(root, "snapshot");
+        FileUtils.forceMkdir(data);
+        FileUtils.forceMkdir(snapshot);
+        fakeCheckpoint(snapshot);
+        Path live = new File(data, "live-sentinel").toPath();
+        byte[] original = new byte[]{42};
+        Files.write(live, original);
+        Path marker = Path.of(data + ".resume-pending");
+        AtomicInteger syncs = new AtomicInteger();
+        RocksDBSnapshotRestore.FileOperations operations = new RocksDBSnapshotRestore.FileOperations() {
+            @Override
+            void forceDirectory(Path directory) throws IOException {
+                int call = syncs.incrementAndGet();
+                assertEquals(marker.getParent(), directory);
+                assertEquals(call < 3, Files.exists(marker));
+                // The retry source survives both sides of the marker removal boundary.
+                assertTrue(snapshot.isDirectory());
+                if (call == failAt) {
+                    throw new IOException("injected directory sync failure " + call);
+                }
+                // Execute the real Linux directory fsync; this does not simulate a power loss.
+                super.forceDirectory(directory);
+            }
+
+            @Override
+            void deleteDirectory(File directory) throws IOException {
+                assertEquals(2, syncs.get());
+                super.deleteDirectory(directory);
+            }
+        };
+        RocksDBSnapshotRestore restore = new RocksDBSnapshotRestore(
+                data.toString(), data.toString(), snapshot.toString(), operations);
+        try {
+            restore.begin();
+            restore.install();
+            restore.complete();
+            assertEquals(0, failAt);
+            assertEquals(3, syncs.get());
+            assertFalse(Files.exists(marker));
+            assertFalse(snapshot.exists());
+        } catch (IOException | BackendException expected) {
+            assertTrue(failAt > 0);
+            assertEquals(failAt, syncs.get());
+            assertTrue(snapshot.isDirectory());
+            if (failAt < 3) {
+                assertArrayEquals(original, Files.readAllBytes(live));
+                assertTrue(Files.isRegularFile(marker));
+                // A normal subsequent open retries the preserved checkpoint.
+                RocksDBSnapshotRestore retry = RocksDBSnapshotRestore.prepareOpen(data.toString(), data.toString());
+                assertNotNull(retry);
+                retry.complete();
+            } else {
+                // Installation already succeeded, but failed unlink fsync must not consume its source.
+                assertFalse(Files.exists(marker));
+                assertTrue(new File(data, "CURRENT").isFile());
+            }
+        }
+    }
+
+    @Test
     public void testWalNameCollisionFailsClosed() throws Exception {
         File data = this.temporary.newFolder("data");
         File wal = this.temporary.newFolder("wal");
