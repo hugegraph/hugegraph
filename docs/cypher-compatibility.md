@@ -27,8 +27,25 @@ Malformed JSON objects and trailing tokens are also request errors and do not fa
 
 For the JSON-object form, `cypher` must be a nonblank string and `parameters`, when present, must be an
 object. Omitting `parameters` means an empty map. Missing bindings produce an execution error; an explicit
-null value is accepted. Tests also cover bindings named `id` and `label`, and the default limit of 16
-parameters. Values containing quotes and newlines remain bound data rather than changing query text.
+null value is accepted. Tests also cover bindings named `id` and `label`, and the fixed limit of 16
+top-level parameters. This Cypher processor does not support a `maxParameters` configuration setting.
+Values containing quotes and newlines remain bound data rather than changing query text.
+
+A Map counts as one top-level parameter. Group related values into one Map and reference its fields
+explicitly; the vertex label and required properties must match the graph's existing schema:
+
+```json
+{
+  "cypher": "CREATE (n:person {name:$props.name, age:$props.age, city:$props.city}) RETURN n.name",
+  "parameters": {"props": {"name": "new-person", "age": 20, "city": "Beijing"}}
+}
+```
+
+Do not use the shorthand `CREATE (n:person $props)`: the pinned translator does not assign the bound
+Map's properties in that path. Live REST verification confirmed that one Map containing 17 entries
+works with explicit property references, with all 17 persisted values verified through native REST.
+A 17-entry returned Map also succeeds, while 17 top-level bindings produce an execution error.
+
 The translator's reserved null-marker string `"  cypher.null"` (two leading spaces) is rejected in binding
 values, including nested maps and lists, to avoid silently converting a user string to null. Actual JSON
 null remains accepted. The same marker in query literals or stored properties is an existing translator
