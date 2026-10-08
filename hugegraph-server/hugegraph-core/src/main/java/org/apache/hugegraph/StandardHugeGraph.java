@@ -385,6 +385,19 @@ public class StandardHugeGraph implements HugeGraph {
         return this.closed;
     }
 
+    void closeCurrentThreadTransaction() {
+        try {
+            if (this.tx.isOpen()) {
+                // Request/task cleanup must never commit unfinished writes.
+                this.tx.rollback();
+            }
+        } finally {
+            this.tx.clearTransactionListeners();
+            this.tx.resetState();
+            this.tx.destroyTransaction();
+        }
+    }
+
     private void closeTx() {
         try {
             if (this.tx.isOpen()) {
@@ -1101,8 +1114,23 @@ public class StandardHugeGraph implements HugeGraph {
             this.closeTx();
         } finally {
             this.closed = true;
-            this.storeProvider.close();
-            LockUtil.destroy(this.spaceGraphName());
+            try {
+                CachedGraphTransaction.closeGraph(this.params);
+            } finally {
+                try {
+                    try {
+                        CachedSchemaTransaction.closeGraph(this.params);
+                    } finally {
+                        CachedSchemaTransactionV2.closeGraph(this.params);
+                    }
+                } finally {
+                    try {
+                        this.storeProvider.close();
+                    } finally {
+                        LockUtil.destroy(this.spaceGraphName());
+                    }
+                }
+            }
         }
 
         // Make sure that all transactions are closed in all threads
