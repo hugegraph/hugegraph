@@ -18,6 +18,7 @@
 package org.apache.hugegraph.store.service;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
@@ -31,11 +32,18 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.lang.reflect.Field;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.FutureTask;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -48,6 +56,7 @@ import org.apache.hugegraph.store.grpc.Graphpb.ScanResponse;
 import org.apache.hugegraph.store.node.grpc.HgStoreStreamImpl;
 import org.junit.Test;
 
+import io.grpc.Context;
 import io.grpc.Status;
 import io.grpc.stub.StreamObserver;
 
@@ -195,28 +204,22 @@ public class GraphPartitionScanLifecycleTest extends GraphPartitionScanTestSuppo
         checkCreditWindow(false, 7);
     }
 
-    @Test
+    @Test(timeout = 5000)
     public void testHalfCloseBeforeWorkerStartsKeepsFinalPartialBatch() throws Exception {
         ThreadPoolExecutor executor = executor();
         CountDownLatch workersBlocked = new CountDownLatch(2);
         CountDownLatch release = new CountDownLatch(1);
+        List<Future<?>> blockers = new ArrayList<>();
         try {
-            for (int i = 0; i < 2; i++) {
-                executor.execute(() -> {
-                    workersBlocked.countDown();
-                    try {
-                        assertTrue(release.await(2, TimeUnit.SECONDS));
-                    } catch (InterruptedException failure) {
-                        Thread.currentThread().interrupt();
-                        throw new IllegalStateException(failure);
-                    }
-                });
-            }
-            assertTrue(workersBlocked.await(2, TimeUnit.SECONDS));
+            // Finish service and mock initialization before establishing the worker gate.
             HgStoreStreamImpl service = service(executor);
             GraphStoreIterator<Graphpb.Vertex> iterator = mock(GraphStoreIterator.class);
             AtomicInteger consumed = new AtomicInteger();
-            when(iterator.hasNext()).thenAnswer(call -> consumed.get() < 2);
+            AtomicInteger reads = new AtomicInteger();
+            when(iterator.hasNext()).thenAnswer(call -> {
+                reads.incrementAndGet();
+                return consumed.get() < 2;
+            });
             when(iterator.next()).thenAnswer(call -> {
                 consumed.incrementAndGet();
                 return Graphpb.Vertex.getDefaultInstance();
@@ -230,9 +233,26 @@ public class GraphPartitionScanLifecycleTest extends GraphPartitionScanTestSuppo
                 return null;
             }).when(response).onNext(any());
             StreamObserver<ScanPartitionRequest> request = service.scanGraphPartition(response, handler);
+            for (int i = 0; i < 2; i++) {
+                blockers.add(executor.submit(() -> {
+                    workersBlocked.countDown();
+                    try {
+                        release.await();
+                    } catch (InterruptedException failure) {
+                        Thread.currentThread().interrupt();
+                        throw new IllegalStateException(failure);
+                    }
+                }));
+            }
+            assertTrue(workersBlocked.await(2, TimeUnit.SECONDS));
             request.onNext(request(0));
+            assertEquals("reading must not begin before half-close", 0, reads.get());
             request.onCompleted();
+            assertEquals("queued reader must remain gated through half-close", 0, reads.get());
             release.countDown();
+            for (Future<?> blocker : blockers) {
+                blocker.get(2, TimeUnit.SECONDS);
+            }
             verify(response, timeout(2000)).onCompleted();
             service.awaitScanCleanup();
             assertEquals(2, delivered.get());
@@ -244,6 +264,86 @@ public class GraphPartitionScanLifecycleTest extends GraphPartitionScanTestSuppo
             release.countDown();
             executor.shutdown();
             assertTrue(executor.awaitTermination(2, TimeUnit.SECONDS));
+        }
+    }
+
+    @Test(timeout = 5000)
+    public void testContextCancellationInterruptsBlockedReaderBeforeCleanup() throws Exception {
+        checkBlockedReaderCancellation(false);
+    }
+
+    @Test(timeout = 5000)
+    public void testContextDeadlineInterruptsBlockedReaderBeforeCleanup() throws Exception {
+        checkBlockedReaderCancellation(true);
+    }
+
+    private static void checkBlockedReaderCancellation(boolean deadline) throws Exception {
+        ThreadPoolExecutor executor = new ThreadPoolExecutor(1, 1, 0, TimeUnit.MILLISECONDS,
+                                                             new LinkedBlockingQueue<>());
+        ScheduledExecutorService timer = Executors.newSingleThreadScheduledExecutor();
+        HgStoreStreamImpl service = service(executor);
+        GraphStoreIterator<?> iterator = mock(GraphStoreIterator.class);
+        CountDownLatch reading = new CountDownLatch(1);
+        CountDownLatch readExited = new CountDownLatch(1);
+        AtomicBoolean interrupted = new AtomicBoolean();
+        when(iterator.hasNext()).thenAnswer(call -> {
+            reading.countDown();
+            try {
+                new CountDownLatch(1).await();
+                throw new AssertionError("blocked reader must exit through interruption");
+            } catch (InterruptedException expected) {
+                interrupted.set(true);
+                Thread.currentThread().interrupt();
+                return false;
+            } finally {
+                readExited.countDown();
+            }
+        });
+        AtomicBoolean closedAfterRead = new AtomicBoolean();
+        doAnswer(call -> {
+            closedAfterRead.set(readExited.getCount() == 0);
+            return null;
+        }).when(iterator).close();
+        BusinessHandler handler = mock(BusinessHandler.class);
+        doReturn(iterator).when(handler).scan(any());
+        StreamObserver<ScanResponse> response = mock(StreamObserver.class);
+        Context.CancellableContext context = deadline ?
+                Context.current().withDeadlineAfter(1, TimeUnit.SECONDS, timer) :
+                Context.current().withCancellation();
+        Thread cancellation = null;
+        try {
+            StreamObserver<ScanPartitionRequest> request = context.call(() ->
+                    service.scanGraphPartition(response, handler));
+            request.onNext(request(0));
+            assertTrue("real worker must enter its interruptible read", reading.await(500, TimeUnit.MILLISECONDS));
+            if (!deadline) {
+                FutureTask<Void> cancel = new FutureTask<>(() -> {
+                    context.cancel(null);
+                    return null;
+                });
+                cancellation = new Thread(cancel, "test-partition-context-cancel");
+                cancellation.setDaemon(true);
+                cancellation.start();
+                cancel.get(2, TimeUnit.SECONDS);
+            }
+            assertTrue("context cancellation must interrupt the owned reader", readExited.await(2, TimeUnit.SECONDS));
+            assertTrue(interrupted.get());
+            verify(response, timeout(2000)).onError(any());
+            service.awaitScanCleanup();
+            verify(iterator).close();
+            assertTrue(closedAfterRead.get());
+            assertTrue(registry(service).isEmpty());
+            // A released worker must remain usable and free from a cancellation interrupt.
+            assertFalse(executor.submit(() -> Thread.currentThread().isInterrupted()).get(1, TimeUnit.SECONDS));
+        } finally {
+            // Also release an old implementation's blocked reader when this regression fails.
+            executor.shutdownNow();
+            context.cancel(null);
+            timer.shutdownNow();
+            assertTrue(executor.awaitTermination(2, TimeUnit.SECONDS));
+            if (cancellation != null) {
+                cancellation.join(1000);
+            }
         }
     }
 
