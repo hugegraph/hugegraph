@@ -332,17 +332,53 @@ public class StandardTaskScheduler implements TaskScheduler {
 
     @Override
     public boolean close() {
-        if (!this.taskDbExecutor.isShutdown()) {
-            this.call(() -> {
-                try {
-                    this.tx().close();
-                } catch (ConnectionException ignored) {
-                    // ConnectionException means no connection established
+        Throwable failure = null;
+        boolean closed = false;
+        try {
+            if (!this.taskDbExecutor.isShutdown()) {
+                this.call(() -> {
+                    Throwable workerFailure = null;
+                    for (Runnable close : new Runnable[]{() -> {
+                        try {
+                            this.tx().close();
+                        } catch (ConnectionException ignored) {
+                            // ConnectionException means no connection established
+                        }
+                    }, this.graph::closeTx}) {
+                        try {
+                            close.run();
+                        } catch (RuntimeException | Error error) {
+                            if (workerFailure == null) {
+                                workerFailure = error;
+                            } else if (workerFailure != error) {
+                                workerFailure.addSuppressed(error);
+                            }
+                        }
+                    }
+                    if (workerFailure instanceof Error) {
+                        throw (Error) workerFailure;
+                    }
+                    if (workerFailure != null) {
+                        throw (RuntimeException) workerFailure;
+                    }
+                });
+            }
+        } catch (RuntimeException | Error error) {
+            failure = error;
+            throw error;
+        } finally {
+            try {
+                closed = this.serverManager.close();
+            } catch (RuntimeException | Error error) {
+                if (failure == null) {
+                    throw error;
                 }
-                this.graph.closeTx();
-            });
+                if (failure != error) {
+                    failure.addSuppressed(error);
+                }
+            }
         }
-        return this.serverManager.close();
+        return closed;
     }
 
     @Override

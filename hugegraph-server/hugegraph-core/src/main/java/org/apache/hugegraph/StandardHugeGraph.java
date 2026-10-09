@@ -1119,43 +1119,64 @@ public class StandardHugeGraph implements HugeGraph {
         }
 
         LOG.info("Close graph {}", this);
-        if (StandardAuthManager.isLocal(this.authManager)) {
-            this.authManager.close();
-        }
-        this.taskManager.closeScheduler(this.params);
-        try {
-            this.closeTx();
-        } finally {
-            this.closed = true;
+        Throwable failure = null;
+        for (Runnable close : new Runnable[]{() -> {
+            if (StandardAuthManager.isLocal(this.authManager)) {
+                this.authManager.close();
+            }
+        }, () -> this.taskManager.closeScheduler(this.params), this::closeTx}) {
             try {
-                CachedGraphTransaction.closeGraph(this.params);
-            } finally {
-                try {
-                    try {
-                        CachedSchemaTransaction.closeGraph(this.params);
-                    } finally {
-                        CachedSchemaTransactionV2.closeGraph(this.params);
-                    }
-                } finally {
-                    try {
-                        this.storeProvider.close();
-                    } finally {
-                        LockUtil.destroy(this.spaceGraphName());
-                    }
+                close.run();
+            } catch (RuntimeException | Error error) {
+                if (failure == null) {
+                    failure = error;
+                } else if (failure != error) {
+                    failure.addSuppressed(error);
                 }
             }
         }
 
-        // Make sure that all transactions are closed in all threads
-        if (!this.tx.closed()) {
+        // A failed task drain retains its scheduler and remains retryable.
+        boolean drained = this.tx.closed() && this.taskManager.getScheduler(this.params) == null;
+        if (!drained) {
             for (String key : this.tx.openedThreads) {
                 LOG.warn("thread [{}] did not close transaction", key);
             }
+            RuntimeException active = new IllegalStateException(String.format(
+                    "Ensure scheduler and tx closed in all threads when closing graph '%s'",
+                    this.spaceGraphName()));
+            if (failure == null) {
+                failure = active;
+            } else {
+                failure.addSuppressed(active);
+            }
         }
-        E.checkState(this.tx.closed(),
-                     "Ensure tx closed in all threads when closing graph '%s'",
-                     this.spaceGraphName());
-
+        if (drained) {
+            // Plain provider close only notifies listeners; the Raft wrapper also
+            // stops its context. Owner-close errors do not imply native release.
+            this.closed = true;
+            for (Runnable close : new Runnable[]{
+                    () -> CachedGraphTransaction.closeGraph(this.params),
+                    () -> CachedSchemaTransaction.closeGraph(this.params),
+                    () -> CachedSchemaTransactionV2.closeGraph(this.params),
+                    this.storeProvider::close, () -> LockUtil.destroy(this.spaceGraphName())}) {
+                try {
+                    close.run();
+                } catch (RuntimeException | Error error) {
+                    if (failure == null) {
+                        failure = error;
+                    } else if (failure != error) {
+                        failure.addSuppressed(error);
+                    }
+                }
+            }
+        }
+        if (failure instanceof Error) {
+            throw (Error) failure;
+        }
+        if (failure != null) {
+            throw (RuntimeException) failure;
+        }
     }
 
     @Override

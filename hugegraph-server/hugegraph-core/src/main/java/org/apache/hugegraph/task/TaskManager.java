@@ -122,31 +122,52 @@ public final class TaskManager {
 
     public void closeScheduler(HugeGraphParams graph) {
         TaskScheduler scheduler = this.schedulers.get(graph);
+        Throwable failure = null;
         if (scheduler != null) {
             /*
-             * Synch close+remove scheduler and iterate scheduler, details:
-             * 'closeScheduler' should sync with 'scheduleOrExecuteJob'.
-             * Because 'closeScheduler' will be called by 'graph.close()' in
-             * main thread and there is gap between 'scheduler.close()'
-             * (will close graph tx) and 'this.schedulers.remove(graph)'.
-             * In this gap 'scheduleOrExecuteJob' may be run in
-             * scheduler-db-thread and 'scheduleOrExecuteJob' will reopen
-             * graph tx. As a result, graph tx will mistakenly not be closed
-             * after 'graph.close()'.
+             * Keep close+remove exclusive with scheduler iteration: in their gap
+             * a scheduler DB worker could otherwise reopen the graph transaction.
              */
             synchronized (scheduler) {
-                if (scheduler.close()) {
-                    this.schedulers.remove(graph);
+                boolean stopped = false;
+                try {
+                    stopped = scheduler.close();
+                } catch (RuntimeException | Error error) {
+                    failure = error;
+                    // Standard closes its server manager in finally; Distributed
+                    // sets its dispatch-stop flag before cancellation/drain begins.
+                    stopped = true;
+                }
+                // A timeout leaves running jobs registered for the next drain attempt.
+                if (stopped && scheduler.pendingTasks() == 0) {
+                    this.schedulers.remove(graph, scheduler);
                 }
             }
         }
-
-        if (!this.taskExecutor.isTerminated()) {
-            this.closeTaskTx(graph);
+        for (Runnable close : new Runnable[]{() -> {
+            if (!this.taskExecutor.isTerminated()) {
+                this.closeTaskTx(graph);
+            }
+        }, () -> {
+            if (!this.distributedSchedulerExecutor.isTerminated()) {
+                this.closeDistributedSchedulerTx(graph);
+            }
+        }}) {
+            try {
+                close.run();
+            } catch (RuntimeException | Error error) {
+                if (failure == null) {
+                    failure = error;
+                } else if (failure != error) {
+                    failure.addSuppressed(error);
+                }
+            }
         }
-
-        if (!this.distributedSchedulerExecutor.isTerminated()) {
-            this.closeDistributedSchedulerTx(graph);
+        if (failure instanceof Error) {
+            throw (Error) failure;
+        }
+        if (failure != null) {
+            throw (RuntimeException) failure;
         }
     }
 
