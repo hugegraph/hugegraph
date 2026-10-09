@@ -19,6 +19,7 @@ package org.apache.hugegraph.store.service;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -185,10 +186,12 @@ public class TTLCleanerCleanupTest {
             assertEquals(0L, completed.getCount());
             cleaner.awaitCleanup();
             assertEquals("TTL must release both the iterator lease and cloned session", 1, owner.getRefCount());
-            assertTrue(owner.getDB().isOwningHandle());
+            RocksDB database = owner.getDB();
+            assertTrue(database.isOwningHandle());
             owner.close();
             assertEquals(0, owner.getRefCount());
-            assertFalse(owner.getDB().isOwningHandle());
+            assertNull(owner.getDB());
+            assertFalse(database.isOwningHandle());
         } finally {
             lease.close();
             owner.close();

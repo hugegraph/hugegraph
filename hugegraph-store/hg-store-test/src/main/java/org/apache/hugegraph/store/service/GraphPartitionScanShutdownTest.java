@@ -25,6 +25,7 @@ import static org.mockito.Mockito.any;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -80,7 +81,21 @@ public class GraphPartitionScanShutdownTest extends GraphPartitionScanTestSuppor
             GraphStoreIterator<?> iterator = mock(GraphStoreIterator.class);
             when(iterator.hasNext()).thenAnswer(call -> {
                 entered.countDown();
-                assertTrue(release.await(2, TimeUnit.SECONDS));
+                boolean interrupted = false;
+                try {
+                    // Model native work that cannot exit until the read itself finishes.
+                    while (release.getCount() != 0) {
+                        try {
+                            release.await();
+                        } catch (InterruptedException cancellation) {
+                            interrupted = true;
+                        }
+                    }
+                } finally {
+                    if (interrupted) {
+                        Thread.currentThread().interrupt();
+                    }
+                }
                 return false;
             });
             BusinessHandler handler = mock(BusinessHandler.class);
@@ -98,6 +113,7 @@ public class GraphPartitionScanShutdownTest extends GraphPartitionScanTestSuppor
             stopping.start();
             assertTrue(stoppingStarted.await(2, TimeUnit.SECONDS));
             assertFalse(stopped.await(100, TimeUnit.MILLISECONDS));
+            verify(iterator, never()).close();
             release.countDown();
             assertTrue(stopped.await(2, TimeUnit.SECONDS));
             stopping.join(2000);
