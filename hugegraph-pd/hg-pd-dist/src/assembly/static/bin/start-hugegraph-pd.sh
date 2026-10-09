@@ -106,10 +106,15 @@ if [ "$JAVA_OPTIONS" = "" ]; then
     #              -Xloggc:./logs/gc.log -XX:+PrintHeapAtGC -XX:+PrintGCDetails -XX:+PrintGCDateStamps"
 fi
 
-# Using G1GC as the default garbage collector (Recommended for large memory machines)
+# Keep JVM/caller GC selection by default; explicitly select G1 when requested.
 case "$GC_OPTION" in
     ""|g1|G1)
-        echo "Using G1GC as the default garbage collector"
+        if [[ "$GC_OPTION" == g1 || "$GC_OPTION" == G1 ]]; then
+            echo "Using G1GC"
+            JAVA_OPTIONS="${JAVA_OPTIONS} -XX:+UseG1GC"
+        else
+            echo "Using JVM garbage collector configuration"
+        fi
         JAVA_OPTIONS="${JAVA_OPTIONS} -XX:+ParallelRefProcEnabled \
                       -XX:InitiatingHeapOccupancyPercent=50 -XX:G1RSetUpdatingPauseTimePercent=5"
         ;;
