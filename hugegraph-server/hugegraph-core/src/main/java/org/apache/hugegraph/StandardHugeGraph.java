@@ -386,15 +386,28 @@ public class StandardHugeGraph implements HugeGraph {
     }
 
     void closeCurrentThreadTransaction() {
+        Throwable failure = null;
         try {
             if (this.tx.isOpen()) {
                 // Request/task cleanup must never commit unfinished writes.
                 this.tx.rollback();
             }
+        } catch (RuntimeException | Error error) {
+            failure = error;
+            throw error;
         } finally {
             this.tx.clearTransactionListeners();
             this.tx.resetState();
-            this.tx.destroyTransaction();
+            try {
+                this.tx.destroyTransaction();
+            } catch (RuntimeException | Error error) {
+                if (failure == null) {
+                    throw error;
+                }
+                if (failure != error) {
+                    failure.addSuppressed(error);
+                }
+            }
         }
     }
 
@@ -1361,22 +1374,25 @@ public class StandardHugeGraph implements HugeGraph {
         }
 
         public void close() {
-            try {
-                this.graphTx.close();
-            } catch (Exception e) {
-                LOG.error("Failed to close GraphTransaction", e);
+            Throwable failure = null;
+            for (Runnable close : new Runnable[]{this.graphTx::close,
+                                                   this.systemTx::close,
+                                                   this.schemaTx::close}) {
+                try {
+                    close.run();
+                } catch (RuntimeException | Error error) {
+                    if (failure == null) {
+                        failure = error;
+                    } else if (failure != error) {
+                        failure.addSuppressed(error);
+                    }
+                }
             }
-
-            try {
-                this.systemTx.close();
-            } catch (Exception e) {
-                LOG.error("Failed to close SystemTransaction", e);
+            if (failure instanceof Error) {
+                throw (Error) failure;
             }
-
-            try {
-                this.schemaTx.close();
-            } catch (Exception e) {
-                LOG.error("Failed to close SchemaTransaction", e);
+            if (failure != null) {
+                throw (RuntimeException) failure;
             }
         }
 
@@ -1852,10 +1868,14 @@ public class StandardHugeGraph implements HugeGraph {
 
             // Do close if needed, then remove the reference
             Txs txs = this.transactions.get();
-            if (txs != null) {
-                txs.close();
+            try {
+                if (txs != null) {
+                    txs.close();
+                }
+            } finally {
+                // A reused request/worker must never inherit partially closed owners.
+                this.transactions.remove();
             }
-            this.transactions.remove();
         }
     }
 }
