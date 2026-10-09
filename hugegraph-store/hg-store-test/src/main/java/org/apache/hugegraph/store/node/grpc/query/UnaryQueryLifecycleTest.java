@@ -30,6 +30,7 @@ import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import io.grpc.Context;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
 import io.grpc.stub.ServerCallStreamObserver;
@@ -39,6 +40,8 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.FutureTask;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadPoolExecutor;
@@ -368,6 +371,154 @@ public class UnaryQueryLifecycleTest extends AggregativeQueryTestSupport {
                 release.countDown();
                 pool.shutdownNow();
             }
+        }
+    }
+
+    @Test(timeout = 5000)
+    public void testContextCancellationInterruptsBothUnaryReads() throws Exception {
+        for (boolean count : new boolean[]{false, true}) {
+            ThreadPoolExecutor pool = pool(1);
+            ScanIterator iterator = mock(ScanIterator.class);
+            CountDownLatch entered = new CountDownLatch(1);
+            CountDownLatch interrupted = new CountDownLatch(1);
+            CountDownLatch fallback = new CountDownLatch(1);
+            when(iterator.hasNext()).thenAnswer(invocation -> {
+                entered.countDown();
+                try {
+                    fallback.await();
+                } catch (InterruptedException expected) {
+                    interrupted.countDown();
+                    Thread.currentThread().interrupt();
+                }
+                return false;
+            });
+            AggregativeQueryService service = unaryService(pool, iterator, null);
+            ResponseRecorder response = new ResponseRecorder();
+            Context.CancellableContext context = Context.current().withCancellation();
+            FutureTask<Void> request = new FutureTask<>(() -> {
+                context.run(() -> call(service, count, response));
+                return null;
+            });
+            try {
+                start(request);
+                assertTrue(entered.await(1, TimeUnit.SECONDS));
+                context.cancel(new IllegalStateException("client canceled"));
+                assertTrue("context must interrupt the unary read", interrupted.await(1, TimeUnit.SECONDS));
+                request.get(1, TimeUnit.SECONDS);
+                verify(iterator).close();
+                assertTrue(response.responses.isEmpty());
+                assertEquals(0, response.completed.get());
+                assertEquals(0, response.errors.get());
+                assertNoUnaryOwners(service);
+            } finally {
+                fallback.countDown();
+                context.cancel(null);
+                service.shutdownQueries();
+                pool.shutdownNow();
+            }
+        }
+    }
+
+    @Test(timeout = 5000)
+    public void testAlreadyCanceledContextNeverOpensUnaryIterator() throws Exception {
+        for (boolean count : new boolean[]{false, true}) {
+            ThreadPoolExecutor pool = pool(1);
+            ScanIterator iterator = mock(ScanIterator.class);
+            AggregativeQueryService service = unaryService(pool, iterator, null);
+            ResponseRecorder response = new ResponseRecorder();
+            Context.CancellableContext context = Context.current().withCancellation();
+            context.cancel(null);
+            try {
+                context.run(() -> call(service, count, response));
+                verify(iterator, org.mockito.Mockito.never()).hasNext();
+                verify(iterator, org.mockito.Mockito.never()).close();
+                assertTrue(response.responses.isEmpty());
+                assertEquals(0, response.completed.get());
+                assertNoUnaryOwners(service);
+            } finally {
+                Thread.interrupted();
+                service.shutdownQueries();
+                pool.shutdownNow();
+            }
+        }
+    }
+
+    @Test(timeout = 15000)
+    public void testRealNettyCancellationInterruptsBothUnaryReads() throws Exception {
+        for (boolean count : new boolean[]{false, true}) {
+            ThreadPoolExecutor pool = pool(2);
+            ExecutorService callbacks = Executors.newFixedThreadPool(2);
+            ScanIterator iterator = mock(ScanIterator.class);
+            CountDownLatch entered = new CountDownLatch(1);
+            CountDownLatch interrupted = new CountDownLatch(1);
+            CountDownLatch closed = new CountDownLatch(1);
+            CountDownLatch fallback = new CountDownLatch(1);
+            when(iterator.hasNext()).thenAnswer(invocation -> {
+                entered.countDown();
+                try {
+                    fallback.await();
+                } catch (InterruptedException expected) {
+                    interrupted.countDown();
+                    Thread.currentThread().interrupt();
+                }
+                return false;
+            });
+            doAnswer(invocation -> { closed.countDown(); return null; }).when(iterator).close();
+            AggregativeQueryService service = unaryService(pool, iterator, null);
+            io.grpc.Server server = io.grpc.netty.shaded.io.grpc.netty.NettyServerBuilder.forPort(0)
+                    .executor(callbacks).addService(service).build().start();
+            io.grpc.ManagedChannel channel = io.grpc.netty.shaded.io.grpc.netty.NettyChannelBuilder
+                    .forAddress("localhost", server.getPort()).usePlaintext().build();
+            io.grpc.ClientCall<QueryRequest, QueryResponse> call = channel.newCall(count ?
+                    org.apache.hugegraph.store.grpc.query.QueryServiceGrpc.getCountMethod() :
+                    org.apache.hugegraph.store.grpc.query.QueryServiceGrpc.getQuery0Method(),
+                    io.grpc.CallOptions.DEFAULT);
+            CountDownLatch terminated = new CountDownLatch(1);
+            AtomicReference<Status> terminal = new AtomicReference<>();
+            AtomicInteger responses = new AtomicInteger();
+            try {
+                call.start(new io.grpc.ClientCall.Listener<QueryResponse>() {
+                    @Override
+                    public void onMessage(QueryResponse response) {
+                        responses.incrementAndGet();
+                    }
+
+                    @Override
+                    public void onClose(Status status, io.grpc.Metadata trailers) {
+                        terminal.set(status);
+                        terminated.countDown();
+                    }
+                }, new io.grpc.Metadata());
+                call.request(1);
+                call.sendMessage(QueryRequest.newBuilder().setQueryId("netty-unary").build());
+                call.halfClose();
+                assertTrue(entered.await(2, TimeUnit.SECONDS));
+                call.cancel("cancel blocked unary read", null);
+                assertTrue(terminated.await(2, TimeUnit.SECONDS));
+                assertEquals(Status.Code.CANCELLED, terminal.get().getCode());
+                assertTrue("transport context must interrupt unary read", interrupted.await(2, TimeUnit.SECONDS));
+                assertTrue("cancellation must release iterator", closed.await(2, TimeUnit.SECONDS));
+                service.shutdownQueries();
+                verify(iterator).close();
+                assertEquals(0, responses.get());
+                assertNoUnaryOwners(service);
+            } finally {
+                fallback.countDown();
+                call.cancel("test cleanup", null);
+                channel.shutdownNow();
+                server.shutdownNow();
+                service.shutdownQueries();
+                callbacks.shutdownNow();
+                pool.shutdownNow();
+            }
+        }
+    }
+
+    private static void assertNoUnaryOwners(AggregativeQueryService service) throws Exception {
+        Field field = AggregativeQueryService.class.getDeclaredField("queries");
+        field.setAccessible(true);
+        synchronized (service) {
+            assertTrue(((Set<?>) field.get(service)).isEmpty());
         }
     }
 

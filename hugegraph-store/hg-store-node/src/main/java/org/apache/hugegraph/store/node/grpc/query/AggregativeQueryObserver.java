@@ -52,6 +52,7 @@ import org.apache.hugegraph.structure.BaseVertex;
 
 import com.google.protobuf.ByteString;
 
+import io.grpc.Context;
 import io.grpc.stub.StreamObserver;
 import lombok.extern.slf4j.Slf4j;
 
@@ -115,8 +116,16 @@ public class AggregativeQueryObserver implements StreamObserver<QueryRequest> {
             this.pendingTasks = 1;
             this.workers.add(Thread.currentThread());
         }
+        Context context = Context.current();
+        Context.CancellationListener cancellation = ignored -> onTransportCancel();
         Throwable failure = null;
         try {
+            // Unary callbacks occupy the call executor while reading. Context cancellation
+            // must interrupt that read without waiting for the queued onCancel callback.
+            context.addListener(cancellation, Runnable::run);
+            if (this.clientCanceled.get()) {
+                return;
+            }
             this.iterator = countOnly ? getCountIterator(request) : getIterator(request);
             QueryResponse.Builder response = getBuilder();
             Kv.Builder kv = getKvBuilder();
@@ -148,7 +157,11 @@ public class AggregativeQueryObserver implements StreamObserver<QueryRequest> {
                 this.finalResponse = errorResponse(getBuilder(), this.queryId, e);
             }
         } finally {
-            workerFinished(failure);
+            try {
+                context.removeListener(cancellation);
+            } finally {
+                workerFinished(failure);
+            }
         }
     }
 
