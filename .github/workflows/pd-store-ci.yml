@@ -8,6 +8,21 @@ permissions:
   contents: read
 
 jobs:
+  store-stop-shell-test:
+    permissions:
+      contents: read
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Verify Store stop failure propagation and PID retention
+        run: |
+          docker run --rm -v "$GITHUB_WORKSPACE:/work:ro" -w /work ubuntu:24.04 \
+            bash hugegraph-server/hugegraph-dist/src/assembly/travis/test-stop-hugegraph-store.sh
+
   rocksdb-compatibility:
     permissions:
       contents: read
@@ -431,7 +446,7 @@ jobs:
           mvn test -pl hugegraph-store/hg-store-test -am \
             -P store-core-test -Djacoco.sessionId=store-core-test
 
-      - name: Run server lifecycle test
+      - name: Run server lifecycle and shutdown tests
         run: |
           mvn test -pl hugegraph-store/hg-store-test -am \
             -P store-server-test -Djacoco.sessionId=store-server-test
