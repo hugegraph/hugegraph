@@ -58,6 +58,8 @@ public class ScanResponseObserver<T> implements StreamObserver<ScanPartitionRequ
     private final AtomicBoolean sending = new AtomicBoolean();
     private final LinkedBlockingQueue<ScanResponse> packages = new LinkedBlockingQueue<>(MAX_PAGE * 2);
     private final Object iteratorLock = new Object();
+    private final Object readerLock = new Object();
+    private Thread reader;
     private GraphStoreIterator<T> iter;
     private ScanPartitionRequest scanReq;
     private boolean iteratorClosed;
@@ -147,10 +149,21 @@ public class ScanResponseObserver<T> implements StreamObserver<ScanPartitionRequ
         try {
             this.execute.accept(() -> {
                 try {
+                    synchronized (this.readerLock) {
+                        if (this.closed.get()) {
+                            return;
+                        }
+                        this.reader = Thread.currentThread();
+                    }
                     read();
                 } catch (RuntimeException | Error failure) {
                     terminate(failure);
                 } finally {
+                    synchronized (this.readerLock) {
+                        if (this.reader == Thread.currentThread()) {
+                            this.reader = null;
+                        }
+                    }
                     this.reading.set(false);
                     if (readCondition()) {
                         startRead();
@@ -263,6 +276,14 @@ public class ScanResponseObserver<T> implements StreamObserver<ScanPartitionRequ
         }
         this.readOver.set(true);
         this.packages.clear();
+        if (failure != null) {
+            synchronized (this.readerLock) {
+                // Keep ownership protected until interrupt is issued; the pool may reuse this thread.
+                if (this.reader != null && this.reader != Thread.currentThread()) {
+                    this.reader.interrupt();
+                }
+            }
+        }
         try {
             closeIterator();
         } catch (RuntimeException | Error cleanup) {
