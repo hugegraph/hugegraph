@@ -19,19 +19,26 @@ package org.apache.hugegraph.unit.core;
 
 import java.lang.management.ManagementFactory;
 import java.lang.management.ThreadInfo;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.LockSupport;
 
 import org.apache.hugegraph.backend.store.BackendSession;
 import org.apache.hugegraph.backend.store.BackendSessionPool;
+import org.apache.hugegraph.backend.store.BackendStoreProvider;
+import org.apache.hugegraph.backend.store.rocksdb.RocksDBSessions;
+import org.apache.hugegraph.backend.store.rocksdb.RocksDBStore.RocksDBGraphStore;
 import org.apache.hugegraph.testutil.Assert;
+import org.apache.hugegraph.testutil.Whitebox;
 import org.apache.hugegraph.unit.FakeObjects;
 import org.junit.Test;
+import org.mockito.Mockito;
 
 public class BackendSessionPoolTest {
 
@@ -129,6 +136,88 @@ public class BackendSessionPoolTest {
         Assert.assertEquals("Backend session pool is closed", failure.getMessage());
         Assert.assertTrue(pool.closed());
         Assert.assertSame("rejected acquire must never call newSession", original, pool.session());
+    }
+
+    @Test
+    public void testStoreOpenKeepsExistingPoolAliveUntilBorrowCompletes() throws Exception {
+        RocksDBGraphStore store = new RocksDBGraphStore(
+                Mockito.mock(BackendStoreProvider.class), "db", "test");
+        RocksDBSessions pool = Mockito.mock(RocksDBSessions.class);
+        AtomicInteger leases = new AtomicInteger(1);
+        AtomicBoolean nativeOpened = new AtomicBoolean(true);
+        CountDownLatch borrowing = new CountDownLatch(1);
+        CountDownLatch finishBorrow = new CountDownLatch(1);
+        CountDownLatch closing = new CountDownLatch(1);
+        CountDownLatch closeFinished = new CountDownLatch(1);
+        Mockito.doAnswer(invocation -> leases.get() == 0).when(pool).closed();
+        Mockito.doAnswer(invocation -> {
+            borrowing.countDown();
+            Assert.assertTrue(finishBorrow.await(TIMEOUT_SECONDS, TimeUnit.SECONDS));
+            Assert.assertTrue("last close released the backend before the new store borrow",
+                              nativeOpened.get());
+            leases.incrementAndGet();
+            return new TestSession();
+        }).when(pool).useSession();
+        Mockito.doAnswer(invocation -> {
+            boolean last = leases.decrementAndGet() == 0;
+            if (last) {
+                nativeOpened.set(false);
+            }
+            return last;
+        }).when(pool).close();
+        Whitebox.setInternalState(store, "sessions", pool);
+        ConcurrentHashMap<String, RocksDBSessions> databases = new ConcurrentHashMap<>();
+        databases.put("db", pool);
+        Whitebox.setInternalState(store, "dbs", databases);
+
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        Thread opener = new Thread(() -> {
+            try {
+                store.open(FakeObjects.newConfig());
+            } catch (Throwable error) {
+                failure.compareAndSet(null, error);
+            }
+        }, "store-session-opener");
+        Thread closer = new Thread(() -> {
+            closing.countDown();
+            try {
+                store.close();
+            } catch (Throwable error) {
+                failure.compareAndSet(null, error);
+            } finally {
+                closeFinished.countDown();
+            }
+        }, "store-session-closer");
+        opener.start();
+        try {
+            Assert.assertTrue(borrowing.await(TIMEOUT_SECONDS, TimeUnit.SECONDS));
+            closer.start();
+            Assert.assertTrue(closing.await(TIMEOUT_SECONDS, TimeUnit.SECONDS));
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(TIMEOUT_SECONDS);
+            // Wait for close to either reach the held store monitor or finish.
+            while (closeFinished.getCount() != 0L) {
+                ThreadInfo info = ManagementFactory.getThreadMXBean().getThreadInfo(closer.getId());
+                if (info != null && info.getThreadState() == Thread.State.BLOCKED &&
+                    info.getLockOwnerId() == opener.getId()) {
+                    break;
+                }
+                Assert.assertTrue("close did not reach the store open window", System.nanoTime() < deadline);
+                LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(1L));
+            }
+        } finally {
+            finishBorrow.countDown();
+            opener.join(TimeUnit.SECONDS.toMillis(TIMEOUT_SECONDS));
+            if (closer.getState() != Thread.State.NEW) {
+                closer.join(TimeUnit.SECONDS.toMillis(TIMEOUT_SECONDS));
+            }
+        }
+        Assert.assertFalse(opener.isAlive());
+        Assert.assertFalse(closer.isAlive());
+        Assert.assertNull(failure.get());
+        Assert.assertTrue(nativeOpened.get());
+        Assert.assertEquals(1, leases.get());
+        Mockito.verify(pool).useSession();
+        Mockito.verify(pool).close();
     }
 
     private static boolean awaitBorrowerInCloseWindow(TestSessionPool pool,

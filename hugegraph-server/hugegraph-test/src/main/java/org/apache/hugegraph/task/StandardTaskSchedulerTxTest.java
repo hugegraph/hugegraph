@@ -31,23 +31,35 @@ public class StandardTaskSchedulerTxTest extends BaseCoreTest {
     public void testTaskQueryDoesNotOpenUpperGraphTransaction() {
         HugeGraph graph = this.graph();
         TaskScheduler scheduler = graph.taskScheduler();
+        HugeTask<Object> task = new HugeTask<>(IdGenerator.of(9999999L), null,
+                                              new TaskAndResultSchedulerTest.EmptyCallable());
+        task.type("test");
+        task.name("transaction-lifecycle-query");
+        boolean saved = false;
         try {
             // The task worker must also be quiescent after graph startup.
             Assert.assertFalse(scheduler.call(() -> graph.tx().isOpen()));
 
+            scheduler.save(task);
+            saved = true;
             scheduler.tasks(TaskStatus.NEW, 1L, null).hasNext();
             Assert.assertFalse(scheduler.call(() -> graph.tx().isOpen()));
 
-            scheduler.tasks(Collections.singletonList(IdGenerator.of(9999999L)))
-                     .hasNext();
+            Assert.assertTrue(scheduler.tasks(Collections.singletonList(task.id())).hasNext());
             Assert.assertFalse(scheduler.call(() -> graph.tx().isOpen()));
         } finally {
-            scheduler.call(() -> {
-                if (graph.tx().isOpen()) {
-                    graph.tx().rollback();
+            try {
+                if (saved) {
+                    scheduler.delete(task.id(), true);
                 }
-                return null;
-            });
+            } finally {
+                scheduler.call(() -> {
+                    if (graph.tx().isOpen()) {
+                        graph.tx().rollback();
+                    }
+                    return null;
+                });
+            }
         }
     }
 }

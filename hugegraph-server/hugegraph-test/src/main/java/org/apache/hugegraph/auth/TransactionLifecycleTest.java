@@ -20,6 +20,8 @@ package org.apache.hugegraph.auth;
 import java.lang.reflect.Constructor;
 
 import org.apache.hugegraph.HugeFactory;
+import org.apache.hugegraph.HugeGraphParams;
+import org.apache.hugegraph.backend.store.BackendStore;
 import org.apache.hugegraph.backend.tx.GraphTransaction;
 import org.apache.hugegraph.backend.tx.ISchemaTransaction;
 import org.apache.hugegraph.exception.HugeException;
@@ -84,7 +86,12 @@ public class TransactionLifecycleTest extends BaseCoreTest {
         Class<?> holderType = Class.forName("org.apache.hugegraph.StandardHugeGraph$Txs");
         Class<?> systemType = Class.forName("org.apache.hugegraph.StandardHugeGraph$SysTransaction");
         GraphTransaction graphTx = Mockito.mock(GraphTransaction.class);
-        GraphTransaction systemTx = (GraphTransaction) Mockito.mock(systemType);
+        BackendStore systemStore = Mockito.mock(BackendStore.class);
+        Constructor<?> systemConstructor = systemType.getDeclaredConstructor(
+                HugeGraphParams.class, BackendStore.class);
+        systemConstructor.setAccessible(true);
+        GraphTransaction systemTx =
+                (GraphTransaction) systemConstructor.newInstance(this.params(), systemStore);
         ISchemaTransaction schemaTx = Mockito.mock(ISchemaTransaction.class);
         RuntimeException first = new IllegalStateException("graph close failed");
         RuntimeException second = new IllegalArgumentException("system close failed");
@@ -93,7 +100,7 @@ public class TransactionLifecycleTest extends BaseCoreTest {
             Mockito.doThrow(rollbackFailure).when(graphTx).rollback();
         }
         Mockito.doThrow(first).when(graphTx).close();
-        Mockito.doThrow(second).when(systemTx).close();
+        Mockito.doThrow(second).when(systemStore).close();
         Constructor<?> constructor = holderType.getDeclaredConstructor(
                 ISchemaTransaction.class, systemType, GraphTransaction.class);
         constructor.setAccessible(true);
@@ -120,7 +127,8 @@ public class TransactionLifecycleTest extends BaseCoreTest {
         Assert.assertEquals(1, first.getSuppressed().length);
         Assert.assertSame(second, first.getSuppressed()[0]);
         Mockito.verify(graphTx).close();
-        Mockito.verify(systemTx).close();
+        // SysTransaction owns both its primary transaction and index transaction.
+        Mockito.verify(systemStore, Mockito.times(2)).close();
         Mockito.verify(schemaTx).close();
         Assert.assertNull(owners.get());
         Assert.assertFalse(graph().tx().isOpen());
