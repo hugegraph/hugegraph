@@ -25,6 +25,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.apache.commons.lang3.tuple.Pair;
 import org.apache.hugegraph.config.CoreOptions;
 import org.apache.hugegraph.config.HugeConfig;
+import org.apache.hugegraph.util.E;
 import org.apache.hugegraph.util.Log;
 import org.slf4j.Logger;
 
@@ -58,6 +59,7 @@ public abstract class BackendSessionPool {
         if (session == null) {
             // Serialize new borrowers with the last-session native close.
             synchronized (this) {
+                E.checkState(this.opened(), "Backend session pool is closed");
                 session = this.newSession();
                 assert session != null;
                 this.threadLocalSession.set(session);

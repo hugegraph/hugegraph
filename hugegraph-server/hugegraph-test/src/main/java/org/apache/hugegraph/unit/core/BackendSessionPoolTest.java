@@ -29,8 +29,8 @@ import java.util.concurrent.locks.LockSupport;
 
 import org.apache.hugegraph.backend.store.BackendSession;
 import org.apache.hugegraph.backend.store.BackendSessionPool;
+import org.apache.hugegraph.testutil.Assert;
 import org.apache.hugegraph.unit.FakeObjects;
-import org.junit.Assert;
 import org.junit.Test;
 
 public class BackendSessionPoolTest {
@@ -99,7 +99,8 @@ public class BackendSessionPoolTest {
                     Assert.fail("late acquire should be rejected after backend close");
                 } catch (ExecutionException e) {
                     Assert.assertTrue("late acquire must fail because backend is closed",
-                                      e.getCause() instanceof BackendClosedException);
+                                      e.getCause() instanceof IllegalStateException);
+                    Assert.assertEquals("Backend session pool is closed", e.getCause().getMessage());
                     Assert.assertFalse("backend should be closed before rejecting late acquire",
                                        pool.opened());
                     Assert.assertTrue("pool should count no active session after rejection",
@@ -113,6 +114,21 @@ public class BackendSessionPoolTest {
                 acquirer.join(TimeUnit.SECONDS.toMillis(TIMEOUT_SECONDS));
             }
         }
+    }
+
+    @Test
+    public void testAcquireAfterLastSessionCloseIsRejectedByPool() {
+        TestSessionPool pool = new TestSessionPool();
+        pool.open();
+        BackendSession original = pool.getOrNewSession();
+        pool.allowClose.countDown();
+        Assert.assertTrue(pool.close());
+        Assert.assertFalse(pool.opened());
+
+        Throwable failure = Assert.assertThrows(IllegalStateException.class, pool::getOrNewSession);
+        Assert.assertEquals("Backend session pool is closed", failure.getMessage());
+        Assert.assertTrue(pool.closed());
+        Assert.assertSame("rejected acquire must never call newSession", original, pool.session());
     }
 
     private static boolean awaitBorrowerInCloseWindow(TestSessionPool pool,
@@ -173,9 +189,6 @@ public class BackendSessionPoolTest {
             if (Thread.currentThread().getName().equals("backend-session-acquirer")) {
                 this.acquirerEnteredNewSession.countDown();
             }
-            if (!this.opened.get()) {
-                throw new BackendClosedException();
-            }
             BackendSession newSession = new TestSession();
             this.session.set(newSession);
             return newSession;
@@ -224,8 +237,4 @@ public class BackendSessionPoolTest {
         }
     }
 
-    private static final class BackendClosedException extends RuntimeException {
-
-        private static final long serialVersionUID = 1L;
-    }
 }
