@@ -41,8 +41,8 @@ if [ ! -f ${PID_FILE} ]; then
 fi
 
 PID=`cat $PID_FILE`
-if kill_process_and_wait "HugeGraphStoreServer" "$PID" "$SERVER_SHUTDOWN_TIMEOUT_S"; then
+kill_process_and_wait "HugeGraphStoreServer" "$PID" "$SERVER_SHUTDOWN_TIMEOUT_S"
+
+if [ $? -eq 0 ]; then
     rm "$PID_FILE"
-else
-    exit 1
 fi
