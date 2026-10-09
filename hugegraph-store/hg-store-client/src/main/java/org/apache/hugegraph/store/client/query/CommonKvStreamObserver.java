@@ -120,10 +120,13 @@ public class CommonKvStreamObserver<R, T> implements StreamObserver<R> {
                 iterator = new ErrorMessageIterator<>(responseState.getMessage());
                 result = ResultState.ERROR;
             }
-        } catch (Exception e) {
+        } catch (Throwable e) {
             log.error("handling server data for query {}, got error: ", this.queryId, e);
             result = ResultState.ERROR;
             iterator = new ErrorMessageIterator<>(e.getMessage());
+            if (e instanceof Error) {
+                throw (Error) e;
+            }
         } finally {
             synchronized (this.stateLock) {
                 // Completion can arrive while parsing. Publish before releasing the parsing count.
@@ -132,7 +135,9 @@ public class CommonKvStreamObserver<R, T> implements StreamObserver<R> {
                     if (iterator != null) {
                         this.queue.offer(iterator);
                     }
-                    if (this.terminal == null && result != ResultState.IDLE) {
+                    // A failed accepted response overrides completion received during parsing.
+                    if (result == ResultState.ERROR ||
+                        (this.terminal == null && result != ResultState.IDLE)) {
                         this.terminal = result;
                     }
                 }
