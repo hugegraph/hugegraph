@@ -32,10 +32,14 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.apache.hugegraph.store.node.grpc.HgStoreStreamImpl;
+import org.apache.hugegraph.store.node.grpc.GrpcShutdownBarrier;
 import org.apache.hugegraph.store.node.grpc.query.AggregativeQueryService;
 import org.apache.hugegraph.store.node.listener.ContextClosedListener;
 import org.apache.hugegraph.store.node.task.TTLCleaner;
 import org.junit.Test;
+import org.lognet.springboot.grpc.context.GRpcServerInitializedEvent;
+
+import io.grpc.Server;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 
 
@@ -87,7 +91,7 @@ public class ScanContextCleanupTest {
             context.getBeanFactory().registerSingleton("cleaner", cleaner);
             context.getDefaultListableBeanFactory().registerDisposableBean(
                     "database", () -> databaseClosed.set(true));
-            context.register(ContextClosedListener.class);
+            context.register(ContextClosedListener.class, GrpcShutdownBarrier.class);
             context.refresh();
             scan.execute(work);
             ttl.execute(work);
@@ -122,4 +126,47 @@ public class ScanContextCleanupTest {
         }
     }
 
+    @Test(timeout = 5000)
+    public void testGrpcCallbacksFinishBeforeBeanDestructionEvenWhenInterrupted() throws Exception {
+        CountDownLatch awaitingCallbacks = new CountDownLatch(1);
+        CountDownLatch releaseCallbacks = new CountDownLatch(1);
+        AtomicBoolean terminated = new AtomicBoolean();
+        AtomicBoolean databaseClosed = new AtomicBoolean();
+        Server server = mock(Server.class);
+        when(server.shutdownNow()).thenReturn(server);
+        when(server.isTerminated()).thenAnswer(invocation -> terminated.get());
+        when(server.awaitTermination(5, TimeUnit.SECONDS)).thenAnswer(invocation -> {
+            awaitingCallbacks.countDown();
+            releaseCallbacks.await();
+            terminated.set(true);
+            return true;
+        });
+        AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext();
+        try {
+            context.getBeanFactory().registerSingleton("storeStream", mock(HgStoreStreamImpl.class));
+            context.getBeanFactory().registerSingleton("queryService", mock(AggregativeQueryService.class));
+            context.getBeanFactory().registerSingleton("cleaner", mock(TTLCleaner.class));
+            context.getDefaultListableBeanFactory().registerDisposableBean("database", () -> databaseClosed.set(true));
+            context.register(ContextClosedListener.class, GrpcShutdownBarrier.class);
+            context.refresh();
+            context.publishEvent(new GRpcServerInitializedEvent(context, server));
+            FutureTask<Boolean> closing = new FutureTask<>(() -> {
+                context.close();
+                return Thread.currentThread().isInterrupted();
+            });
+            Thread closeThread = new Thread(closing, "test-grpc-context-close");
+            closeThread.setDaemon(true);
+            closeThread.start();
+            assertTrue(awaitingCallbacks.await(1, TimeUnit.SECONDS));
+            closeThread.interrupt();
+            assertFalse("DB must remain open while callbacks own its resources", databaseClosed.get());
+            releaseCallbacks.countDown();
+            assertTrue("shutdown must preserve interruption", closing.get(2, TimeUnit.SECONDS));
+            assertTrue(terminated.get());
+            assertTrue(databaseClosed.get());
+        } finally {
+            releaseCallbacks.countDown();
+            context.close();
+        }
+    }
 }

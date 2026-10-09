@@ -16,11 +16,18 @@ Each scan/query owns its workers and iterators until cleanup finishes. Iterator 
 failures remain visible, including automatic native iterator close and empty-partition
 selection. Final aggregate success is sent only after plan and iterator cleanup succeeds.
 
-The request services stop scan/query admission, cancel their active calls and run queued
-cleanup before Spring destroys their databases. This scoped cleanup reuses the same
-per-call owners; it does not create a second shutdown registry. Interrupted cleanup waits
+The RPC boundary stops admission to every Store RPC before cancelling active scans
+and queries. It runs queued request cleanup and waits for terminal application
+callbacks before Spring destroys their databases. This reuses the same per-call
+owners; it does not create a second shutdown registry. Interrupted cleanup waits
 and native teardown preserve interruption without abandoning these owners.
 
 The subsequent Store-wide shutdown change extends this boundary to ordinary RPC
 callbacks and sticky TTL cleanup failures. It also defines distribution stop timeout
 handling; those guarantees are not introduced by this request-lifecycle change.
+
+Batch-scan half-close delivers its already permitted pages; insufficient receipt credit
+returns an explicit error. Early iterator close sends the cancellation request. Unary
+query and count requests share the query admission, worker and cleanup owner registry;
+count keeps partition work parallel on the service executor. Iterator cleanup failure
+prevents successful completion and remains visible to request drain.
