@@ -78,6 +78,10 @@ public class IdMetaStore extends MetadataRocksDBStore {
         Object probableLock = getLock(key);
         byte[] keyBs = (ID_PREFIX + key).getBytes(Charset.defaultCharset());
         synchronized (probableLock) {
+            // The read and the put are two steps, not one raft entry: a leader elected a
+            // moment ago may not have applied its predecessor's last put yet, and would
+            // hand out the same range again without this wait
+            getStore().waitReadIndex();
             byte[] bs = getOne(keyBs);
             long current = bs != null ? bytesToLong(bs) : 0L;
             long next = current + delta;
@@ -126,6 +130,8 @@ public class IdMetaStore extends MetadataRocksDBStore {
                 .append(key).append(SEPARATOR)
                 .toString().getBytes(Charset.defaultCharset());
         synchronized (this) {
+            // The delayed-deletion slots are read locally like the counter in getId()
+            getStore().waitReadIndex();
             scanPrefix(delKeyPrefix).forEach(kv -> {
                 long[] value = (long[]) deserialize(kv.getValue());
                 if (value.length >= 2) {
@@ -176,6 +182,8 @@ public class IdMetaStore extends MetadataRocksDBStore {
         Object probableLock = getLock(key);
         byte[] keyBs = (CID_PREFIX + key).getBytes(Charset.defaultCharset());
         synchronized (probableLock) {
+            // Same two steps as getId(): read the counter and slots, then write through raft
+            getStore().waitReadIndex();
             byte[] bs = getOne(keyBs);
             long current = bs != null ? bytesToLong(bs) : 0L;
             long last = current == 0 ? max - 1 : current - 1;
