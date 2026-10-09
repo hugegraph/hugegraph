@@ -703,6 +703,66 @@ public class AggregativeQueryLifecycleTest extends AggregativeQueryTestSupport {
     }
 
     @Test
+    public void testClosedSequentialIteratorDoesNotOpenRemainingPartitions() {
+        for (boolean initialized : new boolean[]{false, true}) {
+            ScanIterator first = mock(ScanIterator.class);
+            ScanIterator second = mock(ScanIterator.class);
+            when(first.hasNext()).thenReturn(true);
+            when(second.hasNext()).thenReturn(true);
+            AtomicInteger opened = new AtomicInteger();
+            MultiPartitionIterator iterator = MultiPartitionIterator.of(Arrays.asList(1, 2), (id, key) -> {
+                opened.incrementAndGet();
+                return id == 1 ? first : second;
+            });
+            if (initialized) {
+                assertTrue(iterator.hasNext());
+            }
+            iterator.close();
+            iterator.close();
+            assertFalse(iterator.hasNext());
+            assertFalse(iterator.isValid());
+            assertEquals(0L, iterator.count());
+            assertTrue(iterator.getIterators().isEmpty());
+            org.junit.Assert.assertThrows(java.util.NoSuchElementException.class, iterator::next);
+            assertEquals(initialized ? 1 : 0, opened.get());
+            if (initialized) {
+                verify(first).close();
+            } else {
+                verify(first, never()).close();
+            }
+            verify(second, never()).close();
+        }
+    }
+
+    @Test
+    public void testSequentialCloseFailureDoesNotReopenRemainingPartitions() {
+        ScanIterator first = mock(ScanIterator.class);
+        ScanIterator second = mock(ScanIterator.class);
+        when(first.hasNext()).thenReturn(true);
+        when(second.hasNext()).thenReturn(true);
+        IllegalStateException cleanup = new IllegalStateException("partition cleanup failed");
+        doThrow(cleanup).when(first).close();
+        AtomicInteger opened = new AtomicInteger();
+        MultiPartitionIterator iterator = MultiPartitionIterator.of(Arrays.asList(1, 2), (id, key) -> {
+            opened.incrementAndGet();
+            return id == 1 ? first : second;
+        });
+        assertTrue(iterator.hasNext());
+        IllegalStateException retained = org.junit.Assert.assertThrows(IllegalStateException.class, iterator::close);
+        org.junit.Assert.assertSame(cleanup, retained.getCause());
+        assertFalse(iterator.hasNext());
+        assertFalse(iterator.isValid());
+        assertEquals(0L, iterator.count());
+        assertTrue(iterator.getIterators().isEmpty());
+        org.junit.Assert.assertThrows(java.util.NoSuchElementException.class, iterator::next);
+        org.junit.Assert.assertSame(retained,
+                org.junit.Assert.assertThrows(IllegalStateException.class, iterator::close));
+        assertEquals(1, opened.get());
+        verify(first).close();
+        verify(second, never()).close();
+    }
+
+    @Test
     public void testSequentialInitializationFailureReleasesItsCreatedIterator() {
         ScanIterator child = mock(ScanIterator.class);
         IllegalStateException original = new IllegalStateException("partition initialization failed");

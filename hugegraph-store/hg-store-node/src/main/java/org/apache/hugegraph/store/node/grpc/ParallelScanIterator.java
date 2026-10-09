@@ -190,6 +190,10 @@ public class ParallelScanIterator implements ScanIterator {
         synchronized (scanners) {
             pending = new ArrayList<>(scanners);
         }
+        // Stop active scanner reads before close() waits for their iterator locks.
+        for (KVScanner scanner : pending) {
+            scanner.interruptReader();
+        }
         // Never hold a registry lock while waiting for a scanner's iterator lock.
         for (KVScanner scanner : pending) {
             scanner.close();
@@ -363,11 +367,39 @@ public class ParallelScanIterator implements ScanIterator {
     class KVScanner {
 
         private final ReentrantLock iteratorLock = new ReentrantLock();
+        private final Object readerLock = new Object();
+        private Thread reader;
         private ScanIterator iterator = null;
         private QueryCondition query = null;
         private long limit;
         private long counter;
         private volatile boolean closed = false;
+
+        private void interruptReader() {
+            synchronized (this.readerLock) {
+                if (this.reader != null && this.reader != Thread.currentThread()) {
+                    this.reader.interrupt();
+                }
+            }
+        }
+
+        private boolean startReader() {
+            synchronized (this.readerLock) {
+                if (this.reader != null) {
+                    return false;
+                }
+                this.reader = Thread.currentThread();
+                return true;
+            }
+        }
+
+        private void finishReader() {
+            synchronized (this.readerLock) {
+                if (this.reader == Thread.currentThread()) {
+                    this.reader = null;
+                }
+            }
+        }
 
         private ScanIterator getIterator() {
             // Iterator has no data, or the point has reached the limit, switch to a new iterator.
@@ -387,6 +419,9 @@ public class ParallelScanIterator implements ScanIterator {
             boolean canNext = true;
             ArrayList<KV> dataList = new ArrayList<>(batchSize);
             dataList.ensureCapacity(batchSize);
+            if (!startReader()) {
+                return;
+            }
             iteratorLock.lock();
             try {
                 long entriesSize = 0, bodySize = 0;
@@ -436,6 +471,8 @@ public class ParallelScanIterator implements ScanIterator {
                     queueLock.unlock();
                 }
                 iteratorLock.unlock();
+                // Clear ownership before a paused scanner can be scheduled again.
+                finishReader();
                 if (iterator != null && counter < limit && !closed && !finished) {
                     suspendScanner(this);
                 } else {

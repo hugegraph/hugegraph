@@ -111,6 +111,55 @@ public class CommonKvStreamObserverTest {
     }
 
     @Test(timeout = 5000)
+    public void testAcceptedResponseRefreshesTimeoutBeforeParsing() throws Exception {
+        CountDownLatch parsing = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        AtomicInteger polls = new AtomicInteger();
+        RecordingQueue queue = new RecordingQueue() {
+            private static final long serialVersionUID = 1L;
+
+            @Override
+            public Iterator<Integer> poll(long timeout, TimeUnit unit) throws InterruptedException {
+                if (polls.getAndIncrement() == 0) {
+                    // Exercise the timeout check while the accepted response is still being parsed.
+                    return null;
+                }
+                release.countDown();
+                return super.poll(timeout, unit);
+            }
+        };
+        CommonKvStreamObserver<List<Integer>, Integer> observer = parsingObserver(parsing, release);
+        observer.setTimeout(1000);
+        Field queueField = CommonKvStreamObserver.class.getDeclaredField("queue");
+        queueField.setAccessible(true);
+        queueField.set(observer, queue);
+        Field current = CommonKvStreamObserver.class.getDeclaredField("current");
+        current.setAccessible(true);
+        current.setLong(observer, System.nanoTime() - TimeUnit.SECONDS.toNanos(2));
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        Thread producer = new Thread(() -> {
+            try {
+                observer.onNext(Collections.singletonList(7));
+            } catch (Throwable error) {
+                failure.set(error);
+            }
+        });
+        producer.start();
+        try {
+            assertTrue(parsing.await(2, TimeUnit.SECONDS));
+            assertEquals(Integer.valueOf(7), observer.consume().next());
+            producer.join(2000);
+            assertFalse(producer.isAlive());
+            assertEquals(null, failure.get());
+            assertEquals(null, observer.consume());
+        } finally {
+            release.countDown();
+            producer.join(2000);
+            observer.clear();
+        }
+    }
+
+    @Test(timeout = 5000)
     public void testCompletionWaitsForResponseBeingParsed() throws Exception {
         CountDownLatch parsing = new CountDownLatch(1);
         CountDownLatch release = new CountDownLatch(1);
