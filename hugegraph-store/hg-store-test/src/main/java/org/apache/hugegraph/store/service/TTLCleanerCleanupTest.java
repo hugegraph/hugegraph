@@ -25,6 +25,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -39,7 +40,11 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
+import org.apache.commons.configuration2.MapConfiguration;
 import org.apache.commons.lang3.tuple.Triple;
+import org.apache.hugegraph.config.HugeConfig;
+import org.apache.hugegraph.config.OptionSpace;
+import org.apache.hugegraph.rocksdb.access.RocksDBOptions;
 import org.apache.hugegraph.rocksdb.access.RocksDBSession;
 import org.apache.hugegraph.rocksdb.access.ScanIterator;
 import org.apache.hugegraph.rocksdb.access.SessionOperator;
@@ -49,9 +54,16 @@ import org.apache.hugegraph.store.constant.HugeServerTables;
 import org.apache.hugegraph.store.node.AppConfig;
 import org.apache.hugegraph.store.node.task.TTLCleaner;
 import org.apache.hugegraph.store.node.task.ttl.TaskInfo;
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.TemporaryFolder;
+import org.mockito.InOrder;
+import org.rocksdb.RocksDB;
 
 public class TTLCleanerCleanupTest {
+
+    @Rule
+    public TemporaryFolder directory = new TemporaryFolder();
 
     @Test(timeout = 5000)
     public void testCompletionWaitsForNativeClose() throws Exception {
@@ -65,7 +77,8 @@ public class TTLCleanerCleanupTest {
             release.await();
             return null;
         }).when(scan).close();
-        FutureTask<Void> task = new FutureTask<>(task(cleaner, scan, completed), null);
+        RocksDBSession session = mock(RocksDBSession.class);
+        FutureTask<Void> task = new FutureTask<>(task(cleaner, scan, session, completed), null);
         Thread worker = new Thread(task, "test-ttl-close");
         worker.setDaemon(true);
         try {
@@ -76,6 +89,9 @@ public class TTLCleanerCleanupTest {
             release.countDown();
             task.get(1, TimeUnit.SECONDS);
             assertEquals(0L, completed.getCount());
+            InOrder order = inOrder(scan, session);
+            order.verify(scan).close();
+            order.verify(session).close();
             cleaner.awaitCleanup();
         } finally {
             release.countDown();
@@ -85,10 +101,23 @@ public class TTLCleanerCleanupTest {
 
     @Test(timeout = 5000)
     public void testFailedCloseStaysBlockedAfterInterruption() throws Exception {
+        assertFailedCloseStaysBlocked(true, false);
+        assertFailedCloseStaysBlocked(false, true);
+        assertFailedCloseStaysBlocked(true, true);
+    }
+
+    private static void assertFailedCloseStaysBlocked(boolean scanFails, boolean sessionFails) throws Exception {
         TTLCleaner cleaner = newCleaner();
         RuntimeException failure = new IllegalStateException("native release failed");
         ScanIterator scan = mock(ScanIterator.class);
-        doAnswer(invocation -> { throw failure; }).when(scan).close();
+        RocksDBSession session = mock(RocksDBSession.class);
+        RuntimeException sessionFailure = scanFails ? new IllegalStateException("session release failed") : failure;
+        if (scanFails) {
+            doAnswer(invocation -> { throw failure; }).when(scan).close();
+        }
+        if (sessionFails) {
+            doAnswer(invocation -> { throw sessionFailure; }).when(session).close();
+        }
         CountDownLatch completed = new CountDownLatch(1);
         CountDownLatch awaiting = new CountDownLatch(1);
         FutureTask<Boolean> cleanup = new FutureTask<>(() -> {
@@ -103,7 +132,14 @@ public class TTLCleanerCleanupTest {
         @SuppressWarnings("unchecked")
         AtomicReference<Throwable> retained = (AtomicReference<Throwable>) field.get(cleaner);
         try {
-            task(cleaner, scan, completed).run();
+            task(cleaner, scan, session, completed).run();
+            InOrder order = inOrder(scan, session);
+            order.verify(scan).close();
+            order.verify(session).close();
+            if (scanFails && sessionFails) {
+                assertEquals(1, failure.getSuppressed().length);
+                assertSame(sessionFailure, failure.getSuppressed()[0]);
+            }
             assertEquals(0L, completed.getCount());
             assertSame(failure, retained.get());
             shutdown.start();
@@ -124,6 +160,42 @@ public class TTLCleanerCleanupTest {
         }
     }
 
+    @Test(timeout = 5000)
+    public void testNativeSessionCloneAndScanReleaseAllReferences() throws Exception {
+        RocksDB.loadLibrary();
+        OptionSpace.register("rocksdb", "org.apache.hugegraph.rocksdb.access.RocksDBOptions");
+        RocksDBOptions.instance();
+        HugeConfig config = new HugeConfig(new MapConfiguration(
+                Collections.singletonMap("rocksdb.write_buffer_size", "1048576")));
+        TTLCleaner cleaner = newCleaner();
+        RocksDBSession owner = new RocksDBSession(config, directory.newFolder("ttl-native").getAbsolutePath(),
+                                                 "ttl-native", 0L);
+        RocksDBSession lease = owner.clone();
+        try {
+            owner.checkTable(HugeServerTables.VERTEX_TABLE);
+            assertEquals(2, owner.getRefCount());
+            BusinessHandlerImpl handler = mock(BusinessHandlerImpl.class);
+            when(handler.getSession(1)).thenReturn(lease);
+            InnerKeyCreator keys = mock(InnerKeyCreator.class);
+            when(keys.getStartKey(1, "graph")).thenReturn(new byte[]{0});
+            when(keys.getEndKey(1, "graph")).thenReturn(new byte[]{1});
+            when(handler.getKeyCreator()).thenReturn(keys);
+            CountDownLatch completed = new CountDownLatch(1);
+            task(cleaner, handler, completed).run();
+            assertEquals(0L, completed.getCount());
+            cleaner.awaitCleanup();
+            assertEquals("TTL must release both the iterator lease and cloned session", 1, owner.getRefCount());
+            assertTrue(owner.getDB().isOwningHandle());
+            owner.close();
+            assertEquals(0, owner.getRefCount());
+            assertFalse(owner.getDB().isOwningHandle());
+        } finally {
+            lease.close();
+            owner.close();
+            cleaner.getScheduler().shutdownNow();
+        }
+    }
+
     private static TTLCleaner newCleaner() {
         AppConfig config = mock(AppConfig.class);
         AppConfig.JobConfig job = mock(AppConfig.JobConfig.class);
@@ -132,15 +204,19 @@ public class TTLCleanerCleanupTest {
         return new TTLCleaner(config);
     }
 
-    private static Runnable task(TTLCleaner cleaner, ScanIterator scan,
+    private static Runnable task(TTLCleaner cleaner, ScanIterator scan, RocksDBSession session,
                                  CountDownLatch completed) throws Exception {
         BusinessHandlerImpl handler = mock(BusinessHandlerImpl.class);
-        RocksDBSession session = mock(RocksDBSession.class);
         SessionOperator operator = mock(SessionOperator.class);
         when(handler.getSession(1)).thenReturn(session);
         when(handler.getKeyCreator()).thenReturn(mock(InnerKeyCreator.class));
         when(session.sessionOp()).thenReturn(operator);
         when(operator.scan(anyString(), any(), any(), anyInt())).thenReturn(scan);
+        return task(cleaner, handler, completed);
+    }
+
+    private static Runnable task(TTLCleaner cleaner, BusinessHandlerImpl handler,
+                                 CountDownLatch completed) throws Exception {
         TaskInfo info = mock(TaskInfo.class);
         when(info.getTableCounter()).thenReturn(new ConcurrentHashMap<>(
                 Collections.singletonMap(HugeServerTables.VERTEX_TABLE, new AtomicLong())));

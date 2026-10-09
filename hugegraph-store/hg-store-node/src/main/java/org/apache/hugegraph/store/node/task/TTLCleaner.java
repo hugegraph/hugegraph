@@ -287,11 +287,12 @@ public class TTLCleaner implements Runnable {
             String table = t.getRight();
             TaskInfo taskInfo = counter.get(graph);
             ScanIterator scan = null;
+            RocksDBSession session = null;
             try {
                 Map<String, AtomicLong> graphCounter = taskInfo.getTableCounter();
                 TaskSubmitter submitter = taskInfo.getTaskSubmitter();
                 AtomicLong tableCounter = graphCounter.get(table);
-                RocksDBSession session = handler.getSession(id);
+                session = handler.getSession(id);
                 InnerKeyCreator keyCreator = handler.getKeyCreator();
                 SessionOperator op = session.sessionOp();
                 BiFunction<byte[], byte[], Boolean> judge = getJudge(graph, table);
@@ -333,13 +334,29 @@ public class TTLCleaner implements Runnable {
                         scan.close();
                     }
                 } catch (RuntimeException | Error failure) {
-                    this.cleanupFailure.compareAndSet(null, failure);
-                    log.error("TTL scan cleanup failed; database close stays blocked", failure);
+                    recordCleanupFailure(failure);
                 } finally {
-                    latch.countDown();
+                    try {
+                        if (session != null) {
+                            session.close();
+                        }
+                    } catch (RuntimeException | Error failure) {
+                        recordCleanupFailure(failure);
+                    } finally {
+                        latch.countDown();
+                    }
                 }
             }
         };
+    }
+
+    private void recordCleanupFailure(Throwable failure) {
+        this.cleanupFailure.compareAndSet(null, failure);
+        Throwable first = this.cleanupFailure.get();
+        if (first != failure) {
+            first.addSuppressed(failure);
+        }
+        log.error("TTL native cleanup failed; database close stays blocked", failure);
     }
 
     /** Call after workers terminate: a failed native release must remain a shutdown blocker. */
