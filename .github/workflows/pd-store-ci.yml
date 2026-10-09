@@ -19,9 +19,7 @@ jobs:
           persist-credentials: false
 
       - name: Verify Store stop failure propagation and PID retention
-        run: |
-          docker run --rm -v "$GITHUB_WORKSPACE:/work:ro" -w /work ubuntu:24.04 \
-            bash hugegraph-server/hugegraph-dist/src/assembly/travis/test-stop-hugegraph-store.sh
+        run: bash hugegraph-server/hugegraph-dist/src/assembly/travis/test-stop-hugegraph-store.sh
 
   rocksdb-compatibility:
     permissions:
