@@ -125,7 +125,7 @@ fi
 # Exercise the shipped launcher in an isolated fixture, without JNI or a service.
 # This checks shell selection/argv only; the tests below check real JVM startup.
 check_gc_options() {
-    local fixture option capture status
+    local fixture option capture status jvm_options
     fixture=$(mktemp -d) || { fail "could not create GC test fixture"; return 1; }
     if ! mkdir -p "$fixture/bin" "$fixture/conf" "$fixture/lib" "$fixture/jdk/bin" ||
        ! cp "$START_SCRIPT" "$BIN/util.sh" "$BIN/preload-topling.sh" "$fixture/bin/"; then
@@ -145,13 +145,19 @@ JAVA
     # Avoid the Store allocator download, which is unrelated to GC selection.
     printf '%s\n' '#!/bin/sh' 'echo launcher-test' > "$fixture/jdk/bin/uname"
     chmod +x "$fixture/jdk/bin/"* "$fixture/bin/start-hugegraph-store.sh"
-    for option in default g1 G1 zgc ZGC invalid; do
+    for option in default default-serial default-zgc g1 G1 zgc ZGC invalid; do
         capture="$fixture/$option.args"
         local -a args=(-d false)
-        [[ "$option" == default ]] || args+=(-g "$option")
+        jvm_options="-Xms64m -Xmx64m"
+        case "$option" in
+            default) ;;
+            default-serial) jvm_options="$jvm_options -XX:+UseSerialGC" ;;
+            default-zgc) jvm_options="$jvm_options -XX:+UseZGC" ;;
+            *) args+=(-g "$option") ;;
+        esac
         env -u GC_OPTION -u JAVA_TOOL_OPTIONS -u LD_PRELOAD \
             -u TOPLINGDB_ROCKSDB_PROVIDER -u TOPLING_RUNTIME_CLASSPATH -u TOPLING_ACTIVE_NATIVE \
-            JAVA_HOME="$fixture/jdk" JAVA_OPTIONS="-Xms64m -Xmx64m" \
+            JAVA_HOME="$fixture/jdk" JAVA_OPTIONS="$jvm_options" \
             OPEN_TELEMETRY=false STDOUT_MODE=true CAPTURE_FILE="$capture" \
             PATH="$fixture/jdk/bin:$PATH" \
             bash "$fixture/bin/start-hugegraph-store.sh" "${args[@]}" > "$fixture/output" 2>&1
@@ -172,9 +178,27 @@ JAVA
             else
                 fail "GC '$option' selected incorrect JVM options"
             fi
-        elif grep -Fxq -- '-XX:InitiatingHeapOccupancyPercent=50' "$capture" && \
-             ! grep -Fxq -- '-XX:+UseZGC' "$capture"; then
-            pass "GC '$option' selects default G1 tuning"
+        elif [[ "$option" == g1 || "$option" == G1 ]]; then
+            if grep -Fxq -- '-XX:+UseG1GC' "$capture" &&
+               grep -Fxq -- '-XX:InitiatingHeapOccupancyPercent=50' "$capture" &&
+               ! grep -Fxq -- '-XX:+UseZGC' "$capture"; then
+                pass "GC '$option' explicitly selects G1"
+            else
+                fail "GC '$option' did not explicitly select G1"
+            fi
+        elif grep -Fxq -- '-XX:InitiatingHeapOccupancyPercent=50' "$capture" &&
+             ! grep -Fxq -- '-XX:+UseG1GC' "$capture"; then
+            if [[ "$option" == default-serial ]] &&
+               ! grep -Fxq -- '-XX:+UseSerialGC' "$capture"; then
+                fail "default GC selection dropped the caller's Serial GC"
+            elif [[ "$option" == default-zgc ]] &&
+                 ! grep -Fxq -- '-XX:+UseZGC' "$capture"; then
+                fail "default GC selection dropped the caller's ZGC"
+            elif [[ "$option" == default ]] && grep -Fxq -- '-XX:+UseZGC' "$capture"; then
+                fail "default GC selection unexpectedly enabled ZGC"
+            else
+                pass "GC '$option' preserves JVM/caller collector selection"
+            fi
         else
             fail "GC '$option' selected incorrect JVM options"
         fi
@@ -189,9 +213,9 @@ if [[ "${2:-}" == --gc-only ]]; then
 fi
 
 if [[ "$(uname)" == "Darwin" ]]; then
-    _prereq_tools="lsof curl java"
+    _prereq_tools="lsof curl java jcmd"
 else
-    _prereq_tools="fuser curl java"
+    _prereq_tools="fuser curl java jcmd"
 fi
 for tool in $_prereq_tools; do
     if ! command -v "$tool" >/dev/null 2>&1; then
@@ -293,6 +317,17 @@ if [[ -n "$FG_PID" ]]; then
     info "pid file written with PID $FG_PID"
 else
     info "pid file not written (expected before chunk 3 fix)"
+fi
+
+if [[ -n "$FG_PID" ]] && ps -p "$FG_PID" >/dev/null 2>&1; then
+    if GC_FLAGS=$(jcmd "$FG_PID" VM.flags 2>&1) &&
+       grep -Fq -- '-XX:+UseG1GC' <<<"$GC_FLAGS"; then
+        pass "explicit -g g1 runs the JVM with G1GC"
+    else
+        fail "explicit -g g1 did not run the JVM with G1GC: $GC_FLAGS"
+    fi
+else
+    fail "no running JVM available to verify explicit -g g1"
 fi
 
 if [[ -n "$FG_PID" ]]; then
