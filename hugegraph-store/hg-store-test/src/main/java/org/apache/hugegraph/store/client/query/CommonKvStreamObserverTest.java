@@ -270,7 +270,59 @@ public class CommonKvStreamObserverTest {
             assertEquals("parser error", error.getMessage());
         }
         assertTrue(observer.isServerFinished());
+        assertTrue(observer.consume() instanceof ErrorMessageIterator);
         assertEquals(null, observer.consume());
+    }
+
+    @Test(timeout = 5000)
+    public void testParserErrorOverridesConcurrentCompletion() throws Exception {
+        assertParserFailureOverridesCompletion(new AssertionError("parser error"));
+    }
+
+    @Test(timeout = 5000)
+    public void testParserExceptionOverridesConcurrentCompletion() throws Exception {
+        assertParserFailureOverridesCompletion(new IllegalStateException("parser exception"));
+    }
+
+    private static void assertParserFailureOverridesCompletion(Throwable failure) throws Exception {
+        CountDownLatch parsing = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        CommonKvStreamObserver<List<Integer>, Integer> observer = new CommonKvStreamObserver<>(values -> {
+            parsing.countDown();
+            await(release);
+            if (failure instanceof Error) {
+                throw (Error) failure;
+            }
+            throw (RuntimeException) failure;
+        }, ignored -> ResultState.FINISHED);
+        observer.setRequestSender(ignored -> { });
+        observer.setTransferComplete(ignored -> { });
+        AtomicReference<Throwable> propagated = new AtomicReference<>();
+        Thread producer = new Thread(() -> {
+            try {
+                observer.onNext(Collections.singletonList(7));
+            } catch (Throwable error) {
+                propagated.set(error);
+            }
+        });
+        producer.start();
+        try {
+            assertTrue(parsing.await(2, TimeUnit.SECONDS));
+            observer.onCompleted();
+            assertFalse(observer.isServerFinished());
+            release.countDown();
+            producer.join(2000);
+            assertFalse(producer.isAlive());
+            assertEquals(failure instanceof Error ? failure : null, propagated.get());
+            assertTrue(observer.isServerFinished());
+            assertTrue("parser failure must remain visible to the consumer",
+                       observer.consume() instanceof ErrorMessageIterator);
+            assertEquals(null, observer.consume());
+        } finally {
+            release.countDown();
+            producer.join(2000);
+            observer.clear();
+        }
     }
 
     private static CommonKvStreamObserver<List<Integer>, Integer> parsingObserver(

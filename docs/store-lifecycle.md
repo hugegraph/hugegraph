@@ -15,3 +15,5 @@ and the Server [module test guidance](../hugegraph-server/AGENTS.md#tests).
 
 
 Client response parsing runs outside the short state lock. Accepted final batches remain visible across response completion; errors and iterator close discard in-flight parsing results. Early query close cancels the transport without waiting for a blocked request send. Normal request half-close remains serialized with sends.
+
+An interrupted shutdown thread still waits for heartbeat producers and Raft groups to finish. The Store engine restores that interrupt only after partition and native database teardown.
