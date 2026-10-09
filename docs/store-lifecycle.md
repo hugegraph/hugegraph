@@ -22,12 +22,21 @@ callbacks before Spring destroys their databases. This reuses the same per-call
 owners; it does not create a second shutdown registry. Interrupted cleanup waits
 and native teardown preserve interruption without abandoning these owners.
 
-The subsequent Store-wide shutdown change extends this boundary to ordinary RPC
-callbacks and sticky TTL cleanup failures. It also defines distribution stop timeout
-handling; those guarantees are not introduced by this request-lifecycle change.
+The subsequent Store shutdown change adds sticky TTL cleanup failures and defines
+distribution stop timeout handling; those guarantees are not introduced by this
+request-lifecycle change.
 
 Batch-scan half-close delivers its already permitted pages; insufficient receipt credit
 returns an explicit error. Early iterator close sends the cancellation request. Unary
 query and count requests share the query admission, worker and cleanup owner registry;
 count keeps partition work parallel on the service executor. Iterator cleanup failure
 prevents successful completion and remains visible to request drain.
+
+The gRPC application callback queue is always unbounded (`Integer.MAX_VALUE`), matching
+its existing default. `thread.pool.grpc.queue` remains accepted for configuration
+compatibility but no longer limits this callback queue. Bounded callback dispatch can
+reject cancellation or completion callbacks in gRPC 1.55.3, leaving request cleanup
+registered after the transport has closed. `thread.pool.grpc.core` and `.max` still
+configure the same executor; an unbounded queue normally keeps dispatch at the core
+thread count. Bound expensive scan/query work and admission at their worker queues;
+sustained overload can otherwise increase callback backlog and memory use.
