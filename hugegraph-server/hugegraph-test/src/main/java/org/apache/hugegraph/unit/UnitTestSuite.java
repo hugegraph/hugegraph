@@ -25,6 +25,7 @@ import org.apache.hugegraph.auth.HttpGremlinRequestHandlerTest;
 import org.apache.hugegraph.auth.StandardAuthManagerV2Test;
 import org.apache.hugegraph.auth.WsAndHttpBasicAuthHandlerTest;
 import org.apache.hugegraph.backend.page.QueryListTest;
+import org.apache.hugegraph.backend.store.rocksdb.RocksDBSnapshotRestoreTest;
 import org.apache.hugegraph.backend.tx.GraphIndexTransactionTest;
 import org.apache.hugegraph.backend.tx.GraphTransactionTest;
 import org.apache.hugegraph.meta.EtcdMetaDriverTest;
@@ -233,6 +234,7 @@ import org.junit.runners.Suite;
         K8sResourceQuotaYamlTest.class,
         /* rocksdb */
         RocksDBSessionsTest.class,
+        RocksDBSnapshotRestoreTest.class,
         RocksDBSessionTest.class,
         RocksDBCountersTest.class,
         RocksDBTableQueryByIdsTest.class,
