@@ -114,6 +114,15 @@ The assembled distribution will be available at:
 hugegraph-store/apache-hugegraph-store-<version>/lib/hg-store-node-<version>.jar
 ```
 
+The Node module keeps a regular JAR for development dependencies and attaches its
+Spring Boot executable as `hg-store-node-<version>-exec.jar`. The distribution
+uses the executable JAR with the filename shown above, so the start script is
+unchanged. To run the Store server tests through the package phase:
+
+```bash
+mvn clean package -pl hugegraph-store/hg-store-test -am -Pstore-server-test
+```
+
 ### Configuration
 
 Extract the distribution package and edit `conf/application.yml`:
@@ -387,6 +396,20 @@ See [docker/README.md](../docker/README.md) for the full setup guide.
 For Docker and Kubernetes deployment details, see [Deployment Guide](docs/deployment-guide.md).
 
 ---
+
+## Stopping a Store node
+
+For an unpacked distribution, run `bin/stop-hugegraph-store.sh`. It waits up to
+30 seconds for process exit. A timeout returns a nonzero status and retains
+`bin/pid` for diagnosis; it does not force-kill the process or remove its data.
+Check the Store log and thread dump before taking further action.
+
+Spring owns shutdown: new RPCs are refused, active RPCs are cancelled, and context
+close waits for their callbacks and scan/TTL workers to release resources. The
+Store engine then stops and joins partition Raft services before releasing
+databases. A stuck callback keeps shutdown pending rather than allowing its
+database to close underneath it. Do not add a separate JVM hook that closes
+those databases concurrently.
 
 ## Documentation
 
