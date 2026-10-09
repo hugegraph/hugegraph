@@ -46,6 +46,7 @@ public class MultiPartitionIterator implements ScanIterator {
     private Integer positionPartitionId;
     private byte[] positionKey;
     private RuntimeException cleanupFailure;
+    private boolean closed;
 
     private MultiPartitionIterator(List<Integer> partitionIds,
                                    BiFunction<Integer, byte[], ScanIterator> supplier) {
@@ -100,7 +101,7 @@ public class MultiPartitionIterator implements ScanIterator {
     }
 
     private void init() {
-        if (this.iterator == null) {
+        if (!this.closed && this.iterator == null) {
             this.iterator = this.getIterator();
         }
     }
@@ -173,6 +174,7 @@ public class MultiPartitionIterator implements ScanIterator {
 
     @Override
     public void close() {
+        this.closed = true;
         try {
             closeCurrentIterator();
         } catch (RuntimeException | Error failure) {
@@ -231,6 +233,9 @@ public class MultiPartitionIterator implements ScanIterator {
      */
     public List<ScanIterator> getIterators() {
         List<ScanIterator> opened = new ArrayList<>();
+        if (this.closed) {
+            return opened;
+        }
         try {
             for (int id : this.partitions) {
                 ScanIterator child = this.supplier.apply(id, getPositionKey(id));

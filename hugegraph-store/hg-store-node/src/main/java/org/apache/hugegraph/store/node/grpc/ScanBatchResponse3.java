@@ -288,6 +288,8 @@ public class ScanBatchResponse3 {
         private final long limit;
         private final ScanLifecycle lifecycle;
         private final AtomicBoolean iteratorClosed = new AtomicBoolean();
+        private final Object readerLock = new Object();
+        private Thread reader;
         private long packageSize;
         private long counter;
         private volatile boolean inputCompleted;
@@ -362,6 +364,12 @@ public class ScanBatchResponse3 {
 
         void breakdown() {
             this.breakdown.set(true);
+            // Interrupt before waiting for the iterator monitor held during hasNext().
+            synchronized (this.readerLock) {
+                if (this.reader != null && this.reader != Thread.currentThread()) {
+                    this.reader.interrupt();
+                }
+            }
             synchronized (this.iterator) {
                 this.iterator.notify();
             }
@@ -376,6 +384,19 @@ public class ScanBatchResponse3 {
 
         private void working() {
             if (this.isWorking.getAndSet(true)) {
+                return;
+            }
+
+            boolean startReading;
+            synchronized (this.readerLock) {
+                startReading = !this.breakdown.get() && !this.completeFlag.get();
+                if (startReading) {
+                    this.reader = Thread.currentThread();
+                }
+            }
+            if (!startReading) {
+                this.completeFlag.set(true);
+                closeIterator();
                 return;
             }
 
@@ -468,8 +489,16 @@ public class ScanBatchResponse3 {
                 log.error("Failed to do while for scanning, cause by:", t);
                 this.deliverer.error("Failed to finish scanning ", t);
             } finally {
-                this.workingLock.unlock();
-                closeIterator();
+                try {
+                    this.workingLock.unlock();
+                    closeIterator();
+                } finally {
+                    synchronized (this.readerLock) {
+                        if (this.reader == Thread.currentThread()) {
+                            this.reader = null;
+                        }
+                    }
+                }
             }
         }
 

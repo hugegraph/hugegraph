@@ -107,6 +107,7 @@ public class CommonKvStreamObserver<R, T> implements StreamObserver<R> {
                 return;
             }
             this.parsing++;
+            this.current = System.nanoTime();
         }
 
         Iterator<T> iterator = null;

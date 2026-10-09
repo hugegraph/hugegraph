@@ -732,6 +732,120 @@ public class ScanLifecycleTest extends ScanTestSupport {
     }
 
     @Test(timeout = 5000)
+    public void testBatchShutdownInterruptsBlockedReaderBeforeIteratorClose() throws Exception {
+        ThreadPoolExecutor executor = (ThreadPoolExecutor) Executors.newFixedThreadPool(1);
+        HgStoreWrapperEx wrapper = mock(HgStoreWrapperEx.class);
+        ScanIterator iterator = mock(ScanIterator.class);
+        when(wrapper.scanAll(anyString(), anyString(), any(byte[].class))).thenReturn(iterator);
+        CountDownLatch reading = new CountDownLatch(1);
+        CountDownLatch interrupted = new CountDownLatch(1);
+        CountDownLatch readExited = new CountDownLatch(1);
+        AtomicBoolean closedAfterRead = new AtomicBoolean();
+        when(iterator.hasNext()).thenAnswer(invocation -> {
+            reading.countDown();
+            try {
+                new CountDownLatch(1).await();
+                return true;
+            } catch (InterruptedException expected) {
+                interrupted.countDown();
+                return false;
+            } finally {
+                readExited.countDown();
+            }
+        });
+        doAnswer(invocation -> {
+            closedAfterRead.set(readExited.getCount() == 0);
+            return null;
+        }).when(iterator).close();
+
+        HgStoreStreamImpl service = scanService(executor, wrapper);
+        StreamObserver<KvPageRes> output = mock(StreamObserver.class);
+        StreamObserver<ScanStreamBatchReq> input = service.scanBatch(output);
+        FutureTask<Void> shutdown = new FutureTask<>(() -> {
+            service.shutdownScans();
+            return null;
+        });
+        Thread shutdownThread = new Thread(shutdown, "batch-scan-shutdown-test");
+        try {
+            input.onNext(batchRequest());
+            assertTrue("batch reader must enter its blocking iterator read",
+                       reading.await(1, TimeUnit.SECONDS));
+            shutdownThread.start();
+            shutdown.get(2, TimeUnit.SECONDS);
+            assertTrue(interrupted.await(1, TimeUnit.SECONDS));
+            service.awaitScanCleanup();
+            assertTrue(closedAfterRead.get());
+            assertTrue(scanRegistry(service).isEmpty());
+            assertCancelled(output);
+            verify(output, never()).onCompleted();
+            verify(iterator).close();
+            assertTrue(executor.awaitTermination(1, TimeUnit.SECONDS));
+        } finally {
+            executor.shutdownNow();
+            shutdownThread.interrupt();
+            shutdownThread.join(1000);
+        }
+    }
+
+    @Test(timeout = 5000)
+    public void testEncodedBatchShutdownInterruptsBlockedScannerBeforeIteratorClose() throws Exception {
+        ThreadPoolExecutor executor = (ThreadPoolExecutor) Executors.newFixedThreadPool(1);
+        HgStoreWrapperEx wrapper = mock(HgStoreWrapperEx.class);
+        ScanIterator iterator = mock(ScanIterator.class);
+        when(wrapper.scanAll(anyString(), anyString(), any(byte[].class))).thenReturn(iterator);
+        CountDownLatch reading = new CountDownLatch(1);
+        CountDownLatch interrupted = new CountDownLatch(1);
+        CountDownLatch readExited = new CountDownLatch(1);
+        AtomicBoolean closedAfterRead = new AtomicBoolean();
+        when(iterator.hasNext()).thenAnswer(invocation -> {
+            reading.countDown();
+            try {
+                new CountDownLatch(1).await();
+                return true;
+            } catch (InterruptedException expected) {
+                interrupted.countDown();
+                return false;
+            } finally {
+                readExited.countDown();
+            }
+        });
+        doAnswer(invocation -> {
+            closedAfterRead.set(readExited.getCount() == 0);
+            return null;
+        }).when(iterator).close();
+
+        HgStoreStreamImpl service = scanService(executor, wrapper);
+        StreamObserver<KvStream> output = mock(StreamObserver.class);
+        StreamObserver<ScanStreamBatchReq> input = service.scanBatch2(output);
+        FutureTask<Void> shutdown = new FutureTask<>(() -> {
+            service.shutdownScans();
+            return null;
+        });
+        Thread shutdownThread = new Thread(shutdown, "encoded-batch-scan-shutdown-test");
+        try {
+            input.onNext(batchRequest());
+            assertTrue("parallel scanner must enter its blocking iterator read",
+                       reading.await(1, TimeUnit.SECONDS));
+            shutdownThread.start();
+            shutdown.get(2, TimeUnit.SECONDS);
+            assertTrue(interrupted.await(1, TimeUnit.SECONDS));
+            service.awaitScanCleanup();
+            assertTrue(closedAfterRead.get());
+            assertTrue(scanRegistry(service).isEmpty());
+            ArgumentCaptor<Throwable> failure = ArgumentCaptor.forClass(Throwable.class);
+            verify(output).onError(failure.capture());
+            assertEquals(Status.Code.CANCELLED, Status.fromThrowable(failure.getValue()).getCode());
+            verify(output, never()).onCompleted();
+            verify(iterator).close();
+            assertTrue(executor.awaitTermination(1, TimeUnit.SECONDS));
+        } finally {
+            executor.shutdownNow();
+            shutdownThread.interrupt();
+            shutdownThread.join(1000);
+        }
+    }
+
+    @Test(timeout = 5000)
     public void testOneShotObservesContextCancellationAndClosesIterator() {
         HgStoreWrapperEx wrapper = mock(HgStoreWrapperEx.class);
         ScanIterator iterator = mock(ScanIterator.class);
