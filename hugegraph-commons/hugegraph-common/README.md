@@ -16,6 +16,15 @@ The shared REST client encodes request bodies using the charset declared in
 `Content-Type`, or UTF-8 when no charset is declared. JSON and text requests do
 not depend on the JVM's default charset. Gzip compresses those same encoded bytes.
 
+## HTTPS certificate verification
+
+A custom trust store configures which certificate authorities or certificates the
+REST client trusts. It does not disable server identity verification: the
+certificate must also contain a Subject Alternative Name matching the requested
+DNS name or IP address. Certificates with a different identity or no matching
+Subject Alternative Name are rejected, including certificates explicitly trusted
+by the configured store. This uses OkHttp's default hostname verifier.
+
 ## Components
 
 - Lock: atomic lock, key lock, lock group and lock manager
