@@ -15,12 +15,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-# test-start-hugegraph-pd.sh — Tests for start-hugegraph-pd.sh foreground mode fix
+# test-start-hugegraph-pd.sh — Foreground mode and GC option regression tests
 #
-# Baseline (unmodified code):  Tests 1 PASS — Tests 2, 3, 4 FAIL
-# After chunk 2 fix:           All 4 tests PASS
-#
-# Usage: ./test-start-hugegraph-pd.sh [path-to-pd-dist-root]
+# Usage: ./test-start-hugegraph-pd.sh [path-to-pd-dist-root] [--gc-only]
 #   path-to-pd-dist-root: path to extracted PD dist e.g.
 #                         hugegraph-pd/apache-hugegraph-pd-1.8.0/
 #                         defaults to current directory if not provided
@@ -157,7 +154,7 @@ wait_script_exit() {
 # ── preflight ─────────────────────────────────────────────────────────────────
 
 echo ""
-echo "start-hugegraph-pd.sh chunk 2 test suite"
+echo "start-hugegraph-pd.sh test suite"
 echo "root: $PD_ROOT"
 echo ""
 
@@ -165,6 +162,72 @@ if [[ ! -f "$START_SCRIPT" ]]; then
     echo -e "${RED}ERROR:${NC} $START_SCRIPT not found."
     echo "       Pass the PD dist root as \$1"
     exit 1
+fi
+
+# Exercise the shipped launcher in an isolated fixture, without JNI or a service.
+# This checks shell selection/argv only; the tests below check real JVM startup.
+check_gc_options() {
+    local fixture option capture status
+    fixture=$(mktemp -d) || { fail "could not create GC test fixture"; return 1; }
+    if ! mkdir -p "$fixture/bin" "$fixture/conf" "$fixture/lib" "$fixture/jdk/bin" ||
+       ! cp "$START_SCRIPT" "$BIN/util.sh" "$BIN/preload-topling.sh" "$fixture/bin/"; then
+        fail "could not prepare GC test fixture"
+        rm -rf "$fixture"
+        return 1
+    fi
+    touch "$fixture/lib/hg-pd-service-test.jar"
+    cat > "$fixture/jdk/bin/java" <<'JAVA'
+#!/bin/bash
+if [[ "$1" == "-version" ]]; then
+    echo 'openjdk version "17.0.1"' >&2
+else
+    printf '%s\n' "$@" > "$CAPTURE_FILE"
+fi
+JAVA
+    # Avoid the Store allocator download, which is unrelated to GC selection.
+    printf '%s\n' '#!/bin/sh' 'echo launcher-test' > "$fixture/jdk/bin/uname"
+    chmod +x "$fixture/jdk/bin/"* "$fixture/bin/start-hugegraph-pd.sh"
+    for option in default g1 G1 zgc ZGC invalid; do
+        capture="$fixture/$option.args"
+        local -a args=(-d false)
+        [[ "$option" == default ]] || args+=(-g "$option")
+        env -u GC_OPTION -u JAVA_TOOL_OPTIONS -u LD_PRELOAD \
+            -u TOPLINGDB_ROCKSDB_PROVIDER -u TOPLING_RUNTIME_CLASSPATH -u TOPLING_ACTIVE_NATIVE \
+            JAVA_HOME="$fixture/jdk" JAVA_OPTIONS="-Xms64m -Xmx64m" \
+            OPEN_TELEMETRY=false STDOUT_MODE=true CAPTURE_FILE="$capture" \
+            PATH="$fixture/jdk/bin:$PATH" \
+            bash "$fixture/bin/start-hugegraph-pd.sh" "${args[@]}" > "$fixture/output" 2>&1
+        status=$?
+        if [[ "$option" == invalid ]]; then
+            if [[ $status -eq 1 && ! -e "$capture" ]] && \
+               grep -Fq "Unrecognized gc option: 'invalid'" "$fixture/logs/hugegraph-pd-stdout.log"; then
+                pass "invalid GC is rejected before application launch"
+            else
+                fail "invalid GC was not rejected correctly"
+            fi
+        elif [[ $status -ne 0 || ! -s "$capture" ]]; then
+            fail "GC '$option' did not reach Java (exit $status)"
+        elif [[ "$option" == zgc || "$option" == ZGC ]]; then
+            if grep -Fxq -- '-XX:+UseZGC' "$capture" && \
+               ! grep -Fxq -- '-XX:InitiatingHeapOccupancyPercent=50' "$capture"; then
+                pass "GC '$option' selects ZGC without G1 tuning"
+            else
+                fail "GC '$option' selected incorrect JVM options"
+            fi
+        elif grep -Fxq -- '-XX:InitiatingHeapOccupancyPercent=50' "$capture" && \
+             ! grep -Fxq -- '-XX:+UseZGC' "$capture"; then
+            pass "GC '$option' selects default G1 tuning"
+        else
+            fail "GC '$option' selected incorrect JVM options"
+        fi
+    done
+    rm -rf "$fixture"
+}
+
+section "GC option selection (isolated launcher fixture)"
+check_gc_options
+if [[ "${2:-}" == --gc-only ]]; then
+    [[ $FAIL -eq 0 ]] && exit 0 || exit 1
 fi
 
 if [[ "$(uname)" == "Darwin" ]]; then
@@ -233,8 +296,8 @@ cleanup
 
 section "Test 2 — foreground mode blocks until Java exits"
 
-info "Starting in foreground mode (-d false)..."
-"$START_SCRIPT" -d false >/dev/null 2>&1 &
+info "Starting in foreground mode (-d false -g g1)..."
+"$START_SCRIPT" -d false -g g1 >/dev/null 2>&1 &
 SCRIPT_PID=$!
 
 info "Waiting up to ${STARTUP_WAIT}s for PD to come up..."
@@ -280,8 +343,8 @@ cleanup
 
 section "Test 3 — exit code propagates from Java"
 
-info "Starting in foreground mode (-d false)..."
-"$START_SCRIPT" -d false >/dev/null 2>&1 &
+info "Starting in foreground mode (-d false -g ZGC)..."
+"$START_SCRIPT" -d false -g ZGC >/dev/null 2>&1 &
 SCRIPT_PID=$!
 
 info "Waiting up to ${STARTUP_WAIT}s for PD..."

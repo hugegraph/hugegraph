@@ -83,7 +83,8 @@ bin/stop-hugegraph-pd.sh
 bin/start-hugegraph-pd.sh [-g GC_TYPE] [-j "JVM_OPTIONS"] [-y ENABLE_OTEL] [-d DAEMON]
 ```
 
-- `-g`: GC type (`g1` or `ZGC`, default: `g1`)
+- `-g`: GC type (`g1`/`G1` or `zgc`/`ZGC`, default: `g1`). Explicit `-g g1` uses the same GC settings
+  as omitting `-g`; unknown values are rejected.
 - `-j`: Custom JVM options (e.g., `-j "-Xmx4g -Xms4g"`)
 - `-y`: Enable OpenTelemetry tracing (`true` or `false`, default: `false`)
 - `-d`: Daemon mode (`true` = daemon, `false` = foreground; default: `true`). Set to `false` when running under Docker or a process supervisor so the container exits if Java dies.
