@@ -17,25 +17,17 @@
 
 package org.apache.hugegraph.store.node.grpc.query;
 
-import java.util.ArrayList;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ThreadPoolExecutor;
-import java.util.concurrent.atomic.AtomicLong;
 
-import org.apache.hugegraph.rocksdb.access.RocksDBSession;
 import org.apache.hugegraph.store.HgStoreEngine;
 import org.apache.hugegraph.store.consts.PoolNames;
-import org.apache.hugegraph.store.grpc.common.Kv;
 import org.apache.hugegraph.store.grpc.query.QueryRequest;
 import org.apache.hugegraph.store.grpc.query.QueryResponse;
 import org.apache.hugegraph.store.grpc.query.QueryServiceGrpc;
-import org.apache.hugegraph.store.query.KvSerializer;
 import org.apache.hugegraph.store.util.ExecutorUtil;
 import org.lognet.springboot.grpc.GRpcService;
-
-import com.google.protobuf.ByteString;
 
 import io.grpc.Status;
 import io.grpc.stub.ServerCallStreamObserver;
@@ -160,67 +152,11 @@ public class AggregativeQueryService extends QueryServiceGrpc.QueryServiceImplBa
 
     @Override
     public void query0(QueryRequest request, StreamObserver<QueryResponse> observer) {
-
-        var itr = QueryUtil.getIterator(request);
-        var builder = QueryResponse.newBuilder();
-        var kvBuilder = Kv.newBuilder();
-
-        try {
-            while (itr.hasNext()) {
-                var column = (RocksDBSession.BackendColumn) itr.next();
-                if (column != null) {
-                    builder.addData(kvBuilder.setKey(ByteString.copyFrom(column.name))
-                                             .setValue(column.value == null ? ByteString.EMPTY :
-                                                       ByteString.copyFrom(column.value))
-                                             .build());
-                }
-            }
-            builder.setQueryId(request.getQueryId());
-            builder.setIsOk(true);
-            builder.setIsFinished(true);
-            observer.onNext(builder.build());
-        } catch (Exception e) {
-            observer.onNext(errorResponse(builder, request.getQueryId(), e));
-        }
-        observer.onCompleted();
+        ((AggregativeQueryObserver) query(observer)).runUnary(request, false);
     }
 
-    /**
-     * Query data count
-     *
-     * @param request  query request object
-     * @param observer Observer object for receiving query response results
-     */
     @Override
     public void count(QueryRequest request, StreamObserver<QueryResponse> observer) {
-
-        log.debug("query id : {}, simple count of table: {}", request.getQueryId(),
-                  request.getTable());
-        var builder = QueryResponse.newBuilder();
-        var kvBuilder = Kv.newBuilder();
-
-        try {
-
-            var handler = new QueryUtil().getHandler();
-            long start = System.currentTimeMillis();
-            long count = handler.count(request.getGraph(), request.getTable());
-            log.debug("query id: {}, count of cost: {} ms", request.getQueryId(),
-                      System.currentTimeMillis() - start);
-            List<Object> array = new ArrayList<>();
-            for (int i = 0; i < request.getFunctionsList().size(); i++) {
-                array.add(new AtomicLong(count));
-            }
-
-            kvBuilder.setKey(ByteString.copyFrom(KvSerializer.toBytes(List.of())));
-            kvBuilder.setValue(ByteString.copyFrom(KvSerializer.toBytes(array)));
-            builder.addData(kvBuilder.build());
-            builder.setQueryId(request.getQueryId());
-            builder.setIsOk(true);
-            builder.setIsFinished(true);
-            observer.onNext(builder.build());
-        } catch (Exception e) {
-            observer.onNext(errorResponse(builder, request.getQueryId(), e));
-        }
-        observer.onCompleted();
+        ((AggregativeQueryObserver) query(observer)).runUnary(request, true);
     }
 }

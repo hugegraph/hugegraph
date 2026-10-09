@@ -77,6 +77,8 @@ public class ScanBatchResponse implements StreamObserver<ScanStreamBatchReq> {
     private final AtomicBoolean cancelled = new AtomicBoolean();
     private final ScanLifecycle lifecycle;
     private boolean iteratorClosed;
+    private volatile boolean inputCompleted;
+    private boolean queryReceived;
 
     public ScanBatchResponse(StreamObserver<KvStream> response, HgStoreWrapperEx wrapper,
                              ThreadPoolExecutor executor) {
@@ -108,6 +110,9 @@ public class ScanBatchResponse implements StreamObserver<ScanStreamBatchReq> {
         }
         switch (request.getQueryCase()) {
             case QUERY_REQUEST: // query conditions
+                synchronized (this.stateLock) {
+                    this.queryReceived = true;
+                }
                 submit(() -> {
                     startQuery(request.getHeader().getGraph(), request.getQueryRequest());
                 });
@@ -132,7 +137,8 @@ public class ScanBatchResponse implements StreamObserver<ScanStreamBatchReq> {
                 }
                 break;
             case CANCEL_REQUEST: // close stream
-                closeQuery();
+                this.lifecycle.tryCancel();
+                closeQuery(Status.CANCELLED.withDescription("Batch scan cancelled").asRuntimeException());
                 break;
             default:
                 closeQuery(HgGrpc.toErr("Unsupported sub-request: [ " + request + " ]"));
@@ -142,12 +148,27 @@ public class ScanBatchResponse implements StreamObserver<ScanStreamBatchReq> {
     @Override
     public void onError(Throwable t) {
         log.error("onError ", t);
+        this.lifecycle.tryCancel();
         closeQuery(t);
     }
 
     @Override
     public void onCompleted() {
-        closeQuery();
+        boolean finish;
+        boolean resume = false;
+        synchronized (this.stateLock) {
+            this.inputCompleted = true;
+            finish = !this.queryReceived || this.state == State.DONE;
+            if (!finish && this.state == State.IDLE && this.iterator != null) {
+                this.state = State.DOING;
+                resume = true;
+            }
+        }
+        if (finish) {
+            closeQuery();
+        } else if (resume) {
+            submit(this::sendEntries);
+        }
     }
 
     /**
@@ -277,7 +298,10 @@ public class ScanBatchResponse implements StreamObserver<ScanStreamBatchReq> {
                 this.sender.onNext(dataBuilder.build());
                 this.activeTime = System.currentTimeMillis();
             }
-            if (state == State.DONE || this.count >= limit || !iterator.hasNext()) {
+            if (this.cancelled.get()) {
+                return;
+            }
+            if (this.count >= limit || !iterator.hasNext()) {
                 closeIter();
                 if (this.lifecycle.cleanupFailure() != null) {
                     closeQuery(this.lifecycle.cleanupFailure());
@@ -285,8 +309,22 @@ public class ScanBatchResponse implements StreamObserver<ScanStreamBatchReq> {
                 }
                 this.sender.onNext(KvStream.newBuilder().setOver(true).build());
                 setStateDone();
+                if (this.inputCompleted) {
+                    closeQuery();
+                }
             } else {
-                setStateIdle();
+                boolean halfClosed;
+                synchronized (this.stateLock) {
+                    halfClosed = this.inputCompleted;
+                    if (!halfClosed && this.state != State.DONE) {
+                        this.state = State.IDLE;
+                    }
+                }
+                if (halfClosed) {
+                    closeQuery(Status.FAILED_PRECONDITION
+                                     .withDescription("Batch scan half-closed before sufficient receipts")
+                                     .asRuntimeException());
+                }
             }
         } catch (Throwable e) {
             if (this.state != State.DONE) {

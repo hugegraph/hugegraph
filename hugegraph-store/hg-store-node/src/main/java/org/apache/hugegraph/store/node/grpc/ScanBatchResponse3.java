@@ -109,7 +109,8 @@ public class ScanBatchResponse3 {
                     this.manager.receipt(request.getReceiptRequest().getTimes());
                     break;
                 case CANCEL_REQUEST:
-                    this.onCompleted();
+                    this.lifecycle.tryCancel();
+                    this.onError(Status.CANCELLED.withDescription("Batch scan cancelled").asRuntimeException());
                     break;
                 default:
                     this.onError(HgGrpc.toErr("Unsupported sub-request: [ " + request + " ]"));
@@ -119,14 +120,16 @@ public class ScanBatchResponse3 {
         @Override
         public void onError(Throwable t) {
             log.warn(t.getMessage());
+            this.lifecycle.tryCancel();
             this.manager.breakdown();
             this.responseObserver.onError(t);
         }
 
         @Override
         public void onCompleted() {
-            this.manager.finished();
-            this.responseObserver.onCompleted();
+            if (this.manager.inputCompleted()) {
+                this.responseObserver.onCompleted();
+            }
         }
 
         private void handleHeader(ScanStreamBatchReq request) {
@@ -194,11 +197,15 @@ public class ScanBatchResponse3 {
             }
         }
 
-        synchronized void finished() {
-            if (log.isDebugEnabled()) {
-                log.debug("Receiving finished request.");
+        synchronized boolean inputCompleted() {
+            if (this.cancelled) {
+                return false;
             }
-            this.breakdown();
+            if (this.worker == null) {
+                return true;
+            }
+            this.worker.inputCompleted();
+            return false;
         }
 
         synchronized void breakdown() {
@@ -283,6 +290,7 @@ public class ScanBatchResponse3 {
         private final AtomicBoolean iteratorClosed = new AtomicBoolean();
         private long packageSize;
         private long counter;
+        private volatile boolean inputCompleted;
 
         OrderWorker(long limit, long packageSize, ScanIterator iterator, OrderDeliverer deliverer,
                     ThreadPoolExecutor executor, ScanLifecycle lifecycle) {
@@ -345,6 +353,13 @@ public class ScanBatchResponse3 {
             }
         }
 
+        void inputCompleted() {
+            this.inputCompleted = true;
+            synchronized (this.iterator) {
+                this.iterator.notify();
+            }
+        }
+
         void breakdown() {
             this.breakdown.set(true);
             synchronized (this.iterator) {
@@ -390,23 +405,24 @@ public class ScanBatchResponse3 {
 
                             if (!this.breakdown.get() && !this.checkContinue()) {
                                 long start = System.currentTimeMillis();
-                                iterator.wait(
-                                        HgStoreConst.SCAN_WAIT_CLIENT_TAKING_TIME_OUT_SECONDS *
-                                        1000);
-
-                                if (System.currentTimeMillis() - start
-                                    >=
-                                    HgStoreConst.SCAN_WAIT_CLIENT_TAKING_TIME_OUT_SECONDS * 1000) {
-                                    throw new TimeoutException("Waiting continue more than "
-                                                               +
-                                                               HgStoreConst.SCAN_WAIT_CLIENT_TAKING_TIME_OUT_SECONDS +
-                                                               " seconds.");
+                                while (!this.breakdown.get() && !this.checkContinue()) {
+                                    if (this.inputCompleted) {
+                                        throw Status.FAILED_PRECONDITION.withDescription(
+                                                "Batch scan half-closed before sufficient receipts")
+                                                .asRuntimeException();
+                                    }
+                                    long remaining = HgStoreConst.SCAN_WAIT_CLIENT_TAKING_TIME_OUT_SECONDS *
+                                                     1000L - (System.currentTimeMillis() - start);
+                                    if (remaining <= 0) {
+                                        throw new TimeoutException("Waiting continue more than " +
+                                                HgStoreConst.SCAN_WAIT_CLIENT_TAKING_TIME_OUT_SECONDS +
+                                                " seconds.");
+                                    }
+                                    iterator.wait(remaining);
                                 }
-
                                 if (this.breakdown.get()) {
                                     break;
                                 }
-
                             }
 
                             packageCount = 1;
@@ -431,12 +447,14 @@ public class ScanBatchResponse3 {
                     this.completeFlag.set(true);
 
                     closeIterator();
-                    if (this.lifecycle.cleanupFailure() == null) {
+                    if (!this.breakdown.get() && this.lifecycle.cleanupFailure() == null) {
                         deliverer.deliver(dataBuilder, curTimes.incrementAndGet(), true);
                     }
 
                 }
 
+            } catch (io.grpc.StatusRuntimeException e) {
+                this.deliverer.error(e.getStatus(), e.getMessage(), e);
             } catch (InterruptedException e) {
                 log.error("Interrupted waiting of iterator, canceled while.", e);
                 this.deliverer.error(Status.CANCELLED,

@@ -1518,4 +1518,62 @@ public class ScanLifecycleTest extends ScanTestSupport {
             producer.join(1000);
         }
     }
+
+    @Test
+    public void testClosingPreventsLazyExecutorAndStateCreation() {
+        HgStoreStreamImpl service = new HgStoreStreamImpl();
+        service.stopAcceptingScans();
+        assertUnavailable(service::getExecutor);
+        assertUnavailable(service::getState);
+        assertUnavailable(() -> service.scan(mock(StreamObserver.class)));
+        service.shutdownScans();
+        assertNull(service.getRealExecutor());
+    }
+
+    @Test(timeout = 5000)
+    public void testQueuedStreamCancellationDrainsWithoutOpeningIterator() throws Exception {
+        ThreadPoolExecutor executor = (ThreadPoolExecutor) Executors.newFixedThreadPool(1);
+        CountDownLatch release = new CountDownLatch(1);
+        CountDownLatch occupied = new CountDownLatch(1);
+        executor.execute(() -> {
+            occupied.countDown();
+            try {
+                release.await();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        });
+        HgStoreWrapperEx wrapper = mock(HgStoreWrapperEx.class);
+        AppConfig config = mock(AppConfig.class);
+        when(config.getServerWaitTime()).thenReturn(60);
+        StreamObserver<KvPageRes> output = mock(StreamObserver.class);
+        ScanStreamResponse response = ScanStreamResponse.of(output, wrapper, executor, config);
+        FutureTask<Void> request = new FutureTask<>(() -> {
+            response.onNext(ScanStreamReq.newBuilder().setMethod(ScanMethod.ALL)
+                                         .setPageSize(1).setLimit(10).build());
+            return null;
+        });
+        Thread caller = new Thread(request, "scan-shutdown-test");
+        try {
+            assertTrue(occupied.await(1, TimeUnit.SECONDS));
+            caller.start();
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(1);
+            while (executor.getQueue().isEmpty() && System.nanoTime() < deadline) {
+                Thread.yield();
+            }
+            assertEquals(1, executor.getQueue().size());
+            response.onError(Status.CANCELLED.asRuntimeException());
+            executor.shutdown();
+            release.countDown();
+            request.get(1, TimeUnit.SECONDS);
+            assertTrue(executor.awaitTermination(1, TimeUnit.SECONDS));
+            verifyNoInteractions(wrapper);
+            assertEquals(2L, executor.getCompletedTaskCount());
+        } finally {
+            response.onCompleted();
+            release.countDown();
+            executor.shutdownNow();
+            caller.join(1000);
+        }
+    }
 }

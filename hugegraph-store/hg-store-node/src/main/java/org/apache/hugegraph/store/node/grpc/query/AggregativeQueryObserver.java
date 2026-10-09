@@ -30,6 +30,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
@@ -99,6 +100,140 @@ public class AggregativeQueryObserver implements StreamObserver<QueryRequest> {
 
     ScanIterator getIterator(QueryRequest request) {
         return QueryUtil.getIterator(request);
+    }
+
+    ScanIterator getCountIterator(QueryRequest request) {
+        return new QueryUtil().getHandler().scanAll(request.getGraph(), request.getTable());
+    }
+
+    void runUnary(QueryRequest request, boolean countOnly) {
+        synchronized (this) {
+            if (this.finished || this.clientCanceled.get()) {
+                return;
+            }
+            this.queryId = request.getQueryId();
+            this.pendingTasks = 1;
+            this.workers.add(Thread.currentThread());
+        }
+        Throwable failure = null;
+        try {
+            this.iterator = countOnly ? getCountIterator(request) : getIterator(request);
+            QueryResponse.Builder response = getBuilder();
+            Kv.Builder kv = getKvBuilder();
+            long count = countOnly ? countPartitions() : 0;
+            while (!countOnly && !this.clientCanceled.get() && this.iterator.hasNext()) {
+                Object next = this.iterator.next();
+                if (next != null) {
+                    RocksDBSession.BackendColumn column = (RocksDBSession.BackendColumn) next;
+                    response.addData(kv.setKey(ByteString.copyFrom(column.name))
+                                       .setValue(column.value == null ? ByteString.EMPTY :
+                                                 ByteString.copyFrom(column.value)).build());
+                }
+            }
+            if (countOnly) {
+                List<Object> counts = new ArrayList<>();
+                for (int i = 0; i < request.getFunctionsCount(); i++) {
+                    counts.add(new AtomicLong(count));
+                }
+                response.addData(kv.setKey(ByteString.copyFrom(KvSerializer.toBytes(List.of())))
+                                   .setValue(ByteString.copyFrom(KvSerializer.toBytes(counts))).build());
+            }
+            synchronized (this.responseLock) {
+                this.finalResponse = response.setQueryId(this.queryId).setIsOk(true)
+                                             .setIsFinished(true).build();
+            }
+        } catch (RuntimeException | Error e) {
+            failure = e;
+            synchronized (this.responseLock) {
+                this.finalResponse = errorResponse(getBuilder(), this.queryId, e);
+            }
+        } finally {
+            workerFinished(failure);
+        }
+    }
+
+    private long countIterator(ScanIterator source) {
+        long count = 0;
+        while (!this.clientCanceled.get() && source.hasNext()) {
+            source.next();
+            count++;
+        }
+        return count;
+    }
+
+    private long countPartitions() {
+        if (!(this.iterator instanceof MultiPartitionIterator)) {
+            return countIterator(this.iterator);
+        }
+        List<ScanIterator> children = ((MultiPartitionIterator) this.iterator).getIterators();
+        CountDownLatch completed = new CountDownLatch(children.size());
+        AtomicLong total = new AtomicLong();
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        synchronized (this) {
+            this.pendingTasks += children.size();
+        }
+        int submitted = 0;
+        try {
+            for (ScanIterator child : children) {
+                this.threadPool.execute(() -> {
+                    taskStarted();
+                    try {
+                        total.addAndGet(countIterator(child));
+                    } catch (RuntimeException | Error e) {
+                        recordCountFailure(failure, e);
+                    } finally {
+                        try {
+                            cleanup(child::close);
+                        } finally {
+                            workerFinished();
+                            completed.countDown();
+                        }
+                    }
+                });
+                submitted++;
+            }
+        } catch (RuntimeException | Error e) {
+            recordCountFailure(failure, e);
+            for (int i = submitted; i < children.size(); i++) {
+                ScanIterator child = children.get(i);
+                try {
+                    cleanup(child::close);
+                } finally {
+                    taskFinished();
+                    completed.countDown();
+                }
+            }
+        }
+        boolean interrupted = false;
+        for (;;) {
+            try {
+                completed.await();
+                break;
+            } catch (InterruptedException e) {
+                interrupted = true;
+            }
+        }
+        if (interrupted) {
+            Thread.currentThread().interrupt();
+        }
+        Throwable error = failure.get();
+        if (error instanceof RuntimeException) {
+            throw (RuntimeException) error;
+        }
+        if (error instanceof Error) {
+            throw (Error) error;
+        }
+        return total.get();
+    }
+
+    private static void recordCountFailure(AtomicReference<Throwable> failure, Throwable error) {
+        synchronized (failure) {
+            if (failure.get() == null) {
+                failure.set(error);
+            } else if (failure.get() != error) {
+                failure.get().addSuppressed(error);
+            }
+        }
     }
 
     QueryPlan buildPlan(QueryRequest request) {
@@ -190,13 +325,21 @@ public class AggregativeQueryObserver implements StreamObserver<QueryRequest> {
     }
 
     private void workerFinished() {
+        workerFinished(null);
+    }
+
+    private void workerFinished(Throwable failure) {
         synchronized (this) {
             this.workers.remove(Thread.currentThread());
         }
-        taskFinished();
+        taskFinished(failure);
     }
 
     private void taskFinished() {
+        taskFinished(null);
+    }
+
+    private void taskFinished(Throwable primaryFailure) {
         boolean cleanup;
         synchronized (this) {
             cleanup = --this.pendingTasks == 0;
@@ -210,6 +353,10 @@ public class AggregativeQueryObserver implements StreamObserver<QueryRequest> {
             }
             if (this.iterator != null) {
                 cleanup(this.iterator::close);
+            }
+            Throwable releaseFailure = this.cleanupFailure.get();
+            if (primaryFailure != null && releaseFailure != null && primaryFailure != releaseFailure) {
+                primaryFailure.addSuppressed(releaseFailure);
             }
             finishResponse();
         }
@@ -238,7 +385,10 @@ public class AggregativeQueryObserver implements StreamObserver<QueryRequest> {
                 if (this.completeResponse && !this.responseFinished) {
                     this.responseFinished = true;
                     Throwable failure = this.cleanupFailure.get();
-                    if (failure != null && !this.errorReported) {
+                    if (this.finalResponse != null && !this.finalResponse.getIsOk() &&
+                        !this.clientCanceled.get()) {
+                        this.sender.onNext(this.finalResponse);
+                    } else if (failure != null && !this.errorReported) {
                         this.sender.onNext(errorResponse(getBuilder(), this.queryId, failure));
                     } else if (failure == null && this.finalResponse != null &&
                                !this.clientCanceled.get()) {
