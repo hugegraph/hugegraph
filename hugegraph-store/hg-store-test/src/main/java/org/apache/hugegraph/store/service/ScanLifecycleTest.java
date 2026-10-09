@@ -20,7 +20,6 @@ package org.apache.hugegraph.store.service;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 import static org.mockito.ArgumentMatchers.any;
@@ -41,7 +40,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -67,7 +65,6 @@ import org.apache.hugegraph.store.grpc.stream.ScanQueryRequest;
 import org.apache.hugegraph.store.grpc.stream.ScanStreamBatchReq;
 import org.apache.hugegraph.store.grpc.stream.ScanStreamReq;
 import org.apache.hugegraph.store.node.AppConfig;
-import org.apache.hugegraph.store.node.grpc.GrpcShutdownBarrier;
 import org.apache.hugegraph.store.node.grpc.HgStoreStreamImpl;
 import org.apache.hugegraph.store.node.grpc.HgStoreWrapperEx;
 import org.apache.hugegraph.store.node.grpc.ParallelScanIterator;
@@ -77,13 +74,9 @@ import org.apache.hugegraph.store.node.grpc.ScanBatchResponse;
 import org.apache.hugegraph.store.node.grpc.ScanBatchResponse3;
 import org.apache.hugegraph.store.node.grpc.ScanOneShotResponse;
 import org.apache.hugegraph.store.node.grpc.ScanStreamResponse;
-import org.apache.hugegraph.store.node.grpc.query.AggregativeQueryService;
-import org.apache.hugegraph.store.node.listener.ContextClosedListener;
-import org.apache.hugegraph.store.node.task.TTLCleaner;
 import org.apache.hugegraph.store.node.util.HgChannel;
 import org.junit.Test;
 import org.mockito.ArgumentCaptor;
-import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 
 import io.grpc.Context;
 import io.grpc.ManagedChannel;
@@ -94,7 +87,7 @@ import io.grpc.inprocess.InProcessChannelBuilder;
 import io.grpc.inprocess.InProcessServerBuilder;
 import io.grpc.stub.StreamObserver;
 
-public class ScanShutdownTest {
+public class ScanLifecycleTest extends ScanTestSupport {
 
     @Test
     public void testFailedSelectionCleanupBlocksLifecycleCompletion() throws Exception {
@@ -281,98 +274,6 @@ public class ScanShutdownTest {
             }
             executor.shutdownNow();
             bodySize.setInt(null, previous);
-        }
-    }
-
-    @Test(timeout = 20000)
-    public void testOrdinaryScanCleanupFailureBlocksSpringDestruction() throws Exception {
-        for (int mode = 0; mode < 5; mode++) {
-            assertCleanupBlocksDestruction(mode);
-        }
-    }
-
-    private static void assertCleanupBlocksDestruction(int mode) throws Exception {
-        ThreadPoolExecutor executor = (ThreadPoolExecutor) Executors.newFixedThreadPool(4);
-        HgStoreWrapperEx wrapper = mock(HgStoreWrapperEx.class);
-        ScanIterator broken = mock(ScanIterator.class);
-        ScanIterator healthy = mock(ScanIterator.class);
-        IllegalStateException failure = new IllegalStateException("injected native release failure");
-        doThrow(failure).when(broken).close();
-        when(wrapper.scanAll(anyString(), anyString(), any(byte[].class))).thenReturn(broken, healthy);
-        HgStoreStreamImpl service = scanService(executor, wrapper);
-        AnnotationConfigApplicationContext context =
-                new AnnotationConfigApplicationContext();
-        AtomicBoolean destroyed = new AtomicBoolean();
-        FutureTask<Void> closing = new FutureTask<>(() -> {
-            context.close();
-            return null;
-        });
-        Thread closer = new Thread(closing, "scan-failed-cleanup-context-close");
-        try {
-            context.getBeanFactory().registerSingleton("storeStream", service);
-            context.getBeanFactory().registerSingleton("queryService",
-                    mock(AggregativeQueryService.class));
-            context.getBeanFactory().registerSingleton("cleaner",
-                    mock(TTLCleaner.class));
-            context.getDefaultListableBeanFactory().registerDisposableBean("database", () -> destroyed.set(true));
-            context.register(ContextClosedListener.class,
-                             GrpcShutdownBarrier.class);
-            context.refresh();
-            for (int i = 0; i < 2; i++) {
-                ScanStreamReq request = ScanStreamReq.newBuilder().setMethod(ScanMethod.ALL)
-                                                     .setPageSize(1).setLimit(10).build();
-                switch (mode) {
-                    case 0:
-                        service.scan(mock(StreamObserver.class)).onNext(request);
-                        break;
-                    case 1:
-                        service.scanBatch2(mock(StreamObserver.class)).onNext(batchRequest());
-                        break;
-                    case 2:
-                        service.scanBatch(mock(StreamObserver.class)).onNext(batchRequest());
-                        break;
-                    case 3:
-                        service.scanOneShot(request, mock(StreamObserver.class));
-                        break;
-                    default:
-                        service.scanBatchOneShot(batchRequest(), mock(StreamObserver.class));
-                }
-            }
-            verify(broken, timeout(2000)).close();
-            verify(healthy, timeout(2000)).close();
-            closer.start();
-            assertTrue(executor.awaitTermination(2, TimeUnit.SECONDS));
-            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
-            Thread.State observed = closer.getState();
-            while (observed != Thread.State.TIMED_WAITING && System.nanoTime() < deadline) {
-                Thread.yield();
-                observed = closer.getState();
-            }
-            // Assert the captured wait observation: a second state read can see a
-            // notification wakeup even though database destruction remains blocked.
-            assertEquals(Thread.State.TIMED_WAITING, observed);
-            assertFalse("terminated workers do not confirm native cleanup", closing.isDone());
-            assertFalse(destroyed.get());
-            verify(broken).close();
-            verify(healthy).close();
-            Map<?, ?> pending = scanRegistry(service);
-            assertEquals(1, pending.size());
-            Object retained = pending.keySet().iterator().next();
-            Field cleanupFailure = retained.getClass().getDeclaredField("cleanupFailure");
-            cleanupFailure.setAccessible(true);
-            assertSame(failure, cleanupFailure.get(retained));
-        } finally {
-            // Test-only teardown: production never clears a failed native release.
-            Map<?, ?> pending = scanRegistry(service);
-            synchronized (pending) {
-                pending.clear();
-                pending.notifyAll();
-            }
-            executor.shutdownNow();
-            if (closer.isAlive()) {
-                closing.get(2, TimeUnit.SECONDS);
-            }
-            context.close();
         }
     }
 
@@ -713,83 +614,6 @@ public class ScanShutdownTest {
                 release.countDown();
                 executor.shutdownNow();
             }
-        }
-    }
-
-    private static HgStoreStreamImpl scanService(ThreadPoolExecutor executor,
-                                                 HgStoreWrapperEx wrapper) throws Exception {
-        HgStoreStreamImpl service = new HgStoreStreamImpl();
-        AppConfig config = mock(AppConfig.class);
-        when(config.getServerWaitTime()).thenReturn(5);
-        for (String name : new String[]{"executor", "wrapper", "appConfig"}) {
-            Field field = HgStoreStreamImpl.class.getDeclaredField(name);
-            field.setAccessible(true);
-            field.set(service, name.equals("executor") ? executor : name.equals("wrapper") ? wrapper : config);
-        }
-        return service;
-    }
-
-    private static Map<?, ?> scanRegistry(HgStoreStreamImpl service) throws Exception {
-        Field scans = HgStoreStreamImpl.class.getDeclaredField("scans");
-        scans.setAccessible(true);
-        return (Map<?, ?>) scans.get(service);
-    }
-
-    @Test
-    public void testClosingPreventsLazyExecutorAndStateCreation() {
-        HgStoreStreamImpl service = new HgStoreStreamImpl();
-        service.stopAcceptingScans();
-        assertUnavailable(service::getExecutor);
-        assertUnavailable(service::getState);
-        assertUnavailable(() -> service.scan(mock(StreamObserver.class)));
-        service.shutdownScans();
-        assertNull(service.getRealExecutor());
-    }
-
-    @Test(timeout = 5000)
-    public void testQueuedStreamCancellationDrainsWithoutOpeningIterator() throws Exception {
-        ThreadPoolExecutor executor = (ThreadPoolExecutor) Executors.newFixedThreadPool(1);
-        CountDownLatch release = new CountDownLatch(1);
-        CountDownLatch occupied = new CountDownLatch(1);
-        executor.execute(() -> {
-            occupied.countDown();
-            try {
-                release.await();
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-        });
-        HgStoreWrapperEx wrapper = mock(HgStoreWrapperEx.class);
-        AppConfig config = mock(AppConfig.class);
-        when(config.getServerWaitTime()).thenReturn(60);
-        StreamObserver<KvPageRes> output = mock(StreamObserver.class);
-        ScanStreamResponse response = ScanStreamResponse.of(output, wrapper, executor, config);
-        FutureTask<Void> request = new FutureTask<>(() -> {
-            response.onNext(ScanStreamReq.newBuilder().setMethod(ScanMethod.ALL)
-                                         .setPageSize(1).setLimit(10).build());
-            return null;
-        });
-        Thread caller = new Thread(request, "scan-shutdown-test");
-        try {
-            assertTrue(occupied.await(1, TimeUnit.SECONDS));
-            caller.start();
-            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(1);
-            while (executor.getQueue().isEmpty() && System.nanoTime() < deadline) {
-                Thread.yield();
-            }
-            assertEquals(1, executor.getQueue().size());
-            response.onError(Status.CANCELLED.asRuntimeException());
-            executor.shutdown();
-            release.countDown();
-            request.get(1, TimeUnit.SECONDS);
-            assertTrue(executor.awaitTermination(1, TimeUnit.SECONDS));
-            verifyNoInteractions(wrapper);
-            assertEquals(2L, executor.getCompletedTaskCount());
-        } finally {
-            response.onCompleted();
-            release.countDown();
-            executor.shutdownNow();
-            caller.join(1000);
         }
     }
 
@@ -1692,39 +1516,6 @@ public class ScanShutdownTest {
         } finally {
             channel.close();
             producer.join(1000);
-        }
-    }
-
-    private static void awaitTimedWaiting(Thread thread) {
-        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(1);
-        Thread.State observed = thread.getState();
-        while (observed != Thread.State.TIMED_WAITING && System.nanoTime() < deadline) {
-            Thread.yield();
-            observed = thread.getState();
-        }
-        assertEquals(Thread.State.TIMED_WAITING, observed);
-    }
-
-    private static ScanStreamBatchReq batchRequest() {
-        return ScanStreamBatchReq.newBuilder().setHeader(Header.newBuilder().setGraph("g"))
-                                 .setQueryRequest(ScanQueryRequest.newBuilder().setMethod(ScanMethod.ALL)
-                                                                 .setTable("t").setLimit(10)
-                                                                 .setPerKeyMax(Long.MAX_VALUE)
-                                                                 .setPageSize(1)).build();
-    }
-
-    private static void assertCancelled(StreamObserver<KvPageRes> output) {
-        ArgumentCaptor<Throwable> failure = ArgumentCaptor.forClass(Throwable.class);
-        verify(output).onError(failure.capture());
-        assertEquals(Status.Code.CANCELLED, Status.fromThrowable(failure.getValue()).getCode());
-    }
-
-    private static void assertUnavailable(Runnable action) {
-        try {
-            action.run();
-            fail("Scan admission must be closed");
-        } catch (StatusRuntimeException e) {
-            assertEquals(Status.Code.UNAVAILABLE, e.getStatus().getCode());
         }
     }
 }

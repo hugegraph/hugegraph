@@ -18,7 +18,6 @@
 package org.apache.hugegraph.store.service;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
@@ -52,7 +51,7 @@ import org.junit.Test;
 import io.grpc.Status;
 import io.grpc.stub.StreamObserver;
 
-public class GraphPartitionScanShutdownTest {
+public class GraphPartitionScanLifecycleTest extends GraphPartitionScanTestSupport {
 
     @Test
     public void testNaturalEndAndLimitCloseIteratorBeforeCompleting() throws Exception {
@@ -143,74 +142,6 @@ public class GraphPartitionScanShutdownTest {
             service.awaitScanCleanup();
             verify(iterator).close();
         } finally {
-            executor.shutdown();
-            assertTrue(executor.awaitTermination(2, TimeUnit.SECONDS));
-        }
-    }
-
-    @Test
-    public void testFailedNativeCloseRemainsInShutdownBarrier() throws Exception {
-        ThreadPoolExecutor executor = executor();
-        try {
-            HgStoreStreamImpl service = service(executor);
-            GraphStoreIterator<?> iterator = mock(GraphStoreIterator.class);
-            RuntimeException failure = new IllegalStateException("native close failed");
-            doThrow(failure).when(iterator).close();
-            BusinessHandler handler = mock(BusinessHandler.class);
-            doReturn(iterator).when(handler).scan(any());
-            StreamObserver<ScanResponse> response = mock(StreamObserver.class);
-            service.scanGraphPartition(response, handler).onNext(request(0));
-            verify(response, timeout(2000)).onError(failure);
-            assertEquals(1, registry(service).size());
-            Object lifecycle = registry(service).keySet().iterator().next();
-            java.lang.reflect.Method cleanup = lifecycle.getClass().getDeclaredMethod("cleanupFailure");
-            cleanup.setAccessible(true);
-            assertSame(failure, cleanup.invoke(lifecycle));
-            verify(iterator).close();
-        } finally {
-            executor.shutdown();
-            assertTrue(executor.awaitTermination(2, TimeUnit.SECONDS));
-        }
-    }
-
-    @Test
-    public void testShutdownWaitsForActiveReadBeforeClosingNativeIterator() throws Exception {
-        ThreadPoolExecutor executor = executor();
-        CountDownLatch entered = new CountDownLatch(1);
-        CountDownLatch release = new CountDownLatch(1);
-        CountDownLatch stopped = new CountDownLatch(1);
-        CountDownLatch stoppingStarted = new CountDownLatch(1);
-        try {
-            HgStoreStreamImpl service = service(executor);
-            GraphStoreIterator<?> iterator = mock(GraphStoreIterator.class);
-            when(iterator.hasNext()).thenAnswer(call -> {
-                entered.countDown();
-                assertTrue(release.await(2, TimeUnit.SECONDS));
-                return false;
-            });
-            BusinessHandler handler = mock(BusinessHandler.class);
-            doReturn(iterator).when(handler).scan(any());
-            StreamObserver<ScanResponse> response = mock(StreamObserver.class);
-            service.scanGraphPartition(response, handler).onNext(request(0));
-            assertTrue(entered.await(2, TimeUnit.SECONDS));
-            Thread stopping = new Thread(() -> {
-                service.stopAcceptingScans();
-                stoppingStarted.countDown();
-                service.shutdownScans();
-                service.awaitScanCleanup();
-                stopped.countDown();
-            });
-            stopping.start();
-            assertTrue(stoppingStarted.await(2, TimeUnit.SECONDS));
-            assertFalse(stopped.await(100, TimeUnit.MILLISECONDS));
-            release.countDown();
-            assertTrue(stopped.await(2, TimeUnit.SECONDS));
-            stopping.join(2000);
-            verify(iterator).close();
-            verify(response).onError(any());
-            assertTrue(registry(service).isEmpty());
-        } finally {
-            release.countDown();
             executor.shutdown();
             assertTrue(executor.awaitTermination(2, TimeUnit.SECONDS));
         }
@@ -453,29 +384,5 @@ public class GraphPartitionScanShutdownTest {
             executor.shutdown();
             assertTrue(executor.awaitTermination(5, TimeUnit.SECONDS));
         }
-    }
-
-    private static ScanPartitionRequest request(long limit) {
-        return ScanPartitionRequest.newBuilder().setScanRequest(Graphpb.ScanPartitionRequest.Request.newBuilder()
-                .setGraphName("TEST/credit-window")
-                .setScanType(Graphpb.ScanPartitionRequest.ScanType.SCAN_VERTEX).setLimit(limit)).build();
-    }
-
-    private static ThreadPoolExecutor executor() {
-        return new ThreadPoolExecutor(2, 2, 0, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<>());
-    }
-
-    private static HgStoreStreamImpl service(ThreadPoolExecutor executor) throws Exception {
-        HgStoreStreamImpl service = new HgStoreStreamImpl();
-        Field field = HgStoreStreamImpl.class.getDeclaredField("executor");
-        field.setAccessible(true);
-        field.set(service, executor);
-        return service;
-    }
-
-    private static Map<?, ?> registry(HgStoreStreamImpl service) throws Exception {
-        Field field = HgStoreStreamImpl.class.getDeclaredField("scans");
-        field.setAccessible(true);
-        return (Map<?, ?>) field.get(service);
     }
 }

@@ -397,21 +397,10 @@ For Docker and Kubernetes deployment details, see [Deployment Guide](docs/deploy
 
 ---
 
-## Stopping a Store node
-
-For an unpacked distribution, run `bin/stop-hugegraph-store.sh`. It waits up to
-30 seconds for process exit. A timeout returns a nonzero status and retains
-`bin/pid` for diagnosis; it does not force-kill the process or remove its data.
-Check the Store log and thread dump before taking further action.
-
-Spring owns shutdown: new RPCs are refused, active RPCs are cancelled, and context
-close waits for their callbacks and scan/TTL workers to release resources. The
-Store engine then stops and joins partition Raft services before releasing
-databases. A stuck callback keeps shutdown pending rather than allowing its
-database to close underneath it. Do not add a separate JVM hook that closes
-those databases concurrently.
-
 ## Documentation
+
+See [RPC and Scan lifecycle](../docs/store-lifecycle.md) for request ownership,
+cancellation and feedback semantics.
 
 Comprehensive documentation for HugeGraph Store:
 

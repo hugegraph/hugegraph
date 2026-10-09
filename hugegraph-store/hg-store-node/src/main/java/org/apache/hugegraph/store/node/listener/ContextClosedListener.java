@@ -17,30 +17,22 @@
 
 package org.apache.hugegraph.store.node.listener;
 
-import java.util.List;
-import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
 
-import org.apache.hugegraph.store.node.grpc.GrpcShutdownBarrier;
 import org.apache.hugegraph.store.node.grpc.HgStoreStreamImpl;
 import org.apache.hugegraph.store.node.grpc.query.AggregativeQueryService;
 import org.apache.hugegraph.store.node.task.TTLCleaner;
-import org.lognet.springboot.grpc.context.GRpcServerInitializedEvent;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationListener;
 import org.springframework.context.event.ContextClosedEvent;
-import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 
-import io.grpc.Server;
 import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 @Service
 public class ContextClosedListener implements ApplicationListener<ContextClosedEvent> {
-
-    private final List<Server> grpcServers = new CopyOnWriteArrayList<>();
 
     @Autowired
     HgStoreStreamImpl storeStream;
@@ -48,26 +40,17 @@ public class ContextClosedListener implements ApplicationListener<ContextClosedE
     AggregativeQueryService queryService;
     @Autowired
     TTLCleaner cleaner;
-    @Autowired
-    GrpcShutdownBarrier grpcBarrier;
-
-    @EventListener
-    public void onServerInitialized(GRpcServerInitializedEvent event) {
-        this.grpcServers.add(event.getServer());
-    }
 
     @Override
     public void onApplicationEvent(ContextClosedEvent event) {
         // Spring invokes HgStoreNodeService.destroy() after this event. Raft and
         // its databases must remain available until local workers have stopped.
-        this.grpcBarrier.stopAcceptingCalls();
         if (storeStream != null) {
             storeStream.stopAcceptingScans();
         }
         if (queryService != null) {
             queryService.stopAcceptingQueries();
         }
-        this.grpcServers.forEach(Server::shutdownNow);
         if (cleaner != null) {
             // The scheduler can create the worker pool while a job is starting.
             stopAndWait(cleaner.getScheduler(), "TTL scheduler");
@@ -82,32 +65,12 @@ public class ContextClosedListener implements ApplicationListener<ContextClosedE
             queryService.shutdownQueries();
             awaitWorkers(queryService.getThreadPool(), "aggregate query workers");
         }
-        boolean interrupted = false;
-        try {
-            for (Server server : this.grpcServers) {
-                while (!server.isTerminated()) {
-                    try {
-                        if (!server.awaitTermination(5, TimeUnit.SECONDS)) {
-                            log.warn("Still waiting for gRPC callbacks before closing databases");
-                        }
-                    } catch (InterruptedException e) {
-                        interrupted = true;
-                    }
-                }
-            }
-        } finally {
-            if (interrupted) {
-                Thread.currentThread().interrupt();
-            }
-        }
-        this.grpcBarrier.awaitCallbacks();
         if (storeStream != null) {
             storeStream.awaitScanCleanup();
         }
         if (cleaner != null) {
-            cleaner.awaitCleanup();
         }
-        log.info("closed gRPC callbacks, scan, aggregate query and TTL workers");
+        log.info("closed scan, aggregate query and TTL workers");
     }
 
     private static void stopAndWait(ExecutorService executor, String name) {

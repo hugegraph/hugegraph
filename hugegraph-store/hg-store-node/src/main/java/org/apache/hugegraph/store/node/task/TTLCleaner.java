@@ -33,7 +33,6 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiFunction;
 
 import org.apache.commons.lang3.ArrayUtils;
@@ -98,7 +97,6 @@ public class TTLCleaner implements Runnable {
     @Autowired
     private HgStoreNodeService service;
     private final AtomicBoolean running = new AtomicBoolean(false);
-    private final AtomicReference<Throwable> cleanupFailure = new AtomicReference<>();
 
     private final AppConfig appConfig;
     private final AppConfig.JobConfig jobConfig;
@@ -303,7 +301,7 @@ public class TTLCleaner implements Runnable {
                 LinkedList<ByteString> all = new LinkedList<>();
                 AtomicBoolean state = new AtomicBoolean(true);
                 AtomicLong partitionCounter = pc.get(id);
-                while (!Thread.currentThread().isInterrupted() && state.get() && filter.hasNext()) {
+                while (filter.hasNext() && state.get()) {
                     RocksDBSession.BackendColumn current = filter.next();
                     byte[] realKey =
                             Arrays.copyOfRange(current.name, 0, current.name.length - Short.BYTES);
@@ -317,7 +315,7 @@ public class TTLCleaner implements Runnable {
                         all = new LinkedList<>();
                     }
                 }
-                if (!Thread.currentThread().isInterrupted() && all.size() > 0 && state.get()) {
+                if (all.size() > 0 && state.get()) {
                     submitter.submitClean(id, graph, table, all, state, tableCounter,
                                           partitionCounter);
                 }
@@ -328,41 +326,12 @@ public class TTLCleaner implements Runnable {
                 String msg = String.format(s, id, graph, table);
                 log.error(msg, e);
             } finally {
-                try {
-                    if (scan != null) {
-                        scan.close();
-                    }
-                } catch (RuntimeException | Error failure) {
-                    this.cleanupFailure.compareAndSet(null, failure);
-                    log.error("TTL scan cleanup failed; database close stays blocked", failure);
-                } finally {
-                    latch.countDown();
+                latch.countDown();
+                if (scan != null) {
+                    scan.close();
                 }
             }
         };
-    }
-
-    /** Call after workers terminate: a failed native release must remain a shutdown blocker. */
-    public void awaitCleanup() {
-        boolean interrupted = false;
-        long nextLog = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
-        synchronized (this.cleanupFailure) {
-            while (this.cleanupFailure.get() != null) {
-                try {
-                    this.cleanupFailure.wait(5000L);
-                } catch (InterruptedException e) {
-                    interrupted = true;
-                }
-                if (System.nanoTime() - nextLog >= 0) {
-                    log.warn("TTL scan cleanup failed; database close stays blocked",
-                             this.cleanupFailure.get());
-                    nextLog = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
-                }
-            }
-        }
-        if (interrupted) {
-            Thread.currentThread().interrupt();
-        }
     }
 
     public ScheduledFuture<?> getFuture() {
