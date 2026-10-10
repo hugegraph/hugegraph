@@ -419,7 +419,7 @@ public abstract class RocksDBStore extends AbstractBackendStore<RocksDBSessions.
     }
 
     @Override
-    public void close() {
+    public synchronized void close() {
         LOG.debug("Store close: {}", this.store);
         // A failed restore may close the native owner while sessions still need
         // releasing. Native availability is not a prerequisite for lease cleanup.
