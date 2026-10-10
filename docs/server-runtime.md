@@ -11,6 +11,23 @@ The runtime uses TinkerPop 3.8.1 and Groovy 4.0.25. Build and run every module w
 17. Applications migrating from TinkerPop 3.5.1 must review the full version interval,
 including the configuration changes below.
 
+### Launcher GC options
+
+Use `bin/start-hugegraph.sh -g g1` (or `-g G1`) to select G1 explicitly.
+`-g zgc` and `-g ZGC` select ZGC; other values are rejected. Without `-g`, the
+launcher preserves the JVM's collector choice or the collector set by the caller in
+`JAVA_OPTIONS`. When `JAVA_OPTIONS` is empty, `-j "JVM_OPTIONS"` supplies the caller
+options instead.
+
+For the default or G1 path, the launcher supplies `-XX:+ParallelRefProcEnabled`,
+`-XX:InitiatingHeapOccupancyPercent=50` and `-XX:G1RSetUpdatingPauseTimePercent=5`
+before the caller's options, so caller values override these tuning defaults. For
+example, `bin/start-hugegraph.sh -g g1 -j "-XX:InitiatingHeapOccupancyPercent=45"`
+uses G1 with an occupancy threshold of 45 when `JAVA_OPTIONS` is empty.
+
+Do not combine explicit `-g` selection with a different collector in `JAVA_OPTIONS`
+or `-j`; the JVM rejects conflicting collector selections.
+
 ### Serializer configuration
 
 Use the Gremlin configuration files shipped with the upgraded Server. Serializer classes
