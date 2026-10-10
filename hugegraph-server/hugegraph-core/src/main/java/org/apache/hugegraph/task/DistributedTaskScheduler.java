@@ -33,6 +33,7 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Consumer;
 
 import org.apache.hugegraph.exception.HugeException;
 import org.apache.hugegraph.HugeGraph;
@@ -71,7 +72,7 @@ public class DistributedTaskScheduler extends TaskAndResultScheduler {
 
     private static final ThreadLocal<ScheduledThreadPoolExecutor> SCHEDULER_WORKER = new ThreadLocal<>();
 
-    private final ConcurrentHashMap<Id, HugeTask<?>> runningTasks = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<Id, PendingTask> runningTasks = new ConcurrentHashMap<>();
     private final Set<Id> deletingTasks = ConcurrentHashMap.newKeySet();
 
     public DistributedTaskScheduler(HugeGraphParams graph,
@@ -192,17 +193,20 @@ public class DistributedTaskScheduler extends TaskAndResultScheduler {
 
         while (!this.closed.get() && cancellings.hasNext()) {
             Id cancellingId = cancellings.next().id();
-            HugeTask<?> cancelling = runningTasks.get(cancellingId);
-            if (cancelling != null) {
+            PendingTask pending = this.runningTasks.get(cancellingId);
+            if (pending != null) {
+                HugeTask<?> cancelling = pending.task;
                 initTaskParams(cancelling);
                 LOG.info("Try to cancel task({})@({}/{})",
                          cancelling.id(), this.graphSpace, this.graphName);
-                if (!this.cancelLocal(cancelling)) {
-                    // Task already completed normally; force CANCELLED so
-                    // it doesn't stay stuck in CANCELLING forever.
-                    updateStatusWithLock(cancellingId, TaskStatus.CANCELLING,
-                                         TaskStatus.CANCELLED);
-                }
+                this.cancelLocal(pending, cancelled -> {
+                    if (!cancelled) {
+                        // Task already completed normally; don't leave CANCELLING stuck.
+                        updateStatusWithLock(cancellingId, TaskStatus.CANCELLING,
+                                             TaskStatus.CANCELLED);
+                    }
+                });
+                this.finishCancelledQueued(pending);
             } else {
                 // Local no execution task, but the current task has no nodes executing.
                 if (!isLockedTask(cancellingId.toString())) {
@@ -218,10 +222,12 @@ public class DistributedTaskScheduler extends TaskAndResultScheduler {
 
         while (!this.closed.get() && deletings.hasNext()) {
             Id deletingId = deletings.next().id();
-            HugeTask<?> deleting = runningTasks.get(deletingId);
-            if (deleting != null) {
+            PendingTask pending = this.runningTasks.get(deletingId);
+            if (pending != null) {
+                HugeTask<?> deleting = pending.task;
                 this.markTaskDeleting(deleting);
-                this.cancelLocal(deleting);
+                this.cancelLocal(pending);
+                this.finishCancelledQueued(pending);
             } else {
                 // Local has no task execution, but the current task has no nodes executing anymore.
                 if (!isLockedTask(deletingId.toString())) {
@@ -320,15 +326,18 @@ public class DistributedTaskScheduler extends TaskAndResultScheduler {
         LOG.info("Cancel task '{}' in status {}", task.id(), task.status());
 
         // Check if task is running locally, cancel it directly if so
-        HugeTask<?> runningTask = this.runningTasks.get(task.id());
-        if (runningTask != null) {
-            boolean cancelled = this.cancelLocal(runningTask);
-            if (cancelled) {
-                task.overwriteStatus(TaskStatus.CANCELLED);
-                if (!runningTask.ephemeralTask()) {
-                    this.save(runningTask);
+        PendingTask pending = this.runningTasks.get(task.id());
+        if (pending != null) {
+            HugeTask<?> runningTask = pending.task;
+            boolean cancelled = this.cancelLocal(pending, accepted -> {
+                if (accepted) {
+                    task.overwriteStatus(TaskStatus.CANCELLED);
+                    if (!runningTask.ephemeralTask()) {
+                        this.save(runningTask);
+                    }
                 }
-            }
+            });
+            this.finishCancelledQueued(pending);
             LOG.info("Cancel local running task '{}' result: {}", task.id(), cancelled);
             return;
         }
@@ -478,39 +487,60 @@ public class DistributedTaskScheduler extends TaskAndResultScheduler {
         });
     }
 
-    private boolean cancelLocal(HugeTask<?> task) {
+    private boolean cancelLocal(PendingTask pending) {
+        return this.cancelLocal(pending, cancelled -> { });
+    }
+
+    private boolean cancelLocal(PendingTask pending, Consumer<Boolean> afterCancel) {
         if (SCHEDULER_WORKER.get() == this.schedulerExecutor) {
-            try {
-                return task.cancel(true);
-            } finally {
-                this.graph.closeTx();
-            }
+            return this.cancelOwned(pending, afterCancel);
         }
-        // HugeTask cancellation invokes done/cancelled callbacks synchronously.
-        // Keep their graph transactions off the request/close caller's thread,
-        // and off the task DB worker because callbacks may synchronously save.
+        // Keep callbacks and final persistence off the request/close thread and
+        // the DB worker, because callbacks may synchronously save to that worker.
         return this.call(() -> {
             SCHEDULER_WORKER.set(this.schedulerExecutor);
             try {
-                return task.cancel(true);
+                return this.cancelOwned(pending, afterCancel);
             } finally {
-                try {
-                    this.graph.closeTx();
-                } finally {
-                    SCHEDULER_WORKER.remove();
-                }
+                SCHEDULER_WORKER.remove();
             }
         }, this.schedulerExecutor);
+    }
+
+    private boolean cancelOwned(PendingTask pending, Consumer<Boolean> afterCancel) {
+        pending.cancellationDepth++;
+        try {
+            return this.cancelAndThen(pending.task, afterCancel);
+        } finally {
+            try {
+                // Same-ticket reentry shares its outer callback's transaction ownership.
+                if (pending.cancellationDepth == 1) {
+                    this.graph.closeTx();
+                }
+            } finally {
+                pending.cancellationDepth--;
+            }
+        }
+    }
+
+    private boolean cancelAndThen(HugeTask<?> task, Consumer<Boolean> afterCancel) {
+        boolean cancelled = task.cancel(true);
+        // Serialize the final persistence with callbacks, including stale repeated
+        // cancellation requests, before owner/context cleanup and admission release.
+        afterCancel.accept(cancelled);
+        return cancelled;
     }
 
     @Override
     public <V> HugeTask<V> delete(Id id, boolean force) {
         HugeTask<?> task = this.taskWithoutResult(id);
-        HugeTask<?> running = this.runningTasks.get(id);
+        PendingTask pending = this.runningTasks.get(id);
 
-        if (running != null) {
+        if (pending != null) {
+            HugeTask<?> running = pending.task;
             this.markTaskDeleting(running);
-            this.cancelLocal(running);
+            this.cancelLocal(pending);
+            this.finishCancelledQueued(pending);
             @SuppressWarnings("unchecked")
             HugeTask<V> result = (HugeTask<V>) running;
             return result;
@@ -600,7 +630,8 @@ public class DistributedTaskScheduler extends TaskAndResultScheduler {
         }
 
         // cancel all running tasks
-        for (HugeTask<?> task : this.runningTasks.values()) {
+        for (PendingTask pending : this.runningTasks.values()) {
+            HugeTask<?> task = pending.task;
             LOG.info("cancel task({}) @({}/{}) when closing scheduler",
                      task.id(), graphSpace, graphName);
             this.cancel(task);
@@ -854,8 +885,6 @@ public class DistributedTaskScheduler extends TaskAndResultScheduler {
     }
 
     private Future<?> submitTask(HugeTask<?> task, ExecutorService executor, Runnable work) {
-        E.checkState(this.runningTasks.putIfAbsent(task.id(), task) == null,
-                     "Task '%s' is already pending", task.id());
         TaskManager.ContextCallable<Void> owned = new TaskManager.ContextCallable<>(() -> {
             try {
                 work.run();
@@ -865,18 +894,28 @@ public class DistributedTaskScheduler extends TaskAndResultScheduler {
             }
         });
         PendingTask pending = new PendingTask(task, owned, executor);
+        E.checkState(this.runningTasks.putIfAbsent(task.id(), pending) == null,
+                     "Task '%s' is already pending", task.id());
         try {
             executor.execute(pending);
             return pending;
         } catch (RuntimeException | Error error) {
-            this.finishTask(task);
+            this.finishTask(pending);
             throw error;
         }
     }
 
-    private synchronized void finishTask(HugeTask<?> task) {
-        if (this.runningTasks.remove(task.id(), task)) {
-            this.deletingTasks.remove(task.id());
+    private synchronized void finishTask(PendingTask pending) {
+        if (this.runningTasks.remove(pending.task.id(), pending)) {
+            this.deletingTasks.remove(pending.task.id());
+        }
+    }
+
+    private void finishCancelledQueued(PendingTask pending) {
+        // Release only after cancellation callbacks and this path's final DB work.
+        if (pending.cancellationDepth == 0 &&
+            this.runningTasks.get(pending.task.id()) == pending) {
+            pending.cancelBeforeStart();
         }
     }
 
@@ -885,6 +924,8 @@ public class DistributedTaskScheduler extends TaskAndResultScheduler {
         private final HugeTask<?> task;
         private final ExecutorService executor;
         private final AtomicBoolean started = new AtomicBoolean();
+        // Written only by the existing scheduler worker; read by its request caller.
+        private volatile int cancellationDepth;
 
         PendingTask(HugeTask<?> task, Callable<Void> owned, ExecutorService executor) {
             super(owned);
@@ -899,7 +940,7 @@ public class DistributedTaskScheduler extends TaskAndResultScheduler {
                     super.run();
                 } finally {
                     // Active cancellation cannot release admission before owner/context cleanup.
-                    finishTask(this.task);
+                    finishTask(this);
                 }
             }
         }
@@ -909,11 +950,22 @@ public class DistributedTaskScheduler extends TaskAndResultScheduler {
             if (this.isCancelled() && this.started.compareAndSet(false, true)) {
                 // The outer Future was cancelled before work began. Do not invoke
                 // HugeTask callbacks on this caller thread or change its original task state.
-                if (this.executor instanceof ThreadPoolExecutor) {
-                    ((ThreadPoolExecutor) this.executor).remove(this);
-                }
-                finishTask(this.task);
+                this.releaseQueued();
             }
+        }
+
+        private void cancelBeforeStart() {
+            if (this.started.compareAndSet(false, true)) {
+                this.cancel(false);
+                this.releaseQueued();
+            }
+        }
+
+        private void releaseQueued() {
+            if (this.executor instanceof ThreadPoolExecutor) {
+                ((ThreadPoolExecutor) this.executor).remove(this);
+            }
+            finishTask(this);
         }
     }
 

@@ -399,11 +399,13 @@ public class DistributedTaskAdmissionTest {
                     Thread.yield();
                 }
                 Assert.assertTrue(admitted.isCancelled());
-                Assert.assertFalse(close.isDone());
-                Assert.assertEquals(1, target.scheduler.pendingTasks());
+                // The target's inactive wrapper has no owner: its callbacks/save are
+                // finished, so closing it need not wait for another graph's worker.
+                Assert.assertTrue(close.get(10L, TimeUnit.SECONDS));
+                Assert.assertEquals(0, target.scheduler.pendingTasks());
+                Assert.assertTrue(other.worker.getQueue().isEmpty());
                 Assert.assertFalse(otherTask.isCancelled());
                 other.worker.release.countDown();
-                Assert.assertTrue(close.get(10L, TimeUnit.SECONDS));
                 other.worker.submit(() -> null).get(10L, TimeUnit.SECONDS);
                 Assert.assertEquals(0, target.scheduler.pendingTasks());
                 Assert.assertEquals(0, other.scheduler.pendingTasks());
@@ -414,6 +416,96 @@ public class DistributedTaskAdmissionTest {
                 other.worker.release.countDown();
                 closing.shutdownNow();
                 Assert.assertTrue(closing.awaitTermination(10L, TimeUnit.SECONDS));
+            }
+        }
+    }
+
+    @Test
+    public void testQueuedPersistentCancellationReleasesAfterFinalSave() throws Exception {
+        try (Fixture other = new Fixture("cancel_other");
+             Fixture target = new Fixture("cancel_target", other.worker)) {
+            other.worker.armed.set(true);
+            AtomicBoolean otherRan = new AtomicBoolean();
+            HugeTask<?> otherTask = task(true, otherRan, 9999950L);
+            other.scheduler.schedule(otherTask);
+            Assert.assertTrue(other.worker.reached.await(10L, TimeUnit.SECONDS));
+            CancellationJob callable = new CancellationJob();
+            HugeTask<?> admitted = new HugeTask<>(IdGenerator.of(9999951L), null, callable);
+            admitted.type("test");
+            admitted.name("queued-persistent-cancel");
+            target.scheduler.schedule(admitted);
+            HugeTask<?> stale = target.scheduler.task(admitted.id(), false);
+            AtomicBoolean nestedReturned = new AtomicBoolean();
+            callable.onCancelled = () -> {
+                target.scheduler.cancel(stale);
+                Assert.assertEquals(1, target.scheduler.pendingTasks());
+                Assert.assertEquals(1, other.worker.getQueue().size());
+                nestedReturned.set(true);
+            };
+            CountDownLatch finalSave = new CountDownLatch(1);
+            CountDownLatch finishSave = new CountDownLatch(1);
+            AtomicInteger cancelledSaves = new AtomicInteger();
+            target.scheduler.beforeSave = () -> {
+                if (admitted.status() == TaskStatus.CANCELLED &&
+                    Thread.currentThread() == callable.cancellationThread &&
+                    cancelledSaves.incrementAndGet() == 1) {
+                    finalSave.countDown();
+                    try {
+                        Assert.assertTrue(finishSave.await(10L, TimeUnit.SECONDS));
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        throw new IllegalStateException(e);
+                    }
+                }
+            };
+            ExecutorService cancelling = Executors.newFixedThreadPool(2);
+            try {
+                Future<?> cancel = cancelling.submit(() -> target.scheduler.cancel(admitted));
+                Assert.assertTrue(finalSave.await(10L, TimeUnit.SECONDS));
+                Assert.assertEquals(1, callable.done.get());
+                Assert.assertEquals(1, callable.cancelled.get());
+                Assert.assertTrue(nestedReturned.get());
+                Assert.assertEquals(TaskStatus.CANCELLED, target.scheduler.task(admitted.id(), false).status());
+                // Callbacks have saved, but the request's final DB operation still owns admission.
+                Assert.assertEquals(1, target.scheduler.pendingTasks());
+                Assert.assertEquals(1, other.worker.getQueue().size());
+                int queuedBefore = target.cron.getQueue().size();
+                Future<?> repeated = cancelling.submit(() -> target.scheduler.cancel(stale));
+                long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10L);
+                while (target.cron.getQueue().size() <= queuedBefore && !repeated.isDone() &&
+                       System.nanoTime() < deadline) {
+                    Thread.yield();
+                }
+                Assert.assertFalse(repeated.isDone());
+                Assert.assertTrue(target.cron.getQueue().size() > queuedBefore);
+                Assert.assertEquals(1, target.scheduler.pendingTasks());
+                Assert.assertEquals(1, other.worker.getQueue().size());
+                finishSave.countDown();
+                cancel.get(10L, TimeUnit.SECONDS);
+                repeated.get(10L, TimeUnit.SECONDS);
+                Assert.assertEquals(0, target.scheduler.pendingTasks());
+                Assert.assertTrue(other.worker.getQueue().isEmpty());
+                Assert.assertEquals(TaskStatus.CANCELLED, target.scheduler.task(admitted.id(), false).status());
+                Assert.assertFalse(callable.ran.get());
+                Assert.assertFalse(otherTask.isCancelled());
+                // A fresh same-id retry has a new ticket; old cancellation cannot remove it.
+                HugeTask<?> replacement = task(false, new AtomicBoolean(), 9999951L);
+                target.scheduler.schedule(replacement);
+                Assert.assertEquals(TaskStatus.NEW, target.scheduler.task(replacement.id(), false).status());
+                Assert.assertEquals(1, target.scheduler.pendingTasks());
+                Assert.assertEquals(1, other.worker.getQueue().size());
+                target.scheduler.cancel(replacement);
+                Assert.assertEquals(0, target.scheduler.pendingTasks());
+                Assert.assertTrue(other.worker.getQueue().isEmpty());
+                other.worker.release.countDown();
+                other.worker.submit(() -> null).get(10L, TimeUnit.SECONDS);
+                Assert.assertTrue(otherRan.get());
+                Assert.assertEquals(0, other.scheduler.pendingTasks());
+            } finally {
+                finishSave.countDown();
+                other.worker.release.countDown();
+                cancelling.shutdownNow();
+                Assert.assertTrue(cancelling.awaitTermination(10L, TimeUnit.SECONDS));
             }
         }
     }
@@ -593,6 +685,7 @@ public class DistributedTaskAdmissionTest {
 
         private final AtomicInteger lateSaved = new AtomicInteger();
         private final AtomicBoolean leaseRecovered = new AtomicBoolean();
+        private volatile Runnable beforeSave = () -> { };
 
         CountingScheduler(HugeGraphParams graph, ScheduledThreadPoolExecutor cron,
                           ExecutorService database, ExecutorService worker) {
@@ -611,6 +704,7 @@ public class DistributedTaskAdmissionTest {
 
         @Override
         public <V> void save(HugeTask<V> task) {
+            this.beforeSave.run();
             if (Math.abs(task.id().asLong()) == 9999911L) {
                 this.lateSaved.incrementAndGet();
             }
