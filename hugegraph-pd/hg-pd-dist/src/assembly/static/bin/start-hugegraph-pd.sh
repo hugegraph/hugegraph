@@ -115,8 +115,8 @@ case "$GC_OPTION" in
         else
             echo "Using JVM garbage collector configuration"
         fi
-        JAVA_OPTIONS="${JAVA_OPTIONS} -XX:+ParallelRefProcEnabled \
-                      -XX:InitiatingHeapOccupancyPercent=50 -XX:G1RSetUpdatingPauseTimePercent=5"
+        JAVA_OPTIONS="-XX:+ParallelRefProcEnabled -XX:InitiatingHeapOccupancyPercent=50 \
+                      -XX:G1RSetUpdatingPauseTimePercent=5 ${JAVA_OPTIONS}"
         ;;
     zgc|ZGC)
         echo "Using ZGC as the default garbage collector (requires Java 17 or later)"
