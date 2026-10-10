@@ -400,10 +400,15 @@ For Docker and Kubernetes deployment details, see [Deployment Guide](docs/deploy
 
 ---
 
+## Stopping a Store node
+
+See [Store-wide shutdown](../docs/storage-lifecycle.md#store-node-shutdown) for stop commands,
+timeout handling, diagnostics and resource drain behavior.
+
 ## Documentation
 
-See [RPC and Scan lifecycle](../docs/storage-lifecycle.md#rpc-and-scan-ownership) for request ownership,
-cancellation and feedback semantics.
+See the [storage lifecycle guide](../docs/storage-lifecycle.md) for request ownership,
+shutdown, recovery and provider configuration.
 
 Comprehensive documentation for HugeGraph Store:
 

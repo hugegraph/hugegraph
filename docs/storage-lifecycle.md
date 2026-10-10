@@ -12,8 +12,8 @@ atomic restore across all databases in a graph.
 
 - [RPC and Scan ownership](#rpc-and-scan-ownership): final batches, half-close,
   cancellation, iterator cleanup and callback dispatch.
-- [Shutdown coordination](#shutdown-coordination): admission, worker drain and
-  application callbacks before database teardown.
+- [Shutdown coordination](#shutdown-coordination): admission, worker drain, TTL cleanup
+  and [Store node shutdown](#store-node-shutdown).
 - [Standalone snapshot recovery](#standalone-snapshot-recovery): pending records,
   checkpoint identity, WAL paths and safe retry.
 - [Storage provider selection and ToplingDB](#storage-provider-selection-and-toplingdb):
@@ -113,6 +113,38 @@ The engine closes partition databases after their partition engines shut down, t
 releases graph database and schema resources. Keep this ordering when modifying Raft or
 database teardown. Request drain and database release have different responsibilities;
 reuse their existing owners instead of adding a parallel registry.
+
+### Store node shutdown
+
+Spring coordinates Store shutdown: new RPCs are refused, active requests are cancelled,
+and their application callbacks and scan workers are drained before database teardown.
+The shutdown coordinator continues cancellation and independent cleanup even if one
+callback fails. It reuses the existing per-call owners.
+
+TTL cleanup closes the scan before returning its borrowed RocksDB session lease. Both
+releases are attempted when either fails. The first cleanup failure is retained, later
+failures are attached, and completion is signalled after these release attempts.
+Executor termination alone does not establish that native cleanup succeeded.
+
+Shutdown waits for TTL cleanup as well as ordinary request callbacks. Failed native
+releases remain diagnostic drain blockers. The engine stops heartbeat producers and
+joins partition Raft services before releasing native databases. Do not add a concurrent
+JVM shutdown hook that closes those databases independently of this drain.
+
+Cancellation can fail in-flight writes. Before planned maintenance, stop new writes and
+check outstanding write outcomes.
+
+For an unpacked distribution, invoke its normal stop script:
+
+```bash
+bash bin/stop-hugegraph-store.sh
+```
+
+The script waits up to 30 seconds for process exit. A timeout returns a nonzero status
+and retains `bin/pid` for diagnosis; it does not force-kill the process or remove data.
+A stuck callback or failed iterator close can keep shutdown pending. Inspect Store logs
+and a JVM thread dump to identify the remaining owner before retrying. Preserve the data,
+WAL and Raft directories, and do not bypass the resource drain to make the process exit.
 
 ## Standalone snapshot recovery
 

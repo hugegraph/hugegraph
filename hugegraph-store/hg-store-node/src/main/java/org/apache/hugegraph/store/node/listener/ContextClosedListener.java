@@ -69,13 +69,9 @@ public class ContextClosedListener implements ApplicationListener<ContextClosedE
         }
         this.grpcServers.forEach(Server::shutdownNow);
         if (cleaner != null) {
-            // TTL failure ownership and worker drain are added by the native shutdown PR.
-            if (cleaner.getExecutor() != null) {
-                cleaner.getExecutor().shutdownNow();
-            }
-            if (cleaner.getScheduler() != null) {
-                cleaner.getScheduler().shutdownNow();
-            }
+            // The scheduler can create the worker pool while a job is starting.
+            stopAndWait(cleaner.getScheduler(), "TTL scheduler");
+            stopAndWait(cleaner.getExecutor(), "TTL workers");
         }
         if (storeStream != null) {
             // Cancelled queued scans must run their finally blocks to release iterators.
@@ -108,7 +104,18 @@ public class ContextClosedListener implements ApplicationListener<ContextClosedE
         if (storeStream != null) {
             storeStream.awaitScanCleanup();
         }
-        log.info("closed gRPC callbacks, scan and aggregate query workers");
+        if (cleaner != null) {
+            cleaner.awaitCleanup();
+        }
+        log.info("closed gRPC callbacks, scan, aggregate query and TTL workers");
+    }
+
+    private static void stopAndWait(ExecutorService executor, String name) {
+        if (executor == null) {
+            return;
+        }
+        executor.shutdownNow();
+        awaitWorkers(executor, name);
     }
 
     private static void awaitWorkers(ExecutorService executor, String name) {
