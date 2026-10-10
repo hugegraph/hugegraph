@@ -100,7 +100,7 @@ HugeGraph supports both **standalone** and **distributed** deployments:
 
 See the [backend evolution guide](hugegraph-server/README.md#backend-evolution-and-compatibility) for lifecycle and historical compatibility guidance.
 
-To use ToplingDB with the RocksDB backend, follow the [three-step switching guide](docs/toplingdb.md).
+To use ToplingDB with the RocksDB backend, follow the [three-step switching guide](docs/storage-lifecycle.md#storage-provider-selection-and-toplingdb).
 
 ### Deployment Mode Comparison
 
@@ -317,9 +317,7 @@ gremlin> :> g.V().limit(5)
 
 For comprehensive documentation, visit the [HugeGraph Documentation](https://hugegraph.apache.org/docs/).
 
-See [standalone RocksDB snapshot recovery](docs/rocksdb-recovery.md) before restoring data or mounting store directories.
-
-For an existing deployment, read the [RocksDB upgrade guidance](docs/rocksdb-upgrade.md) before upgrading the storage runtime.
+Read the [storage lifecycle and recovery guide](docs/storage-lifecycle.md) before restoring data, mounting store directories or upgrading the storage runtime.
 
 </details>
 
