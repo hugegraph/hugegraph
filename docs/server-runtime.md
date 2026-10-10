@@ -463,9 +463,10 @@ Deletion does not fence graph transactions across requests; a partial deletion i
 cleanup in progress, not permission to resume using the graph.
 
 Deletion refuses to remove graph metadata, configuration or backend data until the
-local task scheduler has drained. The distributed scheduler starts shutdown by
-rejecting new submissions and requesting cancellation of local tasks; an incomplete
-shutdown does not restore task admission. Wait for task execution and transaction
+local task scheduler has drained. Both schedulers reject new submissions and
+dependency retries once shutdown starts; the distributed scheduler also requests
+cancellation of local tasks. An incomplete shutdown does not restore task admission.
+Wait for task execution and transaction
 owners to drain, then retry the request. Task results remain writable while tasks
 drain. If PD metadata removal fails after closure,
 the graph remains registered with its data and configuration, and new task

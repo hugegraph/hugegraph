@@ -337,6 +337,12 @@ public class StandardTaskAdmissionTest {
             Assert.assertEquals(TaskStatus.RUNNING, task.status());
             Assert.assertEquals(1, scheduler.pendingTasks());
             Assert.assertFalse(scheduler.close());
+            HugeTask<Object> late = new HugeTask<>(IdGenerator.of(9999990L), null, new EmptyCallable());
+            late.type("test");
+            late.name("rejected-during-worker-drain");
+            Assert.assertThrows(IllegalStateException.class, () -> scheduler.schedule(late));
+            Assert.assertEquals(TaskStatus.NEW, late.status());
+            Assert.assertEquals(1, scheduler.pendingTasks());
             job.release.countDown();
             scheduler.waitUntilAllTasksCompleted(10L);
             Assert.assertEquals(0, job.interrupts.get());
@@ -420,6 +426,69 @@ public class StandardTaskAdmissionTest {
         } finally {
             release.countDown();
             job.release.countDown();
+            scheduler.waitUntilAllTasksCompleted(10L);
+            worker.shutdownNow();
+            Assert.assertTrue(worker.awaitTermination(10L, TimeUnit.SECONDS));
+            scheduler.close();
+            database.shutdownNow();
+            Assert.assertTrue(database.awaitTermination(10L, TimeUnit.SECONDS));
+            graph.close();
+            HugeFactory.remove(graph);
+        }
+    }
+
+    @Test
+    public void testCloseFencesUnfinishedDependencyRetriesBeforeDrain() throws Exception {
+        RegisterUtil.registerBackends();
+        HugeConfig config = FakeObjects.newConfig();
+        config.setProperty("backend", "memory");
+        config.setProperty("serializer", "text");
+        config.setProperty("store", "standard_close_dependency");
+        HugeGraph graph = HugeFactory.open(config);
+        ExecutorService worker = Executors.newSingleThreadExecutor();
+        ExecutorService database = Executors.newSingleThreadExecutor();
+        CountDownLatch occupied = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        StandardTaskScheduler scheduler = new StandardTaskScheduler(
+                Whitebox.getInternalState(graph, "params"), worker, database);
+        HugeTask<Object> retry = null;
+        try {
+            graph.initBackend();
+            graph.serverStarted(GlobalMasterInfo.master("standard-close-dependency-test"));
+            worker.submit(() -> {
+                occupied.countDown();
+                release.await();
+                return null;
+            });
+            Assert.assertTrue(occupied.await(10L, TimeUnit.SECONDS));
+            HugeTask<Object> dependency = new HugeTask<>(IdGenerator.of(9999991L), null, new EmptyCallable());
+            dependency.type("test");
+            dependency.name("unfinished-close-dependency");
+            scheduler.save(dependency);
+            retry = new HugeTask<>(IdGenerator.of(9999992L), null, new EmptyCallable());
+            retry.type("test");
+            retry.name("closing-dependency-retry");
+            retry.depends(dependency.id());
+            Future<?> dispatch = scheduler.schedule(retry);
+            Assert.assertFalse(scheduler.close());
+            Assert.assertEquals(1, scheduler.pendingTasks());
+            HugeTask<Object> late = new HugeTask<>(IdGenerator.of(9999993L), null, new EmptyCallable());
+            late.type("test");
+            late.name("rejected-during-dependency-drain");
+            Assert.assertThrows(IllegalStateException.class, () -> scheduler.schedule(late));
+            Assert.assertEquals(TaskStatus.NEW, late.status());
+            release.countDown();
+            dispatch.get(10L, TimeUnit.SECONDS);
+            scheduler.waitUntilAllTasksCompleted(10L);
+            Assert.assertEquals(TaskStatus.FAILED, retry.status());
+            Assert.assertContains("is closing", retry.result());
+            Assert.assertEquals(0, scheduler.pendingTasks());
+            Assert.assertTrue(scheduler.close());
+        } finally {
+            release.countDown();
+            if (retry != null && !retry.completed()) {
+                scheduler.cancel(retry);
+            }
             scheduler.waitUntilAllTasksCompleted(10L);
             worker.shutdownNow();
             Assert.assertTrue(worker.awaitTermination(10L, TimeUnit.SECONDS));

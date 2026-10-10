@@ -443,12 +443,12 @@ public class StandardTaskScheduler implements TaskScheduler {
 
     @Override
     public synchronized boolean close() {
+        this.admissionClosed = true;
         // Running tasks still need the task DB transaction to persist done().
         // Retain the scheduler and its owners until a later close attempt.
         if (this.pendingTasks() != 0) {
             return false;
         }
-        this.admissionClosed = true;
         Throwable failure = null;
         boolean closed = false;
         try {

@@ -835,8 +835,9 @@ public class GraphDropPendingTest {
             HugeTask<Object> admitted = new HugeTask<>(IdGenerator.of(9999950L + route), null,
                                                        new EmptyCallable());
             admitted.type("test");
-            admitted.name("admitted-after-pending-refusal");
-            scheduler.schedule(admitted).get(10L, TimeUnit.SECONDS);
+            admitted.name("rejected-after-pending-refusal");
+            Assert.assertThrows(IllegalStateException.class, () -> scheduler.schedule(admitted));
+            Assert.assertThrows(NotFoundException.class, () -> scheduler.task(admitted.id()));
             callable.release.countDown();
             running.get(10L, TimeUnit.SECONDS);
             scheduler.waitUntilAllTasksCompleted(10L);
