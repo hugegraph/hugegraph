@@ -16,7 +16,7 @@
 
 ---
 
-**Quick Navigation:** [Architecture](#architecture) • [Quick Start](#quick-start) • [Module Map](#module-map) • [Ecosystem](#ecosystem) • [For Contributors](#for-contributors) • [Community](#community)
+**Quick Navigation:** [Architecture](#architecture) • [Quick Start](#quick-start) • [Module Map](#module-map) • [Ecosystem](#ecosystem) • [For Contributors](#contributing) • [Community](#community)
 
 ---
 
@@ -190,7 +190,7 @@ The launch scripts reject Java versions older than 17. That minimum-version
 check does not qualify later Java releases; use Java 17 unless another release
 is explicitly listed as supported.
 
-For this upgrade, read the [TinkerPop 3.8.1 migration guide](docs/upgrade-tinkerpop-3.8.md)
+Read the [Server runtime guide](docs/server-runtime.md#runtime-and-client-configuration)
 for client configuration and query compatibility checks.
 
 ### Option 1: Docker (Fastest)
