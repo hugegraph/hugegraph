@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1300 780" width="1300" height="780">
+<rect x="0" y="0" width="1300" height="780" fill="#ffffff"/>
+<text x="40" y="50" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="26" font-weight="bold" fill="#111111">Where each added or newly registered test runs</text>
+<text x="40" y="82" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="18" fill="#555555">140 new tests, 50 existing tests that compiled but never ran. Counts are surefire results on the PR head.</text>
+<text x="40" y="128" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="18" font-weight="bold" fill="#333333">Module</text>
+<text x="300" y="128" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="18" font-weight="bold" fill="#333333">Tests now executed</text>
+<text x="560" y="128" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="18" font-weight="bold" fill="#333333">Maven profile and suite that runs them</text>
+<text x="980" y="128" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="18" font-weight="bold" fill="#9a3412">Left unregistered (reason)</text>
+<rect x="40" y="150" width="230" height="80" rx="8" fill="#eef2ff" stroke="#4f46e5" stroke-width="2"/>
+<text x="155" y="196" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="19" text-anchor="middle" fill="#1e1b4b">hugegraph-struct</text>
+<line x1="270" y1="190" x2="548" y2="190" stroke="#444444" stroke-width="2"/><polygon points="546,184 558,190 546,196" fill="#444444"/>
+<text x="300" y="180" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="19" font-weight="bold" fill="#166534">19 new</text>
+<rect x="560" y="150" width="390" height="80" rx="8" fill="#f0fdf4" stroke="#16a34a" stroke-width="2"/>
+<text x="580" y="184" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="18" fill="#14532d">mvn test -pl hugegraph-struct</text>
+<text x="580" y="212" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="18" fill="#14532d">surefire default includes</text>
+<rect x="40" y="246" width="230" height="80" rx="8" fill="#eef2ff" stroke="#4f46e5" stroke-width="2"/>
+<text x="155" y="292" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="19" text-anchor="middle" fill="#1e1b4b">hugegraph-commons</text>
+<line x1="270" y1="286" x2="548" y2="286" stroke="#444444" stroke-width="2"/><polygon points="546,280 558,286 546,292" fill="#444444"/>
+<text x="300" y="276" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="19" font-weight="bold" fill="#166534">29 new</text>
+<rect x="560" y="246" width="390" height="80" rx="8" fill="#f0fdf4" stroke="#16a34a" stroke-width="2"/>
+<text x="580" y="280" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="18" fill="#14532d">common + rpc UnitTestSuite</text>
+<text x="580" y="308" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="18" fill="#14532d">-DskipCommonsTests=false</text>
+<rect x="40" y="342" width="230" height="80" rx="8" fill="#eef2ff" stroke="#4f46e5" stroke-width="2"/>
+<text x="155" y="388" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="19" text-anchor="middle" fill="#1e1b4b">hugegraph-server</text>
+<line x1="270" y1="382" x2="548" y2="382" stroke="#444444" stroke-width="2"/><polygon points="546,376 558,382 546,388" fill="#444444"/>
+<text x="300" y="372" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="19" font-weight="bold" fill="#166534">19 new</text>
+<text x="300" y="406" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="19" fill="#1d4ed8">+ 16 existing</text>
+<rect x="560" y="342" width="390" height="80" rx="8" fill="#f0fdf4" stroke="#16a34a" stroke-width="2"/>
+<text x="580" y="376" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="18" fill="#14532d">-P unit-test</text>
+<text x="580" y="404" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="18" fill="#14532d">UnitTestSuite</text>
+<rect x="980" y="342" width="290" height="80" rx="8" fill="#fff7ed" stroke="#ea580c" stroke-width="2" stroke-dasharray="6,4"/>
+<text x="995" y="376" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="17" fill="#7c2d12">MemoryConsumerTest</text>
+<text x="995" y="402" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="17" fill="#7c2d12">fails inside suite</text>
+<rect x="40" y="438" width="230" height="80" rx="8" fill="#eef2ff" stroke="#4f46e5" stroke-width="2"/>
+<text x="155" y="484" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="19" text-anchor="middle" fill="#1e1b4b">hugegraph-pd</text>
+<line x1="270" y1="478" x2="548" y2="478" stroke="#444444" stroke-width="2"/><polygon points="546,472 558,478 546,484" fill="#444444"/>
+<text x="300" y="468" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="19" font-weight="bold" fill="#166534">33 new</text>
+<text x="300" y="502" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="19" fill="#1d4ed8">+ 3 existing</text>
+<rect x="560" y="438" width="390" height="80" rx="8" fill="#f0fdf4" stroke="#16a34a" stroke-width="2"/>
+<text x="580" y="472" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="18" fill="#14532d">-P pd-core-test</text>
+<text x="580" y="500" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="18" fill="#14532d">PDCoreSuiteTest</text>
+<rect x="980" y="438" width="290" height="80" rx="8" fill="#fff7ed" stroke="#ea580c" stroke-width="2" stroke-dasharray="6,4"/>
+<text x="995" y="472" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="17" fill="#7c2d12">PDWatchTest, PDPulseTest</text>
+<text x="995" y="498" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="17" fill="#7c2d12">need live PD</text>
+<rect x="40" y="534" width="230" height="80" rx="8" fill="#eef2ff" stroke="#4f46e5" stroke-width="2"/>
+<text x="155" y="580" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="19" text-anchor="middle" fill="#1e1b4b">hugegraph-store</text>
+<line x1="270" y1="574" x2="548" y2="574" stroke="#444444" stroke-width="2"/><polygon points="546,568 558,574 546,580" fill="#444444"/>
+<text x="300" y="564" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="19" font-weight="bold" fill="#166534">38 new</text>
+<text x="300" y="598" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="19" fill="#1d4ed8">+ 31 existing</text>
+<rect x="560" y="534" width="390" height="80" rx="8" fill="#f0fdf4" stroke="#16a34a" stroke-width="2"/>
+<text x="580" y="568" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="18" fill="#14532d">-P store-{common,rocksdb,</text>
+<text x="580" y="596" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="18" fill="#14532d">raftcore,client,core}-test suites</text>
+<rect x="980" y="534" width="290" height="80" rx="8" fill="#fff7ed" stroke="#ea580c" stroke-width="2" stroke-dasharray="6,4"/>
+<text x="995" y="568" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="17" fill="#7c2d12">client tests that need a live cluster</text>
+<rect x="40" y="630" width="230" height="80" rx="8" fill="#eef2ff" stroke="#4f46e5" stroke-width="2"/>
+<text x="155" y="676" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="19" text-anchor="middle" fill="#1e1b4b">hugegraph-cluster-test</text>
+<line x1="270" y1="670" x2="548" y2="670" stroke="#444444" stroke-width="2"/><polygon points="546,664 558,670 546,676" fill="#444444"/>
+<text x="300" y="660" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="19" font-weight="bold" fill="#166534">2 new</text>
+<rect x="560" y="630" width="390" height="80" rx="8" fill="#f0fdf4" stroke="#16a34a" stroke-width="2"/>
+<text x="580" y="664" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="18" fill="#14532d">-P simple-cluster-test</text>
+<text x="580" y="692" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="18" fill="#14532d">SimpleClusterSuiteTest</text>
+<text x="40" y="746" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="17" fill="#555555">Green: new test classes. Blue: existing classes registered by this PR after passing unchanged.</text>
+</svg>
