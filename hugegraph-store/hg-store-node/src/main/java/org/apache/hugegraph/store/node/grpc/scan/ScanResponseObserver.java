@@ -230,7 +230,7 @@ public class ScanResponseObserver<T> implements StreamObserver<ScanPartitionRequ
                             this.sender.onNext(response.toBuilder().setSeqNo(this.nextSeqNo.get()).build());
                             this.nextSeqNo.incrementAndGet();
                             startRead();
-                        } else if (this.readOver.get()) {
+                        } else if (this.readOver.get() && this.packages.isEmpty()) {
                             terminate(null);
                             return;
                         } else {
