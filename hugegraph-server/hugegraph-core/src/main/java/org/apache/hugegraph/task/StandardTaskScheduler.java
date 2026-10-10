@@ -71,6 +71,7 @@ public class StandardTaskScheduler implements TaskScheduler {
     private final Map<Id, HugeTask<?>> tasks;
 
     private volatile TaskTransaction taskTx;
+    private boolean admissionClosed;
 
     public StandardTaskScheduler(HugeGraphParams graph,
                                  ExecutorService taskExecutor,
@@ -141,7 +142,8 @@ public class StandardTaskScheduler implements TaskScheduler {
     }
 
     @Override
-    public <V> void restoreTasks() {
+    public synchronized <V> void restoreTasks() {
+        this.checkAdmission();
         List<HugeTask<V>> taskList = new ArrayList<>();
         // Single-node mode: restore pending tasks without server filtering.
         // Don't restore legacy SCHEDULING/SCHEDULED tasks globally; they were
@@ -171,7 +173,8 @@ public class StandardTaskScheduler implements TaskScheduler {
         }
     }
 
-    private <V> Future<?> restore(HugeTask<V> task) {
+    private synchronized <V> Future<?> restore(HugeTask<V> task) {
+        this.checkAdmission();
         E.checkArgumentNotNull(task, "Task can't be null");
         E.checkArgument(!this.tasks.containsKey(task.id()),
                         "Task '%s' is already in the queue", task.id());
@@ -184,7 +187,8 @@ public class StandardTaskScheduler implements TaskScheduler {
     }
 
     @Override
-    public <V> Future<?> schedule(HugeTask<V> task) {
+    public synchronized <V> Future<?> schedule(HugeTask<V> task) {
+        this.checkAdmission();
         E.checkArgumentNotNull(task, "Task can't be null");
 
         /*
@@ -214,7 +218,8 @@ public class StandardTaskScheduler implements TaskScheduler {
         return this.submitTask(task, false);
     }
 
-    private <V> Future<?> submitTask(HugeTask<V> task, boolean saveAfterQueued) {
+    private synchronized <V> Future<?> submitTask(HugeTask<V> task, boolean saveAfterQueued) {
+        this.checkAdmission();
         int size = this.tasks.size() + 1;
         E.checkArgument(size <= MAX_PENDING_TASKS,
                         "Pending tasks size %s has exceeded the max limit %s",
@@ -233,7 +238,8 @@ public class StandardTaskScheduler implements TaskScheduler {
         return this.taskExecutor.submit(task);
     }
 
-    private <V> Future<?> resubmitTask(HugeTask<V> task) {
+    private synchronized <V> Future<?> resubmitTask(HugeTask<V> task) {
+        this.checkAdmission();
         E.checkArgument(task.status() == TaskStatus.QUEUED,
                         "Can't resubmit task '%s' with status %s",
                         task.id(), TaskStatus.QUEUED);
@@ -241,6 +247,11 @@ public class StandardTaskScheduler implements TaskScheduler {
                         "Can't resubmit task '%s' not been submitted before",
                         task.id());
         return this.taskExecutor.submit(task);
+    }
+
+    private void checkAdmission() {
+        E.checkState(!this.admissionClosed, "Task scheduler for graph '%s' is closing",
+                     this.spaceGraphName());
     }
 
     public <V> void initTaskCallable(HugeTask<V> task) {
@@ -331,12 +342,13 @@ public class StandardTaskScheduler implements TaskScheduler {
     }
 
     @Override
-    public boolean close() {
+    public synchronized boolean close() {
         // Running tasks still need the task DB transaction to persist done().
         // Retain the scheduler and its owners until a later close attempt.
         if (this.pendingTasks() != 0) {
             return false;
         }
+        this.admissionClosed = true;
         Throwable failure = null;
         boolean closed = false;
         try {

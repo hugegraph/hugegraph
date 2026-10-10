@@ -25,6 +25,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.FutureTask;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
@@ -68,6 +69,8 @@ public class DistributedTaskScheduler extends TaskAndResultScheduler {
     private final AtomicBoolean closed = new AtomicBoolean(true);
     private volatile boolean closeCompleted;
 
+    private static final ThreadLocal<ScheduledThreadPoolExecutor> SCHEDULER_WORKER = new ThreadLocal<>();
+
     private final ConcurrentHashMap<Id, HugeTask<?>> runningTasks = new ConcurrentHashMap<>();
     private final Set<Id> deletingTasks = ConcurrentHashMap.newKeySet();
 
@@ -96,6 +99,7 @@ public class DistributedTaskScheduler extends TaskAndResultScheduler {
         this.cronFuture = this.schedulerExecutor.scheduleWithFixedDelay(
                 () -> {
                     LockUtil.lock(this.graph().spaceGraphName(), LockUtil.GRAPH_LOCK);
+                    SCHEDULER_WORKER.set(this.schedulerExecutor);
                     try {
                         // TODO: Use super administrator privileges to query tasks.
                         // TaskManager.useAdmin();
@@ -103,6 +107,7 @@ public class DistributedTaskScheduler extends TaskAndResultScheduler {
                     } catch (Throwable t) {
                         LOG.info("cronScheduler exception graph: {}", this.spaceGraphName(), t);
                     } finally {
+                        SCHEDULER_WORKER.remove();
                         LockUtil.unlock(this.graph().spaceGraphName(), LockUtil.GRAPH_LOCK);
                     }
                 },
@@ -157,10 +162,8 @@ public class DistributedTaskScheduler extends TaskAndResultScheduler {
                 LOG.info("Try to update task({})@({}/{}) status" +
                          "(RUNNING->FAILED)", running.id(), this.graphSpace,
                          this.graphName);
-                if (updateStatusWithLock(running.id(), TaskStatus.RUNNING,
-                                         TaskStatus.FAILED)) {
-                    runningTasks.remove(running.id());
-                } else {
+                if (!updateStatusWithLock(running.id(), TaskStatus.RUNNING,
+                                          TaskStatus.FAILED)) {
                     LOG.warn("Update task({})@({}/{}) status" +
                              "(RUNNING->FAILED) failed",
                              running.id(), this.graphSpace, this.graphName);
@@ -194,7 +197,7 @@ public class DistributedTaskScheduler extends TaskAndResultScheduler {
                 initTaskParams(cancelling);
                 LOG.info("Try to cancel task({})@({}/{})",
                          cancelling.id(), this.graphSpace, this.graphName);
-                if (!cancelling.cancel(true)) {
+                if (!this.cancelLocal(cancelling)) {
                     // Task already completed normally; force CANCELLED so
                     // it doesn't stay stuck in CANCELLING forever.
                     updateStatusWithLock(cancellingId, TaskStatus.CANCELLING,
@@ -218,7 +221,7 @@ public class DistributedTaskScheduler extends TaskAndResultScheduler {
             HugeTask<?> deleting = runningTasks.get(deletingId);
             if (deleting != null) {
                 this.markTaskDeleting(deleting);
-                deleting.cancel(true);
+                this.cancelLocal(deleting);
             } else {
                 // Local has no task execution, but the current task has no nodes executing anymore.
                 if (!isLockedTask(deletingId.toString())) {
@@ -251,14 +254,15 @@ public class DistributedTaskScheduler extends TaskAndResultScheduler {
     }
 
     @Override
-    public <V> Future<?> schedule(HugeTask<V> task) {
+    public synchronized <V> Future<?> schedule(HugeTask<V> task) {
+        E.checkState(!this.closed.get(), "Task scheduler for graph '%s' is closing",
+                     this.spaceGraphName());
         E.checkArgumentNotNull(task, "Task can't be null");
 
         initTaskParams(task);
 
         if (task.ephemeralTask()) {
-            // Handle ephemeral tasks, no scheduling needed, execute directly
-            return this.ephemeralTaskExecutor.submit(task);
+            return this.submitTask(task, this.ephemeralTaskExecutor, task);
         }
 
         // Validate task state before saving to ensure correct exception type
@@ -315,10 +319,12 @@ public class DistributedTaskScheduler extends TaskAndResultScheduler {
         // Check if task is running locally, cancel it directly if so
         HugeTask<?> runningTask = this.runningTasks.get(task.id());
         if (runningTask != null) {
-            boolean cancelled = runningTask.cancel(true);
+            boolean cancelled = this.cancelLocal(runningTask);
             if (cancelled) {
                 task.overwriteStatus(TaskStatus.CANCELLED);
-                this.save(runningTask);
+                if (!runningTask.ephemeralTask()) {
+                    this.save(runningTask);
+                }
             }
             LOG.info("Cancel local running task '{}' result: {}", task.id(), cancelled);
             return;
@@ -469,6 +475,31 @@ public class DistributedTaskScheduler extends TaskAndResultScheduler {
         });
     }
 
+    private boolean cancelLocal(HugeTask<?> task) {
+        if (SCHEDULER_WORKER.get() == this.schedulerExecutor) {
+            try {
+                return task.cancel(true);
+            } finally {
+                this.graph.closeTx();
+            }
+        }
+        // HugeTask cancellation invokes done/cancelled callbacks synchronously.
+        // Keep their graph transactions off the request/close caller's thread,
+        // and off the task DB worker because callbacks may synchronously save.
+        return this.call(() -> {
+            SCHEDULER_WORKER.set(this.schedulerExecutor);
+            try {
+                return task.cancel(true);
+            } finally {
+                try {
+                    this.graph.closeTx();
+                } finally {
+                    SCHEDULER_WORKER.remove();
+                }
+            }
+        }, this.schedulerExecutor);
+    }
+
     @Override
     public <V> HugeTask<V> delete(Id id, boolean force) {
         HugeTask<?> task = this.taskWithoutResult(id);
@@ -476,7 +507,7 @@ public class DistributedTaskScheduler extends TaskAndResultScheduler {
 
         if (running != null) {
             this.markTaskDeleting(running);
-            running.cancel(true);
+            this.cancelLocal(running);
             @SuppressWarnings("unchecked")
             HugeTask<V> result = (HugeTask<V>) running;
             return result;
@@ -532,8 +563,10 @@ public class DistributedTaskScheduler extends TaskAndResultScheduler {
             return true;
         }
 
-        // set closed
-        this.closed.set(true);
+        // Serialize the admission transition only; never hold this monitor while draining cron/jobs.
+        synchronized (this) {
+            this.closed.set(true);
+        }
 
         // cancel cron thread
         if (!cronFuture.isDone() && !cronFuture.isCancelled()) {
@@ -767,7 +800,10 @@ public class DistributedTaskScheduler extends TaskAndResultScheduler {
      * @param task
      * @return true if the task have start
      */
-    private boolean tryStartHugeTask(HugeTask<?> task) {
+    private synchronized boolean tryStartHugeTask(HugeTask<?> task) {
+        if (this.closed.get()) {
+            return false;
+        }
         // Print Scheduler status
         logCurrentState();
 
@@ -794,8 +830,10 @@ public class DistributedTaskScheduler extends TaskAndResultScheduler {
 
         ThreadPoolExecutor executor = (ThreadPoolExecutor) chosenExecutor;
         if (executor.getActiveCount() < executor.getMaximumPoolSize()) {
-            TaskRunner<?> runner = new TaskRunner<>(task);
-            chosenExecutor.submit(runner);
+            if (this.runningTasks.containsKey(task.id())) {
+                return true;
+            }
+            this.submitTask(task, chosenExecutor, new TaskRunner<>(task));
             LOG.info("Submit task({})@({}/{})", task.id(),
                      this.graphSpace, this.graphName);
 
@@ -803,6 +841,65 @@ public class DistributedTaskScheduler extends TaskAndResultScheduler {
         }
 
         return false;
+    }
+
+    private Future<?> submitTask(HugeTask<?> task, ExecutorService executor, Runnable work) {
+        E.checkState(this.runningTasks.putIfAbsent(task.id(), task) == null,
+                     "Task '%s' is already pending", task.id());
+        TaskManager.ContextCallable<Void> owned = new TaskManager.ContextCallable<>(() -> {
+            try {
+                work.run();
+                return null;
+            } finally {
+                this.graph.closeTx();
+            }
+        });
+        PendingTask pending = new PendingTask(task, owned);
+        try {
+            executor.execute(pending);
+            return pending;
+        } catch (RuntimeException | Error error) {
+            this.finishTask(task);
+            throw error;
+        }
+    }
+
+    private synchronized void finishTask(HugeTask<?> task) {
+        if (this.runningTasks.remove(task.id(), task)) {
+            this.deletingTasks.remove(task.id());
+        }
+    }
+
+    private class PendingTask extends FutureTask<Void> {
+
+        private final HugeTask<?> task;
+        private final AtomicBoolean started = new AtomicBoolean();
+
+        PendingTask(HugeTask<?> task, Callable<Void> owned) {
+            super(owned);
+            this.task = task;
+        }
+
+        @Override
+        public void run() {
+            if (this.started.compareAndSet(false, true)) {
+                try {
+                    super.run();
+                } finally {
+                    // Active cancellation cannot release admission before owner/context cleanup.
+                    finishTask(this.task);
+                }
+            }
+        }
+
+        @Override
+        protected void done() {
+            if (this.isCancelled() && this.started.compareAndSet(false, true)) {
+                // The outer Future was cancelled before work began. Do not invoke
+                // HugeTask callbacks on this caller thread or change its original task state.
+                finishTask(this.task);
+            }
+        }
     }
 
     protected void logCurrentState() {
@@ -876,36 +973,33 @@ public class DistributedTaskScheduler extends TaskAndResultScheduler {
 
         @Override
         public void run() {
-            LockResult lockResult = tryLockTask(task.id().asString());
-
-            initTaskParams(task);
-            if (lockResult.lockSuccess() && !task.completed()) {
+            LockResult lockResult = null;
+            try {
+                if (task.completed()) {
+                    return;
+                }
+                lockResult = tryLockTask(task.id().asString());
+                initTaskParams(task);
+                if (!lockResult.lockSuccess() || task.completed()) {
+                    return;
+                }
 
                 LOG.info("Start task({})", task.id());
-
                 TaskManager.setContext(task.context());
+                // A reservation prevents schedule() and cronSchedule() from dispatching duplicates.
+                HugeTask<Object> queryTask = task(this.task.id(), false);
+                if (queryTask != null && !TaskStatus.NEW.equals(queryTask.status())) {
+                    return;
+                }
+                task.run();
+            } catch (Throwable t) {
+                LOG.warn("exception when execute task", t);
+            } finally {
                 try {
-                    // 1. start task can be from schedule() & cronSchedule()
-                    // 2. recheck the status of task, in case one same task
-                    // called by both methods at same time;
-                    HugeTask<Object> queryTask = task(this.task.id(), false);
-                    if (queryTask != null &&
-                        !TaskStatus.NEW.equals(queryTask.status())) {
-                        return;
+                    if (lockResult != null && lockResult.lockSuccess()) {
+                        unlockTask(task.id().asString(), lockResult);
                     }
-
-                    runningTasks.put(task.id(), task);
-
-                    // Task execution will not throw exceptions, HugeTask will catch exceptions
-                    // during execution and store them in the DB.
-                    task.run();
-                } catch (Throwable t) {
-                    LOG.warn("exception when execute task", t);
                 } finally {
-                    runningTasks.remove(task.id());
-                    deletingTasks.remove(task.id());
-                    unlockTask(task.id().asString(), lockResult);
-
                     LOG.info("task({}) finished.", task.id().toString());
                 }
             }
