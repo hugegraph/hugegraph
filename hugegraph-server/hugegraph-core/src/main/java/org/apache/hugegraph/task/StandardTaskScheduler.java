@@ -313,12 +313,12 @@ public class StandardTaskScheduler implements TaskScheduler {
         }
 
         @Override
-        public boolean cancel(boolean mayInterruptIfRunning) {
-            if (this.isDone()) {
-                return false;
+        protected void done() {
+            if (this.isCancelled()) {
+                // Cancelling the dispatch Future must not run HugeTask callbacks
+                // on its caller or cancel a later dependency retry.
+                this.cancelBeforeStart();
             }
-            StandardTaskScheduler.this.cancel(this.task, mayInterruptIfRunning);
-            return super.cancel(mayInterruptIfRunning) || this.isCancelled();
         }
 
         private void cancelBeforeStart() {
@@ -351,10 +351,6 @@ public class StandardTaskScheduler implements TaskScheduler {
 
     @Override
     public synchronized <V> void cancel(HugeTask<V> task) {
-        this.cancel(task, true);
-    }
-
-    private synchronized <V> void cancel(HugeTask<V> task, boolean mayInterruptIfRunning) {
         E.checkArgumentNotNull(task, "Task can't be null");
 
         if (task.completed() || task.cancelling()) {
@@ -367,7 +363,7 @@ public class StandardTaskScheduler implements TaskScheduler {
         if (memTask != null) {
             boolean cancelled;
             try {
-                cancelled = memTask.cancel(mayInterruptIfRunning);
+                cancelled = memTask.cancel(true);
             } finally {
                 if (memTask.isCancelled()) {
                     this.cancelQueuedExecutions(task.id());

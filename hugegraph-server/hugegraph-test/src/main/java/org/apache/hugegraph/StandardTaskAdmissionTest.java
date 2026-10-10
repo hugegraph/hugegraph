@@ -333,13 +333,92 @@ public class StandardTaskAdmissionTest {
             Future<?> running = scheduler.schedule(task);
             Assert.assertTrue(job.started.await(10L, TimeUnit.SECONDS));
             Assert.assertTrue(running.cancel(false));
-            Assert.assertTrue(task.isCancelled());
+            Assert.assertFalse(task.isCancelled());
+            Assert.assertEquals(TaskStatus.RUNNING, task.status());
             Assert.assertEquals(1, scheduler.pendingTasks());
             Assert.assertFalse(scheduler.close());
             job.release.countDown();
             scheduler.waitUntilAllTasksCompleted(10L);
             Assert.assertEquals(0, job.interrupts.get());
+            Assert.assertEquals(TaskStatus.SUCCESS, task.status());
         } finally {
+            job.release.countDown();
+            scheduler.waitUntilAllTasksCompleted(10L);
+            worker.shutdownNow();
+            Assert.assertTrue(worker.awaitTermination(10L, TimeUnit.SECONDS));
+            scheduler.close();
+            database.shutdownNow();
+            Assert.assertTrue(database.awaitTermination(10L, TimeUnit.SECONDS));
+            graph.close();
+            HugeFactory.remove(graph);
+        }
+    }
+
+    @Test
+    public void testDispatchCancellationPreservesCallerTransaction() throws Exception {
+        for (boolean queued : new boolean[]{true, false}) {
+            for (boolean interrupt : new boolean[]{true, false}) {
+                this.checkDispatchCancellation(queued, interrupt);
+            }
+        }
+    }
+
+    private void checkDispatchCancellation(boolean queued, boolean interrupt) throws Exception {
+        RegisterUtil.registerBackends();
+        HugeConfig config = FakeObjects.newConfig();
+        config.setProperty("backend", "memory");
+        config.setProperty("serializer", "text");
+        config.setProperty("store", "standard_dispatch_tx_" + queued + "_" + interrupt);
+        HugeGraph graph = HugeFactory.open(config);
+        ExecutorService worker = Executors.newSingleThreadExecutor();
+        ExecutorService database = Executors.newSingleThreadExecutor();
+        StandardTaskScheduler scheduler = new StandardTaskScheduler(
+                Whitebox.getInternalState(graph, "params"), worker, database);
+        CountDownLatch occupied = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        BlockingJob job = new BlockingJob();
+        HugeTask<Object> task = new HugeTask<>(IdGenerator.of(9999989L), null, job);
+        task.type("test");
+        task.name("dispatch-caller-transaction");
+        try {
+            graph.initBackend();
+            graph.serverStarted(GlobalMasterInfo.master("standard-dispatch-tx-test"));
+            graph.schema().vertexLabel("person").useCustomizeStringId().create();
+            if (queued) {
+                worker.submit(() -> {
+                    occupied.countDown();
+                    release.await();
+                    return null;
+                });
+                Assert.assertTrue(occupied.await(10L, TimeUnit.SECONDS));
+            }
+            Future<?> dispatch = scheduler.schedule(task);
+            if (!queued) {
+                Assert.assertTrue(job.started.await(10L, TimeUnit.SECONDS));
+            }
+            graph.addVertex(T.id, "caller-write", T.label, "person");
+            Assert.assertTrue(graph.tx().isOpen());
+            Assert.assertTrue(dispatch.cancel(interrupt));
+            Assert.assertTrue(graph.tx().isOpen());
+            Assert.assertFalse(task.isCancelled());
+            Assert.assertEquals(queued ? TaskStatus.QUEUED : TaskStatus.RUNNING, task.status());
+            Assert.assertEquals(queued ? 0 : 1, scheduler.pendingTasks());
+            graph.tx().commit();
+            Assert.assertTrue(graph.vertices("caller-write").hasNext());
+            graph.tx().close();
+            release.countDown();
+            job.release.countDown();
+            scheduler.waitUntilAllTasksCompleted(10L);
+            if (queued) {
+                Assert.assertEquals(1L, job.started.getCount());
+            } else {
+                Assert.assertEquals(TaskStatus.SUCCESS, task.status());
+                if (!interrupt) {
+                    Assert.assertEquals(0, job.interrupts.get());
+                }
+            }
+        } finally {
+            release.countDown();
             job.release.countDown();
             scheduler.waitUntilAllTasksCompleted(10L);
             worker.shutdownNow();
