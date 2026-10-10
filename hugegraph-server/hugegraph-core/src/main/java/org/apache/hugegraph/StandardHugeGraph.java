@@ -1396,6 +1396,7 @@ public class StandardHugeGraph implements HugeGraph {
     }
 
     private void waitUntilAllTasksCompleted() {
+        this.checkGraphNotClosed();
         TaskScheduler scheduler = this.taskManager.getScheduler(this.params);
         if (scheduler == null) {
             // A previous close drained/removed the scheduler but retained transaction owners.

@@ -93,6 +93,19 @@ public class StandardHugeGraphClearBackendTest extends BaseUnitTest {
     }
 
     @Test
+    public void testClosedGraphCannotReopenStoresWhenSchedulerWasRemoved() {
+        TaskManager taskManager = Whitebox.getInternalState(this.graph, "taskManager");
+        HugeGraphParams params = Whitebox.getInternalState(this.graph, "params");
+        Mockito.when(taskManager.getScheduler(params)).thenReturn(null);
+        Whitebox.setInternalState(this.graph, "closed", true);
+        Mockito.clearInvocations(this.provider);
+
+        Assert.assertThrows(IllegalStateException.class, this.graph::clearBackend);
+        Assert.assertThrows(IllegalStateException.class, this.graph::truncateBackend);
+        Mockito.verifyNoInteractions(this.provider);
+    }
+
+    @Test
     public void testHstoreClearSchemaBeforeStore() {
         this.graph.clearBackend();
 

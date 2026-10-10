@@ -247,11 +247,7 @@ public class DistributedTaskScheduler extends TaskAndResultScheduler {
                 break;
             }
             if (pending.ownerFinished && pending.coordinationPending) {
-                try {
-                    this.cancelLocal(pending, null, cancelled -> { }, true);
-                } finally {
-                    this.finishCancelledQueued(pending);
-                }
+                this.resolveTerminalTicket(pending);
             }
         }
     }
@@ -341,7 +337,11 @@ public class DistributedTaskScheduler extends TaskAndResultScheduler {
         if (task.completed()) {
             PendingTask pending = this.runningTasks.get(task.id());
             if (pending != null) {
-                this.finishCancelledQueued(pending);
+                if (pending.coordinationPending && !pending.task.ephemeralTask()) {
+                    this.resolveTerminalTicket(pending);
+                } else {
+                    this.finishCancelledQueued(pending);
+                }
             }
             return;
         }
@@ -1058,6 +1058,14 @@ public class DistributedTaskScheduler extends TaskAndResultScheduler {
             }
         }
         return null;
+    }
+
+    private void resolveTerminalTicket(PendingTask pending) {
+        try {
+            this.cancelLocal(pending, null, cancelled -> { }, true);
+        } finally {
+            this.finishCancelledQueued(pending);
+        }
     }
 
     private void finishCancelledQueued(PendingTask pending) {

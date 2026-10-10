@@ -47,6 +47,7 @@ import org.apache.hugegraph.masterelection.GlobalMasterInfo;
 import org.apache.hugegraph.job.EphemeralJob;
 import org.apache.hugegraph.meta.MetaManager;
 import org.apache.hugegraph.space.GraphSpace;
+import org.apache.hugegraph.space.Service;
 import org.apache.hugegraph.task.HugeTask;
 import org.apache.hugegraph.task.TaskCallable;
 import org.apache.hugegraph.task.TaskManager;
@@ -82,6 +83,82 @@ public class GraphDropPendingTest {
     @Test
     public void testPdNotificationRetainsActiveTaskOwners() throws Exception {
         this.checkDrop(3);
+    }
+
+    @Test
+    public void testClearGraphSpaceRetainsGraphsAndServicesWithSimilarPrefix() throws Exception {
+        RegisterUtil.registerBackends();
+        HugeConfig config = FakeObjects.newConfig();
+        config.setProperty("backend", "memory");
+        config.setProperty("serializer", "text");
+        config.setProperty("store", "space_prefix_target");
+        config.setProperty(CoreOptions.GRAPH_SPACE.name(), "team");
+        HugeGraph target = HugeFactory.open(config);
+        HugeConfig neighborConfig = FakeObjects.newConfig();
+        neighborConfig.setProperty("backend", "memory");
+        neighborConfig.setProperty("serializer", "text");
+        // The memory provider singleton is keyed by store name, not graph space.
+        neighborConfig.setProperty("store", "space_prefix_neighbor");
+        neighborConfig.setProperty(CoreOptions.GRAPH_SPACE.name(), "team2");
+        HugeGraph neighbor = HugeFactory.open(neighborConfig);
+        HugeConfig serverConfig = FakeObjects.newConfig();
+        serverConfig.setProperty(ServerOptions.USE_PD.name(), false);
+        serverConfig.setProperty(ServerOptions.GRAPH_LOAD_FROM_LOCAL_CONFIG.name(), false);
+        GraphManager manager = new GraphManager(serverConfig, new EventHub("space-prefix"));
+        Whitebox.setInternalState(manager, "PDExist", true);
+        Map<String, Graph> graphs = Whitebox.getInternalState(manager, "graphs");
+        graphs.put(target.spaceGraphName(), target);
+        graphs.put(neighbor.spaceGraphName(), neighbor);
+        Map<String, GraphSpace> spaces = Whitebox.getInternalState(manager, "graphSpaces");
+        spaces.put("team", Mockito.mock(GraphSpace.class));
+        spaces.put("team2", Mockito.mock(GraphSpace.class));
+        Map<String, Service> services = Whitebox.getInternalState(manager, "services");
+        Service targetService = Mockito.mock(Service.class);
+        Service neighborService = Mockito.mock(Service.class);
+        services.put("team-service", targetService);
+        services.put("team2-service", neighborService);
+        MetaManager meta = Mockito.mock(MetaManager.class);
+        Whitebox.setInternalState(manager, "metaManager", meta);
+        Mockito.when(meta.service("team", "service")).thenReturn(targetService);
+        Mockito.when(meta.service("team2", "service")).thenReturn(neighborService);
+        try {
+            target.initBackend();
+            target.serverStarted(GlobalMasterInfo.master("space-prefix-target"));
+            neighbor.initBackend();
+            neighbor.serverStarted(GlobalMasterInfo.master("space-prefix-neighbor"));
+            neighbor.schema().vertexLabel("person").useCustomizeStringId().create();
+            neighbor.addVertex(T.id, "retained", T.label, "person");
+            neighbor.tx().commit();
+            manager.clearGraphSpace("team");
+            Assert.assertTrue(target.closed());
+            Assert.assertNull(manager.graph(target.spaceGraphName()));
+            Assert.assertFalse(neighbor.closed());
+            Assert.assertSame(neighbor, manager.graph(neighbor.spaceGraphName()));
+            Assert.assertEquals(IdGenerator.of("retained"), neighbor.vertices("retained").next().id());
+            Map<String, HugeGraph> registered = Whitebox.getInternalState(HugeFactory.class, "GRAPHS");
+            Assert.assertSame(neighbor, registered.get(neighbor.spaceGraphName()));
+            Assert.assertNotNull(TaskManager.instance().getScheduler(neighbor));
+            Assert.assertFalse(services.containsKey("team-service"));
+            Assert.assertSame(neighborService, services.get("team2-service"));
+            Mockito.verify(meta).removeGraphConfig("team", target.name());
+            Mockito.verify(meta).removeServiceConfig("team", "service");
+            Mockito.verify(meta, Mockito.never()).removeGraphConfig("team2", neighbor.name());
+            Mockito.verify(meta, Mockito.never()).removeServiceConfig("team2", "service");
+            Mockito.verify(meta, Mockito.never()).clearGraphAuth("team2");
+            Mockito.verify(meta, Mockito.never()).clearSchemaTemplate("team2");
+        } finally {
+            graphs.clear();
+            services.clear();
+            manager.close();
+            if (!target.closed()) {
+                target.close();
+            }
+            if (!neighbor.closed()) {
+                neighbor.close();
+            }
+            HugeFactory.remove(target);
+            HugeFactory.remove(neighbor);
+        }
     }
 
     @Test

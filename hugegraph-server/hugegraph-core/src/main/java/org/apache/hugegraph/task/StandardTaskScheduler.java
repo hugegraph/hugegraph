@@ -26,7 +26,10 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.FutureTask;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.apache.hugegraph.exception.HugeException;
 import org.apache.hugegraph.HugeGraph;
@@ -69,6 +72,7 @@ public class StandardTaskScheduler implements TaskScheduler {
     private final ExecutorService taskDbExecutor;
 
     private final Map<Id, HugeTask<?>> tasks;
+    private final Map<Id, List<PendingTask>> executions;
 
     private volatile TaskTransaction taskTx;
     private boolean admissionClosed;
@@ -86,6 +90,7 @@ public class StandardTaskScheduler implements TaskScheduler {
 
         this.serverManager = new ServerInfoManager(graph);
         this.tasks = new ConcurrentHashMap<>();
+        this.executions = new ConcurrentHashMap<>();
 
         this.taskTx = null;
     }
@@ -235,7 +240,7 @@ public class StandardTaskScheduler implements TaskScheduler {
                 throw e;
             }
         }
-        return this.taskExecutor.submit(task);
+        return this.submitExecution(task);
     }
 
     private synchronized <V> Future<?> resubmitTask(HugeTask<V> task) {
@@ -246,7 +251,85 @@ public class StandardTaskScheduler implements TaskScheduler {
         E.checkArgument(this.tasks.containsKey(task.id()),
                         "Can't resubmit task '%s' not been submitted before",
                         task.id());
-        return this.taskExecutor.submit(task);
+        return this.submitExecution(task);
+    }
+
+    private Future<?> submitExecution(HugeTask<?> task) {
+        PendingTask pending = new PendingTask(task);
+        this.executions.computeIfAbsent(task.id(), id -> new ArrayList<>()).add(pending);
+        try {
+            this.taskExecutor.execute(pending);
+        } catch (RuntimeException | Error error) {
+            this.finishExecution(pending);
+            throw error;
+        }
+        return pending;
+    }
+
+    private synchronized void finishExecution(PendingTask pending) {
+        List<PendingTask> outstanding = this.executions.get(pending.task.id());
+        if (outstanding != null && outstanding.remove(pending) && outstanding.isEmpty()) {
+            this.executions.remove(pending.task.id());
+            this.tasks.remove(pending.task.id(), pending.task);
+        }
+    }
+
+    private synchronized void cancelQueuedExecutions(Id id) {
+        List<PendingTask> outstanding = this.executions.get(id);
+        if (outstanding != null) {
+            for (PendingTask pending : new ArrayList<>(outstanding)) {
+                pending.cancelBeforeStart();
+            }
+        }
+    }
+
+    private final class PendingTask extends FutureTask<Void> {
+
+        private final HugeTask<?> task;
+        private final AtomicBoolean started = new AtomicBoolean();
+
+        private PendingTask(HugeTask<?> task) {
+            super(new ContextCallable<>(() -> {
+                try {
+                    task.run();
+                    return null;
+                } finally {
+                    StandardTaskScheduler.this.graph.closeTx();
+                }
+            }));
+            this.task = task;
+        }
+
+        @Override
+        public void run() {
+            if (!this.started.compareAndSet(false, true)) {
+                return;
+            }
+            try {
+                super.run();
+            } finally {
+                StandardTaskScheduler.this.finishExecution(this);
+            }
+        }
+
+        @Override
+        public boolean cancel(boolean mayInterruptIfRunning) {
+            if (this.isDone()) {
+                return false;
+            }
+            StandardTaskScheduler.this.cancel(this.task, mayInterruptIfRunning);
+            return super.cancel(mayInterruptIfRunning) || this.isCancelled();
+        }
+
+        private void cancelBeforeStart() {
+            if (this.started.compareAndSet(false, true)) {
+                super.cancel(false);
+                if (StandardTaskScheduler.this.taskExecutor instanceof ThreadPoolExecutor) {
+                    ((ThreadPoolExecutor) StandardTaskScheduler.this.taskExecutor).remove(this);
+                }
+                StandardTaskScheduler.this.finishExecution(this);
+            }
+        }
     }
 
     private void checkAdmission() {
@@ -268,6 +351,10 @@ public class StandardTaskScheduler implements TaskScheduler {
 
     @Override
     public synchronized <V> void cancel(HugeTask<V> task) {
+        this.cancel(task, true);
+    }
+
+    private synchronized <V> void cancel(HugeTask<V> task, boolean mayInterruptIfRunning) {
         E.checkArgumentNotNull(task, "Task can't be null");
 
         if (task.completed() || task.cancelling()) {
@@ -278,7 +365,14 @@ public class StandardTaskScheduler implements TaskScheduler {
 
         HugeTask<?> memTask = this.tasks.get(task.id());
         if (memTask != null) {
-            boolean cancelled = memTask.cancel(true);
+            boolean cancelled;
+            try {
+                cancelled = memTask.cancel(mayInterruptIfRunning);
+            } finally {
+                if (memTask.isCancelled()) {
+                    this.cancelQueuedExecutions(task.id());
+                }
+            }
             if (cancelled) {
                 task.overwriteStatus(TaskStatus.CANCELLED);
             }
@@ -301,7 +395,11 @@ public class StandardTaskScheduler implements TaskScheduler {
     }
     @Override
     public void taskDone(HugeTask<?> task) {
-        this.remove(task);
+        // FutureTask.done() also runs synchronously on the cancelling caller.
+        // The executor wrapper retains ownership until its worker actually exits.
+        if (!this.executions.containsKey(task.id())) {
+            this.remove(task);
+        }
         // Single-node mode: no need to manage load
         LOG.debug("Task '{}' done", task.id());
     }
@@ -312,6 +410,12 @@ public class StandardTaskScheduler implements TaskScheduler {
 
     protected void remove(HugeTask<?> task, boolean force) {
         E.checkNotNull(task, "remove task");
+        if (this.executions.containsKey(task.id())) {
+            if (task.isDone()) {
+                this.cancelQueuedExecutions(task.id());
+            }
+            return;
+        }
         HugeTask<?> delTask = this.tasks.remove(task.id());
         if (delTask != null && delTask != task) {
             LOG.warn("Task '{}' may be inconsistent status {}(expect {})",
@@ -508,7 +612,7 @@ public class StandardTaskScheduler implements TaskScheduler {
     }
 
     @Override
-    public <V> HugeTask<V> delete(Id id, boolean force) {
+    public synchronized <V> HugeTask<V> delete(Id id, boolean force) {
         this.checkOnMasterNode("delete");
 
         HugeTask<?> running = this.tasks.get(id);

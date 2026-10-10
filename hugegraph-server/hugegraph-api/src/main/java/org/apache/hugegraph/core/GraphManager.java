@@ -1108,9 +1108,10 @@ public final class GraphManager {
     }
 
     public void clearGraphSpace(String name) {
+        String prefix = name + DELIMITER;
         // Clear all graphs
         for (String key : this.graphs.keySet()) {
-            if (key.startsWith(name)) {
+            if (key.startsWith(prefix)) {
                 String[] parts = key.split(DELIMITER);
                 this.dropGraph(parts[0], parts[1], true);
             }
@@ -1122,7 +1123,7 @@ public final class GraphManager {
 
         // Clear all services
         for (String key : this.services.keySet()) {
-            if (key.startsWith(name)) {
+            if (key.startsWith(prefix)) {
                 String[] parts = key.split(DELIMITER);
                 this.dropService(parts[0], parts[1]);
             }

@@ -19,6 +19,7 @@ package org.apache.hugegraph;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -43,6 +44,8 @@ import org.apache.hugegraph.task.TaskAndResultSchedulerTest.EmptyCallable;
 import org.apache.hugegraph.task.TaskStatus;
 import org.apache.hugegraph.task.TaskScheduler;
 import org.apache.hugegraph.task.TaskCallable;
+import org.apache.hugegraph.task.TaskManager;
+import org.apache.hugegraph.task.HugeTaskResult;
 import org.apache.hugegraph.meta.MetaManager;
 import org.apache.hugegraph.meta.managers.TaskMetaManager;
 import org.apache.hugegraph.meta.lock.LockResult;
@@ -245,9 +248,10 @@ public class DistributedTaskAdmissionTest {
 
     public static class CancellationJob extends SysJob<Object> {
 
-        private final AtomicInteger done = new AtomicInteger();
-        private final AtomicInteger cancelled = new AtomicInteger();
+        protected final AtomicInteger done = new AtomicInteger();
+        protected final AtomicInteger cancelled = new AtomicInteger();
         private final AtomicBoolean ran = new AtomicBoolean();
+        private final AtomicInteger callbackDepth = new AtomicInteger();
         private volatile Thread cancellationThread;
         protected Runnable onCancelled = () -> { };
 
@@ -257,23 +261,33 @@ public class DistributedTaskAdmissionTest {
         }
 
         @Override
-        public Object execute() {
+        public Object execute() throws Exception {
             this.ran.set(true);
             return null;
         }
 
         @Override
         protected void done() {
-            this.done.incrementAndGet();
-            super.done();
+            this.callbackDepth.incrementAndGet();
+            try {
+                this.done.incrementAndGet();
+                super.done();
+            } finally {
+                this.callbackDepth.decrementAndGet();
+            }
         }
 
         @Override
         protected void cancelled() {
-            this.cancellationThread = Thread.currentThread();
-            this.cancelled.incrementAndGet();
-            this.onCancelled.run();
-            super.cancelled();
+            this.callbackDepth.incrementAndGet();
+            try {
+                this.cancellationThread = Thread.currentThread();
+                this.cancelled.incrementAndGet();
+                this.onCancelled.run();
+                super.cancelled();
+            } finally {
+                this.callbackDepth.decrementAndGet();
+            }
         }
     }
 
@@ -474,11 +488,11 @@ public class DistributedTaskAdmissionTest {
             };
             CountDownLatch finalSave = new CountDownLatch(1);
             CountDownLatch finishSave = new CountDownLatch(1);
-            AtomicInteger cancelledSaves = new AtomicInteger();
+            AtomicBoolean finalSaved = new AtomicBoolean();
             target.scheduler.beforeSave = () -> {
                 if (admitted.status() == TaskStatus.CANCELLED &&
                     Thread.currentThread() == callable.cancellationThread &&
-                    cancelledSaves.incrementAndGet() == 1) {
+                    callable.callbackDepth.get() == 0 && finalSaved.compareAndSet(false, true)) {
                     finalSave.countDown();
                     try {
                         Assert.assertTrue(finishSave.await(10L, TimeUnit.SECONDS));
@@ -576,7 +590,8 @@ public class DistributedTaskAdmissionTest {
             IllegalStateException persistenceFailure = new IllegalStateException("final cancel save failed");
             AtomicBoolean failed = new AtomicBoolean();
             target.scheduler.beforeSave = () -> {
-                if (admitted.isCancelled() && failed.compareAndSet(false, true)) {
+                if (admitted.isCancelled() && callable.callbackDepth.get() == 0 &&
+                    Thread.currentThread() == callable.cancellationThread && failed.compareAndSet(false, true)) {
                     throw persistenceFailure;
                 }
             };
@@ -706,6 +721,68 @@ public class DistributedTaskAdmissionTest {
             } else {
                 Assert.assertEquals(TaskStatus.CANCELLED, target.scheduler.task(admitted.id(), false).status());
             }
+        }
+    }
+
+    @Test
+    public void testCloseRetriesCompletedParkedTaskWithoutCron() throws Exception {
+        try (Fixture fixture = new Fixture("completed_parked_close")) {
+            FailingJob callable = new FailingJob();
+            HugeTask<?> admitted = new HugeTask<>(IdGenerator.of(9999977L), null, callable);
+            admitted.type("test");
+            admitted.name("completed-parked-close");
+            fixture.scheduler.schedule(admitted);
+            Assert.assertTrue(callable.entered.await(10L, TimeUnit.SECONDS));
+            ScheduledThreadPoolExecutor rejecting = Mockito.mock(ScheduledThreadPoolExecutor.class);
+            Mockito.doThrow(new RejectedExecutionException("cancel owner rejected")).when(rejecting)
+                   .submit(Mockito.<java.util.concurrent.Callable<Object>>any());
+            Whitebox.setInternalState(fixture.scheduler, "schedulerExecutor", rejecting);
+            try {
+                Assert.assertThrows(org.apache.hugegraph.exception.HugeException.class,
+                                    () -> fixture.scheduler.cancel(admitted));
+            } finally {
+                Whitebox.setInternalState(fixture.scheduler, "schedulerExecutor", fixture.cron);
+                callable.release.countDown();
+            }
+            fixture.worker.submit(() -> null).get(10L, TimeUnit.SECONDS);
+            Assert.assertTrue(admitted.completed());
+            Assert.assertEquals(TaskStatus.FAILED, admitted.status());
+            Assert.assertEquals(1, fixture.scheduler.pendingTasks());
+            Assert.assertEquals(1, callable.done.get());
+            Assert.assertSame(fixture.scheduler, fixture.graph.taskScheduler());
+            String outcome = fixture.scheduler.separateResult(admitted.id());
+            Assert.assertNotNull(outcome);
+            Assert.assertContains("terminal failure", outcome);
+            Assert.assertEquals(outcome, fixture.scheduler.task(admitted.id(), true).result());
+            Assert.assertNull(fixture.scheduler.task(admitted.id(), false).result());
+            LockResult heldElsewhere = new LockResult();
+            Mockito.when(this.locks.tryLockTask(Mockito.anyString(), Mockito.anyString(), Mockito.anyString()))
+                   .thenReturn(heldElsewhere);
+            Assert.assertFalse(fixture.scheduler.close());
+            Assert.assertEquals(1, fixture.scheduler.pendingTasks());
+            Assert.assertTrue(fixture.cron.getQueue().isEmpty());
+            LockResult available = new LockResult();
+            available.lockSuccess(true);
+            Mockito.when(this.locks.tryLockTask(Mockito.anyString(), Mockito.anyString(), Mockito.anyString()))
+                   .thenReturn(available);
+            Assert.assertTrue(fixture.scheduler.close());
+            Assert.assertEquals(0, fixture.scheduler.pendingTasks());
+            Assert.assertEquals(0, callable.cancelled.get());
+            Assert.assertEquals(TaskStatus.FAILED, fixture.scheduler.task(admitted.id(), false).status());
+            Assert.assertEquals(outcome, fixture.scheduler.separateResult(admitted.id()));
+        }
+    }
+
+    public static class FailingJob extends CancellationJob {
+
+        private final CountDownLatch entered = new CountDownLatch(1);
+        private final CountDownLatch release = new CountDownLatch(1);
+
+        @Override
+        public Object execute() throws InterruptedException {
+            this.entered.countDown();
+            Assert.assertTrue(this.release.await(10L, TimeUnit.SECONDS));
+            throw new IllegalStateException("terminal failure");
         }
     }
 
@@ -1051,6 +1128,9 @@ public class DistributedTaskAdmissionTest {
         private final GatedExecutor worker;
         private final boolean ownsWorker;
         private final CountingScheduler scheduler;
+        private final HugeGraphParams params;
+        private final TaskScheduler originalScheduler;
+        private final Map<HugeGraphParams, TaskScheduler> registry;
 
         Fixture(String suffix) {
             this(suffix, null);
@@ -1069,17 +1149,26 @@ public class DistributedTaskAdmissionTest {
             this.graph = HugeFactory.open(config);
             this.graph.initBackend();
             this.graph.serverStarted(GlobalMasterInfo.master("distributed-admission-test"));
-            HugeGraphParams params = Whitebox.getInternalState(this.graph, "params");
-            this.scheduler = new CountingScheduler(params, this.cron, this.database, this.worker);
+            this.params = Whitebox.getInternalState(this.graph, "params");
+            this.registry = Whitebox.getInternalState(TaskManager.instance(), "schedulers");
+            this.originalScheduler = this.registry.get(this.params);
+            Assert.assertTrue(this.originalScheduler.close());
+            this.scheduler = new CountingScheduler(this.params, this.cron, this.database, this.worker);
             this.scheduler.init();
+            Assert.assertTrue(this.registry.replace(this.params, this.originalScheduler, this.scheduler));
+            Assert.assertSame(this.scheduler, this.graph.taskScheduler());
         }
 
         @Override
         public void close() throws Exception {
             try {
                 this.worker.release.countDown();
-                this.scheduler.close();
+                Assert.assertTrue(this.scheduler.close());
+                // Tests may query a closed scheduler again; close its actual owner after those reads.
+                this.scheduler.closeDatabaseOwner();
+                this.cron.submit(this.params::closeTx).get(10L, TimeUnit.SECONDS);
             } finally {
+                Assert.assertTrue(this.registry.replace(this.params, this.scheduler, this.originalScheduler));
                 ExecutorService[] owned = this.ownsWorker ?
                                           new ExecutorService[]{this.worker, this.database, this.cron} :
                                           new ExecutorService[]{this.database, this.cron};
@@ -1091,6 +1180,7 @@ public class DistributedTaskAdmissionTest {
                     this.graph.close();
                 } finally {
                     HugeFactory.remove(this.graph);
+                    Assert.assertNull(this.registry.get(this.params));
                 }
             }
         }
@@ -1131,6 +1221,19 @@ public class DistributedTaskAdmissionTest {
 
         void deleteRemoteRecord(org.apache.hugegraph.id.Id id) {
             this.deleteFromDB(id);
+        }
+
+        String separateResult(org.apache.hugegraph.id.Id id) {
+            HugeTaskResult result = this.queryTaskResult(id);
+            return result == null ? null : result.result();
+        }
+
+        void closeDatabaseOwner() {
+            this.call(() -> {
+                this.tx().close();
+                this.graph.closeTx();
+                return null;
+            });
         }
 
         @Override
