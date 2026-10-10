@@ -71,9 +71,10 @@ Id id = IdGenerator.of("alice");
 
 | Previous entry | Shared entry or migration |
 |----------------|---------------------------|
-| `org.apache.hugegraph.backend.id.*` | `org.apache.hugegraph.id.*` |
+| Shared types in `org.apache.hugegraph.backend.id` | `org.apache.hugegraph.id.*` |
 | `org.apache.hugegraph.schema.*` metadata | `org.apache.hugegraph.struct.schema.*` |
-| `org.apache.hugegraph.backend.query.*` | `org.apache.hugegraph.query.*` |
+| Shared types in `org.apache.hugegraph.backend.query` | `org.apache.hugegraph.query.*` |
+| `org.apache.hugegraph.backend.query.serializer.*` | `org.apache.hugegraph.query.serializer.*` |
 | `org.apache.hugegraph.backend.store.Shard` | `org.apache.hugegraph.backend.Shard` |
 | `org.apache.hugegraph.backend.store.BackendEntry.BackendColumn` | `org.apache.hugegraph.backend.BackendColumn` |
 | `org.apache.hugegraph.structure.HugeIndex` | `org.apache.hugegraph.structure.Index` |
@@ -81,7 +82,9 @@ Id id = IdGenerator.of("alice");
 | Core `HugeException` | `org.apache.hugegraph.exception.HugeException` |
 | `org.apache.hugegraph.SchemaGraph` / `SchemaDriver` | `org.apache.hugegraph.store.schema.*` |
 
-The table applies to these shared types, not every class in a package. Schema mutation builders and backend-specific serializers remain in core. There is no general compatibility package for removed core classes. Relocated types also change method descriptors that expose IDs, schema, queries and indexes, so update implementations and call sites and recompile every affected integration against matching artifacts. Changing source imports does not make old binaries compatible.
+Keep the core imports for `SnowflakeIdGenerator` and the query execution helpers
+`QueryResults`, `ConditionQueryFlatten`, `EdgesQueryIterator`, `QueryBatch` and `QueryResultContext`.
+The table applies to shared types, not entire packages. `SchemaManager`, schema mutation builders and backend-specific serializers remain in core. There is no general compatibility package for removed core classes. Relocated types also change method descriptors that expose IDs, schema, queries and indexes, so update implementations and call sites and recompile every affected integration against matching artifacts. Changing source imports does not make old binaries compatible.
 
 ### Check API and SPI implementations
 
@@ -165,7 +168,10 @@ pd:
   cluster: hg
 ```
 
-The environment equivalent is `PD_CLUSTER`. Match Server's `cluster` when `usePD=true`, or the graph's `pd.cluster` when `usePD=false`. One Store process cannot reuse its schema driver across conflicting namespaces.
+The environment equivalent is `PD_CLUSTER`. Match Server's `cluster` when `usePD=true`.
+With `usePD=false`, the first HStore graph opened binds the process-wide `MetaManager` to its `pd.cluster`;
+a later graph's explicit conflicting value is logged and ignored. Configure all HStore graphs in the
+process with the same namespace. Store rejects reuse of its schema driver under a conflicting namespace.
 
 Keep backend graph-name components such as `DEFAULT/hugegraph/g` (`graphspace/store/table`). The REST identity `DEFAULT-hugegraph` is not a metadata key.
 
