@@ -511,6 +511,70 @@ public class DistributedTaskAdmissionTest {
     }
 
     @Test
+    public void testCancelledQueuedTaskReleasesAfterFinalPersistenceFailure() throws Exception {
+        try (Fixture other = new Fixture("failed_cancel_other");
+             Fixture target = new Fixture("failed_cancel_target", other.worker)) {
+            other.worker.armed.set(true);
+            HugeTask<?> otherTask = task(true, new AtomicBoolean(), 9999960L);
+            other.scheduler.schedule(otherTask);
+            Assert.assertTrue(other.worker.reached.await(10L, TimeUnit.SECONDS));
+            CancellationJob callable = new CancellationJob();
+            HugeTask<?> admitted = new HugeTask<>(IdGenerator.of(9999961L), null, callable);
+            admitted.type("test");
+            admitted.name("cancel-persistence-failure");
+            target.scheduler.schedule(admitted);
+            target.graph.schema().vertexLabel("caller").useCustomizeStringId().create();
+            target.graph.addVertex(org.apache.tinkerpop.gremlin.structure.T.id, "uncommitted",
+                                   org.apache.tinkerpop.gremlin.structure.T.label, "caller");
+            ScheduledThreadPoolExecutor rejecting = Mockito.mock(ScheduledThreadPoolExecutor.class);
+            RejectedExecutionException dispatchFailure = new RejectedExecutionException("cancel owner rejected");
+            Mockito.doThrow(dispatchFailure).when(rejecting)
+                   .submit(Mockito.<java.util.concurrent.Callable<Object>>any());
+            Whitebox.setInternalState(target.scheduler, "schedulerExecutor", rejecting);
+            try {
+                org.apache.hugegraph.exception.HugeException failure = Assert.assertThrows(
+                        org.apache.hugegraph.exception.HugeException.class,
+                        () -> target.scheduler.cancel(admitted));
+                Assert.assertSame(dispatchFailure, org.apache.hugegraph.exception.HugeException.rootCause(failure));
+                Assert.assertFalse(admitted.isCancelled());
+                Assert.assertEquals(TaskStatus.NEW, admitted.status());
+                Assert.assertEquals(1, target.scheduler.pendingTasks());
+                Assert.assertEquals(1, other.worker.getQueue().size());
+            } finally {
+                Whitebox.setInternalState(target.scheduler, "schedulerExecutor", target.cron);
+            }
+            IllegalStateException persistenceFailure = new IllegalStateException("final cancel save failed");
+            AtomicBoolean failed = new AtomicBoolean();
+            target.scheduler.beforeSave = () -> {
+                if (failed.compareAndSet(false, true)) {
+                    throw persistenceFailure;
+                }
+            };
+            org.apache.hugegraph.exception.HugeException failure = Assert.assertThrows(
+                    org.apache.hugegraph.exception.HugeException.class,
+                    () -> target.scheduler.cancel(admitted));
+            Assert.assertSame(persistenceFailure, org.apache.hugegraph.exception.HugeException.rootCause(failure));
+            Assert.assertTrue(admitted.isCancelled());
+            Assert.assertEquals(1, callable.done.get());
+            Assert.assertEquals(1, callable.cancelled.get());
+            Assert.assertEquals(TaskStatus.CANCELLED, target.scheduler.task(admitted.id(), false).status());
+            Assert.assertEquals(0, target.scheduler.pendingTasks());
+            Assert.assertTrue(other.worker.getQueue().isEmpty());
+            Assert.assertTrue(target.graph.tx().isOpen());
+            Assert.assertTrue(target.graph.vertices("uncommitted").hasNext());
+            target.graph.tx().rollback();
+            target.scheduler.beforeSave = () -> { };
+            HugeTask<?> replacement = task(false, new AtomicBoolean(), 9999961L);
+            target.scheduler.schedule(replacement);
+            Assert.assertEquals(TaskStatus.NEW, target.scheduler.task(replacement.id(), false).status());
+            Assert.assertEquals(1, target.scheduler.pendingTasks());
+            target.scheduler.cancel(replacement);
+            Assert.assertEquals(0, target.scheduler.pendingTasks());
+            Assert.assertTrue(other.worker.getQueue().isEmpty());
+        }
+    }
+
+    @Test
     public void testAdmissionLimitRejectsBeforeBindingOrPersistentSave() throws Exception {
         try (Fixture fixture = new Fixture("admission_limit")) {
             fixture.worker.armed.set(true);

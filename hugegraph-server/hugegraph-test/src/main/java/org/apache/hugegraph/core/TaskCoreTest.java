@@ -325,9 +325,9 @@ public class TaskCoreTest extends BaseCoreTest {
         task.name("delete-remote-locked-incomplete-task");
         scheduler.schedule(task);
 
-        Map<Id, HugeTask<?>> runningTasks =
+        Map<Id, Future<?>> runningTasks =
                 Whitebox.getInternalState(scheduler, "runningTasks");
-        HugeTask<?> running = null;
+        Future<?> running = null;
         try {
             waitUntilTaskRunning(scheduler);
             Assert.assertTrue(BlockingCallable.awaitStarted());
@@ -346,7 +346,7 @@ public class TaskCoreTest extends BaseCoreTest {
             });
             Assert.assertNotEquals(TaskStatus.DELETING, scheduler.task(id).status());
         } finally {
-            if (running != null && !running.completed()) {
+            if (running != null && !running.isDone()) {
                 runningTasks.put(id, running);
             }
             BlockingCallable.release();
