@@ -188,8 +188,8 @@ public final class TaskManager {
             stopped = scheduler.close();
         } catch (RuntimeException | Error error) {
             failure = error;
-            // Owner-close failures can still leave all task dispatch drained.
-            stopped = true;
+            // Zero pending tasks alone does not acknowledge scheduler owner cleanup.
+            // Retain its registration so a later close can complete that cleanup.
         }
         if (stopped && scheduler.pendingTasks() == 0) {
             this.schedulers.remove(graph, scheduler);

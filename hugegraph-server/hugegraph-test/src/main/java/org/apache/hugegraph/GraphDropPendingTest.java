@@ -85,6 +85,48 @@ public class GraphDropPendingTest {
     }
 
     @Test
+    public void testZeroPendingCloseFailureRetainsSchedulerAndProviderUntilRetry() throws Exception {
+        RegisterUtil.registerBackends();
+        HugeConfig config = FakeObjects.newConfig();
+        config.setProperty("backend", "memory");
+        config.setProperty("serializer", "text");
+        config.setProperty("store", "graph_scheduler_close_retry");
+        HugeGraph graph = HugeFactory.open(config);
+        BackendStoreProvider provider = Mockito.spy(graph.storeProvider());
+        Whitebox.setInternalState(graph, "storeProvider", provider);
+        HugeGraphParams params = Whitebox.getInternalState(graph, "params");
+        Map<HugeGraphParams, TaskScheduler> schedulers =
+                Whitebox.getInternalState(TaskManager.instance(), "schedulers");
+        TaskScheduler scheduler = Mockito.spy(graph.taskScheduler());
+        schedulers.put(params, scheduler);
+        RuntimeException failure = new IllegalStateException("scheduler owners not closed");
+        Mockito.doThrow(failure).doCallRealMethod().when(scheduler).close();
+        try {
+            graph.initBackend();
+            graph.serverStarted(GlobalMasterInfo.master("scheduler-close-retry-test"));
+            Assert.assertEquals(0, scheduler.pendingTasks());
+            Assert.assertSame(failure, Assert.assertThrows(IllegalStateException.class, graph::close));
+            Assert.assertFalse(graph.closed());
+            Assert.assertSame(scheduler, TaskManager.instance().getScheduler(params));
+            Mockito.verify(provider, Mockito.never()).close();
+
+            graph.close();
+            Assert.assertTrue(graph.closed());
+            Assert.assertNull(TaskManager.instance().getScheduler(params));
+            Mockito.verify(scheduler, Mockito.times(2)).close();
+            Mockito.verify(provider, Mockito.times(1)).close();
+        } finally {
+            try {
+                if (!graph.closed()) {
+                    graph.close();
+                }
+            } finally {
+                HugeFactory.remove(graph);
+            }
+        }
+    }
+
+    @Test
     public void testPdNotificationPreservesCloseFailureAndRegistrations() throws Exception {
         HugeConfig config = FakeObjects.newConfig();
         config.setProperty(ServerOptions.USE_PD.name(), false);

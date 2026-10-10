@@ -50,9 +50,33 @@ import org.mockito.Mockito;
 import org.apache.hugegraph.testutil.Assert;
 import org.apache.hugegraph.testutil.Whitebox;
 import org.apache.hugegraph.unit.FakeObjects;
+import org.junit.After;
+import org.junit.Before;
 import org.junit.Test;
 
 public class DistributedTaskAdmissionTest {
+
+    private TaskMetaManager originalLocks;
+    private TaskMetaManager locks;
+
+    @Before
+    public void prepareLocks() {
+        MetaManager meta = MetaManager.instance();
+        this.originalLocks = Whitebox.getInternalState(meta, "taskMetaManager");
+        this.locks = Mockito.mock(TaskMetaManager.class);
+        Mockito.when(this.locks.tryLockTask(Mockito.anyString(), Mockito.anyString(), Mockito.anyString()))
+               .thenAnswer(invocation -> {
+                   LockResult acquired = new LockResult();
+                   acquired.lockSuccess(true);
+                   return acquired;
+               });
+        Whitebox.setInternalState(meta, "taskMetaManager", this.locks);
+    }
+
+    @After
+    public void restoreLocks() {
+        Whitebox.setInternalState(MetaManager.instance(), "taskMetaManager", this.originalLocks);
+    }
 
     @Test
     public void testQueuedEphemeralAdmissionDrainsBeforeClose() throws Exception {
@@ -182,12 +206,15 @@ public class DistributedTaskAdmissionTest {
                     while (callable.cancelled.get() == 0 && System.nanoTime() < deadline) {
                         Thread.yield();
                     }
-                    fixture.worker.release.countDown();
+                    if (close) {
+                        fixture.worker.release.countDown();
+                    }
                 });
                 if (close) {
                     Assert.assertTrue(fixture.scheduler.close());
                 } else {
                     fixture.scheduler.cancel(task);
+                    fixture.worker.release.countDown();
                 }
                 Assert.assertTrue(fixture.graph.tx().isOpen());
                 Assert.assertTrue(fixture.graph.vertices("uncommitted").hasNext());
@@ -222,7 +249,7 @@ public class DistributedTaskAdmissionTest {
         private final AtomicInteger cancelled = new AtomicInteger();
         private final AtomicBoolean ran = new AtomicBoolean();
         private volatile Thread cancellationThread;
-        private Runnable onCancelled = () -> { };
+        protected Runnable onCancelled = () -> { };
 
         @Override
         public String type() {
@@ -326,10 +353,13 @@ public class DistributedTaskAdmissionTest {
                 Assert.assertEquals(1, fixture.scheduler.pendingTasks());
                 Future<Boolean> close = closing.submit(fixture.scheduler::close);
                 long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10L);
-                while (!task.isCancelled() && System.nanoTime() < deadline) {
+                AtomicBoolean closingAdmission = Whitebox.getInternalState(fixture.scheduler, "closed");
+                while (!closingAdmission.get() && System.nanoTime() < deadline) {
                     Thread.yield();
                 }
-                Assert.assertTrue(task.isCancelled());
+                Assert.assertTrue(closingAdmission.get());
+                Assert.assertFalse(task.isCancelled());
+                Assert.assertEquals(TaskStatus.FAILED, fixture.scheduler.task(task.id(), false).status());
                 Assert.assertFalse(close.isDone());
                 Assert.assertEquals(1, fixture.scheduler.pendingTasks());
                 callable.release.countDown();
@@ -537,7 +567,7 @@ public class DistributedTaskAdmissionTest {
                         () -> target.scheduler.cancel(admitted));
                 Assert.assertSame(dispatchFailure, org.apache.hugegraph.exception.HugeException.rootCause(failure));
                 Assert.assertFalse(admitted.isCancelled());
-                Assert.assertEquals(TaskStatus.NEW, admitted.status());
+                Assert.assertEquals(TaskStatus.CANCELLING, admitted.status());
                 Assert.assertEquals(1, target.scheduler.pendingTasks());
                 Assert.assertEquals(1, other.worker.getQueue().size());
             } finally {
@@ -546,7 +576,7 @@ public class DistributedTaskAdmissionTest {
             IllegalStateException persistenceFailure = new IllegalStateException("final cancel save failed");
             AtomicBoolean failed = new AtomicBoolean();
             target.scheduler.beforeSave = () -> {
-                if (failed.compareAndSet(false, true)) {
+                if (admitted.isCancelled() && failed.compareAndSet(false, true)) {
                     throw persistenceFailure;
                 }
             };
@@ -571,6 +601,351 @@ public class DistributedTaskAdmissionTest {
             target.scheduler.cancel(replacement);
             Assert.assertEquals(0, target.scheduler.pendingTasks());
             Assert.assertTrue(other.worker.getQueue().isEmpty());
+        }
+    }
+
+    @Test
+    public void testQueuedRemoteOwnerCancellationRetainsCoordinationUntilCloseRetry() throws Exception {
+        AtomicBoolean available = new AtomicBoolean();
+        Mockito.when(this.locks.tryLockTask(Mockito.anyString(), Mockito.anyString(), Mockito.anyString()))
+               .thenAnswer(invocation -> {
+                   LockResult acquired = new LockResult();
+                   acquired.lockSuccess(available.get());
+                   return acquired;
+               });
+        Mockito.when(this.locks.isLockedTask(Mockito.anyString(), Mockito.anyString(), Mockito.anyString()))
+               .thenAnswer(invocation -> !available.get());
+        try (Fixture other = new Fixture("remote_other");
+             Fixture target = new Fixture("remote_target", other.worker)) {
+            other.worker.armed.set(true);
+            other.scheduler.schedule(task(true, new AtomicBoolean(), 9999970L));
+            Assert.assertTrue(other.worker.reached.await(10L, TimeUnit.SECONDS));
+            CancellationJob callable = new CancellationJob();
+            HugeTask<?> admitted = new HugeTask<>(IdGenerator.of(9999971L), null, callable);
+            admitted.type("test");
+            admitted.name("remote-owner-cancellation");
+            target.scheduler.schedule(admitted);
+            HugeTask<?> remote = target.scheduler.task(admitted.id(), false);
+            remote.overwriteStatus(TaskStatus.RUNNING);
+            target.scheduler.save(remote);
+            target.scheduler.cancel(admitted);
+            target.scheduler.cronSchedule();
+            Assert.assertEquals(TaskStatus.CANCELLING, target.scheduler.task(admitted.id(), false).status());
+            Assert.assertFalse(admitted.isCancelled());
+            Assert.assertEquals(0, callable.cancelled.get());
+            Assert.assertEquals(1, target.scheduler.pendingTasks());
+            Assert.assertEquals(1, other.worker.getQueue().size());
+            Assert.assertThrows(IllegalStateException.class,
+                                () -> target.scheduler.delete(admitted.id(), true));
+            Assert.assertEquals(TaskStatus.CANCELLING, target.scheduler.task(admitted.id(), false).status());
+            other.worker.release.countDown();
+            other.worker.submit(() -> null).get(10L, TimeUnit.SECONDS);
+            // A failed local lock attempt must not drop the parked coordination ticket.
+            Assert.assertEquals(1, target.scheduler.pendingTasks());
+            Assert.assertFalse(target.scheduler.close());
+            Assert.assertEquals(1, target.scheduler.pendingTasks());
+            Assert.assertEquals(0, callable.cancelled.get());
+            available.set(true);
+            Assert.assertTrue(target.scheduler.close());
+            Assert.assertEquals(TaskStatus.CANCELLED, target.scheduler.task(admitted.id(), false).status());
+            Assert.assertEquals(1, callable.done.get());
+            Assert.assertEquals(1, callable.cancelled.get());
+            Assert.assertFalse(callable.ran.get());
+            Assert.assertEquals(0, target.scheduler.pendingTasks());
+        }
+    }
+
+    @Test
+    public void testRemoteTerminalCoordinationReleasesParkedTicketOnCron() throws Exception {
+        this.checkRemoteCoordinationCompletion(false);
+    }
+
+    @Test
+    public void testMissingRemoteRecordReleasesParkedTicketOnCron() throws Exception {
+        this.checkRemoteCoordinationCompletion(true);
+    }
+
+    private void checkRemoteCoordinationCompletion(boolean deleted) throws Exception {
+        AtomicBoolean available = new AtomicBoolean();
+        Mockito.when(this.locks.tryLockTask(Mockito.anyString(), Mockito.anyString(), Mockito.anyString()))
+               .thenAnswer(invocation -> {
+                   LockResult acquired = new LockResult();
+                   acquired.lockSuccess(available.get());
+                   return acquired;
+               });
+        try (Fixture other = new Fixture("terminal_other_" + deleted);
+             Fixture target = new Fixture("terminal_target_" + deleted, other.worker)) {
+            other.worker.armed.set(true);
+            other.scheduler.schedule(task(true, new AtomicBoolean(), 9999975L));
+            Assert.assertTrue(other.worker.reached.await(10L, TimeUnit.SECONDS));
+            CancellationJob callable = new CancellationJob();
+            HugeTask<?> admitted = new HugeTask<>(IdGenerator.of(9999976L), null, callable);
+            admitted.type("test");
+            admitted.name("remote-terminal-coordination");
+            target.scheduler.schedule(admitted);
+            target.scheduler.cancel(admitted);
+            other.worker.release.countDown();
+            other.worker.submit(() -> null).get(10L, TimeUnit.SECONDS);
+            Assert.assertEquals(1, target.scheduler.pendingTasks());
+            // Simulate the actual remote owner's durable completion while our transport lock is held.
+            HugeTask<?> remote = target.scheduler.task(admitted.id(), false);
+            remote.overwriteStatus(TaskStatus.CANCELLED);
+            target.scheduler.save(remote);
+            if (deleted) {
+                target.scheduler.deleteRemoteRecord(admitted.id());
+            }
+            available.set(true);
+            target.scheduler.cronSchedule();
+            Assert.assertEquals(0, target.scheduler.pendingTasks());
+            Assert.assertEquals(0, callable.done.get());
+            Assert.assertEquals(0, callable.cancelled.get());
+            Assert.assertFalse(admitted.isCancelled());
+            if (deleted) {
+                Assert.assertThrows(org.apache.hugegraph.exception.NotFoundException.class,
+                                    () -> target.scheduler.task(admitted.id(), false));
+            } else {
+                Assert.assertEquals(TaskStatus.CANCELLED, target.scheduler.task(admitted.id(), false).status());
+            }
+        }
+    }
+
+    @Test
+    public void testAdoptedLocalLockChecksDurableTerminalBeforeCallbacks() throws Exception {
+        try (Fixture fixture = new Fixture("adopt_terminal")) {
+            CountDownLatch query = new CountDownLatch(1);
+            CountDownLatch finishQuery = new CountDownLatch(1);
+            AtomicBoolean once = new AtomicBoolean();
+            fixture.scheduler.beforeTask = () -> {
+                if (Thread.currentThread() == fixture.worker.owner && once.compareAndSet(false, true)) {
+                    query.countDown();
+                    try {
+                        Assert.assertTrue(finishQuery.await(10L, TimeUnit.SECONDS));
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        throw new IllegalStateException(e);
+                    }
+                }
+            };
+            CancellationJob callable = new CancellationJob();
+            HugeTask<?> admitted = new HugeTask<>(IdGenerator.of(9999978L), null, callable);
+            admitted.type("test");
+            admitted.name("adopted-lock-terminal");
+            fixture.scheduler.schedule(admitted);
+            try {
+                Assert.assertTrue(query.await(10L, TimeUnit.SECONDS));
+                HugeTask<?> remote = fixture.scheduler.task(admitted.id(), false);
+                remote.overwriteStatus(TaskStatus.SUCCESS);
+                fixture.scheduler.save(remote);
+                fixture.scheduler.cancel(admitted);
+                Assert.assertEquals(TaskStatus.SUCCESS, fixture.scheduler.task(admitted.id(), false).status());
+                Assert.assertEquals(0, callable.done.get());
+                Assert.assertEquals(0, callable.cancelled.get());
+                Assert.assertFalse(admitted.isCancelled());
+                Assert.assertEquals(1, fixture.scheduler.pendingTasks());
+            } finally {
+                finishQuery.countDown();
+            }
+            fixture.worker.submit(() -> null).get(10L, TimeUnit.SECONDS);
+            Assert.assertEquals(0, fixture.scheduler.pendingTasks());
+            Assert.assertFalse(callable.ran.get());
+        }
+    }
+
+    @Test
+    public void testQueuedDeleteReleasesAfterOwnerCloseFailure() throws Exception {
+        this.checkDeletingCloseFailure(false);
+    }
+
+    @Test
+    public void testCronDeletingReleasesAfterOwnerCloseFailure() throws Exception {
+        this.checkDeletingCloseFailure(true);
+    }
+
+    private void checkDeletingCloseFailure(boolean cron) throws Exception {
+        try (Fixture other = new Fixture("delete_close_other_" + cron);
+             Fixture target = new Fixture("delete_close_target_" + cron, other.worker)) {
+            other.worker.armed.set(true);
+            other.scheduler.schedule(task(true, new AtomicBoolean(), 9999980L));
+            Assert.assertTrue(other.worker.reached.await(10L, TimeUnit.SECONDS));
+            CancellationJob callable = new CancellationJob();
+            HugeTask<?> admitted = new HugeTask<>(IdGenerator.of(9999981L), null, callable);
+            admitted.type("test");
+            admitted.name("delete-close-failure");
+            target.scheduler.schedule(admitted);
+            HugeGraphParams params = Whitebox.getInternalState(target.scheduler, "graph");
+            HugeGraphParams failing = Mockito.mock(HugeGraphParams.class,
+                                                  org.mockito.AdditionalAnswers.delegatesTo(params));
+            IllegalStateException closeFailure = new IllegalStateException("owner close failed");
+            AtomicBoolean once = new AtomicBoolean();
+            Mockito.doAnswer(invocation -> {
+                params.closeTx();
+                if (once.compareAndSet(false, true)) {
+                    throw closeFailure;
+                }
+                return null;
+            }).when(failing).closeTx();
+            Whitebox.setInternalState(target.scheduler, "graph", failing);
+            try {
+                if (cron) {
+                    HugeTask<?> deleting = target.scheduler.task(admitted.id(), false);
+                    deleting.overwriteStatus(TaskStatus.DELETING);
+                    target.scheduler.save(deleting);
+                }
+                org.apache.hugegraph.exception.HugeException failure = Assert.assertThrows(
+                        org.apache.hugegraph.exception.HugeException.class, () -> {
+                            if (cron) {
+                                target.scheduler.cronSchedule();
+                            } else {
+                                target.scheduler.delete(admitted.id(), true);
+                            }
+                        });
+                Assert.assertSame(closeFailure, org.apache.hugegraph.exception.HugeException.rootCause(failure));
+                Assert.assertTrue(admitted.isCancelled());
+                Assert.assertEquals(1, callable.done.get());
+                Assert.assertEquals(0, callable.cancelled.get());
+                Assert.assertEquals(0, target.scheduler.pendingTasks());
+                Assert.assertTrue(other.worker.getQueue().isEmpty());
+                Assert.assertEquals(TaskStatus.DELETING, target.scheduler.task(admitted.id(), false).status());
+                target.scheduler.cronSchedule();
+                Assert.assertThrows(org.apache.hugegraph.exception.NotFoundException.class,
+                                    () -> target.scheduler.task(admitted.id(), false));
+            } finally {
+                Whitebox.setInternalState(target.scheduler, "graph", params);
+            }
+        }
+    }
+
+    @Test
+    public void testActiveOwnerDefersUnlockUntilCancellationPersistenceCompletes() throws Exception {
+        AtomicInteger unlocked = new AtomicInteger();
+        Mockito.doAnswer(invocation -> {
+            unlocked.incrementAndGet();
+            return null;
+        }).when(this.locks).unlockTask(Mockito.anyString(), Mockito.anyString(), Mockito.anyString(),
+                                      Mockito.any(LockResult.class));
+        try (Fixture fixture = new Fixture("owner_unlock")) {
+            LockHoldingJob callable = new LockHoldingJob();
+            HugeTask<?> task = new HugeTask<>(IdGenerator.of(9999985L), null, callable);
+            task.type("test");
+            task.name("owner-unlock-cancellation");
+            fixture.scheduler.schedule(task);
+            Assert.assertTrue(callable.entered.await(10L, TimeUnit.SECONDS));
+            CountDownLatch callback = new CountDownLatch(1);
+            CountDownLatch finishCallback = new CountDownLatch(1);
+            callable.onCancelled = () -> {
+                callback.countDown();
+                try {
+                    Assert.assertTrue(finishCallback.await(10L, TimeUnit.SECONDS));
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException(e);
+                }
+            };
+            ExecutorService cancelling = Executors.newSingleThreadExecutor();
+            try {
+                Future<?> cancel = cancelling.submit(() -> fixture.scheduler.cancel(task));
+                Assert.assertTrue(callback.await(10L, TimeUnit.SECONDS));
+                callable.release.countDown();
+                fixture.worker.submit(() -> null).get(10L, TimeUnit.SECONDS);
+                Assert.assertEquals(0, unlocked.get());
+                Assert.assertEquals(1, fixture.scheduler.pendingTasks());
+                finishCallback.countDown();
+                cancel.get(10L, TimeUnit.SECONDS);
+                Assert.assertEquals(1, unlocked.get());
+                Assert.assertEquals(0, fixture.scheduler.pendingTasks());
+                Assert.assertEquals(TaskStatus.CANCELLED, fixture.scheduler.task(task.id(), false).status());
+            } finally {
+                callable.release.countDown();
+                finishCallback.countDown();
+                cancelling.shutdownNow();
+                Assert.assertTrue(cancelling.awaitTermination(10L, TimeUnit.SECONDS));
+            }
+        }
+    }
+
+    public static class LockHoldingJob extends CancellationJob {
+
+        private final CountDownLatch entered = new CountDownLatch(1);
+        private final CountDownLatch release = new CountDownLatch(1);
+
+        @Override
+        public Object execute() {
+            this.entered.countDown();
+            while (this.release.getCount() != 0L) {
+                try {
+                    Assert.assertTrue(this.release.await(10L, TimeUnit.SECONDS));
+                } catch (InterruptedException ignored) {
+                    // Retain the real execution owner until released by the test.
+                }
+            }
+            return null;
+        }
+    }
+
+    @Test
+    public void testFailedCancellationLockReleasesFinishedRunnerToken() throws Exception {
+        CountDownLatch runnerAcquired = new CountDownLatch(1);
+        CountDownLatch publishRunner = new CountDownLatch(1);
+        CountDownLatch cancellationAcquiring = new CountDownLatch(1);
+        CountDownLatch returnFailedLock = new CountDownLatch(1);
+        AtomicInteger unlocked = new AtomicInteger();
+        Mockito.doAnswer(invocation -> {
+            unlocked.incrementAndGet();
+            return null;
+        }).when(this.locks).unlockTask(Mockito.anyString(), Mockito.anyString(), Mockito.anyString(),
+                                      Mockito.any(LockResult.class));
+        try (Fixture fixture = new Fixture("failed_acquire_handoff")) {
+            Mockito.when(this.locks.tryLockTask(Mockito.anyString(), Mockito.anyString(), Mockito.anyString()))
+                   .thenAnswer(invocation -> {
+                       LockResult acquired = new LockResult();
+                       if (Thread.currentThread() == fixture.worker.owner) {
+                           runnerAcquired.countDown();
+                           Assert.assertTrue(publishRunner.await(10L, TimeUnit.SECONDS));
+                           acquired.lockSuccess(true);
+                       } else {
+                           cancellationAcquiring.countDown();
+                           Assert.assertTrue(returnFailedLock.await(10L, TimeUnit.SECONDS));
+                       }
+                       return acquired;
+                   });
+            CancellationJob callable = new CancellationJob();
+            HugeTask<?> admitted = new HugeTask<>(IdGenerator.of(9999988L), null, callable);
+            admitted.type("test");
+            admitted.name("failed-lock-token-handoff");
+            fixture.scheduler.schedule(admitted);
+            ExecutorService cancelling = Executors.newSingleThreadExecutor();
+            try {
+                Assert.assertTrue(runnerAcquired.await(10L, TimeUnit.SECONDS));
+                Future<?> cancel = cancelling.submit(() -> fixture.scheduler.cancel(admitted));
+                Assert.assertTrue(cancellationAcquiring.await(10L, TimeUnit.SECONDS));
+                publishRunner.countDown();
+                fixture.worker.submit(() -> null).get(10L, TimeUnit.SECONDS);
+                Assert.assertEquals(0, unlocked.get());
+                Assert.assertEquals(1, fixture.scheduler.pendingTasks());
+                returnFailedLock.countDown();
+                cancel.get(10L, TimeUnit.SECONDS);
+                Assert.assertEquals(1, unlocked.get());
+                Assert.assertEquals(1, fixture.scheduler.pendingTasks());
+                Assert.assertEquals(TaskStatus.CANCELLING, fixture.scheduler.task(admitted.id(), false).status());
+                Assert.assertEquals(0, callable.done.get());
+                Assert.assertEquals(0, callable.cancelled.get());
+                Mockito.when(this.locks.tryLockTask(Mockito.anyString(), Mockito.anyString(), Mockito.anyString()))
+                       .thenAnswer(invocation -> {
+                           LockResult acquired = new LockResult();
+                           acquired.lockSuccess(true);
+                           return acquired;
+                       });
+                fixture.scheduler.cancel(admitted);
+                Assert.assertEquals(2, unlocked.get());
+                Assert.assertEquals(0, fixture.scheduler.pendingTasks());
+                Assert.assertEquals(1, callable.cancelled.get());
+                Assert.assertFalse(callable.ran.get());
+            } finally {
+                publishRunner.countDown();
+                returnFailedLock.countDown();
+                cancelling.shutdownNow();
+                Assert.assertTrue(cancelling.awaitTermination(10L, TimeUnit.SECONDS));
+            }
         }
     }
 
@@ -723,6 +1098,7 @@ public class DistributedTaskAdmissionTest {
 
     private static class GatedExecutor extends ThreadPoolExecutor {
 
+        private volatile Thread owner;
         private final AtomicBoolean armed = new AtomicBoolean();
         private final CountDownLatch reached = new CountDownLatch(1);
         private final CountDownLatch release = new CountDownLatch(1);
@@ -733,6 +1109,7 @@ public class DistributedTaskAdmissionTest {
 
         @Override
         protected void beforeExecute(Thread thread, Runnable work) {
+            this.owner = thread;
             if (this.armed.compareAndSet(true, false)) {
                 this.reached.countDown();
                 try {
@@ -750,6 +1127,17 @@ public class DistributedTaskAdmissionTest {
         private final AtomicInteger lateSaved = new AtomicInteger();
         private final AtomicBoolean leaseRecovered = new AtomicBoolean();
         private volatile Runnable beforeSave = () -> { };
+        private volatile Runnable beforeTask = () -> { };
+
+        void deleteRemoteRecord(org.apache.hugegraph.id.Id id) {
+            this.deleteFromDB(id);
+        }
+
+        @Override
+        public <V> HugeTask<V> task(org.apache.hugegraph.id.Id id, boolean withResult) {
+            this.beforeTask.run();
+            return super.task(id, withResult);
+        }
 
         CountingScheduler(HugeGraphParams graph, ScheduledThreadPoolExecutor cron,
                           ExecutorService database, ExecutorService worker) {
