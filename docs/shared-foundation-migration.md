@@ -147,6 +147,13 @@ bounded batches; if a batch fails, the task fails and the pending session is rol
 back. Deletions already committed to Store nodes can remain, so retrying cleanup
 is idempotent; the operation does not promise graph-wide atomicity.
 
+Quiesce writes to the affected OLAP property before clearing or removing it, and
+keep those writes stopped until cleanup completes. The scan and bounded delete
+batches do not coordinate concurrent writers: a new row can be missed, and a
+rewrite of a scanned row can be deleted. An inconsistent compound key/value
+blocks cleanup until the affected row is repaired; the error includes its key
+in hexadecimal, limited to the first 64 bytes.
+
 Mixed-version writes can produce stale reads: an old writer may update a legacy row while a new reader prefers an earlier compound row. Upgrade all Server and Store writers before resuming writes.
 
 ### Match metadata namespaces

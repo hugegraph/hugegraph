@@ -20,6 +20,7 @@ package org.apache.hugegraph.backend.store.hstore;
 import org.apache.hugegraph.backend.BinaryId;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
@@ -797,16 +798,26 @@ public abstract class HstoreStore extends AbstractBackendStore<Session> {
                             boolean targetCompound = column.name != null &&
                                                      column.name.length > propertyPrefix.length &&
                                                      Bytes.prefixWith(column.name, propertyPrefix);
-                            E.checkState(!targetCompound, "OLAP value must match property '%s'", pkId);
+                            if (targetCompound) {
+                                E.checkState(false, "OLAP value at key '%s' must match property '%s'",
+                                             olapKeyDiagnostic(column.name), pkId);
+                            }
                             continue;
                         }
                         BytesBuffer key = BytesBuffer.wrap(column.name);
                         Id first = key.readId();
                         Id vertexId = first;
                         if (key.remaining() != 0) {
-                            E.checkState(pkId.equals(first), "OLAP key must match property '%s'", pkId);
+                            if (!pkId.equals(first)) {
+                                E.checkState(false, "OLAP key '%s' must match property '%s'",
+                                             olapKeyDiagnostic(column.name), pkId);
+                            }
                             vertexId = key.readId();
-                            E.checkState(key.remaining() == 0, "Unexpected trailing bytes in OLAP key");
+                            if (key.remaining() != 0) {
+                                E.checkState(false,
+                                             "Unexpected trailing bytes in OLAP key '%s' for property '%s'",
+                                             olapKeyDiagnostic(column.name), pkId);
+                            }
                         }
                         session.delete(tableName, vertexId.asBytes(), column.name);
                         if (++pending == OLAP_DELETE_BATCH_SIZE) {
@@ -828,6 +839,12 @@ public abstract class HstoreStore extends AbstractBackendStore<Session> {
                 }
                 throw failure;
             }
+        }
+
+        private static String olapKeyDiagnostic(byte[] key) {
+            int maxBytes = 64;
+            return key.length <= maxBytes ? Bytes.toHex(key) :
+                   Bytes.toHex(Arrays.copyOf(key, maxBytes)) + "...";
         }
 
         @Override

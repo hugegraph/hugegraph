@@ -21,6 +21,7 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Base64;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
@@ -38,6 +39,7 @@ import org.apache.hugegraph.id.Id;
 import org.apache.hugegraph.id.IdGenerator;
 import org.apache.hugegraph.serializer.BytesBuffer;
 import org.apache.hugegraph.serializer.OlapKey;
+import org.apache.hugegraph.util.Bytes;
 import org.junit.Assert;
 import org.junit.Test;
 import org.mockito.Mockito;
@@ -129,8 +131,9 @@ public class HstoreSessionsTest {
         byte[] key = fixture.add(8, IdGenerator.of("alice"), false);
         fixture.rows.get(Base64.getEncoder().encodeToString(key)).value =
                 BytesBuffer.allocate(16).writeVInt(5).writeVInt(99).bytes();
-        Assert.assertThrows(IllegalStateException.class,
-                            () -> fixture.store.clearOlapTable(IdGenerator.of(5)));
+        IllegalStateException failure = Assert.assertThrows(IllegalStateException.class,
+                () -> fixture.store.clearOlapTable(IdGenerator.of(5)));
+        Assert.assertTrue(failure.getMessage(), failure.getMessage().contains(Bytes.toHex(key)));
         Assert.assertEquals(1, fixture.rows.size());
         Mockito.verify(fixture.session).rollback();
         Mockito.verify(fixture.columns).close();
@@ -154,6 +157,21 @@ public class HstoreSessionsTest {
     }
 
     @Test
+    public void testOlapCleanupBoundsInvalidKeyDiagnostic() throws Exception {
+        OlapFixture fixture = new OlapFixture();
+        byte[] key = fixture.add(5, IdGenerator.of("alice".repeat(40)), false);
+        fixture.rows.get(Base64.getEncoder().encodeToString(key)).value = new byte[0];
+        IllegalStateException failure = Assert.assertThrows(IllegalStateException.class,
+                () -> fixture.store.clearOlapTable(IdGenerator.of(5)));
+        String prefix = Bytes.toHex(Arrays.copyOf(key, 64));
+        Assert.assertTrue(failure.getMessage(), failure.getMessage().contains(prefix + "..."));
+        Assert.assertFalse(failure.getMessage().contains(Bytes.toHex(key)));
+        Assert.assertEquals(1, fixture.rows.size());
+        Mockito.verify(fixture.session).rollback();
+        Mockito.verify(fixture.columns).close();
+    }
+
+    @Test
     public void testOlapCleanupPreservesUnreadableOtherCompoundValue() throws Exception {
         OlapFixture fixture = new OlapFixture();
         byte[] key = fixture.add(8, IdGenerator.of("alice"), false);
@@ -170,8 +188,9 @@ public class HstoreSessionsTest {
         OlapFixture fixture = new OlapFixture();
         byte[] key = fixture.add(5, IdGenerator.of("alice"), false);
         fixture.rows.get(Base64.getEncoder().encodeToString(key)).value = value;
-        Assert.assertThrows(IllegalStateException.class,
-                            () -> fixture.store.clearOlapTable(IdGenerator.of(5)));
+        IllegalStateException failure = Assert.assertThrows(IllegalStateException.class,
+                () -> fixture.store.clearOlapTable(IdGenerator.of(5)));
+        Assert.assertTrue(failure.getMessage(), failure.getMessage().contains(Bytes.toHex(key)));
         Assert.assertEquals(1, fixture.rows.size());
         Mockito.verify(fixture.session).rollback();
         Mockito.verify(fixture.columns).close();
