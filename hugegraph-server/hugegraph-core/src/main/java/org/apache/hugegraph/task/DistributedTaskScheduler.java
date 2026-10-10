@@ -534,10 +534,6 @@ public class DistributedTaskScheduler extends TaskAndResultScheduler {
         });
     }
 
-    private boolean cancelLocal(PendingTask pending) {
-        return this.cancelLocal(pending, cancelled -> { });
-    }
-
     private boolean cancelLocal(PendingTask pending, Consumer<Boolean> afterCancel) {
         return this.cancelLocal(pending, null, afterCancel);
     }
@@ -664,22 +660,37 @@ public class DistributedTaskScheduler extends TaskAndResultScheduler {
     @Override
     public <V> HugeTask<V> delete(Id id, boolean force) {
         HugeTask<?> task = this.taskWithoutResult(id);
-        PendingTask pending = this.cancellationTicket(id);
+        PendingTask pending = task.cancelling() || task.status() == TaskStatus.DELETING ?
+                              this.cancellationTicket(id) : this.runningTasks.get(id);
 
         if (pending != null) {
             HugeTask<?> running = pending.task;
+            AtomicBoolean marked = new AtomicBoolean();
             try {
-                boolean cancelled = this.cancelLocal(pending, () -> this.markTaskDeleting(running),
-                                                     accepted -> { });
+                boolean cancelled = this.cancelLocal(pending, () -> {
+                    pending.coordinationPending = true;
+                    this.markTaskDeleting(running);
+                    marked.set(true);
+                }, accepted -> { });
                 E.checkState(cancelled || running.isDone(),
                              "Can't delete task '%s' because it is locked by another server, " +
                              "please retry later", id);
+                if (marked.get()) {
+                    @SuppressWarnings("unchecked")
+                    HugeTask<V> result = (HugeTask<V>) running;
+                    return result;
+                }
+                // This runner may have finished before the asynchronous owner claim.
+                // Re-query and use the existing DB deletion path instead of reporting success.
+                task = this.taskWithoutResult(id);
             } finally {
                 this.finishCancelledQueued(pending);
+                synchronized (pending) {
+                    if (!pending.coordinationPending && pending.cancellationDepth == 0 && pending.ownerFinished) {
+                        this.finishTask(pending);
+                    }
+                }
             }
-            @SuppressWarnings("unchecked")
-            HugeTask<V> result = (HugeTask<V>) running;
-            return result;
         }
 
         if (!force && !task.completed()) {

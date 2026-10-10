@@ -643,7 +643,9 @@ public class DistributedTaskAdmissionTest {
             HugeTask<?> remote = target.scheduler.task(admitted.id(), false);
             remote.overwriteStatus(TaskStatus.RUNNING);
             target.scheduler.save(remote);
-            target.scheduler.cancel(admitted);
+            HugeTask<?> cancellation = target.scheduler.task(admitted.id(), false);
+            target.scheduler.cancel(cancellation);
+            Assert.assertEquals(TaskStatus.NEW, admitted.status());
             target.scheduler.cronSchedule();
             Assert.assertEquals(TaskStatus.CANCELLING, target.scheduler.task(admitted.id(), false).status());
             Assert.assertFalse(admitted.isCancelled());
@@ -825,6 +827,129 @@ public class DistributedTaskAdmissionTest {
             fixture.worker.submit(() -> null).get(10L, TimeUnit.SECONDS);
             Assert.assertEquals(0, fixture.scheduler.pendingTasks());
             Assert.assertFalse(callable.ran.get());
+        }
+    }
+
+    @Test
+    public void testFailedUnmarkedDeleteAllowsRecoveredCronDispatch() throws Exception {
+        AtomicBoolean available = new AtomicBoolean();
+        Mockito.when(this.locks.tryLockTask(Mockito.anyString(), Mockito.anyString(), Mockito.anyString()))
+               .thenAnswer(invocation -> {
+                   LockResult acquired = new LockResult();
+                   acquired.lockSuccess(available.get());
+                   return acquired;
+               });
+        try (Fixture fixture = new Fixture("failed_delete_new")) {
+            fixture.worker.armed.set(true);
+            HugeTask<?> admitted = new HugeTask<>(IdGenerator.of(9999990L), null, new RecoveryJob());
+            admitted.type("test");
+            admitted.name("failed-unmarked-delete");
+            fixture.scheduler.schedule(admitted);
+            Assert.assertTrue(fixture.worker.reached.await(10L, TimeUnit.SECONDS));
+            Assert.assertThrows(IllegalStateException.class,
+                                () -> fixture.scheduler.delete(admitted.id(), false));
+            fixture.worker.release.countDown();
+            fixture.worker.submit(() -> null).get(10L, TimeUnit.SECONDS);
+            Assert.assertEquals(TaskStatus.NEW, fixture.scheduler.task(admitted.id(), false).status());
+            available.set(true);
+            fixture.scheduler.cronSchedule();
+            fixture.worker.submit(() -> null).get(10L, TimeUnit.SECONDS);
+            Assert.assertEquals(TaskStatus.SUCCESS, fixture.scheduler.task(admitted.id(), false).status());
+            Assert.assertEquals("\"recovered\"", fixture.scheduler.task(admitted.id(), true).result());
+            Assert.assertEquals("\"recovered\"", fixture.scheduler.separateResult(admitted.id()));
+            Assert.assertEquals(0, fixture.scheduler.pendingTasks());
+        }
+    }
+
+    @Test
+    public void testDeleteRechecksFinishedTaskBeforeAsynchronousOwnerClaim() throws Exception {
+        try (Fixture fixture = new Fixture("delete_finished_claim")) {
+            fixture.worker.armed.set(true);
+            HugeTask<?> admitted = new HugeTask<>(IdGenerator.of(9999991L), null, new RecoveryJob());
+            admitted.type("test");
+            admitted.name("delete-finished-before-claim");
+            fixture.scheduler.schedule(admitted);
+            Assert.assertTrue(fixture.worker.reached.await(10L, TimeUnit.SECONDS));
+            CountDownLatch occupied = new CountDownLatch(1);
+            CountDownLatch release = new CountDownLatch(1);
+            Future<?> gate = fixture.cron.submit(() -> {
+                occupied.countDown();
+                Assert.assertTrue(release.await(10L, TimeUnit.SECONDS));
+                return null;
+            });
+            Assert.assertTrue(occupied.await(10L, TimeUnit.SECONDS));
+            int before = fixture.cron.getQueue().size();
+            ExecutorService deleting = Executors.newSingleThreadExecutor();
+            try {
+                Future<?> delete = deleting.submit(() -> fixture.scheduler.delete(admitted.id(), false));
+                long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10L);
+                while (fixture.cron.getQueue().size() <= before && System.nanoTime() < deadline) {
+                    Thread.yield();
+                }
+                Assert.assertTrue(fixture.cron.getQueue().size() > before);
+                fixture.worker.release.countDown();
+                fixture.worker.submit(() -> null).get(10L, TimeUnit.SECONDS);
+                Assert.assertEquals(TaskStatus.SUCCESS, fixture.scheduler.task(admitted.id(), false).status());
+                release.countDown();
+                gate.get(10L, TimeUnit.SECONDS);
+                Assert.assertNotNull(delete.get(10L, TimeUnit.SECONDS));
+                Assert.assertThrows(org.apache.hugegraph.exception.NotFoundException.class,
+                                    () -> fixture.scheduler.task(admitted.id(), false));
+                Assert.assertNull(fixture.scheduler.separateResult(admitted.id()));
+                Assert.assertEquals(0, fixture.scheduler.pendingTasks());
+            } finally {
+                release.countDown();
+                fixture.worker.release.countDown();
+                deleting.shutdownNow();
+                Assert.assertTrue(deleting.awaitTermination(10L, TimeUnit.SECONDS));
+            }
+        }
+    }
+
+    @Test
+    public void testFailedDeleteMarkerKeepsExplicitRetry() throws Exception {
+        try (Fixture fixture = new Fixture("delete_marker_retry")) {
+            CountingScheduler original = fixture.scheduler;
+            CountingScheduler scheduler = Mockito.spy(original);
+            Assert.assertTrue(fixture.registry.replace(fixture.params, original, scheduler));
+            Whitebox.setInternalState(fixture, "scheduler", scheduler);
+            fixture.worker.armed.set(true);
+            HugeTask<?> admitted = new HugeTask<>(IdGenerator.of(9999992L), null, new RecoveryJob());
+            admitted.type("test");
+            admitted.name("delete-marker-retry");
+            scheduler.schedule(admitted);
+            Assert.assertTrue(fixture.worker.reached.await(10L, TimeUnit.SECONDS));
+            IllegalStateException markerFailure = new IllegalStateException("marker save failed");
+            AtomicBoolean failed = new AtomicBoolean();
+            Mockito.doAnswer(invocation -> {
+                if (admitted.status() == TaskStatus.DELETING && failed.compareAndSet(false, true)) {
+                    throw markerFailure;
+                }
+                return invocation.callRealMethod();
+            }).when(scheduler).call(Mockito.<java.util.concurrent.Callable<Object>>any());
+            org.apache.hugegraph.exception.HugeException failure = Assert.assertThrows(
+                    org.apache.hugegraph.exception.HugeException.class,
+                    () -> scheduler.delete(admitted.id(), false));
+            Assert.assertSame(markerFailure, org.apache.hugegraph.exception.HugeException.rootCause(failure));
+            Assert.assertEquals(TaskStatus.NEW, scheduler.task(admitted.id(), false).status());
+            Assert.assertEquals(TaskStatus.DELETING, admitted.status());
+            Assert.assertEquals(1, scheduler.pendingTasks());
+            Assert.assertFalse(admitted.isCancelled());
+            Assert.assertEquals(TaskStatus.DELETING, scheduler.delete(admitted.id(), false).status());
+            Assert.assertEquals(0, scheduler.pendingTasks());
+            Assert.assertEquals(TaskStatus.DELETING, scheduler.task(admitted.id(), false).status());
+            scheduler.cronSchedule();
+            Assert.assertThrows(org.apache.hugegraph.exception.NotFoundException.class,
+                                () -> scheduler.task(admitted.id(), false));
+        }
+    }
+
+    public static class RecoveryJob extends CancellationJob {
+
+        @Override
+        public Object execute() throws Exception {
+            super.execute();
+            return "recovered";
         }
     }
 
