@@ -17,6 +17,8 @@
 
 package org.apache.hugegraph;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -39,6 +41,7 @@ import org.apache.hugegraph.task.DistributedTaskScheduler;
 import org.apache.hugegraph.task.HugeTask;
 import org.apache.hugegraph.task.TaskAndResultSchedulerTest.EmptyCallable;
 import org.apache.hugegraph.task.TaskStatus;
+import org.apache.hugegraph.task.TaskScheduler;
 import org.apache.hugegraph.task.TaskCallable;
 import org.apache.hugegraph.meta.MetaManager;
 import org.apache.hugegraph.meta.managers.TaskMetaManager;
@@ -367,6 +370,105 @@ public class DistributedTaskAdmissionTest {
     }
 
     @Test
+    public void testSharedWorkerSaturationAccountsForAcceptedPersistentTask() throws Exception {
+        try (Fixture other = new Fixture("shared_other");
+             Fixture target = new Fixture("shared_target", other.worker)) {
+            other.worker.armed.set(true);
+            AtomicBoolean otherRan = new AtomicBoolean();
+            HugeTask<?> otherTask = task(true, otherRan, 9999940L);
+            other.scheduler.schedule(otherTask);
+            Assert.assertTrue(other.worker.reached.await(10L, TimeUnit.SECONDS));
+            HugeTask<?> admitted = task(false, new AtomicBoolean(), 9999941L);
+            target.scheduler.schedule(admitted);
+            Assert.assertEquals(TaskStatus.NEW, target.scheduler.task(admitted.id(), false).status());
+            Assert.assertEquals(1, target.scheduler.pendingTasks());
+            Assert.assertEquals(1, other.worker.getQueue().size());
+            Assert.assertEquals(1, other.scheduler.pendingTasks());
+            // Another node's durable NEW backlog must not be drained into our busy pool.
+            HugeTask<?> backlog = task(false, new AtomicBoolean(), 9999942L);
+            target.scheduler.save(backlog);
+            target.scheduler.cronSchedule();
+            Assert.assertEquals(TaskStatus.NEW, target.scheduler.task(backlog.id(), false).status());
+            Assert.assertEquals(1, target.scheduler.pendingTasks());
+            Assert.assertEquals(1, other.worker.getQueue().size());
+            ExecutorService closing = Executors.newSingleThreadExecutor();
+            try {
+                Future<Boolean> close = closing.submit(target.scheduler::close);
+                long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10L);
+                while (!admitted.isCancelled() && System.nanoTime() < deadline) {
+                    Thread.yield();
+                }
+                Assert.assertTrue(admitted.isCancelled());
+                Assert.assertFalse(close.isDone());
+                Assert.assertEquals(1, target.scheduler.pendingTasks());
+                Assert.assertFalse(otherTask.isCancelled());
+                other.worker.release.countDown();
+                Assert.assertTrue(close.get(10L, TimeUnit.SECONDS));
+                other.worker.submit(() -> null).get(10L, TimeUnit.SECONDS);
+                Assert.assertEquals(0, target.scheduler.pendingTasks());
+                Assert.assertEquals(0, other.scheduler.pendingTasks());
+                Assert.assertTrue(otherRan.get());
+                Assert.assertEquals(TaskStatus.CANCELLED,
+                                    target.scheduler.task(admitted.id(), false).status());
+            } finally {
+                other.worker.release.countDown();
+                closing.shutdownNow();
+                Assert.assertTrue(closing.awaitTermination(10L, TimeUnit.SECONDS));
+            }
+        }
+    }
+
+    @Test
+    public void testAdmissionLimitRejectsBeforeBindingOrPersistentSave() throws Exception {
+        try (Fixture fixture = new Fixture("admission_limit")) {
+            fixture.worker.armed.set(true);
+            List<Future<?>> accepted = new ArrayList<>();
+            AtomicBoolean ran = new AtomicBoolean();
+            try {
+                for (int i = 0; i < TaskScheduler.MAX_PENDING_TASKS; i++) {
+                    accepted.add(fixture.scheduler.schedule(task(true, ran, 10000000L + i)));
+                    if (i == 0) {
+                        Assert.assertTrue(fixture.worker.reached.await(10L, TimeUnit.SECONDS));
+                    }
+                }
+                Assert.assertEquals(TaskScheduler.MAX_PENDING_TASKS, fixture.scheduler.pendingTasks());
+                for (boolean ephemeral : new boolean[]{true, false}) {
+                    HugeTask<?> rejected = task(ephemeral, ran, 9999911L);
+                    Assert.assertThrows(IllegalArgumentException.class,
+                                        () -> fixture.scheduler.schedule(rejected));
+                    Assert.assertEquals(TaskStatus.NEW, rejected.status());
+                    Assert.assertNull(Whitebox.getInternalState(rejected, "scheduler"));
+                }
+                Assert.assertEquals(0, fixture.scheduler.lateSaved.get());
+                Assert.assertThrows(org.apache.hugegraph.exception.NotFoundException.class,
+                                    () -> fixture.scheduler.task(IdGenerator.of(9999911L), false));
+                Assert.assertFalse(ran.get());
+                for (Future<?> queued : accepted) {
+                    Assert.assertTrue(queued.cancel(false));
+                }
+                accepted.clear();
+                Assert.assertEquals(0, fixture.scheduler.pendingTasks());
+                Assert.assertTrue(fixture.worker.getQueue().isEmpty());
+                // Repeated cancellation must not bypass the cap by retaining queue tombstones.
+                for (int i = 0; i < 100; i++) {
+                    Future<?> queued = fixture.scheduler.schedule(task(true, ran, 11000000L + i));
+                    Assert.assertTrue(queued.cancel(false));
+                    Assert.assertEquals(0, fixture.scheduler.pendingTasks());
+                    Assert.assertTrue(fixture.worker.getQueue().isEmpty());
+                }
+            } finally {
+                for (Future<?> queued : accepted) {
+                    queued.cancel(false);
+                }
+                fixture.worker.release.countDown();
+            }
+            fixture.worker.submit(() -> null).get(10L, TimeUnit.SECONDS);
+            Assert.assertEquals(0, fixture.scheduler.pendingTasks());
+            Assert.assertFalse(ran.get());
+        }
+    }
+
+    @Test
     public void testRejectedSubmissionRollsBackDispatchReservation() throws Exception {
         for (boolean ephemeral : new boolean[]{true, false}) {
             try (Fixture fixture = new Fixture("rejected_" + ephemeral)) {
@@ -376,6 +478,12 @@ public class DistributedTaskAdmissionTest {
                                     () -> fixture.scheduler.schedule(task(ephemeral, ran, 9999920L)));
                 Assert.assertEquals(0, fixture.scheduler.pendingTasks());
                 Assert.assertFalse(ran.get());
+                if (!ephemeral) {
+                    // Rejected dispatch is reported to the caller; its saved NEW record
+                    // remains available for the existing scheduler's later retry.
+                    Assert.assertEquals(TaskStatus.NEW,
+                                        fixture.scheduler.task(IdGenerator.of(9999920L), false).status());
+                }
                 Assert.assertTrue(fixture.scheduler.close());
             }
         }
@@ -409,10 +517,17 @@ public class DistributedTaskAdmissionTest {
         private final HugeGraph graph;
         private final ScheduledThreadPoolExecutor cron = new ScheduledThreadPoolExecutor(1);
         private final ExecutorService database = Executors.newSingleThreadExecutor();
-        private final GatedExecutor worker = new GatedExecutor();
+        private final GatedExecutor worker;
+        private final boolean ownsWorker;
         private final CountingScheduler scheduler;
 
         Fixture(String suffix) {
+            this(suffix, null);
+        }
+
+        Fixture(String suffix, GatedExecutor sharedWorker) {
+            this.ownsWorker = sharedWorker == null;
+            this.worker = this.ownsWorker ? new GatedExecutor() : sharedWorker;
             RegisterUtil.registerBackends();
             HugeConfig config = FakeObjects.newConfig();
             config.setProperty("backend", "memory");
@@ -434,7 +549,10 @@ public class DistributedTaskAdmissionTest {
                 this.worker.release.countDown();
                 this.scheduler.close();
             } finally {
-                for (ExecutorService executor : new ExecutorService[]{this.worker, this.database, this.cron}) {
+                ExecutorService[] owned = this.ownsWorker ?
+                                          new ExecutorService[]{this.worker, this.database, this.cron} :
+                                          new ExecutorService[]{this.database, this.cron};
+                for (ExecutorService executor : owned) {
                     executor.shutdownNow();
                     Assert.assertTrue(executor.awaitTermination(10L, TimeUnit.SECONDS));
                 }

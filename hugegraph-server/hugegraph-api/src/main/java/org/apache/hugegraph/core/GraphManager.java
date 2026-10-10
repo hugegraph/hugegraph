@@ -1456,12 +1456,17 @@ public final class GraphManager {
             LOG.error("Failed to create graph '{}' due to: {}",
                       name, e.getMessage(), e);
             if (graph != null) {
-                this.graphs.remove(graph.spaceGraphName(), graph);
                 try {
                     this.dropGraphLocal(graph);
-                } finally {
-                    // The create event may have partially registered the graph
+                    this.graphs.remove(graph.spaceGraphName(), graph);
+                    // The create event may have partially registered the graph.
                     this.notifyEventLenient(Events.GRAPH_DROP, graph);
+                } catch (Throwable cleanupError) {
+                    // Retain owners for an explicit deletion retry, including partial creation.
+                    this.graphs.putIfAbsent(graph.spaceGraphName(), graph);
+                    if (cleanupError != e) {
+                        e.addSuppressed(cleanupError);
+                    }
                 }
             }
             throw e;
@@ -2294,7 +2299,13 @@ public final class GraphManager {
             }
 
             if (!alreadyClosed) {
-                g.clearBackend();
+                // Unwrapping an auth proxy preserves its ADMIN permission check.
+                HugeGraph underlying = g.hugegraph();
+                if (underlying instanceof StandardHugeGraph) {
+                    ((StandardHugeGraph) underlying).clearBackendForDrop();
+                } else {
+                    g.clearBackend();
+                }
             }
             try {
                 if (!alreadyClosed) {

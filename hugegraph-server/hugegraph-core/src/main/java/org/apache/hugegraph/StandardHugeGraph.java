@@ -1204,6 +1204,13 @@ public class StandardHugeGraph implements HugeGraph {
         this.configuration.file(confPath);
     }
 
+    public synchronized void clearBackendForDrop() {
+        if (!this.dropBackendCleared) {
+            this.clearBackend();
+            this.dropBackendCleared = true;
+        }
+    }
+
     @Override
     public void drop() {
         E.checkState(!this.closed() || this.dropBackendCleared,
@@ -1215,8 +1222,7 @@ public class StandardHugeGraph implements HugeGraph {
                 throw new HugeException("Can't drop graph '%s' while tasks are active, " +
                                         "please retry later", this.spaceGraphName());
             }
-            this.clearBackend();
-            this.dropBackendCleared = true;
+            this.clearBackendForDrop();
 
             try {
                 /*

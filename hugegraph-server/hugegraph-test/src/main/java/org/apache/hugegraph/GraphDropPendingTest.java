@@ -25,6 +25,8 @@ import java.util.concurrent.Future;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.TimeUnit;
 
 import org.apache.hugegraph.config.CoreOptions;
@@ -54,6 +56,7 @@ import org.apache.hugegraph.task.TaskAndResultSchedulerTest.EmptyCallable;
 import org.apache.hugegraph.testutil.Assert;
 import org.apache.hugegraph.testutil.Whitebox;
 import org.apache.hugegraph.unit.FakeObjects;
+import org.apache.hugegraph.util.Events;
 import org.apache.tinkerpop.gremlin.structure.Graph;
 import org.apache.tinkerpop.gremlin.structure.T;
 import org.junit.Test;
@@ -432,6 +435,114 @@ public class GraphDropPendingTest {
         }
     }
 
+    @Test
+    public void testFailedCreateRetainsRegistrationsUntilRollbackCanFinish() throws Exception {
+        this.checkFailedCreateRollback(true);
+    }
+
+    @Test
+    public void testFailedCreateDetachesRegistrationsAfterSuccessfulRollback() throws Exception {
+        this.checkFailedCreateRollback(false);
+    }
+
+    private void checkFailedCreateRollback(boolean pending) throws Exception {
+        RegisterUtil.registerBackends();
+        Path directory = Files.createTempDirectory("graph-create-rollback-");
+        HugeConfig serverConfig = FakeObjects.newConfig();
+        serverConfig.setProperty(ServerOptions.USE_PD.name(), false);
+        serverConfig.setProperty(ServerOptions.GRAPH_LOAD_FROM_LOCAL_CONFIG.name(), false);
+        serverConfig.setProperty(ServerOptions.GRAPHS.name(), directory.toString());
+        serverConfig.setProperty(ServerOptions.ENABLE_DYNAMIC_CREATE_DROP.name(), true);
+        EventHub hub = new EventHub("create-rollback-" + pending);
+        GraphManager manager = new GraphManager(serverConfig, hub);
+        HugeConfig config = FakeObjects.newConfig();
+        config.setProperty(Graph.GRAPH, HugeFactory.class.getName());
+        config.setProperty("backend", "memory");
+        config.setProperty("serializer", "text");
+        config.setProperty("store", "create_rollback_" + pending);
+        config.setProperty(CoreOptions.TASK_WAIT_TIMEOUT.name(), 0L);
+        Map<String, Graph> graphs = Whitebox.getInternalState(manager, "graphs");
+        Map<String, HugeGraph> registered = Whitebox.getInternalState(HugeFactory.class, "GRAPHS");
+        AtomicReference<HugeGraph> created = new AtomicReference<>();
+        AtomicReference<Future<?>> running = new AtomicReference<>();
+        AtomicInteger dropped = new AtomicInteger();
+        PendingDropCallable callable = new PendingDropCallable();
+        hub.listen(Events.GRAPH_CREATE, event -> {
+            HugeGraph graph = (HugeGraph) event.args()[0];
+            created.set(graph);
+            graphs.put(graph.spaceGraphName(), graph);
+            if (pending) {
+                graph.schema().vertexLabel("person").useCustomizeStringId().create();
+                graph.addVertex(T.id, "retained", T.label, "person");
+                graph.tx().commit();
+                HugeTask<String> task = new HugeTask<>(IdGenerator.of(9999970L), null, callable);
+                task.type("test");
+                task.name("create-rollback-pending");
+                running.set(graph.taskScheduler().schedule(task));
+                try {
+                    Assert.assertTrue(callable.started.await(10L, TimeUnit.SECONDS));
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new HugeException("Interrupted before create rollback", e);
+                }
+            }
+            throw new IllegalStateException("create listener failed");
+        });
+        hub.listen(Events.GRAPH_DROP, event -> {
+            dropped.incrementAndGet();
+            HugeGraph graph = (HugeGraph) event.args()[0];
+            graphs.remove(graph.spaceGraphName(), graph);
+            return null;
+        });
+        try {
+            HugeException failure = Assert.assertThrows(HugeException.class, () ->
+                    Whitebox.invoke(GraphManager.class, new Class<?>[]{HugeConfig.class, String.class},
+                                    "createGraphLocal", manager, config, config.get(CoreOptions.STORE)));
+            Assert.assertContains(Events.GRAPH_CREATE, failure.getMessage());
+            HugeGraph graph = created.get();
+            Assert.assertNotNull(graph);
+            if (pending) {
+                Assert.assertEquals(1, failure.getSuppressed().length);
+                Assert.assertContains("please retry later", failure.getSuppressed()[0].getMessage());
+                Assert.assertSame(graph, manager.graph(graph.spaceGraphName()));
+                Assert.assertSame(graph, registered.get(graph.spaceGraphName()));
+                Assert.assertFalse(graph.closed());
+                Assert.assertEquals(0, dropped.get());
+                callable.release.countDown();
+                running.get().get(10L, TimeUnit.SECONDS);
+                graph.taskScheduler().waitUntilAllTasksCompleted(10L);
+                graphs.put("DEFAULT-other", Mockito.mock(HugeGraph.class));
+                manager.dropGraphLocal(graph.name());
+                Assert.assertTrue(graph.closed());
+                Assert.assertNull(manager.graph(graph.spaceGraphName()));
+                Assert.assertNull(registered.get(graph.spaceGraphName()));
+                Assert.assertEquals(1, dropped.get());
+            } else {
+                Assert.assertEquals(0, failure.getSuppressed().length);
+                Assert.assertTrue(graph.closed());
+                Assert.assertNull(manager.graph(graph.spaceGraphName()));
+                Assert.assertNull(registered.get(graph.spaceGraphName()));
+                Assert.assertEquals(1, dropped.get());
+            }
+        } finally {
+            callable.release.countDown();
+            if (running.get() != null) {
+                running.get().get(10L, TimeUnit.SECONDS);
+            }
+            HugeGraph graph = created.get();
+            if (graph != null) {
+                if (!graph.closed()) {
+                    graph.close();
+                }
+                HugeFactory.remove(graph);
+                Files.deleteIfExists(graph.configuration().file().toPath());
+            }
+            graphs.clear();
+            manager.close();
+            Files.deleteIfExists(directory);
+        }
+    }
+
     private void checkIncompleteClose(int route) throws Exception {
         RegisterUtil.registerBackends();
         HugeConfig config = FakeObjects.newConfig();
@@ -442,6 +553,8 @@ public class GraphDropPendingTest {
         Files.writeString(file, "retained owner config");
         config.file(file.toString());
         HugeGraph graph = HugeFactory.open(config);
+        BackendStoreProvider provider = Mockito.spy(graph.storeProvider());
+        Whitebox.setInternalState(graph, "storeProvider", provider);
         HugeConfig serverConfig = FakeObjects.newConfig();
         serverConfig.setProperty(ServerOptions.USE_PD.name(), false);
         serverConfig.setProperty(ServerOptions.GRAPH_LOAD_FROM_LOCAL_CONFIG.name(), false);
@@ -505,6 +618,9 @@ public class GraphDropPendingTest {
             holding.get(10L, TimeUnit.SECONDS);
             drop(manager, graph, route);
             Assert.assertTrue(graph.closed());
+            if (route <= 2 || route == 4) {
+                Mockito.verify(provider, Mockito.times(1)).clear();
+            }
             Assert.assertEquals(route >= 2, Files.exists(file));
             if (route == 0) {
                 HugeFactory.remove(graph);

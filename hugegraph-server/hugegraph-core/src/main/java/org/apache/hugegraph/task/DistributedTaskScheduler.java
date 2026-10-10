@@ -258,6 +258,9 @@ public class DistributedTaskScheduler extends TaskAndResultScheduler {
         E.checkState(!this.closed.get(), "Task scheduler for graph '%s' is closing",
                      this.spaceGraphName());
         E.checkArgumentNotNull(task, "Task can't be null");
+        E.checkArgument(this.pendingTasks() < MAX_PENDING_TASKS,
+                        "Pending tasks size %s has reached the max limit %s",
+                        this.pendingTasks(), MAX_PENDING_TASKS);
 
         initTaskParams(task);
 
@@ -279,7 +282,7 @@ public class DistributedTaskScheduler extends TaskAndResultScheduler {
         if (!this.closed.get()) {
             LOG.info("Try to start task({})@({}/{}) immediately", task.id(),
                      this.graphSpace, this.graphName);
-            tryStartHugeTask(task);
+            tryStartHugeTask(task, true);
         } else {
             LOG.info("TaskScheduler has closed");
         }
@@ -800,7 +803,11 @@ public class DistributedTaskScheduler extends TaskAndResultScheduler {
      * @param task
      * @return true if the task have start
      */
-    private synchronized boolean tryStartHugeTask(HugeTask<?> task) {
+    private boolean tryStartHugeTask(HugeTask<?> task) {
+        return this.tryStartHugeTask(task, false);
+    }
+
+    private synchronized boolean tryStartHugeTask(HugeTask<?> task, boolean enqueueWhenBusy) {
         if (this.closed.get()) {
             return false;
         }
@@ -828,19 +835,22 @@ public class DistributedTaskScheduler extends TaskAndResultScheduler {
             chosenExecutor = schemaTaskExecutor;
         }
 
-        ThreadPoolExecutor executor = (ThreadPoolExecutor) chosenExecutor;
-        if (executor.getActiveCount() < executor.getMaximumPoolSize()) {
-            if (this.runningTasks.containsKey(task.id())) {
-                return true;
-            }
-            this.submitTask(task, chosenExecutor, new TaskRunner<>(task));
-            LOG.info("Submit task({})@({}/{})", task.id(),
-                     this.graphSpace, this.graphName);
-
+        if (this.runningTasks.containsKey(task.id())) {
             return true;
         }
-
-        return false;
+        if (this.pendingTasks() >= MAX_PENDING_TASKS) {
+            return false;
+        }
+        ThreadPoolExecutor executor = (ThreadPoolExecutor) chosenExecutor;
+        if (!enqueueWhenBusy && executor.getActiveCount() >= executor.getMaximumPoolSize()) {
+            return false;
+        }
+        // Cron keeps durable backlog in the DB while workers are full; directly accepted
+        // local work reserves bounded admission before entering the existing pool queue.
+        this.submitTask(task, chosenExecutor, new TaskRunner<>(task));
+        LOG.info("Submit task({})@({}/{})", task.id(),
+                 this.graphSpace, this.graphName);
+        return true;
     }
 
     private Future<?> submitTask(HugeTask<?> task, ExecutorService executor, Runnable work) {
@@ -854,7 +864,7 @@ public class DistributedTaskScheduler extends TaskAndResultScheduler {
                 this.graph.closeTx();
             }
         });
-        PendingTask pending = new PendingTask(task, owned);
+        PendingTask pending = new PendingTask(task, owned, executor);
         try {
             executor.execute(pending);
             return pending;
@@ -873,11 +883,13 @@ public class DistributedTaskScheduler extends TaskAndResultScheduler {
     private class PendingTask extends FutureTask<Void> {
 
         private final HugeTask<?> task;
+        private final ExecutorService executor;
         private final AtomicBoolean started = new AtomicBoolean();
 
-        PendingTask(HugeTask<?> task, Callable<Void> owned) {
+        PendingTask(HugeTask<?> task, Callable<Void> owned, ExecutorService executor) {
             super(owned);
             this.task = task;
+            this.executor = executor;
         }
 
         @Override
@@ -897,6 +909,9 @@ public class DistributedTaskScheduler extends TaskAndResultScheduler {
             if (this.isCancelled() && this.started.compareAndSet(false, true)) {
                 // The outer Future was cancelled before work began. Do not invoke
                 // HugeTask callbacks on this caller thread or change its original task state.
+                if (this.executor instanceof ThreadPoolExecutor) {
+                    ((ThreadPoolExecutor) this.executor).remove(this);
+                }
                 finishTask(this.task);
             }
         }

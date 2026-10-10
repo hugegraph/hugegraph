@@ -458,10 +458,16 @@ combinations actually used by the application.
 
 ## Deleting graphs with active tasks
 
+Stop application writes before deleting a graph and keep them stopped during retries.
+Deletion does not fence graph transactions across requests; a partial deletion is
+cleanup in progress, not permission to resume using the graph.
+
 Deletion refuses to remove graph metadata, configuration or backend data until the
-local task scheduler has drained. Wait for running tasks to finish, then retry the
-request. Task results remain writable while tasks drain; once scheduler closure
-starts, new submissions are rejected. If PD metadata removal fails after closure,
+local task scheduler has drained. The distributed scheduler starts shutdown by
+rejecting new submissions and requesting cancellation of local tasks; an incomplete
+shutdown does not restore task admission. Wait for task execution and transaction
+owners to drain, then retry the request. Task results remain writable while tasks
+drain. If PD metadata removal fails after closure,
 the graph remains registered with its data and configuration, and new task
 submissions remain rejected until deletion is explicitly retried. If later graph closure fails, its registrations
 and local configuration remain for retry, but backend data or PD metadata may already

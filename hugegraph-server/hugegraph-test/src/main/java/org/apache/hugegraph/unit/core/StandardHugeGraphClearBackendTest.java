@@ -17,13 +17,17 @@
 
 package org.apache.hugegraph.unit.core;
 
+import java.lang.reflect.Constructor;
+
 import org.apache.hugegraph.exception.HugeException;
+import org.apache.hugegraph.HugeGraphParams;
 import org.apache.hugegraph.StandardHugeGraph;
 import org.apache.hugegraph.backend.cache.CachedSchemaTransactionV2;
 import org.apache.hugegraph.backend.store.BackendStore;
 import org.apache.hugegraph.backend.store.BackendStoreProvider;
 import org.apache.hugegraph.backend.tx.ISchemaTransaction;
 import org.apache.hugegraph.config.HugeConfig;
+import org.apache.hugegraph.task.TaskManager;
 import org.apache.hugegraph.task.TaskScheduler;
 import org.apache.hugegraph.testutil.Assert;
 import org.apache.hugegraph.testutil.Whitebox;
@@ -45,7 +49,7 @@ public class StandardHugeGraphClearBackendTest extends BaseUnitTest {
     private CachedSchemaTransactionV2 schemaTransaction;
 
     @Before
-    public void setup() {
+    public void setup() throws Exception {
         HugeConfig config = FakeObjects.newConfig();
         this.graph = Mockito.mock(StandardHugeGraph.class,
                                   Mockito.CALLS_REAL_METHODS);
@@ -55,7 +59,16 @@ public class StandardHugeGraphClearBackendTest extends BaseUnitTest {
         BackendStore systemStore = Mockito.mock(BackendStore.class);
         BackendStore graphStore = Mockito.mock(BackendStore.class);
         TaskScheduler scheduler = Mockito.mock(TaskScheduler.class);
+        TaskManager taskManager = Mockito.mock(TaskManager.class);
+        Constructor<?> paramsConstructor = StandardHugeGraph.class.getDeclaredField("params")
+                                                                 .getType()
+                                                                 .getDeclaredConstructor(StandardHugeGraph.class);
+        paramsConstructor.setAccessible(true);
+        HugeGraphParams params = (HugeGraphParams) paramsConstructor.newInstance(this.graph);
+        Mockito.when(taskManager.getScheduler(params)).thenReturn(scheduler);
 
+        Whitebox.setInternalState(this.graph, "taskManager", taskManager);
+        Whitebox.setInternalState(this.graph, "params", params);
         Whitebox.setInternalState(this.graph, "configuration", config);
         Whitebox.setInternalState(this.graph, "storeProvider", this.provider);
         Whitebox.setInternalState(this.graph, "name", "graph");
