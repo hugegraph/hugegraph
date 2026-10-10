@@ -245,7 +245,10 @@ bin/restart-hugegraph-store.sh
 bin/start-hugegraph-store.sh [-g GC_TYPE] [-j "JVM_OPTIONS"] [-d DAEMON]
 ```
 
-- `-g`: GC type (`g1` or `ZGC`, default: `g1`)
+- `-g`: Explicit GC selection (`g1`/`G1` or `zgc`/`ZGC`). Without `-g`, JVM defaults or the collector
+  set in `JAVA_OPTIONS` apply. Explicit `-g g1` selects G1 even when JVM ergonomics would choose Serial GC;
+  unknown values are rejected. When using explicit `-g`, do not select another collector in `JAVA_OPTIONS`
+  or `-j`; conflicting selections are rejected by the JVM.
 - `-j`: Custom JVM options (e.g., `-j "-Xmx16g -Xms8g"`)
 - `-d`: Daemon mode (`true` = daemon, `false` = foreground; default: `true`). Set to `false` when running under Docker or a process supervisor so the container exits if Java dies.
 
