@@ -99,7 +99,8 @@ public class AggregativeQueryLifecycleTest extends AggregativeQueryTestSupport {
             verify(plan).clear();
             verify(iterator).close();
             assertTrue(pool.awaitTermination(1, TimeUnit.SECONDS));
-            assertEquals(1, response.completed.get());
+            assertEquals(0, response.completed.get());
+            assertEquals(1, response.errors.get());
         } finally {
             releaseChild.countDown();
             service.shutdownQueries();
@@ -254,13 +255,77 @@ public class AggregativeQueryLifecycleTest extends AggregativeQueryTestSupport {
             assertFalse("accepted child's finally still owns the query", closing.isDone());
             releaseChild.countDown();
             closing.get(2, TimeUnit.SECONDS);
-            assertEquals(1, response.completed.get());
+            assertEquals(0, response.completed.get());
+            assertEquals(1, response.errors.get());
             verify(accepted).close();
             verify(iterator).close();
             verify(plan).clear();
         } finally {
             releaseChild.countDown();
             service.shutdownQueries();
+            pool.shutdownNow();
+        }
+    }
+
+    @Test(timeout = 5000)
+    public void testShutdownReportsUnavailableWithoutReleasingActiveIteratorEarly() throws Exception {
+        ThreadPoolExecutor pool = pool(1);
+        ScanIterator iterator = mock(ScanIterator.class);
+        CountDownLatch reading = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        when(iterator.hasNext()).thenAnswer(invocation -> {
+            reading.countDown();
+            awaitUninterruptibly(release);
+            return false;
+        });
+        QueryPlan plan = new QueryPlan();
+        ResponseRecorder response = new ResponseRecorder() {
+            @Override
+            public void onError(Throwable error) {
+                assertEquals(Status.Code.UNAVAILABLE, Status.fromThrowable(error).getCode());
+                super.onError(error);
+            }
+        };
+        AggregativeQueryService service = service(pool, iterator, plan, 5000);
+        try {
+            StreamObserver<QueryRequest> request = service.query(response);
+            request.onNext(QueryRequest.newBuilder().setQueryId("shutdown-query").build());
+            assertTrue(reading.await(1, TimeUnit.SECONDS));
+            FutureTask<Void> closing = close(service);
+            start(closing);
+            assertTrue(response.finished.await(1, TimeUnit.SECONDS));
+            assertFalse("termination must retain active iterator ownership", closing.isDone());
+            verify(iterator, never()).close();
+            release.countDown();
+            closing.get(2, TimeUnit.SECONDS);
+            request.onCompleted();
+            request.onError(Status.CANCELLED.asRuntimeException());
+            assertTrue(response.responses.isEmpty());
+            assertEquals(0, response.completed.get());
+            assertEquals(1, response.errors.get());
+            verify(iterator).close();
+            assertTrue(pool.awaitTermination(1, TimeUnit.SECONDS));
+        } finally {
+            release.countDown();
+            service.shutdownQueries();
+            pool.shutdownNow();
+        }
+    }
+
+    @Test(timeout = 5000)
+    public void testShutdownReportsUnavailableForIdleQueryOnce() {
+        ThreadPoolExecutor pool = pool(1);
+        AggregativeQueryService service = service(pool, mock(ScanIterator.class), new QueryPlan(), 500);
+        ResponseRecorder response = new ResponseRecorder();
+        try {
+            StreamObserver<QueryRequest> request = service.query(response);
+            service.shutdownQueries();
+            request.onCompleted();
+            service.shutdownQueries();
+            assertEquals(0, response.completed.get());
+            assertEquals(1, response.errors.get());
+            assertTrue(response.responses.isEmpty());
+        } finally {
             pool.shutdownNow();
         }
     }

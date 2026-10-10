@@ -65,12 +65,12 @@ public class AggregativeQueryShutdownTest extends AggregativeQueryTestSupport {
     @Test(timeout = 5000)
     public void testContextCloseContinuesAfterCancellationResponseFailure() throws Exception {
         assertContextCloseContinuesAfterCancellationFailure(
-                new IllegalStateException("response completion failed"));
+                new IllegalStateException("shutdown response failed"));
     }
 
     @Test(timeout = 5000)
     public void testContextCloseContinuesAfterCancellationResponseError() throws Exception {
-        assertContextCloseContinuesAfterCancellationFailure(new AssertionError("response completion failed"));
+        assertContextCloseContinuesAfterCancellationFailure(new AssertionError("shutdown response failed"));
     }
 
     @Test(timeout = 5000)
@@ -612,7 +612,7 @@ public class AggregativeQueryShutdownTest extends AggregativeQueryTestSupport {
             boolean firstCancelsFirst = ((Set<?>) field.get(service)).iterator().next() == first;
             StreamObserver<QueryResponse> broken = firstCancelsFirst ? firstSender : secondSender;
             StreamObserver<QueryRequest> active = firstCancelsFirst ? second : first;
-            doThrow(failure).when(broken).onCompleted();
+            doThrow(failure).when(broken).onError(org.mockito.ArgumentMatchers.any(Throwable.class));
             active.onNext(QueryRequest.getDefaultInstance());
             assertTrue(reading.await(1, TimeUnit.SECONDS));
             FutureTask<Void> closing = new FutureTask<>(() -> {
@@ -630,7 +630,8 @@ public class AggregativeQueryShutdownTest extends AggregativeQueryTestSupport {
             assertTrue(databaseClosed.get());
             assertFalse("Spring must destroy databases only after query cleanup and worker termination",
                         prematureDestruction.get());
-            verify(broken).onCompleted();
+            verify(broken).onError(org.mockito.ArgumentMatchers.any(Throwable.class));
+            verify(broken, never()).onCompleted();
             verify(iterator).close();
         } finally {
             allowClose.countDown();
