@@ -237,7 +237,7 @@ public abstract class HstoreStore extends AbstractBackendStore<Session> {
     }
 
     @Override
-    public void close() {
+    public synchronized void close() {
         this.checkOpened();
         this.sessions.close();
 
