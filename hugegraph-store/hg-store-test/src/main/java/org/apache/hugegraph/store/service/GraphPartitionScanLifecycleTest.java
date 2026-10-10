@@ -54,6 +54,7 @@ import org.apache.hugegraph.store.grpc.Graphpb;
 import org.apache.hugegraph.store.grpc.Graphpb.ScanPartitionRequest;
 import org.apache.hugegraph.store.grpc.Graphpb.ScanResponse;
 import org.apache.hugegraph.store.node.grpc.HgStoreStreamImpl;
+import org.apache.hugegraph.store.node.grpc.scan.ScanResponseObserver;
 import org.junit.Test;
 
 import io.grpc.Context;
@@ -97,6 +98,78 @@ public class GraphPartitionScanLifecycleTest extends GraphPartitionScanTestSuppo
                 executor.shutdown();
                 assertTrue(executor.awaitTermination(2, TimeUnit.SECONDS));
             }
+        }
+    }
+
+    @Test(timeout = 30000)
+    public void testFinalBatchPublishedAfterEmptyPollIsDelivered() throws Exception {
+        ThreadPoolExecutor executor = executor();
+        CountDownLatch finalRead = new CountDownLatch(1);
+        CountDownLatch releaseRead = new CountDownLatch(1);
+        CountDownLatch emptyPoll = new CountDownLatch(1);
+        CountDownLatch releasePoll = new CountDownLatch(1);
+        AtomicInteger consumed = new AtomicInteger();
+        GraphStoreIterator<Graphpb.Vertex> iterator = mock(GraphStoreIterator.class);
+        when(iterator.hasNext()).thenAnswer(call -> consumed.get() < 100001);
+        when(iterator.next()).thenAnswer(call -> {
+            if (consumed.get() == 100000) {
+                finalRead.countDown();
+                assertTrue(releaseRead.await(10, TimeUnit.SECONDS));
+            }
+            consumed.incrementAndGet();
+            return Graphpb.Vertex.getDefaultInstance();
+        });
+        BusinessHandler handler = mock(BusinessHandler.class);
+        doReturn(iterator).when(handler).scan(any());
+        StreamObserver<ScanResponse> response = mock(StreamObserver.class);
+        AtomicInteger delivered = new AtomicInteger();
+        doAnswer(call -> {
+            delivered.addAndGet(((ScanResponse) call.getArgument(0)).getVertexCount());
+            return null;
+        }).when(response).onNext(any());
+        ScanResponseObserver<Graphpb.Vertex> request =
+                new ScanResponseObserver<>(response, handler, executor);
+        LinkedBlockingQueue<ScanResponse> packages = new LinkedBlockingQueue<ScanResponse>(16) {
+            @Override
+            public ScanResponse poll(long timeout, TimeUnit unit) throws InterruptedException {
+                ScanResponse value = super.poll(timeout, unit);
+                if (value == null && emptyPoll.getCount() != 0) {
+                    emptyPoll.countDown();
+                    assertTrue(releasePoll.await(10, TimeUnit.SECONDS));
+                }
+                return value;
+            }
+        };
+        Field field = ScanResponseObserver.class.getDeclaredField("packages");
+        field.setAccessible(true);
+        field.set(request, packages);
+        try {
+            request.onNext(request(0));
+            assertTrue(finalRead.await(10, TimeUnit.SECONDS));
+            assertTrue("sender must have actually polled an empty queue",
+                       emptyPoll.await(10, TimeUnit.SECONDS));
+            assertEquals(100000, delivered.get());
+            releaseRead.countDown();
+            // The sender occupies one worker; this probe runs only after the real reader
+            // has published its final batch, closed its iterator and set readOver.
+            executor.submit(() -> { }).get(10, TimeUnit.SECONDS);
+            verify(iterator).close();
+            assertEquals(1, packages.size());
+            releasePoll.countDown();
+            verify(response, timeout(5000)).onCompleted();
+            assertEquals(100001, consumed.get());
+            assertEquals(consumed.get(), delivered.get());
+            assertTrue(packages.isEmpty());
+            request.onCompleted();
+            request.onError(new IllegalStateException("late cancellation"));
+            verify(response).onCompleted();
+            verify(response, org.mockito.Mockito.never()).onError(any());
+            verify(iterator).close();
+        } finally {
+            releaseRead.countDown();
+            releasePoll.countDown();
+            executor.shutdown();
+            assertTrue(executor.awaitTermination(5, TimeUnit.SECONDS));
         }
     }
 
