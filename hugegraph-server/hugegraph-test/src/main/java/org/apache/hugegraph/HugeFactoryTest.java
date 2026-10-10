@@ -20,6 +20,7 @@ package org.apache.hugegraph;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.Queue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -40,7 +41,12 @@ import org.apache.hugegraph.config.HugeConfig;
 import org.apache.hugegraph.dist.RegisterUtil;
 import org.apache.hugegraph.exception.HugeException;
 import org.apache.hugegraph.masterelection.GlobalMasterInfo;
+import org.apache.hugegraph.id.Id;
+import org.apache.hugegraph.id.IdGenerator;
 import org.apache.hugegraph.task.DistributedTaskScheduler;
+import org.apache.hugegraph.task.HugeTask;
+import org.apache.hugegraph.task.TaskAndResultSchedulerTest;
+import org.apache.hugegraph.task.TaskStatus;
 import org.apache.hugegraph.task.TaskManager;
 import org.apache.hugegraph.task.TaskScheduler;
 import org.apache.hugegraph.testutil.Assert;
@@ -282,6 +288,78 @@ public class HugeFactoryTest {
             } finally {
                 HugeFactory.remove(graph);
             }
+        }
+    }
+
+    @Test
+    public void testLocalCloseKeepsPendingTaskPersistenceUsable() throws Exception {
+        RegisterUtil.registerBackends();
+        HugeConfig config = FakeObjects.newConfig();
+        config.setProperty("backend", "memory");
+        config.setProperty("serializer", "text");
+        config.setProperty("store", "graph_close_pending_local_task");
+        HugeGraph graph = HugeFactory.open(config);
+        Map<Id, HugeTask<?>> pending = null;
+        HugeTask<Object> task = new HugeTask<>(IdGenerator.of(9999998L), null,
+                                              new TaskAndResultSchedulerTest.EmptyCallable());
+        task.type("test");
+        task.name("pending-task-close");
+        try {
+            graph.initBackend();
+            graph.serverStarted(GlobalMasterInfo.master("pending-task-close-test"));
+            TaskScheduler scheduler = graph.taskScheduler();
+            pending = Whitebox.getInternalState(scheduler, "tasks");
+            task.overwriteStatus(TaskStatus.RUNNING);
+            scheduler.save(task);
+            pending.put(task.id(), task);
+
+            Assert.assertThrows(IllegalStateException.class, graph::close);
+            Assert.assertFalse(graph.closed());
+            HugeGraphParams params = Whitebox.getInternalState(graph, "params");
+            Assert.assertSame(scheduler, TaskManager.instance().getScheduler(params));
+            Assert.assertFalse((boolean) Whitebox.getInternalState(scheduler.serverManager(), "closed"));
+
+            // This is the same persistence path a running job uses from done().
+            task.overwriteStatus(TaskStatus.SUCCESS);
+            scheduler.save(task);
+            Assert.assertEquals(TaskStatus.SUCCESS, scheduler.task(task.id()).status());
+            pending.remove(task.id());
+            graph.close();
+            Assert.assertTrue(graph.closed());
+            Assert.assertNull(TaskManager.instance().getScheduler(params));
+        } finally {
+            if (pending != null) {
+                pending.remove(task.id());
+            }
+            try {
+                if (!graph.closed()) {
+                    graph.close();
+                }
+            } finally {
+                HugeFactory.remove(graph);
+            }
+        }
+    }
+
+    @Test
+    public void testIncompleteSchedulerCloseDoesNotQueueOwnerCleanup() {
+        HugeGraphParams params = Mockito.mock(HugeGraphParams.class);
+        TaskScheduler scheduler = Mockito.mock(TaskScheduler.class);
+        TaskManager manager = TaskManager.instance();
+        Map<HugeGraphParams, TaskScheduler> schedulers = Whitebox.getInternalState(manager, "schedulers");
+        schedulers.put(params, scheduler);
+        try {
+            Mockito.when(scheduler.close()).thenReturn(false);
+            manager.closeScheduler(params);
+            Assert.assertSame(scheduler, manager.getScheduler(params));
+            Mockito.verify(params, Mockito.never()).closeTx();
+
+            Mockito.when(scheduler.close()).thenReturn(true);
+            manager.closeScheduler(params);
+            Assert.assertNull(manager.getScheduler(params));
+            Mockito.verify(params, Mockito.atLeastOnce()).closeTx();
+        } finally {
+            schedulers.remove(params);
         }
     }
 

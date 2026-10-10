@@ -125,6 +125,7 @@ public final class TaskManager {
     public void closeScheduler(HugeGraphParams graph) {
         TaskScheduler scheduler = this.schedulers.get(graph);
         Throwable failure = null;
+        boolean drained = scheduler == null;
         if (scheduler != null) {
             /*
              * Keep close+remove exclusive with scheduler iteration: in their gap
@@ -143,8 +144,20 @@ public final class TaskManager {
                 // A timeout leaves running jobs registered for the next drain attempt.
                 if (stopped && scheduler.pendingTasks() == 0) {
                     this.schedulers.remove(graph, scheduler);
+                    drained = true;
                 }
             }
+        }
+        if (!drained) {
+            // A running cron/job must finish before owner callbacks are queued
+            // on its executor. In particular, do not rejoin a timed-out cron.
+            if (failure instanceof Error) {
+                throw (Error) failure;
+            }
+            if (failure != null) {
+                throw (RuntimeException) failure;
+            }
+            return;
         }
         for (Runnable close : new Runnable[]{() -> {
             if (!this.taskExecutor.isTerminated()) {

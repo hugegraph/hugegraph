@@ -332,6 +332,11 @@ public class StandardTaskScheduler implements TaskScheduler {
 
     @Override
     public boolean close() {
+        // Running tasks still need the task DB transaction to persist done().
+        // Retain the scheduler and its owners until a later close attempt.
+        if (this.pendingTasks() != 0) {
+            return false;
+        }
         Throwable failure = null;
         boolean closed = false;
         try {

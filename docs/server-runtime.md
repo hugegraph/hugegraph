@@ -388,8 +388,11 @@ failures as suppressed exceptions.
 
 Graph close attempts auth, scheduler and caller-transaction cleanup separately. If a
 scheduler remains registered or the graph reports active transactions, the graph remains
-open for a later close attempt. Stopping distributed task dispatch is distinct from completing drain: a
-drain timeout does not make the next close return success.
+open for a later close attempt. Pending local tasks retain their task database transaction
+so they can persist completion before the next close attempt. An incomplete scheduler
+drain does not queue transaction cleanup behind that scheduler's blocked worker. Stopping
+distributed task dispatch is distinct from completing drain: a timeout does not make
+the next close return success.
 
 Once these logical checks pass, graph close releases shared cache listeners, invokes
 `provider.close()` and destroys graph locks even if an earlier cleanup step reported an error. The error
