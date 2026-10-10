@@ -399,7 +399,7 @@ For Docker and Kubernetes deployment details, see [Deployment Guide](docs/deploy
 
 ## Stopping a Store node
 
-See [Store-wide shutdown](../docs/store-shutdown.md) for stop commands,
+See [Store-wide shutdown](../docs/storage-lifecycle.md#store-node-shutdown) for stop commands,
 timeout handling, diagnostics and resource drain behavior.
 
 ## Documentation
