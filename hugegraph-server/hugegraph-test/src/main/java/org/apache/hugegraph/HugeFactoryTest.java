@@ -17,9 +17,15 @@
 
 package org.apache.hugegraph;
 
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
+import java.util.Queue;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
@@ -40,6 +46,7 @@ import org.apache.hugegraph.task.TaskScheduler;
 import org.apache.hugegraph.testutil.Assert;
 import org.apache.hugegraph.testutil.Whitebox;
 import org.apache.hugegraph.unit.FakeObjects;
+import org.apache.hugegraph.util.Consumers;
 import org.junit.Test;
 import org.mockito.AdditionalAnswers;
 import org.mockito.Mockito;
@@ -161,6 +168,121 @@ public class HugeFactoryTest {
         ThreadLocal<?> owners = Whitebox.getInternalState(graph.tx(), "transactions");
         Whitebox.setInternalState(owners.get(), "graphTx", owner);
         return realOwner;
+    }
+
+    @Test
+    public void testGraphCloseReportsEveryTaskWorkerOwnerFailure() throws Exception {
+        RegisterUtil.registerBackends();
+        HugeConfig config = FakeObjects.newConfig();
+        config.setProperty("backend", "memory");
+        config.setProperty("serializer", "text");
+        config.setProperty("store", "graph_close_task_worker_failures");
+        HugeGraph graph = HugeFactory.open(config);
+        CountDownLatch ready = new CountDownLatch(4);
+        CountDownLatch release = new CountDownLatch(1);
+        List<Future<?>> initialized = new ArrayList<>();
+        try {
+            graph.initBackend();
+            graph.serverStarted(GlobalMasterInfo.master("close-task-worker-test"));
+            HugeGraphParams params = Whitebox.getInternalState(graph, "params");
+            TaskManager manager = TaskManager.instance();
+            ExecutorService workers = Whitebox.getInternalState(manager, "taskExecutor");
+            ThreadLocal<?> owners = Whitebox.getInternalState(graph.tx(), "transactions");
+            Queue<RuntimeException> failures = new ConcurrentLinkedQueue<>();
+            AtomicInteger closed = new AtomicInteger();
+            for (int i = 0; i < 4; i++) {
+                initialized.add(workers.submit(() -> {
+                    try {
+                        RuntimeException failure = new IllegalStateException(
+                                "Task owner failed: " + Thread.currentThread().getName());
+                        failures.add(failure);
+                        failOwnerClose(graph, params, failure, closed, false);
+                    } finally {
+                        ready.countDown();
+                    }
+                    Assert.assertTrue(release.await(10L, TimeUnit.SECONDS));
+                    return null;
+                }));
+            }
+            Assert.assertTrue(ready.await(10L, TimeUnit.SECONDS));
+            release.countDown();
+            for (Future<?> future : initialized) {
+                future.get(10L, TimeUnit.SECONDS);
+            }
+
+            Throwable failure = Assert.assertThrows(HugeException.class, graph::close);
+            Throwable first = HugeException.rootCause(failure);
+            Assert.assertTrue(failures.contains(first));
+            Assert.assertEquals(3, first.getSuppressed().length);
+            for (RuntimeException workerFailure : failures) {
+                Assert.assertTrue(workerFailure == first ||
+                                  Arrays.asList(first.getSuppressed()).contains(workerFailure));
+            }
+            Assert.assertEquals(4, closed.get());
+            Assert.assertTrue(graph.closed());
+            Assert.assertNull(manager.getScheduler(params));
+            AtomicInteger cleared = new AtomicInteger();
+            Consumers.executeOncePerThread(workers, 4, () -> {
+                if (owners.get() == null) {
+                    cleared.incrementAndGet();
+                }
+            }, 10L);
+            Assert.assertEquals(4, cleared.get());
+        } finally {
+            release.countDown();
+            try {
+                if (!graph.closed()) {
+                    graph.close();
+                }
+            } finally {
+                HugeFactory.remove(graph);
+            }
+        }
+    }
+
+    @Test
+    public void testGraphClosePreservesRollbackFailureWhenOwnerCloseFails() throws Exception {
+        RegisterUtil.registerBackends();
+        HugeConfig config = FakeObjects.newConfig();
+        config.setProperty("backend", "memory");
+        config.setProperty("serializer", "text");
+        config.setProperty("store", "graph_close_rollback_and_owner_failure");
+        HugeGraph graph = HugeFactory.open(config);
+        try {
+            graph.initBackend();
+            graph.serverStarted(GlobalMasterInfo.master("close-rollback-test"));
+            HugeGraphParams params = Whitebox.getInternalState(graph, "params");
+            graph.tx().open();
+            GraphTransaction realOwner = params.graphTransaction();
+            GraphTransaction owner = Mockito.mock(GraphTransaction.class,
+                                                  AdditionalAnswers.delegatesTo(realOwner));
+            RuntimeException first = new IllegalStateException("Rollback failed");
+            RuntimeException second = new IllegalArgumentException("Owner close failed");
+            Mockito.doThrow(first).when(owner).rollback();
+            Mockito.doAnswer(invocation -> {
+                realOwner.close();
+                throw second;
+            }).when(owner).close();
+            ThreadLocal<?> owners = Whitebox.getInternalState(graph.tx(), "transactions");
+            Whitebox.setInternalState(owners.get(), "graphTx", owner);
+
+            Throwable failure = Assert.assertThrows(IllegalStateException.class, graph::close);
+            Assert.assertSame(first, failure);
+            Assert.assertTrue(Arrays.asList(first.getSuppressed()).contains(second));
+            Assert.assertTrue(graph.closed());
+            Assert.assertNull(owners.get());
+            Assert.assertNull(TaskManager.instance().getScheduler(params));
+            Mockito.verify(owner).rollback();
+            Mockito.verify(owner).close();
+        } finally {
+            try {
+                if (!graph.closed()) {
+                    graph.close();
+                }
+            } finally {
+                HugeFactory.remove(graph);
+            }
+        }
     }
 
     @Test

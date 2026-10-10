@@ -412,12 +412,25 @@ public class StandardHugeGraph implements HugeGraph {
     }
 
     private void closeTx() {
+        Throwable failure = null;
         try {
             if (this.tx.isOpen()) {
                 this.tx.close();
             }
+        } catch (RuntimeException | Error error) {
+            failure = error;
+            throw error;
         } finally {
-            this.tx.destroyTransaction();
+            try {
+                this.tx.destroyTransaction();
+            } catch (RuntimeException | Error error) {
+                if (failure == null) {
+                    throw error;
+                }
+                if (failure != error) {
+                    failure.addSuppressed(error);
+                }
+            }
         }
     }
 

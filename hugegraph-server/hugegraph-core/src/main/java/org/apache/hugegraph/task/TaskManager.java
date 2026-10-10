@@ -18,8 +18,10 @@
 package org.apache.hugegraph.task;
 
 import java.util.Map;
+import java.util.Queue;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
@@ -179,16 +181,42 @@ public final class TaskManager {
         final boolean selfIsTaskWorker = Thread.currentThread().getName()
                                                .startsWith(TASK_WORKER_PREFIX);
         final int totalThreads = selfIsTaskWorker ? THREADS - 1 : THREADS;
+        Queue<Throwable> failures = new ConcurrentLinkedQueue<>();
+        Runnable close = () -> {
+            try {
+                graph.closeTx();
+            } catch (RuntimeException | Error error) {
+                // invokeAll() does not inspect worker Futures. Capture failures
+                // here so each worker still completes its execution accounting.
+                failures.add(error);
+                LOG.error("Failed to close task tx in thread '{}'", Thread.currentThread().getName(), error);
+            }
+        };
         try {
             if (selfIsTaskWorker) {
                 // Call closeTx directly if myself is task thread(ignore others)
-                graph.closeTx();
+                close.run();
             } else {
                 Consumers.executeOncePerThread(this.taskExecutor, totalThreads,
-                                               graph::closeTx, TX_CLOSE_TIMEOUT);
+                                               close, TX_CLOSE_TIMEOUT);
             }
-        } catch (Exception e) {
-            throw new HugeException("Exception when closing task tx", e);
+        } catch (Exception error) {
+            failures.add(error);
+            if (error instanceof InterruptedException) {
+                Thread.currentThread().interrupt();
+            }
+        }
+        Throwable failure = failures.poll();
+        if (failure != null) {
+            for (Throwable error : failures) {
+                if (error != failure) {
+                    failure.addSuppressed(error);
+                }
+            }
+            if (failure instanceof Error) {
+                throw (Error) failure;
+            }
+            throw new HugeException("Exception when closing task tx", failure);
         }
     }
 
