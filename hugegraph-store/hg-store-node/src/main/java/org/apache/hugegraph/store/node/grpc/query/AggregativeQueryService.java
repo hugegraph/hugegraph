@@ -80,7 +80,7 @@ public class AggregativeQueryService extends QueryServiceGrpc.QueryServiceImplBa
         }
         for (AggregativeQueryObserver query : active) {
             try {
-                query.cancel();
+                query.cancelForShutdown();
             } catch (RuntimeException | Error failure) {
                 // Response callbacks cannot skip cancellation or cleanup waits for other queries.
                 log.error("Failed to cancel aggregate query response; continuing shutdown", failure);

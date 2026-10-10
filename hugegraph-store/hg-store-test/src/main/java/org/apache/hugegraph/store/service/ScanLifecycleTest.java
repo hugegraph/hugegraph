@@ -26,10 +26,12 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.timeout;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -71,6 +73,7 @@ import org.apache.hugegraph.store.node.grpc.ParallelScanIterator;
 import org.apache.hugegraph.store.node.grpc.QueryCondition;
 import org.apache.hugegraph.store.node.grpc.ScanBatchOneShotResponse;
 import org.apache.hugegraph.store.node.grpc.ScanBatchResponse;
+import org.apache.hugegraph.store.node.grpc.ScanBatchResponseFactory;
 import org.apache.hugegraph.store.node.grpc.ScanBatchResponse3;
 import org.apache.hugegraph.store.node.grpc.ScanOneShotResponse;
 import org.apache.hugegraph.store.node.grpc.ScanStreamResponse;
@@ -617,6 +620,143 @@ public class ScanLifecycleTest extends ScanTestSupport {
         }
     }
 
+    @Test(timeout = 5000)
+    public void testBatchTimeoutCleanupDoesNotHoldAdmissionMonitor() throws Exception {
+        ThreadPoolExecutor executor = (ThreadPoolExecutor) Executors.newFixedThreadPool(1);
+        HgStoreStreamImpl service = scanService(executor, mock(HgStoreWrapperEx.class));
+        ScanBatchResponse expired = mock(ScanBatchResponse.class);
+        CountDownLatch checking = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        ScanBatchResponseFactory factory = ScanBatchResponseFactory.getInstance();
+        doAnswer(invocation -> {
+            assertFalse(Thread.holdsLock(service));
+            checking.countDown();
+            assertTrue(release.await(2, TimeUnit.SECONDS));
+            return null;
+        }).when(expired).checkActiveTimeout();
+        FutureTask<StreamObserver<ScanStreamBatchReq>> opening = new FutureTask<>(() ->
+                service.scanBatch2(mock(StreamObserver.class)));
+        Thread caller = new Thread(opening, "test-batch-timeout-cleanup");
+        try {
+            factory.addStreamObserver(expired);
+            caller.start();
+            assertTrue(checking.await(1, TimeUnit.SECONDS));
+            FutureTask<Void> stopping = new FutureTask<>(() -> {
+                service.stopAcceptingScans();
+                return null;
+            });
+            Thread stopper = new Thread(stopping, "test-batch-stop-admission");
+            stopper.start();
+            stopping.get(1, TimeUnit.SECONDS);
+            assertUnavailable(() -> service.scan(mock(StreamObserver.class)));
+            assertFalse(opening.isDone());
+            release.countDown();
+            opening.get(1, TimeUnit.SECONDS).onError(Status.CANCELLED.asRuntimeException());
+            assertTrue(scanRegistry(service).isEmpty());
+        } finally {
+            release.countDown();
+            factory.removeStreamObserver(expired);
+            caller.join(2000);
+            service.shutdownScans();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test(timeout = 10000)
+    public void testOneShotCancellationInterruptsCallerAndClosesIterator() throws Exception {
+        for (boolean batch : new boolean[]{false, true}) {
+            for (boolean transport : new boolean[]{false, true}) {
+                ThreadPoolExecutor executor = (ThreadPoolExecutor) Executors.newFixedThreadPool(1);
+                HgStoreWrapperEx wrapper = mock(HgStoreWrapperEx.class);
+                ScanIterator iterator = mock(ScanIterator.class);
+                StreamObserver<KvPageRes> output = mock(StreamObserver.class);
+                when(wrapper.scanAll(anyString(), anyString(), any(byte[].class))).thenReturn(iterator);
+                CountDownLatch reading = new CountDownLatch(1);
+                CountDownLatch interrupted = new CountDownLatch(1);
+                CountDownLatch release = new CountDownLatch(1);
+                when(iterator.hasNext()).thenAnswer(invocation -> {
+                    reading.countDown();
+                    try {
+                        assertTrue(release.await(5, TimeUnit.SECONDS));
+                    } catch (InterruptedException expected) {
+                        interrupted.countDown();
+                        Thread.currentThread().interrupt();
+                    }
+                    return false;
+                });
+                HgStoreStreamImpl service = scanService(executor, wrapper);
+                Context.CancellableContext context = Context.current().withCancellation();
+                FutureTask<Void> scanning = new FutureTask<>(() -> {
+                    context.run(() -> {
+                        if (batch) {
+                            service.scanBatchOneShot(batchRequest(), output);
+                        } else {
+                            service.scanOneShot(ScanStreamReq.newBuilder().setMethod(ScanMethod.ALL)
+                                                           .setLimit(10).build(), output);
+                        }
+                    });
+                    assertFalse("a cancelled call must not interrupt the next call",
+                                Thread.currentThread().isInterrupted());
+                    doReturn(false).when(iterator).hasNext();
+                    StreamObserver<KvPageRes> nextOutput = mock(StreamObserver.class);
+                    HgStoreStreamImpl nextService = scanService(executor, wrapper);
+                    if (batch) {
+                        nextService.scanBatchOneShot(batchRequest(), nextOutput);
+                    } else {
+                        nextService.scanOneShot(ScanStreamReq.newBuilder().setMethod(ScanMethod.ALL)
+                                                           .setLimit(10).build(), nextOutput);
+                    }
+                    verify(nextOutput).onNext(any(KvPageRes.class));
+                    verify(nextOutput).onCompleted();
+                    verify(nextOutput, never()).onError(any(Throwable.class));
+                    return null;
+                });
+                Thread caller = new Thread(scanning, "test-one-shot-blocked-read");
+                try {
+                    caller.start();
+                    assertTrue(reading.await(1, TimeUnit.SECONDS));
+                    if (transport) {
+                        context.cancel(new IllegalStateException("client canceled"));
+                    } else {
+                        service.shutdownScans();
+                    }
+                    assertTrue(interrupted.await(1, TimeUnit.SECONDS));
+                    scanning.get(1, TimeUnit.SECONDS);
+                    assertCancelled(output);
+                    verify(output, never()).onNext(any(KvPageRes.class));
+                    verify(output, never()).onCompleted();
+                    verify(iterator, times(2)).close();
+                    assertTrue(scanRegistry(service).isEmpty());
+                } finally {
+                    release.countDown();
+                    context.cancel(null);
+                    caller.join(2000);
+                    service.shutdownScans();
+                    executor.shutdownNow();
+                    assertFalse(caller.isAlive());
+                }
+            }
+        }
+    }
+
+    private static void awaitCloseRelease(CountDownLatch release) {
+        boolean interrupted = false;
+        try {
+            for (;;) {
+                try {
+                    assertTrue(release.await(5, TimeUnit.SECONDS));
+                    return;
+                } catch (InterruptedException ignored) {
+                    interrupted = true;
+                }
+            }
+        } finally {
+            if (interrupted) {
+                Thread.currentThread().interrupt();
+            }
+        }
+    }
+
     @Test(timeout = 10000)
     public void testInProcessOneShotCancellationDuringCloseReportsCancelled() throws Exception {
         for (boolean batch : new boolean[]{false, true}) {
@@ -629,7 +769,7 @@ public class ScanLifecycleTest extends ScanTestSupport {
             CountDownLatch release = new CountDownLatch(1);
             doAnswer(invocation -> {
                 closing.countDown();
-                assertTrue(release.await(5, TimeUnit.SECONDS));
+                awaitCloseRelease(release);
                 return null;
             }).when(iterator).close();
             HgStoreStreamImpl service = scanService(executor, wrapper);
@@ -691,7 +831,7 @@ public class ScanLifecycleTest extends ScanTestSupport {
             CountDownLatch release = new CountDownLatch(1);
             doAnswer(invocation -> {
                 closing.countDown();
-                assertTrue(release.await(5, TimeUnit.SECONDS));
+                awaitCloseRelease(release);
                 return null;
             }).when(iterator).close();
             HgStoreStreamImpl service = scanService(executor, wrapper);
@@ -1336,8 +1476,9 @@ public class ScanLifecycleTest extends ScanTestSupport {
     }
 
     @Test
-    public void testInterruptedOneShotDoesNotSendPartialSuccess() {
+    public void testInterruptedOneShotDoesNotSendPartialSuccess() throws Exception {
         for (boolean batch : new boolean[]{false, true}) {
+            ThreadPoolExecutor executor = (ThreadPoolExecutor) Executors.newFixedThreadPool(1);
             HgStoreWrapperEx wrapper = mock(HgStoreWrapperEx.class);
             ScanIterator iterator = mock(ScanIterator.class);
             StreamObserver<KvPageRes> output = mock(StreamObserver.class);
@@ -1349,12 +1490,12 @@ public class ScanLifecycleTest extends ScanTestSupport {
                 return RocksDBSession.BackendColumn.of(new byte[4], new byte[0]);
             });
             try {
+                HgStoreStreamImpl service = scanService(executor, wrapper);
                 if (batch) {
-                    ScanBatchOneShotResponse.scanOneShot(batchRequest(), output, wrapper);
+                    service.scanBatchOneShot(batchRequest(), output);
                 } else {
-                    ScanOneShotResponse.scanOneShot(
-                            ScanStreamReq.newBuilder().setMethod(ScanMethod.ALL).setLimit(10).build(),
-                            output, wrapper);
+                    service.scanOneShot(ScanStreamReq.newBuilder().setMethod(ScanMethod.ALL).setLimit(10).build(),
+                                        output);
                 }
                 verify(iterator).next();
                 assertTrue("scan must preserve an external interrupt",
@@ -1363,8 +1504,20 @@ public class ScanLifecycleTest extends ScanTestSupport {
                 verify(output, never()).onNext(any(KvPageRes.class));
                 verify(output, never()).onCompleted();
                 verify(iterator).close();
+                StreamObserver<KvPageRes> nextOutput = mock(StreamObserver.class);
+                if (batch) {
+                    service.scanBatchOneShot(batchRequest(), nextOutput);
+                } else {
+                    service.scanOneShot(ScanStreamReq.newBuilder().setMethod(ScanMethod.ALL).setLimit(10).build(),
+                                        nextOutput);
+                }
+                assertTrue("an interrupt present at entry must be preserved", Thread.currentThread().isInterrupted());
+                verify(nextOutput).onError(any(Throwable.class));
+                verify(nextOutput, never()).onNext(any(KvPageRes.class));
+                verify(nextOutput, never()).onCompleted();
             } finally {
                 Thread.interrupted();
+                executor.shutdownNow();
             }
         }
     }

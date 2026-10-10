@@ -62,6 +62,13 @@ Unary query and count requests share the query admission, worker and cleanup own
 registry. Count keeps partition work parallel on the service executor. Iterator cleanup
 failure prevents successful completion and remains visible to request drain.
 
+One-shot scans run on the gRPC caller thread. Transport cancellation and Store shutdown
+signal that caller directly, so interruptible waits can exit without waiting for a
+queued call-executor callback. Interruption is cooperative: a RocksDB native operation
+does not guarantee that it will return on Java thread interruption. The call remains
+registered until its read and iterator cleanup finish; cancellation does not permit
+another thread to close a native iterator that is still in use.
+
 ### Callback executor configuration
 
 The gRPC application callback queue is always unbounded (`Integer.MAX_VALUE`), matching
@@ -87,6 +94,11 @@ preserve interruption without abandoning these owners.
 The Store context-close listener stops RPC, scan and query admission, requests transport
 shutdown, and drains scan/query workers before waiting for terminal gRPC callbacks and
 scan cleanup. Queued cancelled scans still run their cleanup paths.
+
+Shutdown terminates unfinished aggregate responses with `UNAVAILABLE`, rather than
+reporting normal completion for a truncated result. Terminal delivery is serialized
+with batch delivery and does not release the request's cleanup ownership: shutdown
+still waits for the workers and iterators even if the response callback fails.
 
 Transport termination alone is insufficient evidence that an application callback or
 native iterator owner has finished. Preserve the application cleanup barrier when

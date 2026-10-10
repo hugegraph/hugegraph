@@ -53,6 +53,7 @@ import org.apache.hugegraph.structure.BaseVertex;
 import com.google.protobuf.ByteString;
 
 import io.grpc.Context;
+import io.grpc.Status;
 import io.grpc.stub.StreamObserver;
 import lombok.extern.slf4j.Slf4j;
 
@@ -316,6 +317,21 @@ public class AggregativeQueryObserver implements StreamObserver<QueryRequest> {
         if (this.pendingTasks == 0 && !this.finished) {
             this.finished = true;
             finishResponse();
+        }
+    }
+
+    void cancelForShutdown() {
+        try {
+            synchronized (this.responseLock) {
+                if (!this.responseFinished) {
+                    this.responseFinished = true;
+                    this.completeResponse = false;
+                    this.sender.onError(Status.UNAVAILABLE.withDescription("Store queries are stopping")
+                                                          .asRuntimeException());
+                }
+            }
+        } finally {
+            cancel();
         }
     }
 

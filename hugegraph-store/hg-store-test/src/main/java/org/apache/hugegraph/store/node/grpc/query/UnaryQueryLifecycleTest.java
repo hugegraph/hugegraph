@@ -328,7 +328,8 @@ public class UnaryQueryLifecycleTest extends AggregativeQueryTestSupport {
                 closing.get(1, TimeUnit.SECONDS);
                 assertTrue(closed.get());
                 assertTrue(response.responses.isEmpty());
-                assertEquals(1, response.completed.get());
+                assertEquals(0, response.completed.get());
+                assertEquals(1, response.errors.get());
                 verify(iterator).close();
             } finally {
                 release.countDown();

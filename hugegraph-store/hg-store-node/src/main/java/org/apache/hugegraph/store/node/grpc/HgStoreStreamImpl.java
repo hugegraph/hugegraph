@@ -24,6 +24,7 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.apache.hugegraph.store.business.BusinessHandler;
 import org.apache.hugegraph.store.grpc.Graphpb.ScanPartitionRequest;
@@ -191,10 +192,26 @@ public class HgStoreStreamImpl extends HgStoreStreamGrpc.HgStoreStreamImplBase {
 
     private <T> void oneShot(StreamObserver<T> response, Consumer<ScanLifecycle> action) {
         ScanLifecycle lifecycle = new ScanLifecycle();
+        Thread caller = Thread.currentThread();
+        boolean alreadyInterrupted = caller.isInterrupted();
+        AtomicBoolean interruptedByCancellation = new AtomicBoolean();
+        Context context = Context.current();
+        Runnable cancel = () -> {
+            synchronized (lifecycle) {
+                if (lifecycle.tryCancel()) {
+                    // Wake interruptible reads; native reads retain ownership until they return.
+                    if (!caller.isInterrupted()) {
+                        interruptedByCancellation.set(true);
+                        caller.interrupt();
+                    }
+                }
+            }
+        };
+        Context.CancellationListener listener = ignored -> cancel.run();
         synchronized (this) {
             checkAcceptingScans();
             lifecycle.enter();
-            this.scans.put(lifecycle, lifecycle::tryCancel);
+            this.scans.put(lifecycle, cancel);
             lifecycle.onFinished(() -> {
                 this.scans.remove(lifecycle);
                 synchronized (this.scans) {
@@ -203,6 +220,7 @@ public class HgStoreStreamImpl extends HgStoreStreamGrpc.HgStoreStreamImplBase {
             });
         }
         try {
+            context.addListener(listener, Runnable::run);
             action.accept(lifecycle);
         } finally {
             try {
@@ -214,8 +232,15 @@ public class HgStoreStreamImpl extends HgStoreStreamGrpc.HgStoreStreamImplBase {
                             .asRuntimeException());
                 }
             } finally {
-                lifecycle.finishWithoutResponse();
-                lifecycle.leave();
+                context.removeListener(listener);
+                // A cancellation snapshot must not interrupt this executor thread after reuse.
+                synchronized (lifecycle) {
+                    lifecycle.finishWithoutResponse();
+                    lifecycle.leave();
+                    if (!alreadyInterrupted && interruptedByCancellation.get()) {
+                        Thread.interrupted();
+                    }
+                }
             }
         }
     }
@@ -282,10 +307,15 @@ public class HgStoreStreamImpl extends HgStoreStreamGrpc.HgStoreStreamImplBase {
     }
 
     @Override
-    public synchronized StreamObserver<ScanStreamBatchReq> scanBatch2(StreamObserver<KvStream> response) {
-        checkAcceptingScans();
-        return register(new ScanLifecycle(), lifecycle ->
-                ScanBatchResponseFactory.of(response, getWrapper(), getExecutor(), lifecycle));
+    public StreamObserver<ScanStreamBatchReq> scanBatch2(StreamObserver<KvStream> response) {
+        StreamObserver<ScanStreamBatchReq> observer;
+        synchronized (this) {
+            checkAcceptingScans();
+            observer = register(new ScanLifecycle(), lifecycle ->
+                    ScanBatchResponseFactory.of(response, getWrapper(), getExecutor(), lifecycle));
+        }
+        ScanBatchResponseFactory.getInstance().checkStreamActive();
+        return observer;
     }
 
     @Override
