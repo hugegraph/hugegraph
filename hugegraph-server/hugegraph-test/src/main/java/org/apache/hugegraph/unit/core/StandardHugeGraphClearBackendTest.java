@@ -86,6 +86,21 @@ public class StandardHugeGraphClearBackendTest extends BaseUnitTest {
         InOrder order = Mockito.inOrder(this.schemaTransaction, this.provider);
         order.verify(this.schemaTransaction).clear();
         order.verify(this.provider).clear();
+        Mockito.verify(this.schemaTransaction, Mockito.never()).clearCaches();
+    }
+
+    /**
+     * A dropped graph's schema in PD is deleted by its DROP commit, so dropping must not
+     * delete it in a commit of its own first
+     */
+    @Test
+    public void testHstoreDropClearsCachesNotSchemaMetadata() {
+        this.graph.clearBackendForDrop();
+
+        InOrder order = Mockito.inOrder(this.schemaTransaction, this.provider);
+        order.verify(this.schemaTransaction).clearCaches();
+        order.verify(this.provider).clear();
+        Mockito.verify(this.schemaTransaction, Mockito.never()).clear();
     }
 
     @Test

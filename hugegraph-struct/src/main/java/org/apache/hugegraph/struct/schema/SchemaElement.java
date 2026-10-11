@@ -64,6 +64,8 @@ public abstract class SchemaElement implements Namifiable, Typifiable,
     private final String name;
     private final Userdata userdata;
     private SchemaStatus status;
+    // What PD holds of this element as far as this instance knows, see stored()
+    private String stored;
 
     public SchemaElement(final HugeGraphSupplier graph, Id id, String name) {
         E.checkArgumentNotNull(id, "SchemaElement id can't be null");
@@ -136,6 +138,19 @@ public abstract class SchemaElement implements Namifiable, Typifiable,
 
     public boolean system() {
         return this.longId() < 0L;
+    }
+
+    /**
+     * The content this element was read from PD as, or was last written to it as; null for
+     * an element that PD doesn't hold or that wasn't read from it. An update of the element
+     * commits only while PD still holds this content, see SchemaMetaManager.updateSchema.
+     */
+    public String stored() {
+        return this.stored;
+    }
+
+    public void stored(String content) {
+        this.stored = content;
     }
 
     public boolean primitive() {

@@ -78,6 +78,8 @@ public class GraphsAPI extends API {
 
     private static final String CONFIRM_CLEAR = "I'm sure to delete all data";
     private static final String CONFIRM_DROP = "I'm sure to drop the graph";
+    // Releases the name of a graph whose drop a stopped Server left unfinished
+    private static final String CONFIRM_RELEASE = "I'm sure the drop of the graph has stopped";
     private static final String GRAPH_DESCRIPTION = "description";
     private static final String GRAPH_ACTION = "action";
     private static final String UPDATE = "update";
@@ -124,8 +126,10 @@ public class GraphsAPI extends API {
                                                HugePermission.READ);
             if (adminManager || sc.isUserInRole(role)) {
                 try {
-                    graph(manager, graphSpace, graph);
-                    filterGraphs.add(graph);
+                    // null if the graph doesn't open on this Server, see listProfile
+                    if (manager.graph(graphSpace, graph) != null) {
+                        filterGraphs.add(graph);
+                    }
                 } catch (ForbiddenException ignored) {
                     // ignore
                 }
@@ -178,7 +182,15 @@ public class GraphsAPI extends API {
                 continue;
             }
             try {
-                HugeGraph hg = graph(manager, graphSpace, graph);
+                HugeGraph hg = manager.graph(graphSpace, graph);
+                if (hg == null) {
+                    /*
+                     * The graph has a config in PD and doesn't open on this Server: another
+                     * Server is still creating it, or it was dropped since the names were
+                     * listed. It must not fail the listing of the other graphs.
+                     */
+                    continue;
+                }
                 HugeConfig config = (HugeConfig) hg.configuration();
                 String configResp = ConfigUtil.writeConfigToString(config);
                 Map<String, Object> profile =
@@ -335,6 +347,10 @@ public class GraphsAPI extends API {
                      @QueryParam("confirm_message") String message) {
         LOG.debug("Drop graph by name '{}'", name);
 
+        if (CONFIRM_RELEASE.equals(message)) {
+            manager.releaseDroppedGraph(graphSpace, name);
+            return;
+        }
         E.checkArgument(CONFIRM_DROP.equals(message),
                         "Please take the message: %s", CONFIRM_DROP);
         manager.dropGraph(graphSpace, name, true);

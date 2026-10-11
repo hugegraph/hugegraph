@@ -29,6 +29,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hugegraph.analyzer.Analyzer;
@@ -273,6 +274,14 @@ public class StandardHugeGraph implements HugeGraph {
         }
 
         try {
+            if (isHstore()) {
+                // Writes of this instance must not reach a later incarnation of the graph, and
+                // a graph another Server is creating doesn't open here
+                long incarnation = MetaManager.instance().schemaMetaManager()
+                                              .adoptRecord(this.graphSpace(), this.name())
+                                              .getIncarnation();
+                this.params.schemaIncarnation().set(incarnation);
+            }
             this.tx = new TinkerPopTransaction(this);
             boolean supportsPersistence = this.backendStoreFeatures().supportsPersistence();
             this.features = new HugeFeatures(this, supportsPersistence);
@@ -311,6 +320,11 @@ public class StandardHugeGraph implements HugeGraph {
     @Override
     public String name() {
         return this.name;
+    }
+
+    @Override
+    public long schemaIncarnation() {
+        return this.params.schemaIncarnation().get();
     }
 
     @Override
@@ -535,6 +549,15 @@ public class StandardHugeGraph implements HugeGraph {
 
     @Override
     public void clearBackend() {
+        this.clearBackend(false);
+    }
+
+    @Override
+    public void clearBackendForDrop() {
+        this.clearBackend(true);
+    }
+
+    private void clearBackend(boolean dropping) {
         this.waitUntilAllTasksCompleted();
 
         this.loadSchemaStore().open(this.configuration);
@@ -548,7 +571,14 @@ public class StandardHugeGraph implements HugeGraph {
                              CachedSchemaTransactionV2,
                              "The HStore schema transaction must be %s",
                              CachedSchemaTransactionV2.class.getSimpleName());
-                ((CachedSchemaTransactionV2) this.schemaTransaction()).clear();
+                CachedSchemaTransactionV2 schemaTx =
+                        (CachedSchemaTransactionV2) this.schemaTransaction();
+                if (dropping) {
+                    // The DROP commit of the graph record deletes the schema in PD
+                    schemaTx.clearCaches();
+                } else {
+                    schemaTx.clear();
+                }
             }
             this.storeProvider.clear();
         } finally {
@@ -1554,6 +1584,7 @@ public class StandardHugeGraph implements HugeGraph {
     private class StandardHugeGraphParams implements HugeGraphParams {
 
         private final EphemeralJobQueue ephemeralJobQueue = new EphemeralJobQueue(this);
+        private final AtomicLong schemaIncarnation = new AtomicLong();
         private HugeGraph graph = StandardHugeGraph.this;
 
         private void graph(HugeGraph graph) {
@@ -1711,6 +1742,11 @@ public class StandardHugeGraph implements HugeGraph {
             // Use distributed scheduler for hstore backend, otherwise use local
             // After the merger of rocksdb and hstore, consider whether to change this logic
             return StandardHugeGraph.this.isHstore() ? "distributed" : "local";
+        }
+
+        @Override
+        public AtomicLong schemaIncarnation() {
+            return this.schemaIncarnation;
         }
     }
 
