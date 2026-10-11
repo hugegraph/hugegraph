@@ -83,6 +83,18 @@ partition:
   # Default number of replicas per partition
   default-shard-count: 3
 
+schema-sync:
+  # Delivery of graph record changes to schema sync watches, in milliseconds: a change is sent
+  # once no newer one arrived for coalesce-window, and no later than max-wait
+  coalesce-window: 50
+  max-wait: 500
+  # First resend of an unacknowledged change, doubled per resend; a watch whose pending work
+  # saw no acknowledgment for retry-budget is closed
+  retry-backoff: 1000
+  retry-budget: 30000
+  # Interval of the Alive frames that renew a schema sync watch
+  keepalive-interval: 5000
+
 discovery:
   # After the client registers, the maximum number of heartbeats is not reached, and after that, the
    previous registration information will be deleted
