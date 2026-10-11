@@ -37,6 +37,7 @@ import org.apache.hugegraph.pd.grpc.kv.WatchState;
 import org.apache.hugegraph.pd.grpc.kv.WatchType;
 import org.apache.hugegraph.pd.raft.RaftEngine;
 import org.apache.hugegraph.pd.store.RaftKVStore;
+import org.apache.hugegraph.pd.sync.SchemaSyncTracker;
 
 import io.grpc.StatusRuntimeException;
 import io.grpc.stub.StreamObserver;
@@ -139,6 +140,11 @@ public class KvWatchSubject {
             String[] values = keyAndClient.split(delimiter);
             assert values.length == 4;
             String watchKey = values[2];
+            if (!isEqual && SchemaSyncTracker.isSyncPrefix(watchKey)) {
+                // A schema sync session gets record events from its tracker only, never a
+                // plain put or delete under its prefix
+                continue;
+            }
             String c = values[3];
             long clientId = Long.parseLong(c);
             LinkedList<WatchEvent> watchEvents = new LinkedList<>();
@@ -239,9 +245,29 @@ public class KvWatchSubject {
         });
     }
 
+    /**
+     * Ends one prefix watch stream and drops its registration; the client reconnects as a new
+     * session
+     */
+    public void closePrefixClient(String key, long clientId) {
+        String clientsKey = KvService.getKeyWithoutPrefix(ALL_PREFIX, PREFIX_DELIMITER, key,
+                                                          clientId);
+        StreamObserver<WatchResponse> observer = clients.get(clientsKey);
+        if (observer != null) {
+            try {
+                // removeClient deletes the client-first key only. Left behind, this one would
+                // be scanned by every plain write until its TTL, once per closed session
+                kvService.delete(clientsKey);
+            } catch (PDException | RuntimeException e) {
+                log.warn("Failed to delete watch key {}", clientsKey, e);
+            }
+            removeClient(observer, clientsKey, KvService.getKeyWithoutPrefix(ALL_PREFIX, clientId));
+        }
+    }
+
     private void removeClient(StreamObserver<WatchResponse> value, String key, String clientKey) {
         try {
-            log.info("remove null observer,client:", clientKey);
+            log.info("remove null observer,client:{}", clientKey);
             if (RaftEngine.getInstance().isLeader()) {
                 kvService.deleteWithPrefix(clientKey);
             } else {
@@ -251,7 +277,11 @@ public class KvWatchSubject {
                     ((RaftKVStore) store).doRemoveByPrefix(kvService.getStoreKey(clientKey));
                 }
             }
-
+        } catch (PDException | RuntimeException e) {
+            log.error("remove client {} with error:", clientKey, e);
+        } finally {
+            // Also when the registration could not be deleted: a stream left open here would
+            // keep being renewed, and its client would never reconnect
             if (value != null) {
                 synchronized (value) {
                     try {
@@ -262,8 +292,6 @@ public class KvWatchSubject {
                 }
             }
             clients.remove(key);
-        } catch (PDException e) {
-            log.error("remove client with error:", e);
         }
     }
 
