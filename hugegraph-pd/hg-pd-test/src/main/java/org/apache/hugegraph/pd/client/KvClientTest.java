@@ -33,6 +33,8 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
+import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ScheduledExecutorService;
@@ -53,6 +55,11 @@ import org.apache.hugegraph.pd.grpc.kv.KvServiceGrpc;
 import org.apache.hugegraph.pd.grpc.kv.LockRequest;
 import org.apache.hugegraph.pd.grpc.kv.LockResponse;
 import org.apache.hugegraph.pd.grpc.kv.ScanPrefixResponse;
+import org.apache.hugegraph.pd.grpc.kv.TxnCompare;
+import org.apache.hugegraph.pd.grpc.kv.TxnOp;
+import org.apache.hugegraph.pd.grpc.kv.TxnRecord;
+import org.apache.hugegraph.pd.grpc.kv.TxnRequest;
+import org.apache.hugegraph.pd.grpc.kv.TxnResponse;
 import org.apache.hugegraph.pd.grpc.kv.WatchEvent;
 import org.apache.hugegraph.pd.grpc.kv.WatchKv;
 import org.apache.hugegraph.pd.grpc.kv.WatchRequest;
@@ -1099,6 +1106,133 @@ public class KvClientTest extends BaseClientTest {
         assertThat(reconnectThread.isAlive()).isFalse();
         assertThat(closeThread.isAlive()).isFalse();
         verify(reconnectChannel).shutdownNow();
+    }
+
+    /**
+     * Graph lifecycle TXNs through the raft of the suite's PD: a CREATE sent again with its
+     * request id (its response was lost) gets the outcome of its first apply, a create of the
+     * same name by another Server is refused, ADOPT returns the record unchanged, and
+     * COMMIT_CREATE and DROP move it on
+     */
+    @Test
+    public void testTxnLifecycleThroughRaft() throws Exception {
+        String name = "txn-" + UUID.randomUUID();
+        String record = "HUGEGRAPH/hg/SCHEMA_SYNC/DEFAULT/" + name;
+        String config = "HUGEGRAPH/hg/GRAPHSPACE/DEFAULT/GRAPH_CONF/" + name;
+        TxnRequest create = createTxn(config, record, "A");
+        TxnResponse first = client.txn(create);
+        assertThat(first.getSucceeded()).isTrue();
+        assertThat(first.getIncarnation()).isEqualTo(1L);
+        assertThat(first.getState()).isEqualTo("CREATING");
+
+        TxnResponse resent = client.txn(create);
+        assertThat(resent.getSucceeded()).isTrue();
+        assertThat(resent.getRevision()).isEqualTo(first.getRevision());
+
+        TxnResponse other = client.txn(createTxn(config, record, "B"));
+        assertThat(other.getSucceeded()).isFalse();
+        assertThat(client.get(config).getValue()).isEqualTo("A");
+
+        TxnResponse adopted = client.txn(recordTxn(record, TxnRecord.Op.ADOPT, 0L).build());
+        assertThat(adopted.getRevision()).isEqualTo(first.getRevision());
+        assertThat(adopted.getState()).isEqualTo("CREATING");
+
+        TxnResponse live = client.txn(recordTxn(record, TxnRecord.Op.COMMIT_CREATE, 1L).build());
+        assertThat(live.getState()).isEqualTo("LIVE");
+        TxnResponse dropped = client.txn(recordTxn(record, TxnRecord.Op.DROP, 1L).addOps(
+                TxnOp.newBuilder().setType(TxnOp.Type.DELETE).setKey(config)).build());
+        assertThat(dropped.getState()).isEqualTo("DROPPED");
+        assertThat(client.get(config).getValue()).isEmpty();
+    }
+
+    /**
+     * Two Servers (two clients) creating the same graph at the same time through the suite's
+     * PD: exactly one gets the name
+     */
+    @Test
+    public void testConcurrentCreatesThroughRaft() throws Exception {
+        try (KvClient<WatchResponse> second = new KvClient<>(getPdConfig())) {
+            for (int n = 0; n < 5; n++) {
+                String name = "txn-race-" + UUID.randomUUID();
+                String record = "HUGEGRAPH/hg/SCHEMA_SYNC/DEFAULT/" + name;
+                String config = "HUGEGRAPH/hg/GRAPHSPACE/DEFAULT/GRAPH_CONF/" + name;
+                CountDownLatch start = new CountDownLatch(1);
+                CompletableFuture<TxnResponse> a = CompletableFuture.supplyAsync(() -> txnAfter(
+                        start, client, createTxn(config, record, "A")));
+                CompletableFuture<TxnResponse> b = CompletableFuture.supplyAsync(() -> txnAfter(
+                        start, second, createTxn(config, record, "B")));
+                start.countDown();
+                boolean aWon = a.get(30, TimeUnit.SECONDS).getSucceeded();
+                assertThat(aWon).isNotEqualTo(b.get(30, TimeUnit.SECONDS).getSucceeded());
+                assertThat(client.get(config).getValue()).isEqualTo(aWon ? "A" : "B");
+            }
+        }
+    }
+
+    /**
+     * PD answers the leader lookup but fails every txn call: the client has no response to
+     * return, and says so with a PDException, which its callers handle, not with a
+     * NullPointerException
+     */
+    @Test
+    public void testTxnWithoutAResponseIsAPdException() throws Exception {
+        AtomicReference<String> address = new AtomicReference<>();
+        AtomicInteger calls = new AtomicInteger();
+        Server server = ServerBuilder.forPort(0)
+                                     .addService(new PDGrpc.PDImplBase() {
+                                         @Override
+                                         public void getMembers(Pdpb.GetMembersRequest request,
+                                                StreamObserver<Pdpb.GetMembersResponse> observer) {
+                                             observer.onNext(Pdpb.GetMembersResponse.newBuilder()
+                                                     .setLeader(Metapb.Member.newBuilder()
+                                                             .setGrpcUrl(address.get()))
+                                                     .build());
+                                             observer.onCompleted();
+                                         }
+                                     })
+                                     .addService(new KvServiceGrpc.KvServiceImplBase() {
+                                         @Override
+                                         public void txn(TxnRequest request,
+                                                         StreamObserver<TxnResponse> observer) {
+                                             calls.incrementAndGet();
+                                             observer.onError(Status.UNAVAILABLE.asException());
+                                         }
+                                     }).build().start();
+        address.set("127.0.0.1:" + server.getPort());
+        try (KvClient<WatchResponse> testClient = new KvClient<>(
+                PDConfig.of(address.get()).setAuthority(user, pwd))) {
+            assertThatThrownBy(() -> testClient.txn(createTxn("c", "r", "A")))
+                    .isInstanceOf(PDException.class)
+                    .hasMessageContaining("No response to a txn from PD");
+            assertThat(calls.get()).isGreaterThan(0);
+        } finally {
+            server.shutdownNow().awaitTermination(5L, TimeUnit.SECONDS);
+        }
+    }
+
+    private static TxnResponse txnAfter(CountDownLatch start, KvClient<WatchResponse> kv,
+                                        TxnRequest request) {
+        try {
+            start.await();
+            return kv.txn(request);
+        } catch (Exception e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    private static TxnRequest createTxn(String config, String record, String server) {
+        return recordTxn(record, TxnRecord.Op.CREATE, 0L)
+                .addCompares(TxnCompare.newBuilder().setKey(config)
+                                       .setKind(TxnCompare.Kind.ABSENT))
+                .addOps(TxnOp.newBuilder().setKey(config).setValue(server)).build();
+    }
+
+    private static TxnRequest.Builder recordTxn(String record, TxnRecord.Op op,
+                                                long incarnation) {
+        return TxnRequest.newBuilder()
+                         .setRecord(TxnRecord.newBuilder().setKey(record).setOp(op)
+                                             .setExpectedIncarnation(incarnation))
+                         .setRequestId(UUID.randomUUID().toString());
     }
 
     String key = "key";
