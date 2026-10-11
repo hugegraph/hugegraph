@@ -26,6 +26,8 @@ import org.apache.hugegraph.config.HugeConfig;
 import org.apache.hugegraph.core.GraphManager;
 import org.apache.hugegraph.event.EventHub;
 import org.apache.hugegraph.meta.MetaManager;
+import org.apache.hugegraph.meta.managers.SchemaMetaManager;
+import org.apache.hugegraph.pd.grpc.kv.TxnResponse;
 import org.apache.hugegraph.space.GraphSpace;
 import org.apache.hugegraph.space.Service;
 import org.apache.hugegraph.task.TaskScheduler;
@@ -47,7 +49,14 @@ public class GraphManagerClearGraphSpaceTest {
         HugeGraph cleared = mockGraph("gs-g");
         HugeGraph kept = mockGraph("gs2-g");
         HugeGraph keptUnderscore = mockGraph("gs_x-g");
+        Mockito.when(cleared.schemaIncarnation()).thenReturn(1L);
+        Mockito.when(kept.schemaIncarnation()).thenReturn(2L);
+        Mockito.when(keptUnderscore.schemaIncarnation()).thenReturn(3L);
+        SchemaMetaManager schemaMeta = Mockito.mock(SchemaMetaManager.class);
+        Mockito.when(schemaMeta.dropGraph("gs", "g", 1L, true)).thenReturn(
+                TxnResponse.newBuilder().setSucceeded(true).build());
         MetaManager meta = Mockito.mock(MetaManager.class);
+        Mockito.when(meta.schemaMetaManager()).thenReturn(schemaMeta);
 
         // A mock hub: the executor of EventHub is static, and a test that ran
         // earlier in the suite may have shut it down (HugeFactory.shutdown)
@@ -77,9 +86,23 @@ public class GraphManagerClearGraphSpaceTest {
 
             manager.clearGraphSpace("gs");
 
-            Mockito.verify(cleared).clearBackend();
-            Mockito.verify(kept, Mockito.never()).clearBackend();
-            Mockito.verify(keptUnderscore, Mockito.never()).clearBackend();
+            Mockito.verify(cleared).clearBackendForDrop();
+            Mockito.verify(kept, Mockito.never()).clearBackendForDrop();
+            Mockito.verify(keptUnderscore, Mockito.never())
+                   .clearBackendForDrop();
+            Mockito.verify(schemaMeta).dropGraph("gs", "g", 1L, true);
+            Mockito.verify(schemaMeta).finishDrop("gs", "g");
+            Mockito.verify(schemaMeta, Mockito.never())
+                   .dropGraph(Mockito.eq("gs2"), Mockito.anyString(),
+                              Mockito.anyLong(), Mockito.anyBoolean());
+            Mockito.verify(schemaMeta, Mockito.never())
+                   .dropGraph(Mockito.eq("gs_x"), Mockito.anyString(),
+                              Mockito.anyLong(), Mockito.anyBoolean());
+            Mockito.verifyNoMoreInteractions(schemaMeta);
+            for (HugeGraph graph : new HugeGraph[]{cleared, kept,
+                                                   keptUnderscore}) {
+                Mockito.verify(graph, Mockito.never()).clearBackend();
+            }
             Assert.assertFalse(graphs.containsKey("gs-g"));
             Assert.assertTrue(graphs.containsKey("gs2-g"));
             Assert.assertTrue(graphs.containsKey("gs_x-g"));

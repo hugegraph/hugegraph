@@ -64,6 +64,8 @@ public abstract class SchemaElement implements Namifiable, Typifiable,
     private final String name;
     private final Userdata userdata;
     private SchemaStatus status;
+    // The content of this element that its changes since are taken against, see stored()
+    private String stored;
 
     public SchemaElement(final HugeGraphSupplier graph, Id id, String name) {
         E.checkArgumentNotNull(id, "SchemaElement id can't be null");
@@ -136,6 +138,24 @@ public abstract class SchemaElement implements Namifiable, Typifiable,
 
     public boolean system() {
         return this.longId() < 0L;
+    }
+
+    /**
+     * The content this element was read from PD as, or had when it was last written; null for
+     * an element that PD doesn't hold or that wasn't read from it. An update of the element
+     * commits as it is only while PD still holds this content, and otherwise applies what
+     * the element changed since this content to what PD holds, see
+     * SchemaMetaManager.updateSchema. After such a merged write PD holds the merged content,
+     * which the returned element has, while this one keeps the content it had itself: with
+     * the merged content here, its next update would pass the check and write the element
+     * without what the other Server changed.
+     */
+    public String stored() {
+        return this.stored;
+    }
+
+    public void stored(String content) {
+        this.stored = content;
     }
 
     public boolean primitive() {
