@@ -69,6 +69,7 @@ import org.apache.hugegraph.unit.core.MetaManagerClusterTest;
 import org.apache.hugegraph.unit.core.DirectionsTest;
 import org.apache.hugegraph.unit.core.ExceptionTest;
 import org.apache.hugegraph.unit.core.GraphManagerAdminInitTest;
+import org.apache.hugegraph.unit.core.GraphManagerClearGraphSpaceTest;
 import org.apache.hugegraph.unit.core.GraphManagerConfigTest;
 import org.apache.hugegraph.unit.core.GroovyScriptEngineCompatibilityTest;
 import org.apache.hugegraph.unit.core.HugeFeaturesTest;
@@ -202,6 +203,7 @@ import org.junit.runners.Suite;
         RolePermissionTest.class,
         ExceptionTest.class,
         GraphManagerAdminInitTest.class,
+        GraphManagerClearGraphSpaceTest.class,
         GraphManagerConfigTest.class,
         HstoreSessionsTest.class,
         BackendStoreInfoTest.class,
