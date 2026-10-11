@@ -33,6 +33,7 @@ import org.apache.hugegraph.backend.tx.GraphTransactionTest;
 import org.apache.hugegraph.meta.EtcdMetaDriverTest;
 import org.apache.hugegraph.meta.MetaManagerSchemaCacheClearEventTest;
 import org.apache.hugegraph.meta.managers.AuthMetaManagerTest;
+import org.apache.hugegraph.meta.managers.SchemaMetaManagerTest;
 import org.apache.hugegraph.opencypher.CypherOpProcessorTest;
 import org.apache.hugegraph.store.client.OrderedScanSecurityTest;
 import org.apache.hugegraph.tinkerpop.HugeGraphTestInfrastructureTest;
@@ -71,6 +72,8 @@ import org.apache.hugegraph.unit.core.ExceptionTest;
 import org.apache.hugegraph.unit.core.GraphManagerAdminInitTest;
 import org.apache.hugegraph.unit.core.GraphManagerClearGraphSpaceTest;
 import org.apache.hugegraph.unit.core.GraphManagerConfigTest;
+import org.apache.hugegraph.unit.core.GraphManagerCreateGraphTest;
+import org.apache.hugegraph.unit.core.GraphManagerDropGraphTest;
 import org.apache.hugegraph.unit.core.GroovyScriptEngineCompatibilityTest;
 import org.apache.hugegraph.unit.core.HugeFeaturesTest;
 import org.apache.hugegraph.unit.core.HstoreSessionsTest;
@@ -149,6 +152,7 @@ import org.junit.runners.Suite;
         ContextTaskTest.class,
         HugeFactoryTest.class,
         AuthMetaManagerTest.class,
+        SchemaMetaManagerTest.class,
 
         /* api space */
         GraphSpaceAPITest.class,
@@ -205,6 +209,8 @@ import org.junit.runners.Suite;
         GraphManagerAdminInitTest.class,
         GraphManagerClearGraphSpaceTest.class,
         GraphManagerConfigTest.class,
+        GraphManagerCreateGraphTest.class,
+        GraphManagerDropGraphTest.class,
         HstoreSessionsTest.class,
         BackendStoreInfoTest.class,
         TraversalUtilTest.class,

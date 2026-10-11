@@ -17,6 +17,8 @@
 
 package org.apache.hugegraph;
 
+import java.util.concurrent.atomic.AtomicLong;
+
 import org.apache.hugegraph.analyzer.Analyzer;
 import org.apache.hugegraph.backend.LocalCounter;
 import org.apache.hugegraph.backend.serializer.AbstractSerializer;
@@ -98,4 +100,10 @@ public interface HugeGraphParams {
     <T> void submitEphemeralJob(EphemeralJob<T> job);
 
     String schedulerType();
+
+    /**
+     * The incarnation of this graph instance in its PD schema sync record, read when the
+     * graph opens; 0 while unknown
+     */
+    AtomicLong schemaIncarnation();
 }

@@ -39,7 +39,9 @@ import org.apache.hugegraph.meta.MetaDriver;
 import org.apache.hugegraph.meta.MetaManager;
 import org.apache.hugegraph.meta.MetaManager.SchemaCacheClearEvent;
 import org.apache.hugegraph.perf.PerfUtil;
+import org.apache.hugegraph.struct.schema.IndexLabel;
 import org.apache.hugegraph.struct.schema.SchemaElement;
+import org.apache.hugegraph.struct.schema.SchemaLabel;
 import org.apache.hugegraph.type.HugeType;
 import org.apache.hugegraph.util.E;
 import org.apache.hugegraph.util.Events;
@@ -348,13 +350,15 @@ public class CachedSchemaTransactionV2 extends SchemaTransactionV2 {
     }
 
     @Override
-    protected void updateSchema(SchemaElement schema,
-                                Consumer<SchemaElement> updateCallback) {
-        super.updateSchema(schema, updateCallback);
+    protected SchemaElement updateSchema(SchemaElement schema,
+                                         Consumer<SchemaElement> updateCallback) {
+        SchemaElement written = super.updateSchema(schema, updateCallback);
 
-        this.updateCache(schema);
+        // As written, with what other Servers changed of it meanwhile
+        this.updateCache(written);
         // Status transitions are internal bookkeeping; notifying here causes a
         // broadcast storm for every updateSchemaStatus() call from background jobs.
+        return written;
     }
 
     @Override
@@ -366,6 +370,28 @@ public class CachedSchemaTransactionV2 extends SchemaTransactionV2 {
         // Schema additions must always propagate to remote nodes regardless
         // of TASK_SYNC_DELETION (which only gates removal flows).
         this.notifySchemaCacheClear();
+    }
+
+    @Override
+    public void addIndexLabel(SchemaLabel baseLabel, IndexLabel indexLabel) {
+        SchemaLabel written = this.saveIndexLabel(baseLabel, indexLabel);
+
+        // Both were written in one commit, cache them as addSchema and updateSchema do; the
+        // base label as written, with the index labels other Servers added to it
+        this.updateCache(indexLabel);
+        if (written != null) {
+            this.updateCache(written);
+        }
+        this.notifySchemaCacheClear();
+    }
+
+    @Override
+    public void removeIndexLabelFromBaseLabel(IndexLabel indexLabel) {
+        SchemaLabel written = this.unlinkIndexLabel(indexLabel);
+        // The base label as written, as updateSchema caches it
+        if (written != null) {
+            this.updateCache(written);
+        }
     }
 
     private void updateCache(SchemaElement schema) {
@@ -501,6 +527,14 @@ public class CachedSchemaTransactionV2 extends SchemaTransactionV2 {
     public void clear() {
         // Clear schema info firstly
         super.clear();
+        this.clearCaches();
+    }
+
+    /**
+     * Clears the local schema caches and not the schema in PD, for a graph being dropped:
+     * its DROP commit deletes the schema together with marking the graph DROPPED
+     */
+    public void clearCaches() {
         this.clearCache(false);
         this.notifySchemaCacheClear();
     }

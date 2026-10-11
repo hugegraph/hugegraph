@@ -86,6 +86,7 @@ import org.apache.hugegraph.meta.MetaDriver;
 import org.apache.hugegraph.meta.MetaManager;
 import org.apache.hugegraph.meta.PdMetaDriver;
 import org.apache.hugegraph.meta.lock.LockResult;
+import org.apache.hugegraph.meta.managers.SchemaMetaManager;
 import org.apache.hugegraph.metrics.MetricsUtil;
 import org.apache.hugegraph.metrics.ServerReporter;
 import org.apache.hugegraph.pd.client.DiscoveryClientImpl;
@@ -100,6 +101,7 @@ import org.apache.hugegraph.pd.grpc.discovery.NodeInfo;
 import org.apache.hugegraph.pd.grpc.discovery.NodeInfos;
 import org.apache.hugegraph.pd.grpc.discovery.Query;
 import org.apache.hugegraph.pd.grpc.discovery.RegisterInfo;
+import org.apache.hugegraph.pd.grpc.kv.TxnResponse;
 import org.apache.hugegraph.rpc.RpcClientProvider;
 import org.apache.hugegraph.rpc.RpcConsumerConfig;
 import org.apache.hugegraph.rpc.RpcProviderConfig;
@@ -169,6 +171,8 @@ public final class GraphManager {
     private final Set<String> localGraphs;
     private final Set<String> removingGraphs;
     private final Set<String> creatingGraphs;
+    // The graphs a request on this Server is dropping
+    private final Set<String> droppingGraphs;
     private final HugeAuthenticator authenticator;
     private final AuthManager authManager;
     private final MetaManager metaManager = MetaManager.instance();
@@ -215,6 +219,7 @@ public final class GraphManager {
         this.graphs = new ConcurrentHashMap<>();
         this.removingGraphs = ConcurrentHashMap.newKeySet();
         this.creatingGraphs = ConcurrentHashMap.newKeySet();
+        this.droppingGraphs = ConcurrentHashMap.newKeySet();
         this.authenticator = HugeAuthenticator.loadAuthenticator(conf);
         this.serviceGraphSpace = conf.get(ServerOptions.SERVICE_GRAPH_SPACE);
         this.serviceID = conf.get(ServerOptions.SERVICE_ID);
@@ -487,7 +492,7 @@ public final class GraphManager {
         Configuration propConfig =
                 this.buildConfig(attachLocalCacheConfig(sysGraphConfig));
         HugeConfig config = new HugeConfig(propConfig);
-        HugeGraph graph = this.createGraph(gs, config, this.authManager, init);
+        HugeGraph graph = this.createGraph(gs, config, this.authManager, init, 0L);
 
         graph.graphSpace(gs);
         graph.nickname(SYS_GRAPH);
@@ -1353,8 +1358,14 @@ public final class GraphManager {
                                                    creator, config, false);
                 graph.createTime(createTime);
                 graph.updateTime(updateTime);
-            } catch (HugeException e) {
-                if (!this.startIgnoreSingleGraphError) {
+            } catch (RuntimeException e) {
+                if (isCreating(e)) {
+                    // Loaded by the graph add event once its create commits
+                    LOG.info("Skip graph '{}', which another Server is creating",
+                             conf.getKey());
+                    continue;
+                }
+                if (!(e instanceof HugeException) || !this.startIgnoreSingleGraphError) {
                     throw e;
                 }
                 LOG.error(String.format("Failed to load graph '%s' from " +
@@ -1596,8 +1607,29 @@ public final class GraphManager {
 
         HugeConfig config = new HugeConfig(propConfig);
         this.checkOptions(graphSpace, config);
-        HugeGraph graph = this.createGraph(graphSpace, config,
-                                           this.authManager, init);
+        /*
+         * Only HStore graphs keep their schema in PD and open with the incarnation of their
+         * record, so only they get a record. Their config and a new incarnation are written in
+         * one commit, which fails if the graph exists or another Server is creating it. The
+         * graph stays CREATING, and no other Server opens it, until the create commits below;
+         * a create that fails drops it again.
+         */
+        boolean record = init && isHstore(config);
+        long incarnation = 0L;
+        if (record) {
+            incarnation = this.metaManager.schemaMetaManager()
+                                          .createGraph(graphSpace, name, configs);
+            if (incarnation == 0L) {
+                throw new ExistedException("graph", key);
+            }
+        }
+        HugeGraph graph;
+        try {
+            graph = this.createGraph(graphSpace, config, this.authManager, init, incarnation);
+        } catch (Throwable e) {
+            this.abortCreate(graphSpace, name, incarnation);
+            throw e;
+        }
         graph.graphSpace(graphSpace);
         graph.kvStore(this.kvStore);
 
@@ -1616,7 +1648,17 @@ public final class GraphManager {
          */
         try {
             this.notifyEvent(Events.GRAPH_CREATE, graph);
+            if (init) {
+                this.creatingGraphs.add(graphName);
+                if (record) {
+                    this.metaManager.schemaMetaManager().commitCreate(graphSpace, name,
+                                                                      incarnation);
+                } else {
+                    this.metaManager.addGraphConfig(graphSpace, name, configs);
+                }
+            }
         } catch (Throwable e) {
+            this.creatingGraphs.remove(graphName);
             this.notifyEventLenient(Events.GRAPH_DROP, graph);
             this.graphs.remove(graphName, graph);
             try {
@@ -1627,12 +1669,11 @@ public final class GraphManager {
                 }
             }
             HugeFactory.remove(graph);
+            this.abortCreate(graphSpace, name, incarnation);
             throw e;
         }
 
         if (init) {
-            this.creatingGraphs.add(graphName);
-            this.metaManager.addGraphConfig(graphSpace, name, configs);
             this.metaManager.notifyGraphAdd(graphSpace, name);
         }
         if (!grpcThread) {
@@ -2062,8 +2103,11 @@ public final class GraphManager {
         }
     }
 
+    /**
+     * @param incarnation the incarnation a create of an HStore graph started, else 0
+     */
     private HugeGraph createGraph(String graphSpace, HugeConfig config,
-                                  AuthManager authManager, boolean init) {
+                                  AuthManager authManager, boolean init, long incarnation) {
         // open succeed will fill graph instance into HugeFactory graphs(map)
         HugeGraph graph;
         try {
@@ -2084,9 +2128,28 @@ public final class GraphManager {
         }
         if (init) {
             try {
+                if (incarnation != 0L) {
+                    // HugeFactory may hand back an instance of another incarnation
+                    E.checkState(graph.schemaIncarnation() == incarnation,
+                                 "Graph '%s' opened with incarnation %s instead of %s",
+                                 graph.spaceGraphName(), graph.schemaIncarnation(),
+                                 incarnation);
+                }
+                if (incarnation > 1L) {
+                    /*
+                     * The stores may hold data of the dropped incarnation: a drop clears them
+                     * only after its DROP commit, and a crash or a drop by name without an
+                     * instance leaves them
+                     */
+                    graph.clearBackendForDrop();
+                }
                 graph.initBackend();
                 graph.serverStarted(globalNodeRoleInfo);
-            } catch (BackendException e) {
+            } catch (Throwable e) {
+                /*
+                 * Any failure, a PD error on a schema commit too: HugeFactory would hand
+                 * the open instance, with the incarnation of this create, to the next create
+                 */
                 try {
                     graph.close();
                 } catch (Exception e1) {
@@ -2223,8 +2286,16 @@ public final class GraphManager {
                 String creator = String.valueOf(config.get("creator"));
                 Date createTime = parseDate(config.get("create_time"));
                 Date updateTime = parseDate(config.get("update_time"));
-                HugeGraph graph1 = this.createGraph(graphSpace, name,
-                                                    creator, config, false);
+                HugeGraph graph1;
+                try {
+                    graph1 = this.createGraph(graphSpace, name, creator, config, false);
+                } catch (RuntimeException e) {
+                    if (isCreating(e)) {
+                        // Not available until its create commits
+                        return null;
+                    }
+                    throw e;
+                }
                 graph1.createTime(createTime);
                 graph1.updateTime(updateTime);
                 this.graphs.put(key, graph1);
@@ -2259,9 +2330,38 @@ public final class GraphManager {
             dropGraphLocal(name);
             return;
         }
+        if (!clear) {
+            this.dropGraphInPd(graphSpace, name, false);
+            return;
+        }
+        // A second drop on this Server would finish while the first still clears the stores
+        String graphName = spaceGraphName(graphSpace, name);
+        if (!this.droppingGraphs.add(graphName)) {
+            throw new HugeException("Graph '%s' in graph space '%s' is being dropped",
+                                    name, graphSpace);
+        }
+        try {
+            this.dropGraphInPd(graphSpace, name, true);
+        } finally {
+            this.droppingGraphs.remove(graphName);
+        }
+    }
 
+    private void dropGraphInPd(String graphSpace, String name, boolean clear) {
         boolean grpcThread = Thread.currentThread().getName().contains("grpc");
+        if (clear && !this.graphs.containsKey(spaceGraphName(graphSpace, name)) &&
+            this.dropCreatingGraph(graphSpace, name)) {
+            return;
+        }
         HugeGraph g = this.graph(graphSpace, name);
+        if (g == null && clear &&
+            this.metaManager.schemaMetaManager().dropPending(graphSpace, name)) {
+            throw new HugeException("Graph '%s' in graph space '%s' is being dropped: the " +
+                                    "Server that dropped it has not cleared its stores yet. " +
+                                    "If that Server stopped before it finished, release " +
+                                    "the graph as the operations guide describes",
+                                    name, graphSpace);
+        }
         E.checkArgumentNotNull(g, "The graph '%s' doesn't exist", name);
         if (this.localGraphs.contains(name)) {
             throw new HugeException("Can't delete graph '%s' loaded from " +
@@ -2272,9 +2372,25 @@ public final class GraphManager {
 
         String graphName = spaceGraphName(graphSpace, name);
         if (clear) {
+            // 0 for a graph without a record, which is not on HStore
+            long incarnation = g.schemaIncarnation();
+            // Whether this Server clears the stores
+            boolean clearStores = true;
+            if (incarnation != 0L) {
+                /*
+                 * One commit removes the config and the schema in PD, marks this
+                 * incarnation DROPPED and writes the drop marker of this Server. It is
+                 * refused for a graph dropped and recreated meanwhile, so a stale instance
+                 * removes nothing, and nothing is cleared before it, so a drop that fails
+                 * or dies leaves no half-dropped graph.
+                 */
+                clearStores = this.dropIncarnation(graphSpace, name, incarnation);
+            }
             this.removingGraphs.add(graphName);
             try {
-                this.metaManager.removeGraphConfig(graphSpace, name);
+                if (incarnation == 0L) {
+                    this.metaManager.removeGraphConfig(graphSpace, name);
+                }
                 this.metaManager.notifyGraphRemove(graphSpace, name);
             } catch (Exception e) {
                 throw new HugeException(
@@ -2295,7 +2411,17 @@ public final class GraphManager {
                          t);
             }
 
-            g.clearBackend();
+            if (clearStores) {
+                /*
+                 * After the DROP commit, which deleted the schema in PD. No Server creates
+                 * the name again until the drop marker is removed below, so this clears
+                 * nothing of a new incarnation.
+                 */
+                g.clearBackendForDrop();
+                if (incarnation != 0L) {
+                    this.metaManager.schemaMetaManager().finishDrop(graphSpace, name);
+                }
+            }
             try {
                 g.close();
             } catch (Exception e) {
@@ -2327,6 +2453,103 @@ public final class GraphManager {
             }
         }
         this.eventHub.notify(Events.GRAPH_DROP, g);
+    }
+
+    private static boolean isHstore(HugeConfig config) {
+        return "hstore".equalsIgnoreCase(config.get(CoreOptions.BACKEND));
+    }
+
+    /**
+     * Drops the incarnation of a graph instance, see SchemaMetaManager.dropGraph.
+     *
+     * @return whether this Server clears the stores. It does not if another Server dropped
+     * the incarnation: that Server clears them, and a new graph of the name may exist once
+     * it finished. An incarnation this Server dropped in an earlier attempt, which failed
+     * after its commit, still has the drop marker of this Server, and the drop goes on.
+     */
+    private boolean dropIncarnation(String graphSpace, String name, long incarnation) {
+        SchemaMetaManager schemaMeta = this.metaManager.schemaMetaManager();
+        TxnResponse response = schemaMeta.dropGraph(graphSpace, name, incarnation, true);
+        if (response.getSucceeded()) {
+            return true;
+        }
+        if (response.getFailure() != TxnResponse.Failure.GRAPH_DROPPED) {
+            throw new HugeException("Failed to drop graph '%s' in graph space '%s' (%s): " +
+                                    "it was dropped or recreated by another Server",
+                                    name, graphSpace, response.getFailure());
+        }
+        return schemaMeta.ownsDrop(graphSpace, name);
+    }
+
+    /**
+     * Releases the name of a graph whose drop did not finish: the Server that dropped it
+     * stopped after its DROP commit and before it cleared the stores. Nothing can tell a
+     * stopped Server from a slow one, so this is never done on a plain drop or create, only
+     * on this explicit request. The next create of the name clears the stores.
+     */
+    public void releaseDroppedGraph(String graphSpace, String name) {
+        E.checkArgument(isPDEnabled(), "Only a graph kept in PD has a drop to release");
+        E.checkArgument(!this.droppingGraphs.contains(spaceGraphName(graphSpace, name)),
+                        "The graph '%s' is being dropped by this server", name);
+        E.checkArgument(this.metaManager.schemaMetaManager().releaseDrop(graphSpace, name),
+                        "The graph '%s' has no unfinished drop", name);
+        LOG.warn("Released graph '{}', whose drop did not finish",
+                 spaceGraphName(graphSpace, name));
+    }
+
+    /**
+     * Drops a graph whose record is CREATING and which has no instance here: its create was
+     * cut short (its Server died), or still runs on another Server, which then fails to
+     * commit it. The DROP commit is refused if the record moved on since it was read, and
+     * the drop then goes the usual way. The stores are cleared by the next create of the
+     * name, since no instance of the graph is open here.
+     */
+    private boolean dropCreatingGraph(String graphSpace, String name) {
+        SchemaMetaManager schemaMeta = this.metaManager.schemaMetaManager();
+        long incarnation = schemaMeta.creatingIncarnation(graphSpace, name);
+        if (incarnation == 0L ||
+            !schemaMeta.dropGraph(graphSpace, name, incarnation, false).getSucceeded()) {
+            return false;
+        }
+        this.metaManager.notifyGraphRemove(graphSpace, name);
+        LOG.warn("Dropped graph '{}' (incarnation {}), which was being created",
+                 spaceGraphName(graphSpace, name), incarnation);
+        return true;
+    }
+
+    /**
+     * Drops the incarnation of a create that failed; a failure here leaves the graph
+     * CREATING, which a drop of the graph by name releases
+     */
+    private void abortCreate(String graphSpace, String name, long incarnation) {
+        if (incarnation == 0L) {
+            return;
+        }
+        try {
+            // This create closed its instance, so nothing clears the stores after this
+            TxnResponse response = this.metaManager.schemaMetaManager()
+                                                   .dropGraph(graphSpace, name, incarnation,
+                                                              false);
+            if (!response.getSucceeded()) {
+                LOG.warn("Failed to drop graph '{}' after its create failed: {}",
+                         spaceGraphName(graphSpace, name), response.getFailure());
+            }
+        } catch (Throwable e) {
+            LOG.warn("Failed to drop graph '{}' after its create failed",
+                     spaceGraphName(graphSpace, name), e);
+        }
+    }
+
+    /**
+     * Whether the open of a graph failed because another Server is creating it
+     */
+    private static boolean isCreating(Throwable e) {
+        for (Throwable cause = e; cause != null; cause = cause.getCause()) {
+            if (cause instanceof SchemaMetaManager.GraphCreatingException) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private void checkOptions(String graphSpace, HugeConfig config) {
