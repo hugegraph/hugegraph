@@ -39,6 +39,7 @@ service KvService {
   rpc isLocked(LockRequest) returns (LockResponse);
   rpc putTTL(TTLRequest) returns (TTLResponse);
   rpc keepTTLAlive(TTLRequest) returns (TTLResponse);
+  rpc txn(TxnRequest) returns (TxnResponse);
 }
 
 /* requests */
@@ -140,4 +141,98 @@ message TTLRequest{
 message TTLResponse{
   pdpb.ResponseHeader header = 1;
   bool succeed = 2;
+}
+
+/*
+ * Atomic multi-key write, applied as one raft entry and one RocksDB write batch. Keys and
+ * values share the namespace of put/get/scanPrefix. The compares run first, in order; when
+ * one fails, or the graph record rejects the TXN, none of its ops is written.
+ * TXN writes fire no watch events.
+ */
+message TxnRequest {
+  pdpb.RequestHeader header = 1;
+  repeated TxnCompare compares = 2;
+  repeated TxnOp ops = 3;
+  // The per-graph schema sync record to change, if any
+  TxnRecord record = 4;
+  // Names one logical commit (at most 64 chars); a client that sends the commit again, after a
+  // lost response, sends the same id. PD keeps the outcome of each id for the next 100000
+  // raft entries and answers a resend with it instead of applying the TXN again.
+  string request_id = 5;
+}
+
+message TxnCompare {
+  enum Kind {
+    ABSENT = 0;
+    EQUALS = 1;
+  }
+  string key = 1;
+  Kind kind = 2;
+  string value = 3;
+}
+
+message TxnOp {
+  enum Type {
+    PUT = 0;
+    DELETE = 1;
+    DELETE_PREFIX = 2;
+  }
+  Type type = 1;
+  string key = 2;
+  string value = 3;
+}
+
+/*
+ * The record value is {"rev":<n>,"inc":<n>,"state":"CREATING"|"LIVE"|"DROPPED"}; rev is the
+ * raft index of the last TXN that wrote it. A graph is CREATING from its CREATE until its
+ * creator commits COMMIT_CREATE (LIVE) or DROP; only the creator serves it meanwhile.
+ */
+message TxnRecord {
+  enum Op {
+    // Advance rev of a LIVE or CREATING record, keeping its state; creates the record (LIVE,
+    // inc 1) if it is absent. Rejected for a DROPPED graph or another incarnation.
+    BUMP = 0;
+    // Start a new incarnation (CREATING) of an absent or DROPPED graph; rejected with
+    // GRAPH_EXISTS while the record is CREATING or LIVE, so only one of two concurrent creates
+    // of a graph name succeeds
+    CREATE = 1;
+    // Mark a CREATING or LIVE graph of the expected incarnation DROPPED
+    DROP = 2;
+    // Mark a CREATING graph of the expected incarnation LIVE
+    COMMIT_CREATE = 3;
+    // Create the record (LIVE, inc 1) if it is absent; otherwise change nothing. The response
+    // carries the record's rev, inc and state either way. Takes no compares and no ops.
+    ADOPT = 4;
+  }
+  string key = 1;
+  Op op = 2;
+  // 0 does not check the incarnation (BUMP only); DROP and COMMIT_CREATE need one
+  int64 expected_incarnation = 3;
+}
+
+message TxnResponse {
+  enum Failure {
+    NONE = 0;
+    COMPARE_FAILED = 1;
+    GRAPH_DROPPED = 2;
+    INCARNATION_MISMATCH = 3;
+    // CREATE of a graph whose record is CREATING or LIVE, or COMMIT_CREATE of a LIVE one
+    GRAPH_EXISTS = 4;
+    // The stored record can't be read; nothing is written and the record is left as it is
+    INVALID_RECORD = 5;
+  }
+  pdpb.ResponseHeader header = 1;
+  bool succeeded = 2;
+  // Set when the TXN succeeded: the record's rev after it, which is the raft index of the TXN
+  // unless an ADOPT found the record; the raft index of the TXN when it has no record
+  int64 revision = 3;
+  // The record's incarnation after the TXN, or the stored one when the record rejected it
+  // (0 for an absent or unreadable record)
+  int64 incarnation = 4;
+  Failure failure = 5;
+  // Position of the failed compare, with COMPARE_FAILED
+  int32 failed_compare = 6;
+  // The record's state after the TXN, or the stored one when the record rejected it ("" for an
+  // absent or unreadable record)
+  string state = 7;
 }

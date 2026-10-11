@@ -457,6 +457,45 @@ restarting the Store process. Restarting without repairing the cause may replay
 the same failing entry. This protection does not undo writes already performed
 by the failed entry.
 
+### HStore Graph Left Being Created
+
+A Server creates an HStore graph in two PD commits: the first writes the graph config and
+marks the graph `CREATING` in its record under `HUGEGRAPH/<cluster>/SCHEMA_SYNC/`, the second
+marks it `LIVE` once the graph initialized. A create that fails drops the graph again. If the
+creating Server dies in between, the graph stays `CREATING`: other Servers don't open it,
+and creating it again fails because it exists. Nothing releases it automatically, since a
+slow create can't be told apart from a dead one. Drop the graph by name through any Server
+(`DELETE /graphspaces/<space>/graphs/<graph>?confirm_message=...`, as for any drop): this
+deletes its config and schema in PD and marks it `DROPPED`. The next create of the name
+clears whatever its stores still hold before it initializes them.
+
+A graph that is `CREATING` is not in the graph list (`GET /graphspaces/<space>/graphs`) of
+the Servers that are not creating it, so take its name from the failed create request. Make
+sure that create is no longer running before you drop the graph.
+
+### HStore Graph Left Being Dropped
+
+A Server drops an HStore graph with one PD commit, which deletes the graph config and
+schema, marks the graph `DROPPED` and writes a drop marker under
+`HUGEGRAPH/<cluster>/GRAPH_DROPPING/`. Then it clears the graph's stores and removes the
+marker. While the marker exists, creating the name again fails with `is being dropped`:
+a new graph would lose the data it writes while the old stores are still being cleared.
+
+If the clear fails, send the drop to the same Server again; it goes on from the clear. A
+drop sent to another Server does not take over. If the dropping Server stopped before it
+removed the marker, nothing removes it automatically, since a slow clear can't be told apart
+from a dead Server. Once that Server is stopped, or its drop request has ended, release the
+name through any Server:
+
+```bash
+curl -X DELETE --get "http://<server>/graphspaces/<space>/graphs/<graph>" \
+     --data-urlencode "confirm_message=I'm sure the drop of the graph has stopped"
+```
+
+The next create of the name clears whatever the stores still hold before it initializes
+them. Don't release a drop that is still running: its clear would then remove data of the
+new graph.
+
 ## Backup and Recovery
 
 ### Backup Strategies
@@ -729,7 +768,21 @@ tail -f logs/hugegraph-store.log
 
 #### Step 2: Upgrade PD Nodes (one at a time)
 
-Same process as Store, but upgrade PD cluster first or last (check release notes).
+Same process as Store. Upgrade every PD node before the first Server of the release that
+adds atomic schema commits. Such a Server writes the schema of its HStore graphs, and the
+graph records under `HUGEGRAPH/<cluster>/SCHEMA_SYNC/`, through PD's `txn` RPC, which
+earlier PD releases don't have:
+
+- Against an old PD, the new Server fails every schema change, and fails to open an HStore
+  graph that has no graph record yet. It does not fall back to writing without the record.
+- An old PD follower skips each TXN entry it applies and logs `Err op 10`, with no other
+  error. Its schema and graph records fall behind, and it serves that stale state if it
+  becomes leader. A snapshot or a restart doesn't repair this.
+
+If a PD node logged `Err op 10`, rebuild it after it runs the new release: stop it, move its
+data directory (`pd.data-path`, `./pd_data` by default) aside, and start it again with the
+same configuration while the other PD nodes are up. It then copies the state from the
+leader. Rebuild one node at a time.
 
 #### Step 3: Upgrade Server Nodes (one at a time)
 
@@ -742,6 +795,19 @@ bin/stop-hugegraph.sh
 
 bin/start-hugegraph.sh
 ```
+
+**Graph create and drop while Servers of both releases run**: don't create or drop an
+HStore graph until no Server of the old release is left. An old Server writes the graph
+config with a plain put, deletes it with a plain delete, and never touches the graph record
+under `HUGEGRAPH/<cluster>/SCHEMA_SYNC/`, so the two can disagree and the name gets stuck:
+
+- An old Server drops a graph that a new Server has open: the config is gone and the record
+  stays `LIVE`. On the new Servers, creating the name fails because the graph exists,
+  dropping it by name fails with `The graph '<graph>' doesn't exist`, and a release fails
+  with `has no unfinished drop`.
+- An old Server creates a name that a new Server dropped: the new Servers open the graph with
+  the `DROPPED` record. PD rejects their schema changes (`GRAPH_DROPPED`), and creating the
+  name fails because its config exists.
 
 **Meta key prefix (`usePD=true`)**: the Server keeps its schema, graph spaces
 and users in PD under `HUGEGRAPH/<cluster>/...`, where `<cluster>` is the
