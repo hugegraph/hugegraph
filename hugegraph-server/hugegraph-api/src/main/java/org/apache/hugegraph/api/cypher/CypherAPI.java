@@ -28,6 +28,7 @@ import org.apache.commons.lang3.tuple.ImmutablePair;
 import org.apache.commons.lang3.tuple.Pair;
 import org.apache.hugegraph.api.API;
 import org.apache.hugegraph.api.filter.CompressInterceptor;
+import org.apache.hugegraph.meta.SchemaSyncClient;
 import org.apache.hugegraph.util.E;
 import org.apache.hugegraph.util.Log;
 import org.apache.tinkerpop.shaded.jackson.core.JsonProcessingException;
@@ -170,6 +171,8 @@ public class CypherAPI extends API {
                         "The graph parameter can't be null or empty");
         E.checkArgument(cypher != null && !cypher.isBlank(),
                         "The cypher parameter must be a nonblank string");
+        // 503 as for a REST request: the client below reports any failed query as 400
+        SchemaSyncClient.check(graphspace, graph);
 
         String graphInfo = graphspace + "-" + graph;
         Map<String, String> aliases = new HashMap<>(2, 1);

@@ -63,6 +63,7 @@ import org.apache.hugegraph.iterator.FilterIterator;
 import org.apache.hugegraph.iterator.MapperIterator;
 import org.apache.hugegraph.kvstore.KvStore;
 import org.apache.hugegraph.masterelection.GlobalMasterInfo;
+import org.apache.hugegraph.meta.SchemaSyncClient;
 import org.apache.hugegraph.rpc.RpcServiceConfig4Client;
 import org.apache.hugegraph.rpc.RpcServiceConfig4Server;
 import org.apache.hugegraph.struct.schema.EdgeLabel;
@@ -1318,9 +1319,13 @@ public final class HugeGraphAuthProxy implements HugeGraph {
         @Override
         public void run() {
             setContext(this.context);
+            // A Gremlin request: blocked on a graph whose schema is not synced
+            SchemaSyncClient.beginRequest();
             try {
                 this.runner.run();
             } finally {
+                // Before the cleanup: closing the transactions is not an access of the request
+                SchemaSyncClient.endRequest();
                 try {
                     this.cleanup.run();
                 } catch (Throwable e) {

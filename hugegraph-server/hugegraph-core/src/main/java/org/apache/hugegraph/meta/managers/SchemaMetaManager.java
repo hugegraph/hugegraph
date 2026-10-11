@@ -735,11 +735,13 @@ public class SchemaMetaManager extends AbstractMetaManager {
     /**
      * Makes a graph this Server created LIVE, once it initialized; fails if the graph was
      * dropped meanwhile
+     *
+     * @return the response, with the revision of the LIVE record
      */
-    public void commitCreate(String graphSpace, String graph, long incarnation) {
+    public TxnResponse commitCreate(String graphSpace, String graph, long incarnation) {
         try {
-            this.commit(graphSpace, graph, TxnRequest.newBuilder(), TxnRecord.Op.COMMIT_CREATE,
-                        incarnation);
+            return this.commit(graphSpace, graph, TxnRequest.newBuilder(),
+                               TxnRecord.Op.COMMIT_CREATE, incarnation);
         } finally {
             this.creating.remove(this.recordKey(graphSpace, graph), incarnation);
         }
