@@ -27,6 +27,7 @@ import java.util.List;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.apache.hugegraph.HugeFactory;
@@ -908,6 +909,93 @@ public class CachedGraphTransactionTest extends BaseUnitTest {
         List<Id> ids = new ArrayList<>();
         results.iterator().forEachRemaining(edge -> ids.add(edge.id()));
         return ids;
+    }
+
+    /**
+     * A clear for a schema change while a read is at the backend: the vertex the read builds
+     * holds the labels from before the clear, and is not cached for later requests
+     */
+    @Test
+    public void testVertexReadStartedBeforeAClearDoesNotFillTheCache() {
+        HugeVertex vertex = this.newVertex(IdGenerator.of(1L));
+        this.cache.addVertex(vertex);
+        this.cache.commit();
+        BackendStore store = Mockito.spy(this.params.loadGraphStore());
+        CachedGraphTransaction transaction = new CachedGraphTransaction(this.params, store);
+        try {
+            transaction.clearCache(null, false);
+            Cache<Id, Object> vertices = Whitebox.getInternalState(transaction,
+                                                                   "verticesCache");
+            AtomicBoolean cleared = new AtomicBoolean();
+            Mockito.doAnswer(invocation -> {
+                if (cleared.compareAndSet(false, true)) {
+                    CachedGraphTransaction.clearGraphCache(this.params.spaceGraphName());
+                }
+                return invocation.callRealMethod();
+            }).when(store).query(Mockito.any(Query.class));
+
+            Assert.assertTrue(transaction.queryVertices(vertex.id()).hasNext());
+            Assert.assertTrue(cleared.get());
+            Assert.assertEquals(0L, vertices.size());
+            // A read that starts after the clear is cached
+            Assert.assertTrue(transaction.queryVertices(vertex.id()).hasNext());
+            Assert.assertEquals(1L, vertices.size());
+        } finally {
+            transaction.close();
+        }
+    }
+
+    /**
+     * Edges are cached when the read hands them out, which can be long after it started
+     */
+    @Test
+    public void testEdgeReadStartedBeforeAClearDoesNotFillTheCache() {
+        List<Id> ids = this.persistEdges(2).subList(0, 1);
+        IdQuery query = new IdQuery(HugeType.EDGE, new LinkedHashSet<>(ids));
+        CachedGraphTransaction transaction = new CachedGraphTransaction(
+                this.params, this.params.loadGraphStore());
+        try {
+            transaction.clearCache(null, false);
+            Cache<Id, Object> edges = Whitebox.getInternalState(transaction, "edgesCache");
+            QueryResults<HugeEdge> results = Whitebox.invoke(
+                    CachedGraphTransaction.class, new Class<?>[]{Query.class},
+                    "fetchEdgeBatch", transaction, query);
+            CachedGraphTransaction.clearGraphCache(this.params.spaceGraphName());
+            List<Id> read = new ArrayList<>();
+            results.iterator().forEachRemaining(edge -> read.add(edge.id()));
+            this.assertEdgeIds(ids, read);
+            Assert.assertEquals(0L, edges.size());
+            // A read that starts after the clear is cached
+            this.assertEdgeIds(ids, this.fetchEdgeIds(transaction, query));
+            Assert.assertEquals(1L, edges.size());
+        } finally {
+            transaction.close();
+        }
+    }
+
+    /**
+     * The vertex of a transaction may hold a label from before a clear: its commit removes
+     * the cache entry of the vertex and doesn't replace it with that vertex
+     */
+    @Test
+    public void testCommitInvalidatesAnUpdatedVertexInsteadOfCachingIt() {
+        CachedGraphTransaction cache = this.cache();
+        HugeVertex vertex = this.newVertex(IdGenerator.of(1L));
+        cache.addVertex(vertex);
+        cache.commit();
+        Assert.assertTrue(cache.queryVertices(vertex.id()).hasNext());
+        Cache<Id, Object> vertices = Whitebox.getInternalState(cache, "verticesCache");
+        Assert.assertNotNull(vertices.get(vertex.id()));
+
+        cache.addVertexProperty(new HugeVertexProperty<>(
+                vertex, cache.graph().schema().getPropertyKey("name"), "marko"));
+        cache.commit();
+        Assert.assertNull(vertices.get(vertex.id()));
+        // Read again from the backend, with the change
+        HugeVertex read = (HugeVertex) cache.queryVertices(vertex.id()).next();
+        Assert.assertNotSame(vertex, read);
+        Assert.assertEquals("marko", read.value("name"));
+        Assert.assertSame(read, vertices.get(vertex.id()));
     }
 
     @Test

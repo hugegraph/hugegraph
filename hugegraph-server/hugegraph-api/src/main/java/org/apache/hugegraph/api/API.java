@@ -29,6 +29,7 @@ import org.apache.hugegraph.HugeGraph;
 import org.apache.hugegraph.core.GraphManager;
 import org.apache.hugegraph.define.Checkable;
 import org.apache.hugegraph.exception.NotFoundException;
+import org.apache.hugegraph.meta.SchemaSyncClient;
 import org.apache.hugegraph.metrics.MetricsUtil;
 import org.apache.hugegraph.space.GraphSpace;
 import org.apache.hugegraph.space.SchemaTemplate;
@@ -104,6 +105,8 @@ public class API {
             throw new NotFoundException(String.format(
                     "Graph '%s' does not exist", graph));
         }
+        // A new request is not served from a schema cache that may be stale
+        SchemaSyncClient.check(graphSpace, graph);
         return g;
     }
 
