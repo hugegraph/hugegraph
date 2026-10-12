@@ -198,6 +198,7 @@ import org.junit.runners.Suite;
         QueryResultsTest.class,
         QueryListTest.class,
         RangeTest.class,
+        OltpTraverserTest.class,
         SecurityManagerTest.class,
         OrderedScanSecurityTest.class,
         RolePermissionTest.class,
@@ -219,7 +220,6 @@ import org.junit.runners.Suite;
         HugeElementViewTest.class,
         HugePrimaryKeyTest.class,
         ShortestPathTraverserTest.class,
-        OltpTraverserTest.class,
 
         /* cmd */
         InitStoreConfigTest.class,

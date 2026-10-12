@@ -335,6 +335,7 @@ public abstract class OltpTraverser extends HugeTraverser
 
         @Override
         public void accept(Iterator<T> edgeIter) {
+            graph().tx().readWrite();
             Iterator<E> ids = prepare(edgeIter);
             long counter = 0;
             while (ids.hasNext()) {
