@@ -4,7 +4,21 @@ Snapshot: **2026-10-13**, branch `feat/rocksdb-server-managed-backup`, reviewed
 implementation commit `b112fbea761216de0d9d0bd59f455cd7272b389c`.
 Comparison base: `83ef9f3fa23cd65284d4567f7aa734cf90aa0749` (`master` locally).
 This is a source review plus one compile attempt, **not a release sign-off**.
-The handoff commit changes documentation only; known code issues remain open.
+Documentation baseline: `8ef59e0e`; this follow-up rechecked source locations
+without rerunning compilation or tests. Both documentation passes leave the
+implementation unchanged; known code issues remain open.
+
+## Start here
+
+1. Confirm branch and working tree with `git status --short --branch`; compare
+   implementation changes with `git diff b112fbea -- hugegraph-server/` before
+   relying on the findings below.
+2. Fix the duplicate declaration and establish a native-test baseline. This only
+   unblocks investigation; it does not make restore safe.
+3. Fix recovery-path, switch-rollback and retention ordering defects below,
+   adding a regression test for each before expanding the E2E suite.
+4. Resolve reader admission/draining and graph-wide crash recovery before
+   claiming online restore or restart safety. Only then run release acceptance.
 
 Read the [usage contract](graph-backup.md) first, then
 [Server guidance](../hugegraph-server/AGENTS.md). Paths below are relative to
@@ -71,6 +85,20 @@ under `hugegraph-dist/src/assembly/static/`.
    the manifest/directory. Specify the supported filesystem/crash contract and
    test it rather than promising unconditional atomic/durable publication.
 
+## Safety boundary requiring a decision
+
+`GraphWriteFence` coordinates mutation commits and backup/restore operations
+within one JVM; its lock names do not mean it protects graph reads. Restore
+force-closes native sessions, while there is no read-admission/drain mechanism in
+this fence. Concurrent-reader failure is a source-level risk, not a reproduced
+JVM crash. Choose and enforce either a maintenance boundary that drains readers
+and background work, or lifecycle coordination through iterator completion.
+An operator recommendation to stop traffic is not an enforced safety boundary.
+
+Per-database restore markers also do not establish a graph-wide commit point.
+Fixing the marker lookup alone is insufficient: kill/restart tests must prove
+that schema, graph and other opened stores recover to the same generation.
+
 ## Validation evidence at this snapshot
 
 Environment: Windows 11, Temurin Java 11.0.32.1, Maven 3.9.16.
@@ -96,9 +124,10 @@ Existing tests:
 
 Work in this order, retaining separate evidence for each gate:
 
-1. Fix the compile blocker and portable E2E paths; run native tests, then the
-   existing Server API suite. Record test counts and Surefire reports, not just
-   Maven exit status.
+1. Fix the compile blocker and portable E2E paths; establish native-test and
+   existing API-suite baselines, then fix defects 2–4 with failure-injection
+   regressions before treating a passing golden path as meaningful safety evidence.
+   Record test counts and Surefire reports, not just Maven exit status.
 2. Complete data fidelity coverage: vertex/edge ids and properties, schema ids,
    index definitions and indexed query results across two different versions;
    repeat with separate WAL/data paths and disk-mapped physical databases.
