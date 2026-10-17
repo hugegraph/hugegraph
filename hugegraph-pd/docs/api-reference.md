@@ -756,6 +756,11 @@ for (Map.Entry<String, byte[]> entry : results.entrySet()) {
 }
 ```
 
+`get` and `scanPrefix` are answered by the leader after a raft ReadIndex, so they
+return every write committed before the call, also right after a leader change.
+When the leader cannot confirm its log within `raft.rpc-timeout`, they fail with
+a `PDException` and return no older value.
+
 ### KV watch recovery
 
 `KvClient.listen()` and `listenPrefix()` restore subscriptions after retryable
@@ -774,6 +779,73 @@ Close the owning `KvClient` to stop its watches and reconnect workers.
 Watch discovery uses at most a five-second budget, capped by `grpcTimeOut`; a
 separate five-second timer retries streams that receive no first response. These
 watch limits do not replace the configured timeout for blocking KV or lock calls.
+
+### Schema sync watch
+
+A plain watch does not replay what it missed. A watch on a schema sync prefix,
+`HUGEGRAPH/{cluster}/SCHEMA_SYNC/` or a prefix below it, is different: PD tracks
+what it sent and resends until the consumer acknowledges it.
+
+```java
+KvClient<WatchResponse> kv = new KvClient<>(pdConfig);
+kv.listenSync("HUGEGRAPH/hg/SCHEMA_SYNC/", frame -> {
+    switch (frame.getState()) {
+        case Starting:  // a new session: frame.getClientId() names it
+            break;
+        case Started:   // graph record events
+            for (WatchEvent event : frame.getEventsList()) {
+                String key = event.getCurrent().getKey();
+                long rev = revisionOf(event.getCurrent().getValue());
+                invalidateCache(key);
+                kv.ack(frame.getClientId(), key, rev);  // after the work is done
+            }
+            break;
+        case Synced:    // every record under the prefix was sent
+            break;
+        case Alive:     // the session is still open
+            break;
+        default:
+            break;
+    }
+}, closedClientId -> markStale(), error -> log.error("watch stopped", error));
+```
+
+- **Session.** Each stream is a session with its own `clientId`, sent in the
+  `Starting` frame and carried by every later frame. A reconnect always starts a
+  new session. `sessionClosed` gets the `clientId` of a session that ended: PD
+  closed it, the stream failed or completed, or the PD leader changed. The client
+  then reconnects on its own and the new session syncs again.
+- **Initial sync.** After `Starting`, PD sends every graph record under the
+  prefix as of a raft read barrier, then `Synced`. A change committed meanwhile is
+  in that read or follows as an event, so nothing falls between the two. A
+  session that cannot reach `Synced` (for example because one record is
+  unreadable) is closed, and the client tries again.
+- **Events.** Each event is a `Put` of a record key whose value is
+  `{"rev":<n>,"inc":<incarnation>,"state":"CREATING"|"LIVE"|"DROPPED"}`. PD
+  coalesces changes of one record and always sends the latest value, so
+  revisions in between may never be sent. PD sends every state as it is; a
+  graph that is `CREATING` is not served yet, which is for the receiver to
+  enforce. A plain `put` or `delete` under the prefix is not sent to a session:
+  only a record change committed by a `txn` is.
+- **ACK.** Call `ack(clientId, key, rev)` once an event was processed, with the
+  `clientId` of the session that delivered it. It returns `true` when PD
+  accepted it: a revision sent to that session and not covered yet, or a repeat
+  of the last accepted one after a lost response. It returns `false` for an
+  unknown or ended session, a revision PD did not send to it, or one an
+  accepted ACK already covers; a `false` changes nothing. An accepted ACK of a
+  newer revision covers the older ones, but an ACK of an older revision leaves
+  a newer one pending. `ack` throws `PDException` when no PD answered; send it
+  again later.
+- **Resend and close.** PD resends unacknowledged work with doubling backoff.
+  A session whose pending work sees no accepted ACK for `schema-sync.retry-budget`,
+  or that leaves 64 revisions of one record unacknowledged, is closed and syncs
+  again. `Alive` frames with the `clientId` stop once PD closed the session.
+- **Leader change.** Sessions and ACK progress live in leader memory only. After
+  a leader change every session ends and the client syncs again with the new
+  leader.
+
+The timings and metrics are described under "Schema Sync Settings" in
+[configuration.md](configuration.md).
 
 ## REST API
 

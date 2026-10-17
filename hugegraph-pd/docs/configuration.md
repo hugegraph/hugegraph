@@ -269,6 +269,79 @@ initial_partitions = (store_count * store_max_shard_count) / default_shard_count
   - Large deployment: `200-500`
   - Limit based on Store disk capacity and expected data volume
 
+### Schema Sync Settings
+
+Controls how the PD leader delivers graph record changes to schema sync watches, the prefix
+watches Servers open on `HUGEGRAPH/{cluster}/SCHEMA_SYNC/` to keep their schema caches current.
+Pending work lives in leader memory only; after a leader change every Server reconnects and
+syncs again.
+
+```yaml
+schema-sync:
+  coalesce-window: 50        # Send a change once no newer one arrived for this long (ms)
+  max-wait: 500              # ...but no later than this after the first unsent change (ms)
+  retry-backoff: 1000        # First resend of an unacknowledged change, doubled per resend (ms)
+  retry-budget: 30000        # Close a watch whose pending work saw no ACK for this long (ms)
+  keepalive-interval: 5000   # Interval of the Alive frames that renew a watch (ms)
+```
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `schema-sync.coalesce-window` | Long | `50` | A change of a graph is sent once no newer change of it arrived for this long, in milliseconds, so a burst of DDL becomes one notification. |
+| `schema-sync.max-wait` | Long | `500` | The longest a change waits for coalescing, in milliseconds, so continuous DDL cannot postpone notification indefinitely. |
+| `schema-sync.retry-backoff` | Long | `1000` | Delay before the first resend of a change that was not acknowledged, in milliseconds. Each further resend doubles it; a resend always carries the latest revision. |
+| `schema-sync.retry-budget` | Long | `30000` | A watch whose pending work saw no acknowledgment progress for this long, in milliseconds, is closed instead of being treated as done; the Server reconnects and syncs again. Must be greater than `retry-backoff`; keep it well above. |
+| `schema-sync.keepalive-interval` | Long | `5000` | Interval of the Alive frames that renew a schema sync watch, in milliseconds. A Server treats its watch as expired when these stop; PD stops sending them once it closes a watch. Other watches keep their own keepalive. |
+
+Every value must be between `1` and `86400000` (one day), `max-wait` must be at least
+`coalesce-window`, and `retry-budget` must be greater than `retry-backoff`. PD refuses to start
+with a value outside these bounds and names the option in the startup error.
+
+The leader exposes the delivery state as `hg_schema_sync_sessions`,
+`hg_schema_sync_pending{state="unsent"|"unacked"}`, `hg_schema_sync_pending_oldest_age` (ms),
+`hg_schema_sync_notifications_total`, `hg_schema_sync_retries_total` and
+`hg_schema_sync_invalidations_total{reason=...}`. The reasons a watch is closed:
+
+| Reason | Cause |
+|--------|-------|
+| `retry_budget` | Its pending work saw no acknowledgment progress for `retry-budget`. |
+| `send_failed` | A frame could not be sent: the stream is gone. |
+| `handshake_failed` | The read barrier or the read of the records failed, or a record was unreadable (see below). |
+| `not_leader` | This PD lost the leadership and has not seen a new leader yet. |
+| `dispatch_failed` | A committed change could not be registered for delivery, so every watch syncs again. |
+| `backlog` | 64 revisions of one graph were sent to the watch and none of them was acknowledged. |
+| `leader_changed` | This PD saw a new leader; every watch is dropped and syncs with the new leader. |
+
+#### Unreadable graph record
+
+A watch only reaches `Synced` when every graph record under its prefix can be read. If one
+value under `HUGEGRAPH/{cluster}/SCHEMA_SYNC/` is not a valid record (for example after a plain
+KV put on a record key), every watch on that prefix fails its handshake and the Servers retry
+about once a second. The PD leader logs a warning for each attempt:
+
+```text
+Schema sync handshake of client <id> read the unreadable graph record <key>: <value>
+```
+
+and `hg_schema_sync_invalidations_total{reason="handshake_failed"}` keeps rising. A DDL cannot
+repair the record: a TXN on it fails with `INVALID_RECORD`. Rewrite the key named in the warning
+through a plain KV put with a valid value, `{"rev":<rev>,"inc":<inc>,"state":"<state>"}`. The
+next handshake then succeeds.
+
+Do not delete the key. PD creates an absent record again with incarnation `1` the next time the
+graph is opened or created, so an instance of an earlier incarnation could write to the graph
+again. Until then every DDL of a Server that has the graph open fails with
+`INCARNATION_MISMATCH`.
+
+PD keeps no copy of the value that was overwritten, and the warning shows only the bad one.
+Take the fields from what is known about the graph:
+
+| Field | Value to write |
+|-------|----------------|
+| `inc` | The incarnation the graph had: `1`, plus one for each create of the name after a drop, failed creates included. Never write a lower one. If you are not sure, write a higher one: a Server that has the graph open then fails its DDL with `INCARNATION_MISMATCH` until it is restarted, but no old instance can write. |
+| `state` | `LIVE` for a graph that exists, `DROPPED` for one that was dropped and not created again, `CREATING` for one whose create has not finished. Do not write `LIVE` for a dropped graph: that would open it for writes again. |
+| `rev` | The last `rev` of the record, if it is known. If not, write `1` and, for a `LIVE` graph, make one schema change on it afterwards: PD writes the raft index of that commit as the new `rev`, which is above every earlier one, so every Server loads the schema again. Do not write a number above the last `rev`: if it is above PD's raft index, later changes get a lower `rev` and are skipped. |
+
 ### Management and Metrics
 
 Controls Spring Boot Actuator endpoints for monitoring.

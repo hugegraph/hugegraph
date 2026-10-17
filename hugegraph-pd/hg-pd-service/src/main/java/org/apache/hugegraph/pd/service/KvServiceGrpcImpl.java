@@ -43,6 +43,8 @@ import org.apache.hugegraph.pd.grpc.kv.TTLRequest;
 import org.apache.hugegraph.pd.grpc.kv.TTLResponse;
 import org.apache.hugegraph.pd.grpc.kv.TxnRequest;
 import org.apache.hugegraph.pd.grpc.kv.TxnResponse;
+import org.apache.hugegraph.pd.grpc.kv.WatchAckRequest;
+import org.apache.hugegraph.pd.grpc.kv.WatchAckResponse;
 import org.apache.hugegraph.pd.grpc.kv.WatchKv;
 import org.apache.hugegraph.pd.grpc.kv.WatchRequest;
 import org.apache.hugegraph.pd.grpc.kv.WatchResponse;
@@ -50,6 +52,8 @@ import org.apache.hugegraph.pd.grpc.kv.WatchState;
 import org.apache.hugegraph.pd.grpc.kv.WatchType;
 import org.apache.hugegraph.pd.raft.RaftEngine;
 import org.apache.hugegraph.pd.raft.RaftStateListener;
+import org.apache.hugegraph.pd.store.KvTxnApplier;
+import org.apache.hugegraph.pd.sync.SchemaSyncTracker;
 import org.apache.hugegraph.pd.watch.KvWatchSubject;
 import org.lognet.springboot.grpc.GRpcService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -73,6 +77,7 @@ public class KvServiceGrpcImpl extends KvServiceGrpc.KvServiceImplBase implement
     @Autowired
     private PDConfig pdConfig;
     private KvWatchSubject subjects;
+    private SchemaSyncTracker syncTracker;
     private ScheduledExecutorService executor;
 
     @PostConstruct
@@ -81,6 +86,10 @@ public class KvServiceGrpcImpl extends KvServiceGrpc.KvServiceImplBase implement
         RaftEngine.getInstance().addStateListener(this);
         kvService = new KvService(pdConfig);
         subjects = new KvWatchSubject(pdConfig);
+        PDConfig.SchemaSync sync = pdConfig.getSchemaSync();
+        syncTracker = new SchemaSyncTracker(sync == null ? pdConfig.new SchemaSync() : sync,
+                                            this::isLeader, this::closeSyncSession);
+        KvTxnApplier.setListener(syncTracker);
         executor = Executors.newScheduledThreadPool(1);
         executor.scheduleWithFixedDelay(() -> {
             if (isLeader()) {
@@ -89,9 +98,23 @@ public class KvServiceGrpcImpl extends KvServiceGrpc.KvServiceImplBase implement
         }, 0, KvWatchSubject.WATCH_TTL * 1 / 3, TimeUnit.MILLISECONDS);
     }
 
+    /**
+     * Ends the stream of a schema sync session. That deletes its registration through raft, so
+     * it never runs on the tracker's timer but on the watch scheduler, one close at a time:
+     * stopScheduling() waits for it while Raft can still serve the write.
+     */
+    void closeSyncSession(String prefix, long clientId) {
+        executor.execute(() -> subjects.closePrefixClient(prefix, clientId));
+    }
+
     /** Stop periodic watch work and wait while Raft can still serve its writes. */
     @PreDestroy
     public void stopScheduling() {
+        SchemaSyncTracker tracker = this.syncTracker;
+        if (tracker != null) {
+            // First, so that no poll of its timer starts a close after the scheduler is drained
+            tracker.stop();
+        }
         ScheduledExecutorService current = this.executor;
         if (current == null) {
             return;
@@ -160,6 +183,12 @@ public class KvServiceGrpcImpl extends KvServiceGrpc.KvServiceImplBase implement
         KResponse response;
         KResponse.Builder builder = KResponse.newBuilder();
         try {
+            /*
+             * A leader elected a moment ago may not have applied every committed write yet,
+             * and a Server that read such a value would cache schema older than a revision it
+             * acknowledged. As in the schema sync handshake, read after a ReadIndex barrier.
+             */
+            RaftEngine.getInstance().waitReadIndex();
             String value = this.kvService.get(request.getKey());
             builder.setHeader(getResponseHeader());
             if (value != null) {
@@ -262,6 +291,8 @@ public class KvServiceGrpcImpl extends KvServiceGrpc.KvServiceImplBase implement
         ScanPrefixResponse response;
         ScanPrefixResponse.Builder builder = ScanPrefixResponse.newBuilder();
         try {
+            // After a ReadIndex barrier, as in get
+            RaftEngine.getInstance().waitReadIndex();
             Map kvs = this.kvService.scanWithPrefix(request.getKey());
             response = builder.setHeader(getResponseHeader()).putAllKvs(kvs).build();
         } catch (PDException e) {
@@ -360,7 +391,9 @@ public class KvServiceGrpcImpl extends KvServiceGrpc.KvServiceImplBase implement
             long clientId = request.getClientId();
             WatchResponse.Builder builder = WatchResponse.newBuilder();
             WatchResponse response;
-            if (request.getState().equals(WatchState.Starting) && clientId == 0) {
+            // A schema sync watch is a new session on every connect
+            boolean sync = isPrefix && SchemaSyncTracker.isSyncPrefix(key);
+            if (sync || (request.getState().equals(WatchState.Starting) && clientId == 0)) {
                 clientId = getRandomLong();
                 response = builder.setClientId(clientId).setState(WatchState.Starting).build();
             } else {
@@ -372,6 +405,12 @@ public class KvServiceGrpcImpl extends KvServiceGrpc.KvServiceImplBase implement
             synchronized (responseObserver) {
                 responseObserver.onNext(response);
             }
+            if (sync) {
+                syncTracker.handshake(key, clientId, responseObserver, prefix -> {
+                    RaftEngine.getInstance().waitReadIndex();
+                    return kvService.scanWithPrefix(prefix);
+                });
+            }
         } catch (PDException e) {
             if (!isLeader()) {
                 throw new PDException(-1, msg);
@@ -379,6 +418,31 @@ public class KvServiceGrpcImpl extends KvServiceGrpc.KvServiceImplBase implement
             throw new PDException(e.getErrorCode(), e);
         }
 
+    }
+
+    /**
+     * Acknowledges a graph record event of a schema sync watch
+     *
+     * @param request
+     * @param responseObserver
+     */
+    @Override
+    public void watchAck(WatchAckRequest request,
+                         StreamObserver<WatchAckResponse> responseObserver) {
+        if (!isLeader()) {
+            redirectToLeader(channel, KvServiceGrpc.getWatchAckMethod(), request,
+                             responseObserver);
+            return;
+        }
+        boolean accepted = syncTracker.ack(request.getClientId(), request.getKey(),
+                                           request.getRevision());
+        responseObserver.onNext(WatchAckResponse.newBuilder().setHeader(getResponseHeader())
+                                                .setAccepted(accepted).build());
+        responseObserver.onCompleted();
+    }
+
+    public SchemaSyncTracker getSyncTracker() {
+        return syncTracker;
     }
 
     /**
@@ -626,6 +690,7 @@ public class KvServiceGrpcImpl extends KvServiceGrpc.KvServiceImplBase implement
 
     @Override
     public void onRaftLeaderChanged() {
+        syncTracker.clear();
         subjects.notifyClientChangeLeader();
     }
 }
