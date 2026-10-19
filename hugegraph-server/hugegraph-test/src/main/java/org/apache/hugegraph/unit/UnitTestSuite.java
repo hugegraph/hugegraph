@@ -39,7 +39,9 @@ import org.apache.hugegraph.backend.tx.GraphTransactionTest;
 import org.apache.hugegraph.core.memory.MemoryManageTest;
 import org.apache.hugegraph.meta.EtcdMetaDriverTest;
 import org.apache.hugegraph.meta.MetaManagerSchemaCacheClearEventTest;
+import org.apache.hugegraph.meta.SchemaSyncClientTest;
 import org.apache.hugegraph.meta.managers.AuthMetaManagerTest;
+import org.apache.hugegraph.meta.managers.SchemaMetaManagerTest;
 import org.apache.hugegraph.opencypher.CypherOpProcessorTest;
 import org.apache.hugegraph.store.client.OrderedScanSecurityTest;
 import org.apache.hugegraph.tinkerpop.HugeGraphTestInfrastructureTest;
@@ -59,6 +61,7 @@ import org.apache.hugegraph.unit.cache.CacheManagerTest;
 import org.apache.hugegraph.unit.cache.CacheTest;
 import org.apache.hugegraph.unit.cache.CachedGraphTransactionTest;
 import org.apache.hugegraph.unit.cache.CachedSchemaTransactionTest;
+import org.apache.hugegraph.unit.cache.CachedSchemaTransactionV2Test;
 import org.apache.hugegraph.unit.cache.RamTableTest;
 import org.apache.hugegraph.unit.cache.RequestCacheLifetimeTest;
 import org.apache.hugegraph.unit.cmd.InitStoreConfigTest;
@@ -81,6 +84,8 @@ import org.apache.hugegraph.unit.core.ExceptionTest;
 import org.apache.hugegraph.unit.core.GraphManagerAdminInitTest;
 import org.apache.hugegraph.unit.core.GraphManagerClearGraphSpaceTest;
 import org.apache.hugegraph.unit.core.GraphManagerConfigTest;
+import org.apache.hugegraph.unit.core.GraphManagerCreateGraphTest;
+import org.apache.hugegraph.unit.core.GraphManagerDropGraphTest;
 import org.apache.hugegraph.unit.core.GraphManagerLocalGraphBindTest;
 import org.apache.hugegraph.unit.core.GraphManagerServiceNamesTest;
 import org.apache.hugegraph.unit.core.GroovyScriptEngineCompatibilityTest;
@@ -177,6 +182,8 @@ import org.junit.runners.Suite;
         StandardTaskAdmissionTest.class,
         DistributedTaskAdmissionTest.class,
         AuthMetaManagerTest.class,
+        SchemaMetaManagerTest.class,
+        SchemaSyncClientTest.class,
 
         /* api space */
         GraphSpaceAPITest.class,
@@ -187,6 +194,7 @@ import org.junit.runners.Suite;
         CacheTest.OffheapCacheTest.class,
         CacheTest.LevelCacheTest.class,
         CachedSchemaTransactionTest.class,
+        CachedSchemaTransactionV2Test.class,
         MetaManagerSchemaCacheClearEventTest.class,
         EtcdMetaDriverTest.class,
         CachedGraphTransactionTest.class,
@@ -236,6 +244,8 @@ import org.junit.runners.Suite;
         GraphManagerConfigTest.class,
         GraphManagerLocalGraphBindTest.class,
         GraphManagerServiceNamesTest.class,
+        GraphManagerCreateGraphTest.class,
+        GraphManagerDropGraphTest.class,
         HstoreSessionsTest.class,
         HstoreTableRoutingTest.class,
         BackendStoreInfoTest.class,

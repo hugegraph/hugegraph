@@ -131,7 +131,7 @@ public class GraphsAPI extends API {
                                                HugePermission.READ);
             if (adminManager || sc.isUserInRole(role)) {
                 try {
-                    graph(manager, graphSpace, graph);
+                    graphWithoutSyncCheck(manager, graphSpace, graph);
                     filterGraphs.add(graph);
                 } catch (ForbiddenException ignored) {
                     // ignore
@@ -185,7 +185,7 @@ public class GraphsAPI extends API {
                 continue;
             }
             try {
-                HugeGraph hg = graph(manager, graphSpace, graph);
+                HugeGraph hg = graphWithoutSyncCheck(manager, graphSpace, graph);
                 HugeConfig config = (HugeConfig) hg.configuration();
                 String configResp = ConfigUtil.writeConfigToString(config);
                 Map<String, Object> profile =

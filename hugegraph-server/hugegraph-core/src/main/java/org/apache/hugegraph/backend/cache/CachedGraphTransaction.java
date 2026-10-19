@@ -23,9 +23,13 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 import org.apache.hugegraph.HugeGraphParams;
 import org.apache.hugegraph.backend.cache.CachedBackendStore.QueryId;
@@ -64,6 +68,8 @@ public final class CachedGraphTransaction extends GraphTransaction {
     private static final float DEFAULT_LEVEL_RATIO = 0.001f;
     private static final long AVG_VERTEX_ENTRY_SIZE = 40L;
     private static final long AVG_EDGE_ENTRY_SIZE = 100L;
+    private static final String VERTEX_CACHE_PREFIX = "vertex";
+    private static final String EDGE_CACHE_PREFIX = "edge";
 
     /*
      * Retain graph caches and invalidation listeners between request leases.
@@ -84,6 +90,7 @@ public final class CachedGraphTransaction extends GraphTransaction {
 
     private final Cache<Id, Object> verticesCache;
     private final Cache<Id, Object> edgesCache;
+    private final Generation generation;
 
     private EventListener cacheEventListener;
     private CacheListenerHolder holder;
@@ -97,14 +104,15 @@ public final class CachedGraphTransaction extends GraphTransaction {
         String type = conf.get(CoreOptions.VERTEX_CACHE_TYPE);
         long capacity = conf.get(CoreOptions.VERTEX_CACHE_CAPACITY);
         int expire = conf.get(CoreOptions.VERTEX_CACHE_EXPIRE);
-        this.verticesCache = this.cache("vertex", type, capacity,
+        this.verticesCache = this.cache(VERTEX_CACHE_PREFIX, type, capacity,
                                         AVG_VERTEX_ENTRY_SIZE, expire);
 
         type = conf.get(CoreOptions.EDGE_CACHE_TYPE);
         capacity = conf.get(CoreOptions.EDGE_CACHE_CAPACITY);
         expire = conf.get(CoreOptions.EDGE_CACHE_EXPIRE);
-        this.edgesCache = this.cache("edge", type, capacity,
+        this.edgesCache = this.cache(EDGE_CACHE_PREFIX, type, capacity,
                                      AVG_EDGE_ENTRY_SIZE, expire);
+        this.generation = generation(this.verticesCache);
 
         this.listenChanges();
     }
@@ -118,9 +126,65 @@ public final class CachedGraphTransaction extends GraphTransaction {
         }
     }
 
+    /**
+     * Clears the vertex and edge caches of the graph, which exist without an open transaction
+     * of it as well, and advances their generation: a read that started before caches nothing
+     */
+    public static void clearGraphCache(String spaceGraphName) {
+        Map<String, Cache<Id, Object>> caches = CacheManager.instance().caches();
+        Cache<Id, Object> vertices = caches.get(cacheName(VERTEX_CACHE_PREFIX,
+                                                          spaceGraphName));
+        if (vertices != null) {
+            clear(generation(vertices), vertices,
+                  caches.get(cacheName(EDGE_CACHE_PREFIX, spaceGraphName)));
+        }
+    }
+
+    private static Generation generation(Cache<Id, Object> vertices) {
+        Generation generation = vertices.attachment();
+        return generation != null ? generation : vertices.attachment(new Generation());
+    }
+
+    private static void clear(Generation generation, Cache<Id, Object> vertices,
+                              Cache<Id, Object> edges) {
+        Lock lock = generation.lock.writeLock();
+        lock.lock();
+        try {
+            generation.value++;
+            if (vertices != null) {
+                vertices.clear();
+            }
+            if (edges != null) {
+                edges.clear();
+            }
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    /**
+     * Puts what a read found into a cache, unless the caches were cleared since the read
+     * started at the given generation: its elements hold the labels from before the clear
+     */
+    private void fill(long generation, Runnable update) {
+        Lock lock = this.generation.lock.readLock();
+        lock.lock();
+        try {
+            if (this.generation.value == generation) {
+                update.run();
+            }
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    private static String cacheName(String prefix, String spaceGraphName) {
+        return prefix + "-" + spaceGraphName;
+    }
+
     private Cache<Id, Object> cache(String prefix, String type, long capacity,
                                     long entrySize, long expire) {
-        String name = prefix + "-" + this.params().spaceGraphName();
+        String name = cacheName(prefix, this.params().spaceGraphName());
         Cache<Id, Object> cache;
         switch (type) {
             case "l1":
@@ -305,12 +369,9 @@ public final class CachedGraphTransaction extends GraphTransaction {
     }
 
     public void clearCache(HugeType type, boolean notify) {
-        if (type == null || type == HugeType.VERTEX) {
-            this.verticesCache.clear();
-        }
-        if (type == null || type == HugeType.EDGE) {
-            this.edgesCache.clear();
-        }
+        clear(this.generation,
+              type == null || type == HugeType.VERTEX ? this.verticesCache : null,
+              type == null || type == HugeType.EDGE ? this.edgesCache : null);
 
         if (notify) {
             this.notifyChanges(Cache.ACTION_CLEAR, null);
@@ -323,6 +384,15 @@ public final class CachedGraphTransaction extends GraphTransaction {
 
     private boolean enableCacheEdge() {
         return this.edgesCache.capacity() > 0L;
+    }
+
+    /**
+     * Whether the schema of the graph is synced through PD. Its clears can arrive between the
+     * read of a vertex and the commit of the vertex, which then holds a label from before the
+     * clear and must not replace an entry read after it, so a commit invalidates instead.
+     */
+    private boolean schemaSynced() {
+        return this.params().schemaIncarnation().get() > 0L;
     }
 
     private boolean needCacheVertex(HugeVertex vertex) {
@@ -341,6 +411,7 @@ public final class CachedGraphTransaction extends GraphTransaction {
         QueryResultContext context = new QueryResultContext(query);
         IdQuery missing = new IdQuery(query.resultType(), query);
         List<HugeVertex> vertices = new ArrayList<>();
+        long generation = this.generation.value;
         for (Id id : query.ids()) {
             HugeVertex vertex = (HugeVertex) this.verticesCache.get(id);
             if (vertex == null || vertex.expired()) {
@@ -358,12 +429,14 @@ public final class CachedGraphTransaction extends GraphTransaction {
                 return fetched;
             }
             ListIterator<HugeVertex> candidates = QueryResults.toList(fetched.iterator());
-            for (HugeVertex vertex : candidates.list()) {
-                if (this.needCacheVertex(vertex)) {
-                    this.verticesCache.update(vertex.id(), vertex);
+            this.fill(generation, () -> {
+                for (HugeVertex vertex : candidates.list()) {
+                    if (this.needCacheVertex(vertex)) {
+                        this.verticesCache.update(vertex.id(), vertex);
+                    }
                 }
-                vertices.add(vertex);
-            }
+            });
+            vertices.addAll(candidates.list());
         }
         // Keep hits and misses in one logical batch for filtering and ID ordering.
         return this.filterExpiredBatches(new QueryResults<>(vertices.iterator(), context));
@@ -389,6 +462,7 @@ public final class CachedGraphTransaction extends GraphTransaction {
         }
         Id cacheKey = new QueryId(request);
         Id batchKey = new QueryId(query);
+        long generation = this.generation.value;
         // An empty label denotes the outer request itself without duplicating its text.
         String batchLabel = batchKey.equals(cacheKey) ? "" : batchKey.asString();
         CachedEdgeQuery group = new CachedEdgeQuery(this.edgesCache.get(cacheKey));
@@ -407,7 +481,7 @@ public final class CachedGraphTransaction extends GraphTransaction {
         }
         QueryResults<HugeEdge> fetched = super.fetchEdgeBatch(query);
         if (!fetched.batches().hasNext()) {
-            this.cacheEdgeBatch(cacheKey, batchLabel, Collections.emptyList());
+            this.cacheEdgeBatch(generation, cacheKey, batchLabel, Collections.emptyList());
             return fetched;
         }
         return fetched.mapBatches(batch -> {
@@ -418,20 +492,23 @@ public final class CachedGraphTransaction extends GraphTransaction {
                 candidates.add(source.next());
             }
             if (candidates.size() <= MAX_CACHE_EDGES_PER_QUERY) {
-                this.cacheEdgeBatch(cacheKey, batchLabel, candidates);
+                this.cacheEdgeBatch(generation, cacheKey, batchLabel, candidates);
             }
             return new QueryBatch<>(
                     new ExtendableIterator<>(candidates.iterator(), source), batch.context());
         });
     }
 
-    private void cacheEdgeBatch(Id cacheKey, String batchLabel, List<HugeEdge> candidates) {
-        synchronized (this.edgesCache) {
-            CachedEdgeQuery existing = new CachedEdgeQuery(this.edgesCache.get(cacheKey)).copy();
-            if (existing.put(batchLabel, candidates)) {
-                this.edgesCache.update(cacheKey, existing.values);
+    private void cacheEdgeBatch(long generation, Id cacheKey, String batchLabel,
+                                List<HugeEdge> candidates) {
+        this.fill(generation, () -> {
+            synchronized (this.edgesCache) {
+                CachedEdgeQuery existing = new CachedEdgeQuery(this.edgesCache.get(cacheKey)).copy();
+                if (existing.put(batchLabel, candidates)) {
+                    this.edgesCache.update(cacheKey, existing.values);
+                }
             }
-        }
+        });
     }
 
     /** Nested lists retain the existing off-heap cache's serialization support. */
@@ -493,13 +570,14 @@ public final class CachedGraphTransaction extends GraphTransaction {
             super.commitMutation2Backend(mutations);
             // Update vertex cache
             if (this.enableCacheVertex()) {
+                boolean writeBack = !this.schemaSynced();
                 for (HugeVertex vertex : updates) {
                     vertexIds[vertexOffset++] = vertex.id();
-                    if (needCacheVertex(vertex)) {
+                    if (writeBack && this.needCacheVertex(vertex)) {
                         // Update cache
                         this.verticesCache.updateIfPresent(vertex.id(), vertex);
                     } else {
-                        // Skip large vertex
+                        // Skip large vertex, or one whose label may be from before a clear
                         this.verticesCache.invalidate(vertex.id());
                     }
                 }
@@ -543,6 +621,17 @@ public final class CachedGraphTransaction extends GraphTransaction {
                 this.notifyChanges(Cache.ACTION_CLEAR, HugeType.EDGE);
             }
         }
+    }
+
+    /*
+     * The generation of the vertex and edge caches of a graph, shared by its transactions as
+     * the attachment of the vertex cache. A clear advances it under the write lock; a read
+     * fills a cache under the read lock, see fill().
+     */
+    private static final class Generation {
+
+        private final ReadWriteLock lock = new ReentrantReadWriteLock();
+        private volatile long value;
     }
 
     /*

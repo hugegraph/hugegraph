@@ -744,6 +744,8 @@ public class CachedSchemaTransactionTest extends BaseUnitTest {
         Cache<Id, Object> targetIdCache = v2IdCache(targetGraph);
         Cache<Id, Object> targetNameCache = v2NameCache(targetGraph);
         Cache<Id, Object> otherIdCache = v2IdCache(otherGraph);
+        Cache<Id, Object> targetVertices = CacheManager.instance().cache(
+                "vertex-" + targetGraph, 100L);
 
         MetaDriver mockDriver = Mockito.mock(MetaDriver.class);
         Object response = new Object();
@@ -755,6 +757,7 @@ public class CachedSchemaTransactionTest extends BaseUnitTest {
             targetIdCache.update(IdGenerator.of(1), "v");
             targetNameCache.update(IdGenerator.of("n"), "v");
             otherIdCache.update(IdGenerator.of(2), "v");
+            targetVertices.update(IdGenerator.of(3), "v");
 
             Assert.assertEquals(1L, targetIdCache.size());
             Assert.assertEquals(1L, targetNameCache.size());
@@ -768,11 +771,14 @@ public class CachedSchemaTransactionTest extends BaseUnitTest {
             Assert.assertEquals(0L, targetNameCache.size());
             Assert.assertEquals("Other graph caches must remain untouched",
                                 1L, otherIdCache.size());
+            // The schema sync clears the vertex and edge caches, the legacy event does not
+            Assert.assertEquals(1L, targetVertices.size());
         } finally {
             swapMetaDriver(originalDriver);
             targetIdCache.clear();
             targetNameCache.clear();
             otherIdCache.clear();
+            targetVertices.clear();
         }
     }
 

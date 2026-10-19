@@ -32,6 +32,7 @@ import org.apache.hugegraph.config.HugeConfig;
 import org.apache.hugegraph.config.ServerOptions;
 import org.apache.hugegraph.exception.HugeGremlinException;
 import org.apache.hugegraph.exception.NotFoundException;
+import org.apache.hugegraph.meta.SchemaSyncClient;
 import org.glassfish.hk2.api.MultiException;
 
 import com.codahale.metrics.annotation.Timed;
@@ -113,6 +114,21 @@ public class ExceptionFilter {
         @Override
         public Response toResponse(HugeException exception) {
             return Response.status(BAD_REQUEST_ERROR)
+                           .type(MediaType.APPLICATION_JSON)
+                           .entity(formatException(exception, this.trace()))
+                           .build();
+        }
+    }
+
+    @Provider
+    public static class SchemaSyncingExceptionMapper
+            extends TracedExceptionMapper
+            implements ExceptionMapper<SchemaSyncClient.SyncingException> {
+
+        @Override
+        public Response toResponse(SchemaSyncClient.SyncingException exception) {
+            // Temporary: the request succeeds once the schema sync session is ready
+            return Response.status(Response.Status.SERVICE_UNAVAILABLE)
                            .type(MediaType.APPLICATION_JSON)
                            .entity(formatException(exception, this.trace()))
                            .build();

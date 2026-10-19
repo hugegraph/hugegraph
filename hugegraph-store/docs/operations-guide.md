@@ -729,7 +729,23 @@ tail -f logs/hugegraph-store.log
 
 #### Step 2: Upgrade PD Nodes (one at a time)
 
-Same process as Store, but upgrade PD cluster first or last (check release notes).
+Same process as Store. Upgrade every PD node before the first Server of the release that
+adds atomic schema commits. Such a Server writes the schema of its HStore graphs, and the
+graph records under `HUGEGRAPH/<cluster>/SCHEMA_SYNC/`, through PD's `txn` RPC, which
+earlier PD releases don't have:
+
+- Against an old PD, the new Server cannot open any HStore graph: no graph record exists yet,
+  and the `txn` that creates one fails ("No response to a txn from PD"). With `usePD=true` the
+  Server does not start at all, since its system graph is an HStore graph. It does not fall
+  back to writing without the record.
+- An old PD follower skips each TXN entry it applies and logs `Err op 10`, with no other
+  error. Its schema and graph records fall behind, and it serves that stale state if it
+  becomes leader. A snapshot or a restart doesn't repair this.
+
+If a PD node logged `Err op 10`, rebuild it after it runs the new release: stop it, move its
+data directory (`pd.data-path`, `./pd_data` by default) aside, and start it again with the
+same configuration while the other PD nodes are up. It then copies the state from the
+leader. Rebuild one node at a time.
 
 #### Step 3: Upgrade Server Nodes (one at a time)
 
@@ -743,6 +759,13 @@ bin/stop-hugegraph.sh
 bin/start-hugegraph.sh
 ```
 
+**Graph create and drop while Servers of both releases run**: don't create or drop an
+HStore graph until no Server of the old release is left. An old Server writes the graph
+config with a plain put, deletes it with a plain delete, and never touches the graph record
+under `HUGEGRAPH/<cluster>/SCHEMA_SYNC/`, so the two can disagree: a name an old Server
+dropped keeps a `LIVE` record, and a name an old Server created again opens with a `DROPPED`
+record on the new Servers, which then reject its schema changes.
+
 **Meta key prefix (`usePD=true`)**: the Server keeps its schema, graph spaces
 and users in PD under `HUGEGRAPH/<cluster>/...`, where `<cluster>` is the
 `cluster` option of `rest-server.properties` (default `hg-test`). Release 1.7.0
@@ -754,6 +777,69 @@ startup. If a Server comes up with an empty schema after an upgrade, compare
 that line with the prefix your data lives under (1.7.0: `hg-test`; a master
 snapshot from that window: `hg`) and set `cluster` in `rest-server.properties`
 to the prefix that holds your data.
+
+### Schema Cache Sync (PD Before Server)
+
+A Server keeps the schema caches of its HStore graphs in step with PD over one schema sync
+watch on `HUGEGRAPH/<cluster>/SCHEMA_SYNC/`. PD sends every graph record, then `Synced`, then
+each schema change; the Server clears the graph's schema, vertex and edge caches and
+acknowledges the change. A Server serves its HStore graphs only while that watch is synced:
+
+- From startup until the first `Synced`, after the watch closed until a new one is synced,
+  and once PD sent nothing for 15 s, new requests to these graphs are refused and the task
+  scheduler starts no task; requests already running are not interrupted. REST requests get
+  HTTP 503, the Cypher API and Gremlin through the REST API (`/gremlin`) included; the
+  Gremlin Server's own HTTP and WebSocket endpoints report a server error (500) that names
+  `SchemaSyncClient$SyncingException`. Have clients retry on these.
+- A graph whose caches could not be cleared for a change answers 503 until PD resends the
+  change and the clear succeeds; a graph that was dropped, or dropped and created again,
+  answers 503 with "is no longer served" on the Servers that still have the old instance.
+- If the watch stops for good after a non-retryable error from PD (for example
+  `PERMISSION_DENIED` or `UNIMPLEMENTED`), every HStore graph of that Server answers 503
+  until the Server restarts.
+
+The state is the gauge `org.apache.hugegraph.meta.SchemaSyncClient.state` in the Server
+metrics: `0` SYNCING, `1` READY, `2` STALE, `3` CLOSED, `-1` while no HStore graph is open.
+PD's metrics of the watch are listed in the
+[PD configuration guide](../../hugegraph-pd/docs/configuration.md#schema-sync-settings).
+
+Upgrading to the first release with schema cache sync: upgrade every PD node first (a new
+Server against an old PD cannot open its HStore graphs, and with `usePD=true` does not start),
+freeze DDL and graph create or drop while Servers of both releases run (an old Server neither
+writes the graph records nor learns of a change from the watch), upgrade the Servers one at a
+time (each answers 503 for its HStore graphs for a few seconds after startup), then allow DDL
+again. To roll back a Server, freeze DDL again before starting the old version.
+
+A name whose graph record is `LIVE` while PD has no config for it answers "exists" to a create.
+A create that died between its record commit and its config write leaves one: drop the name over
+REST on any Server, then create it again; that drop applies only to a record a create made, which
+carries `"src":"create"`. A graph from `conf/graphs` whose file was deleted on every Server leaves
+one too, without the mark, and a drop sent to a Server without the graph answers that it doesn't
+exist: restore the file on one Server whose `graph.load_from_local_config` is unset, start it, drop
+the graph over REST there, delete the file again, and create the graph over REST if it is wanted.
+
+A name whose config is in PD while no Server serves the graph answers "exists" too: a create
+whose config write got no response, and landed after the create gave up, leaves one. Restart
+one Server, which loads every graph whose config is in PD, then drop the graph over REST there
+if it is not wanted.
+
+**Rolling PD back is not supported once a Server committed its first schema change through
+`txn`.** An older PD doesn't know the TXN entry: on a restart it replays its log after its
+latest snapshot, logs `Err op 10` for each TXN entry, and counts the entry as applied. Every
+schema key and graph record a TXN wrote after that node's snapshot is then gone without an
+error, and nodes with different snapshot points disagree. If PD must be rolled back anyway:
+first roll every Server back to the old release or stop it, since a Server of this release
+writes its schema only through `txn`; then wait longer than `raft.snapshotInterval` (300 s by
+default), so that every PD node took a snapshot after the last TXN; then roll the PD nodes back
+one at a time. The graph records stay in PD as plain keys, which the old release ignores.
+
+**A graph loaded from `conf/graphs` and dropped over REST stays dropped.** The drop marks its
+graph record `DROPPED` and clears its data, but the file is still there: on its next start a
+Server opens the graph from the file, finds the record `DROPPED` and answers 503 ("is no longer
+served") for it. Before schema cache sync such a graph came back empty. To remove the graph for
+good, delete its file on every Server and restart them. To have it back empty, delete the file
+on every Server, restart them, and create the graph over REST; it then starts a new incarnation
+and keeps its config in PD.
 
 ### Rollback Procedure
 
