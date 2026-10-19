@@ -23,6 +23,9 @@ import java.nio.file.Files;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 
 import org.apache.commons.io.FileUtils;
 import org.apache.hugegraph.pd.KvService;
@@ -35,7 +38,13 @@ import org.apache.hugegraph.pd.grpc.kv.ScanPrefixResponse;
 import org.apache.hugegraph.pd.grpc.kv.TxnOp;
 import org.apache.hugegraph.pd.grpc.kv.TxnRequest;
 import org.apache.hugegraph.pd.grpc.kv.TxnResponse;
+import org.apache.hugegraph.pd.grpc.kv.WatchAckRequest;
+import org.apache.hugegraph.pd.grpc.kv.WatchRequest;
+import org.apache.hugegraph.pd.grpc.kv.WatchResponse;
+import org.apache.hugegraph.pd.grpc.kv.WatchState;
 import org.apache.hugegraph.pd.raft.RaftEngine;
+import org.apache.hugegraph.pd.sync.SchemaSyncTracker;
+import org.apache.hugegraph.pd.watch.KvWatchSubject;
 import org.apache.hugegraph.testutil.Whitebox;
 import org.junit.After;
 import org.junit.Assert;
@@ -56,6 +65,9 @@ import io.grpc.stub.StreamObserver;
  * have applied every committed write, so both wait for a ReadIndex first, and return an error
  * rather than a stored value when it fails. The raft node answers each ReadIndex the way
  * jraft does: it sets the result and runs the closure.
+ * <p>
+ * And stopScheduling() takes the schema sync tracker and the closes it started into the
+ * shutdown drain.
  */
 public class KvServiceGrpcImplTest {
 
@@ -63,6 +75,7 @@ public class KvServiceGrpcImplTest {
     private volatile Status readIndex = Status.OK();
     private Node originalRaftNode;
     private PDConfig.Raft originalRaftConfig;
+    private PDConfig config;
     private KvServiceGrpcImpl service;
     // What the raft node answers to isLeader(), and what a redirect forwarded
     private volatile boolean leader = true;
@@ -77,7 +90,7 @@ public class KvServiceGrpcImplTest {
         // KvService, and stays open: the directory has to outlive the test
         File dataPath = Files.createTempDirectory("kv-service-grpc").toFile();
         Runtime.getRuntime().addShutdownHook(new Thread(() -> FileUtils.deleteQuietly(dataPath)));
-        PDConfig config = new PDConfig();
+        PDConfig config = this.config = new PDConfig();
         config.setDataPath(dataPath.getAbsolutePath());
         PDConfig.Raft raft = config.new Raft();
         raft.setEnable(false);
@@ -173,6 +186,61 @@ public class KvServiceGrpcImplTest {
     }
 
     /**
+     * PD stops raft and closes the store right after stopScheduling(). A close of a session
+     * deletes its watch key through raft, so it runs on the watch scheduler, which is drained
+     * here, and the tracker is stopped first: a poll of its timer during the shutdown would
+     * close every session as NOT_LEADER, against a store that is already closed.
+     */
+    @Test
+    public void testStopSchedulingStopsTrackerAndDrainsCloses() throws Exception {
+        String prefix = "HUGEGRAPH/hg/SCHEMA_SYNC/";
+        List<String> closes = new CopyOnWriteArrayList<>();
+        ScheduledExecutorService executor = Executors.newScheduledThreadPool(1);
+        Thread scheduler = executor.submit(Thread::currentThread).get();
+        Whitebox.setInternalState(this.service, "executor", executor);
+        Whitebox.setInternalState(this.service, "subjects", new KvWatchSubject(this.config) {
+            @Override
+            public void closePrefixClient(String key, long clientId) {
+                closes.add(clientId + (Thread.currentThread() == scheduler ?
+                                       " on the watch scheduler" : " on another thread"));
+            }
+        });
+        SchemaSyncTracker tracker = new SchemaSyncTracker(() -> true,
+                                                          this.service::closeSyncSession);
+        Whitebox.setInternalState(this.service, "syncTracker", tracker);
+        Capture<WatchResponse> stream = new Capture<>();
+
+        // The scheduler is busy, as with a keepalive round, while one session is closed
+        CountDownLatch busy = new CountDownLatch(1);
+        executor.execute(() -> {
+            try {
+                busy.await();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        });
+        tracker.register(prefix, 1L, stream);
+        Assert.assertFalse(tracker.handshake(prefix, 2L, stream, read -> {
+            throw new PDException(-1, "read index timed out");
+        }));
+        Assert.assertEquals(1, tracker.sessionCount());
+
+        busy.countDown();
+        this.service.stopScheduling();
+        // The close that had started was waited for; session 1 was dropped, not closed
+        Assert.assertTrue(executor.isTerminated());
+        Assert.assertEquals(List.of("2 on the watch scheduler"), closes);
+        Assert.assertEquals(0, tracker.sessionCount());
+
+        // A handshake that was still on its way takes no session and starts no close
+        Assert.assertFalse(tracker.handshake(prefix, 3L, stream, read -> Map.of()));
+        Assert.assertEquals(0, tracker.sessionCount());
+        Assert.assertEquals(1, closes.size());
+        // From the shutdown hook and again from @PreDestroy
+        this.service.stopScheduling();
+    }
+
+    /**
      * Only the leader applies a txn, and a follower forwards it. A failed apply is answered
      * with its error, also when the node lost the leadership meanwhile: the entry may be on a
      * majority already, and a forward would let the next leader apply it twice.
@@ -200,6 +268,67 @@ public class KvServiceGrpcImplTest {
             Assert.assertEquals(Pdpb.ErrorType.NOT_LEADER,
                                 failed.result().getHeader().getError().getType());
         }
+    }
+
+    @Test
+    public void testWatchAckOnAFollowerIsRedirected() {
+        this.leader = false;
+        WatchAckRequest request = WatchAckRequest.newBuilder().setClientId(7L).setKey("k")
+                                                 .setRevision(3L).build();
+        this.service.watchAck(request, new Capture<>());
+        Assert.assertEquals(List.of("redirect watchAck"), this.calls);
+        Assert.assertSame(request, this.redirected);
+    }
+
+    /**
+     * A schema sync watch is a new session on every connect, also when the request of a
+     * reconnect carries the clientId of its last session; a plain watch keeps its clientId
+     */
+    @Test
+    public void testSyncWatchGetsAFreshClientId() throws Exception {
+        String prefix = "HUGEGRAPH/hg/SCHEMA_SYNC/";
+        List<String> observers = new CopyOnWriteArrayList<>();
+        Whitebox.setInternalState(this.service, "subjects", new KvWatchSubject(this.config) {
+            @Override
+            public void addObserver(String key, long clientId,
+                                    StreamObserver<WatchResponse> observer, String delimiter) {
+                observers.add(key + " " + clientId);
+            }
+        });
+        SchemaSyncTracker tracker = new SchemaSyncTracker(() -> true, (key, clientId) -> { });
+        Whitebox.setInternalState(this.service, "syncTracker", tracker);
+        List<WatchResponse> frames = new CopyOnWriteArrayList<>();
+        StreamObserver<WatchResponse> stream = new StreamObserver<WatchResponse>() {
+            @Override
+            public void onNext(WatchResponse value) {
+                frames.add(value);
+            }
+
+            @Override
+            public void onError(Throwable t) {
+                throw new AssertionError("unexpected stream error", t);
+            }
+
+            @Override
+            public void onCompleted() {
+            }
+        };
+
+        this.service.watchPrefix(WatchRequest.newBuilder().setKey(prefix).setClientId(7L)
+                                             .build(), stream);
+        WatchResponse starting = frames.get(0);
+        Assert.assertEquals(WatchState.Starting, starting.getState());
+        Assert.assertNotEquals(7L, starting.getClientId());
+        Assert.assertNotEquals(0L, starting.getClientId());
+        Assert.assertEquals(List.of(prefix + " " + starting.getClientId()), observers);
+
+        frames.clear();
+        observers.clear();
+        this.service.watchPrefix(WatchRequest.newBuilder().setKey("plain/").setClientId(7L)
+                                             .build(), stream);
+        Assert.assertEquals(WatchState.Started, frames.get(0).getState());
+        Assert.assertEquals(List.of("plain/ 7"), observers);
+        tracker.stop();
     }
 
     private KResponse get(String key) {

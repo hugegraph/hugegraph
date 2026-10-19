@@ -107,8 +107,16 @@ public abstract class AbstractClient implements Closeable {
     }
 
     protected synchronized AbstractBlockingStub getBlockingStub() throws PDException {
+        return getBlockingStub(stubResetTimeoutMillis());
+    }
+
+    /**
+     * The blocking stub, connecting again within the given time when there is none
+     */
+    private synchronized AbstractBlockingStub getBlockingStub(long resetTimeoutMillis)
+            throws PDException {
         if (proxy.getBlockingStub() == null) {
-            String host = resetStub(stubResetTimeoutMillis());
+            String host = resetStub(resetTimeoutMillis);
             if (host.isEmpty()) {
                 throw new PDException(Pdpb.ErrorType.PD_UNREACHABLE_VALUE,
                                       "PD unreachable, pd.peers=" + config.getServerHost());
@@ -259,7 +267,35 @@ public abstract class AbstractClient implements Closeable {
 
     protected <ReqT, RespT> RespT blockingUnaryCall(
             MethodDescriptor<ReqT, RespT> method, ReqT req, int retry) throws PDException {
-        AbstractBlockingStub stub = getBlockingStub();
+        return blockingUnaryCall(method, req, retry, 0L);
+    }
+
+    /**
+     * As {@link #blockingUnaryCall(MethodDescriptor, Object)}, with a deadline for each attempt
+     * instead of the configured gRPC timeout, which 0 keeps. Connecting, when an attempt finds
+     * no stub, gets the same deadline for each PD it tries, so a PD host that lost power costs
+     * that deadline, not the TCP connect timeout.
+     */
+    protected <ReqT, RespT> RespT blockingUnaryCallWithin(
+            long timeoutMillis, MethodDescriptor<ReqT, RespT> method, ReqT req)
+            throws PDException {
+        if (timeoutMillis <= 0L) {
+            return blockingUnaryCall(method, req);
+        }
+        return blockingUnaryCall(method, req, 0, timeoutMillis);
+    }
+
+    private <ReqT, RespT> RespT blockingUnaryCall(MethodDescriptor<ReqT, RespT> method, ReqT req,
+                                                  int retry, long timeoutMillis)
+            throws PDException {
+        AbstractBlockingStub stub;
+        if (timeoutMillis > 0L) {
+            stub = getBlockingStub(timeoutMillis * Math.max(1, proxy.getHostCount()));
+            stub = (AbstractBlockingStub) stub.withDeadlineAfter(timeoutMillis,
+                                                                 TimeUnit.MILLISECONDS);
+        } else {
+            stub = getBlockingStub();
+        }
         try {
             RespT resp =
                     ClientCalls.blockingUnaryCall(stub.getChannel(), method, stub.getCallOptions(),
@@ -272,7 +308,7 @@ public abstract class AbstractClient implements Closeable {
                     synchronized (this) {
                         proxy.setBlockingStub(null);
                     }
-                    return blockingUnaryCall(method, req, ++retry);
+                    return blockingUnaryCall(method, req, ++retry, timeoutMillis);
                 }
             } else {
                 log.error(method.getFullMethodName() + " exception, ", e);

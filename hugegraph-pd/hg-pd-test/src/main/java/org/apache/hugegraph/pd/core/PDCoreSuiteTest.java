@@ -22,6 +22,7 @@ import org.apache.hugegraph.pd.core.meta.MetadataKeyHelperTest;
 import org.apache.hugegraph.pd.core.store.HgKVStoreImplTest;
 import org.apache.hugegraph.pd.core.store.KvTxnApplierTest;
 import org.apache.hugegraph.pd.core.store.RaftKVStoreTest;
+import org.apache.hugegraph.pd.core.sync.SchemaSyncTrackerTest;
 import org.apache.hugegraph.pd.raft.IpAuthHandlerTest;
 import org.apache.hugegraph.pd.raft.KVOperationTest;
 import org.apache.hugegraph.pd.raft.PeerUtilTest;
@@ -67,6 +68,7 @@ import lombok.extern.slf4j.Slf4j;
         RaftEngineReadIndexTest.class,
         RaftStateMachineSnapshotTest.class,
         RaftEngineRpcTimeoutTest.class,
+        SchemaSyncTrackerTest.class,
         // StoreNodeServiceTest.class,
 })
 @Slf4j

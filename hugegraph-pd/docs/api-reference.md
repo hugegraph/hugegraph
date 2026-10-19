@@ -756,6 +756,47 @@ for (Map.Entry<String, byte[]> entry : results.entrySet()) {
 }
 ```
 
+`get` and `scanPrefix` are answered by the leader after a raft ReadIndex, so they
+return every write committed before the call, also right after a leader change.
+When the leader cannot confirm its log within `raft.rpc-timeout`, they fail with
+a `PDException` and return no older value.
+
+### KV transactions
+
+`KvClient.txn(TxnRequest)` commits writes and an optional graph record update as one raft
+entry, applied in one RocksDB batch on every PD node. Only the leader applies it: a follower
+forwards it. `txn` sends the request to one PD, and once more to the leader found again only
+when the connection was refused, so the request was never sent; it throws `PDException` when
+it gets no answer. The request has three parts:
+
+- **Compares.** Each names a key and a kind: `ABSENT` holds while the key does not exist (an
+  empty value is a value), `EQUALS` while its value equals the given one. If one fails, nothing
+  is written and the failure is `COMPARE_FAILED`, with the failed compare.
+- **Ops.** In order: `PUT` a key and value, `DELETE` a key, `DELETE_PREFIX` every key under a
+  prefix.
+- **Record.** At most one graph record, `HUGEGRAPH/{cluster}/SCHEMA_SYNC/{graphspace}/{graph}`,
+  with an op and the incarnation the writer expects:
+  - `BUMP` sets `rev` to the raft index of the entry. With expected incarnation 0 it creates an
+    absent record as `LIVE` incarnation 1. It fails with `GRAPH_DROPPED` on a dropped graph and
+    `INCARNATION_MISMATCH` on another incarnation.
+  - `CREATE` starts the next incarnation, or 1, as `LIVE`, whatever the stored state, and marks
+    the record `"src":"create"`, which `BUMP` and `DROP` keep and nothing removes; a record a
+    `BUMP` created has no mark. The Server guards a `CREATE` with compares on its graph config
+    (`ABSENT`) and on the record as it read it (`ABSENT`, or `EQUALS` the `DROPPED` value), so it
+    never takes over a `LIVE` record.
+  - `DROP` marks the expected incarnation `DROPPED`. It fails with `INCARNATION_MISMATCH` when
+    the record is absent or of another incarnation, and `GRAPH_DROPPED` when it is dropped
+    already.
+  - A stored record that is not `{"rev":<n>,"inc":<n>,"state":"LIVE"|"DROPPED"}` with positive
+    integers fails every txn on it with `INVALID_RECORD`.
+
+The response carries `succeeded`, the `revision` (the raft index of the entry), the record's
+`incarnation` and `state`, and the `failure`. A record change reaches schema sync watches, see
+below. PD keeps no request ids and a txn applied twice is not always harmless (the Server's
+guarded `CREATE` fails its record compare the second time), so `KvClient` sends a txn once,
+and a PD that lost the leadership after it took a txn answers with the error instead of
+forwarding it. When `txn` throws, the outcome is unknown: read the state before retrying.
+
 ### KV watch recovery
 
 `KvClient.listen()` and `listenPrefix()` restore subscriptions after retryable
@@ -774,6 +815,49 @@ Close the owning `KvClient` to stop its watches and reconnect workers.
 Watch discovery uses at most a five-second budget, capped by `grpcTimeOut`; a
 separate five-second timer retries streams that receive no first response. These
 watch limits do not replace the configured timeout for blocking KV or lock calls.
+
+### Schema sync watch
+
+A plain watch does not replay what it missed. A watch on a schema sync prefix,
+`HUGEGRAPH/{cluster}/SCHEMA_SYNC/` or a prefix below it, is different: PD tracks
+what it sent and resends until the consumer acknowledges it.
+
+- **Session.** Each stream is a session with its own `clientId`, sent in the
+  `Starting` frame and carried by every later frame. A reconnect always starts a
+  new session. `sessionClosed` gets the `clientId` of a session that ended: PD
+  closed it, the stream failed or completed, or the PD leader changed. The client
+  then reconnects on its own and the new session syncs again.
+- **Initial sync.** After `Starting`, PD sends every graph record under the
+  prefix as of a raft read barrier, then `Synced`. A change committed meanwhile is
+  in that read or follows as an event, so nothing falls between the two. A
+  session that cannot reach `Synced` (for example because one record is
+  unreadable) is closed, and the client tries again.
+- **Events.** Each event is a `Put` of a record key whose value is
+  `{"rev":<n>,"inc":<incarnation>,"state":"LIVE"|"DROPPED"}`; a value read in
+  the initial sync may carry the `src` mark too, so read `rev`, `inc` and
+  `state` and ignore other fields. PD coalesces changes of one record and always
+  sends the latest value, so revisions in between may never be sent. A plain
+  `put` or `delete` under the prefix is not sent to a session: only a record
+  change committed by a `txn` is.
+- **ACK.** Call `ack(clientId, key, rev)` once an event was processed, with the
+  `clientId` of the session that delivered it. It returns `true` when PD
+  accepted it: a revision sent to that session and not covered yet, or a repeat
+  of the last accepted one after a lost response. It returns `false` for an
+  unknown or ended session, a revision PD did not send to it, or one an
+  accepted ACK already covers; a `false` changes nothing. An accepted ACK of a
+  newer revision covers the older ones, but an ACK of an older revision leaves
+  a newer one pending. `ack` throws `PDException` when no PD answered; send it
+  again later.
+- **Resend and close.** PD resends unacknowledged work with doubling backoff.
+  A session whose pending work sees no accepted ACK for 30 s,
+  or that leaves 64 revisions of one record unacknowledged, is closed and syncs
+  again. `Alive` frames with the `clientId` stop once PD closed the session.
+- **Leader change.** Sessions and ACK progress live in leader memory only. After
+  a leader change every session ends and the client syncs again with the new
+  leader.
+
+The timings and metrics are described under "Schema Sync Settings" in
+[configuration.md](configuration.md).
 
 ## REST API
 

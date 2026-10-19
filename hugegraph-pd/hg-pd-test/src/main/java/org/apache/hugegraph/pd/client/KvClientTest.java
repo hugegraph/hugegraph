@@ -48,6 +48,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.function.IntFunction;
+import java.util.function.Predicate;
 
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hugegraph.pd.common.PDException;
@@ -64,6 +65,8 @@ import org.apache.hugegraph.pd.grpc.kv.TxnOp;
 import org.apache.hugegraph.pd.grpc.kv.TxnRecord;
 import org.apache.hugegraph.pd.grpc.kv.TxnRequest;
 import org.apache.hugegraph.pd.grpc.kv.TxnResponse;
+import org.apache.hugegraph.pd.grpc.kv.WatchAckRequest;
+import org.apache.hugegraph.pd.grpc.kv.WatchAckResponse;
 import org.apache.hugegraph.pd.grpc.kv.WatchEvent;
 import org.apache.hugegraph.pd.grpc.kv.WatchKv;
 import org.apache.hugegraph.pd.grpc.kv.WatchRequest;
@@ -420,6 +423,166 @@ public class KvClientTest extends BaseClientTest {
             assertThat(context.client.stubInvalidations).isEqualTo(1);
             assertThat(context.client.calls).hasSize(2);
             assertThat(context.client.call(1).request.getClientId()).isZero();
+        }
+    }
+
+    @Test
+    public void testSyncWatchDeliversEverySessionFrame() throws Exception {
+        try (WatchTestContext context = newWatchTestContext()) {
+            List<WatchResponse> frames = new CopyOnWriteArrayList<>();
+            List<Long> closedSessions = new CopyOnWriteArrayList<>();
+            context.client.listenSync("HUGEGRAPH/hg/SCHEMA_SYNC/", frames::add,
+                                      closedSessions::add, error -> { });
+            assertThat(context.client.call(0).methodName)
+                    .isEqualTo(KvServiceGrpc.getWatchPrefixMethod().getFullMethodName());
+            StreamObserver<WatchResponse> observer = context.client.call(0).observer;
+            WatchResponse starting = WatchResponse.newBuilder().setState(WatchState.Starting)
+                                                  .setClientId(7L).build();
+            WatchResponse event = WatchResponse.newBuilder().setState(WatchState.Started)
+                                               .setClientId(7L)
+                                               .addEvents(WatchEvent.newBuilder().setCurrent(
+                                                       WatchKv.newBuilder().setKey("k")
+                                                              .setValue("{\"rev\":3}")))
+                                               .build();
+            WatchResponse synced = WatchResponse.newBuilder().setState(WatchState.Synced)
+                                                .setClientId(7L).build();
+            WatchResponse alive = WatchResponse.newBuilder().setState(WatchState.Alive)
+                                               .setClientId(7L).build();
+            observer.onNext(starting);
+            observer.onNext(WatchResponse.newBuilder().setState(WatchState.Started).build());
+            observer.onNext(event);
+            observer.onNext(synced);
+            observer.onNext(alive);
+            // The keepalive of every watch, without a session
+            observer.onNext(WatchResponse.newBuilder().setState(WatchState.Alive).build());
+            assertThat(frames).containsExactly(starting, event, synced, alive);
+
+            // PD closed the session: the client is told, then starts a new session
+            observer.onCompleted();
+            assertThat(closedSessions).containsExactly(7L);
+            context.runNextReconnect();
+            assertThat(context.client.calls).hasSize(2);
+            assertThat(context.client.call(1).request.getClientId()).isZero();
+        }
+    }
+
+    /**
+     * A stream that stays open but sends nothing, as a PD host that lost power leaves it, is
+     * replaced on request: its session ends, its late frames are dropped, and a new session
+     * starts on a new channel
+     */
+    @Test
+    public void testSyncWatchRestartReplacesASilentStream() throws Exception {
+        try (WatchTestContext context = newWatchTestContext()) {
+            String prefix = "HUGEGRAPH/hg/SCHEMA_SYNC/";
+            List<WatchResponse> frames = new CopyOnWriteArrayList<>();
+            List<Long> closedSessions = new CopyOnWriteArrayList<>();
+            context.client.listenSync(prefix, frames::add, closedSessions::add, error -> { });
+            StreamObserver<WatchResponse> observer = context.client.call(0).observer;
+            observer.onNext(WatchResponse.newBuilder().setState(WatchState.Starting)
+                                         .setClientId(7L).build());
+            observer.onNext(WatchResponse.newBuilder().setState(WatchState.Synced)
+                                         .setClientId(7L).build());
+            assertThat(frames).hasSize(2);
+
+            assertThat(context.client.restartSync("HUGEGRAPH/other/SCHEMA_SYNC/")).isFalse();
+            assertThat(context.client.restartSync(prefix)).isTrue();
+            assertThat(closedSessions).containsExactly(7L);
+            // Already being replaced
+            assertThat(context.client.restartSync(prefix)).isFalse();
+            observer.onNext(WatchResponse.newBuilder().setState(WatchState.Alive)
+                                         .setClientId(7L).build());
+            assertThat(frames).hasSize(2);
+
+            context.runNextReconnect();
+            assertThat(context.client.stubInvalidations).isEqualTo(1);
+            assertThat(context.client.calls).hasSize(2);
+            assertThat(context.client.call(1).request.getClientId()).isZero();
+        }
+    }
+
+    /**
+     * Through a running PD: the session syncs, a committed record change arrives with the
+     * session's clientId, and only a revision that was sent is acknowledged
+     */
+    @Test
+    public void testSyncWatchAgainstPd() throws Exception {
+        String prefix = "HUGEGRAPH/kv-client-test/SCHEMA_SYNC/";
+        List<WatchResponse> frames = new CopyOnWriteArrayList<>();
+        client.listenSync(prefix, frames::add, clientId -> { }, error -> { });
+        awaitFrame(frames, frame -> frame.getState() == WatchState.Synced);
+
+        TxnResponse txn = client.txn(TxnRequest.newBuilder().setRecord(
+                TxnRecord.newBuilder().setKey(prefix + "DEFAULT/g")
+                         .setOp(TxnRecord.Op.BUMP)).build());
+        assertThat(txn.getSucceeded()).isTrue();
+        String rev = "{\"rev\":" + txn.getRevision() + ",";
+        WatchResponse event = awaitFrame(frames, frame -> frame.getEventsCount() > 0 &&
+                                                          frame.getEvents(0).getCurrent()
+                                                               .getValue().startsWith(rev));
+        assertThat(event.getEvents(0).getCurrent().getKey()).isEqualTo(prefix + "DEFAULT/g");
+        assertThat(client.ack(event.getClientId(), prefix + "DEFAULT/g",
+                              txn.getRevision() + 1)).isFalse();
+        assertThat(client.ack(event.getClientId(), prefix + "DEFAULT/g",
+                              txn.getRevision())).isTrue();
+
+        // A plain write under the prefix is no event of the session. It would have been sent
+        // before the put and the delete returned, so before the event of the next change
+        String plain = prefix + "DEFAULT/plain";
+        client.put(plain, "not a record");
+        client.delete(plain);
+        txn = client.txn(TxnRequest.newBuilder().setRecord(
+                TxnRecord.newBuilder().setKey(prefix + "DEFAULT/g")
+                         .setOp(TxnRecord.Op.BUMP)).build());
+        String next = "{\"rev\":" + txn.getRevision() + ",";
+        awaitFrame(frames, frame -> frame.getEventsCount() > 0 &&
+                                    frame.getEvents(0).getCurrent().getValue().startsWith(next));
+        assertThat(frames).noneMatch(frame -> frame.getEventsList().stream().anyMatch(
+                sent -> sent.getCurrent().getKey().equals(plain)));
+    }
+
+    private static WatchResponse awaitFrame(List<WatchResponse> frames,
+                                            Predicate<WatchResponse> match)
+            throws InterruptedException {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10L);
+        while (System.nanoTime() < deadline) {
+            for (WatchResponse frame : frames) {
+                if (match.test(frame)) {
+                    return frame;
+                }
+            }
+            Thread.sleep(20L);
+        }
+        throw new AssertionError("No matching frame in " + frames);
+    }
+
+    @Test
+    public void testAckWithoutResponseThrowsPDException() {
+        // No PD answered: blockingUnaryCall gives null, which ack must not dereference
+        try (KvClient<WatchResponse> unreachable = new KvClient<>(getPdConfig()) {
+            @Override
+            protected <ReqT, RespT> RespT blockingUnaryCall(MethodDescriptor<ReqT, RespT> method,
+                                                            ReqT req) {
+                return null;
+            }
+        }) {
+            assertThatThrownBy(() -> unreachable.ack(7L, "k", 3L))
+                    .isInstanceOf(PDException.class)
+                    .hasMessageContaining("watchAck failed");
+        }
+    }
+
+    @Test
+    public void testPlainWatchIgnoresSessionFrames() throws Exception {
+        try (WatchTestContext context = newWatchTestContext()) {
+            List<WatchResponse> frames = new CopyOnWriteArrayList<>();
+            context.client.listenPrefix("key", frames::add);
+            StreamObserver<WatchResponse> observer = context.client.call(0).observer;
+            observer.onNext(WatchResponse.newBuilder().setState(WatchState.Starting)
+                                         .setClientId(7L).build());
+            observer.onNext(WatchResponse.newBuilder().setState(WatchState.Synced).build());
+            observer.onNext(WatchResponse.newBuilder().setState(WatchState.Alive).build());
+            assertThat(frames).isEmpty();
         }
     }
 
@@ -1299,6 +1462,54 @@ public class KvClientTest extends BaseClientTest {
                     .hasMessageContaining("No response to a txn from PD");
             assertThat(txns.get()).isEqualTo(0);
             assertThat(lookups.get()).isEqualTo(2);
+        } finally {
+            server.shutdownNow().awaitTermination(5L, TimeUnit.SECONDS);
+        }
+    }
+
+    /**
+     * The PD the stub points at stops answering: an ACK with a deadline fails within it
+     * instead of the gRPC timeout, and the next attempt connects again and is answered. Only
+     * an ACK after the reconnect is answered; the deadline leaves a slow start room.
+     */
+    @Test
+    public void testAckWithADeadlineConnectsAgainAfterIt() throws Exception {
+        AtomicReference<String> address = new AtomicReference<>();
+        AtomicInteger lookups = new AtomicInteger();
+        AtomicInteger acks = new AtomicInteger();
+        Server server = ServerBuilder.forPort(0)
+                                     .addService(new PDGrpc.PDImplBase() {
+                                         @Override
+                                         public void getMembers(Pdpb.GetMembersRequest request,
+                                                StreamObserver<Pdpb.GetMembersResponse> observer) {
+                                             lookups.incrementAndGet();
+                                             observer.onNext(Pdpb.GetMembersResponse.newBuilder()
+                                                     .setLeader(Metapb.Member.newBuilder()
+                                                             .setGrpcUrl(address.get()))
+                                                     .build());
+                                             observer.onCompleted();
+                                         }
+                                     })
+                                     .addService(new KvServiceGrpc.KvServiceImplBase() {
+                                         @Override
+                                         public void watchAck(WatchAckRequest request,
+                                                StreamObserver<WatchAckResponse> observer) {
+                                             acks.incrementAndGet();
+                                             if (lookups.get() > 1) {
+                                                 observer.onNext(WatchAckResponse.newBuilder()
+                                                         .setAccepted(true).build());
+                                                 observer.onCompleted();
+                                             }
+                                         }
+                                     }).build().start();
+        address.set("127.0.0.1:" + server.getPort());
+        try (KvClient<WatchResponse> testClient = new KvClient<>(
+                PDConfig.of(address.get()).setAuthority(user, pwd))) {
+            long start = System.nanoTime();
+            assertThat(testClient.ack(7L, "k", 9L, 2000L)).isTrue();
+            assertThat(System.nanoTime() - start).isLessThan(TimeUnit.SECONDS.toNanos(10L));
+            assertThat(lookups.get()).isEqualTo(2);
+            assertThat(acks.get()).isBetween(1, 2);
         } finally {
             server.shutdownNow().awaitTermination(5L, TimeUnit.SECONDS);
         }

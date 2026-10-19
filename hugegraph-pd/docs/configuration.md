@@ -269,6 +269,63 @@ initial_partitions = (store_count * store_max_shard_count) / default_shard_count
   - Large deployment: `200-500`
   - Limit based on Store disk capacity and expected data volume
 
+### Schema Sync Settings
+
+The PD leader delivers graph record changes to schema sync watches, the prefix watches Servers
+open on `HUGEGRAPH/{cluster}/SCHEMA_SYNC/` to keep their schema caches current. Pending work lives
+in leader memory only; after a leader change every Server reconnects and syncs again. The timings
+are fixed in this release: a change is sent once no newer change of its graph arrived for 50 ms
+and no later than 500 ms after the first unsent one; a change that is not acknowledged is resent
+after 1 s, then with a doubling delay; a watch whose pending work saw no acknowledgment progress
+for 30 s is closed, and the Server syncs again; Alive frames renew a watch every 5 s.
+
+The leader exposes the delivery state as `hg_schema_sync_sessions`,
+`hg_schema_sync_pending{state="unsent"|"unacked"}`, `hg_schema_sync_pending_oldest_age` (ms),
+`hg_schema_sync_notifications_total`, `hg_schema_sync_retries_total` and
+`hg_schema_sync_invalidations_total{reason=...}`. The reasons a watch is closed:
+
+| Reason | Cause |
+|--------|-------|
+| `retry_budget` | Its pending work saw no acknowledgment progress for 30 s. |
+| `send_failed` | A frame could not be sent: the stream is gone. |
+| `handshake_failed` | The read barrier or the read of the records failed, or a record was unreadable (see below). |
+| `not_leader` | This PD lost the leadership and has not seen a new leader yet. |
+| `dispatch_failed` | A committed change could not be registered for delivery, so every watch syncs again. |
+| `backlog` | 64 revisions of one graph were sent to the watch and none of them was acknowledged. |
+| `leader_changed` | This PD saw a new leader; every watch is dropped and syncs with the new leader. |
+
+#### Unreadable graph record
+
+A watch only reaches `Synced` when every graph record under its prefix can be read. If one
+value under `HUGEGRAPH/{cluster}/SCHEMA_SYNC/` is not a valid record (for example after a plain
+KV put on a record key), every watch on that prefix fails its handshake and the Servers retry
+about once a second. The PD leader logs a warning for each attempt:
+
+```text
+Schema sync handshake of client <id> read the unreadable graph record <key>: <value>
+```
+
+and `hg_schema_sync_invalidations_total{reason="handshake_failed"}` keeps rising. A DDL cannot
+repair the record: a TXN on it fails with `INVALID_RECORD`. Rewrite the key named in the warning
+through a plain KV put with a valid value, `{"rev":<rev>,"inc":<inc>,"state":"<state>"}`, where
+`rev` and `inc` are positive integers and `state` is `LIVE` or `DROPPED`: the PD leader, a TXN and
+the Server read a record the same way. The next handshake then succeeds.
+
+Do not delete the key. PD creates an absent record again with incarnation `1` the next time the
+graph is opened or created, so an instance of an earlier incarnation could write to the graph
+again. Until then every DDL of a Server that has the graph open fails with
+`INCARNATION_MISMATCH`.
+
+PD keeps no copy of the value that was overwritten, and the warning shows only the bad one.
+Take the fields from what is known about the graph:
+
+| Field | Value to write |
+|-------|----------------|
+| `inc` | The incarnation the graph had: `1`, plus one for each create of the name after a drop, failed creates included. Never write a lower one. If you are not sure, write a higher one: a Server that has the graph open then fails its DDL with `INCARNATION_MISMATCH` until it is restarted, but no old instance can write. |
+| `state` | `LIVE` for a graph that exists, `DROPPED` for one that was dropped and not created again. Do not write `LIVE` for a dropped graph: that would open it for writes again. |
+| `src` | `"create"` only if a create over REST made the graph, as the record had it; otherwise leave it out. A Server drops a `LIVE` record without a graph config only when it has this mark, so a wrong mark lets a drop sent to another Server remove the schema of a graph loaded from `conf/graphs`. |
+| `rev` | The last `rev` of the record, if it is known. If not, write `1` and, for a `LIVE` graph, make one schema change on it afterwards: PD writes the raft index of that commit as the new `rev`, which is above every earlier one, so every Server loads the schema again. For a `DROPPED` graph no schema change can raise the `rev`, and a Server that still has the graph open ignores a record below what it applied, so it would go on serving the graph: stop every Server that may have the graph open before the repair, and start them after it, so that each reads the repaired record when it opens the graph. Do not write a number above the last `rev`: if it is above PD's raft index, later changes get a lower `rev` and are skipped. |
+
 ### Management and Metrics
 
 Controls Spring Boot Actuator endpoints for monitoring.
