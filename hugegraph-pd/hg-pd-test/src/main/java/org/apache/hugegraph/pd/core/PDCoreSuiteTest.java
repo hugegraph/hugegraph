@@ -20,6 +20,7 @@ package org.apache.hugegraph.pd.core;
 import org.apache.hugegraph.pd.core.meta.IdMetaStoreReadIndexTest;
 import org.apache.hugegraph.pd.core.meta.MetadataKeyHelperTest;
 import org.apache.hugegraph.pd.core.store.HgKVStoreImplTest;
+import org.apache.hugegraph.pd.core.store.KvTxnApplierTest;
 import org.apache.hugegraph.pd.core.store.RaftKVStoreTest;
 import org.apache.hugegraph.pd.raft.IpAuthHandlerTest;
 import org.apache.hugegraph.pd.raft.KVOperationTest;
@@ -44,6 +45,7 @@ import lombok.extern.slf4j.Slf4j;
         IdMetaStoreReadIndexTest.class,
         HgKVStoreImplTest.class,
         PDNativeOwnerTest.class,
+        KvTxnApplierTest.class,
         PDConfigTest.class,
         ConfigServiceTest.class,
         IdServiceTest.class,
