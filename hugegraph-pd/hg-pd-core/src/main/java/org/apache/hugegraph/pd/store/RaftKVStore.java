@@ -26,6 +26,9 @@ import java.util.concurrent.TimeUnit;
 import org.apache.hugegraph.pd.common.PDException;
 import org.apache.hugegraph.pd.config.PDConfig;
 import org.apache.hugegraph.pd.grpc.Pdpb;
+import org.apache.hugegraph.pd.grpc.kv.TxnEntry;
+import org.apache.hugegraph.pd.grpc.kv.TxnRequest;
+import org.apache.hugegraph.pd.grpc.kv.TxnResponse;
 import org.apache.hugegraph.pd.raft.KVOperation;
 import org.apache.hugegraph.pd.raft.KVStoreClosure;
 import org.apache.hugegraph.pd.raft.RaftEngine;
@@ -35,6 +38,7 @@ import org.apache.hugegraph.pd.raft.RaftTaskHandler;
 import com.alipay.sofa.jraft.Status;
 import com.alipay.sofa.jraft.entity.Task;
 import com.alipay.sofa.jraft.error.RaftError;
+import com.google.protobuf.InvalidProtocolBufferException;
 
 import lombok.extern.slf4j.Slf4j;
 
@@ -175,6 +179,31 @@ public class RaftKVStore implements HgKVStore, RaftTaskHandler {
         return store.scanRange(start, end);
     }
 
+    /**
+     * A batch reaches the local store only from inside a TXN apply
+     */
+    @Override
+    public void writeBatch(List<KV> kvs) {
+        throw new UnsupportedOperationException("Write a batch through txn");
+    }
+
+    /**
+     * Proposes the TXN as one raft entry, with its keys encoded here, and returns its outcome
+     * on this node
+     */
+    @Override
+    public TxnResponse txn(TxnRequest request) throws PDException {
+        // Not before every peer is confirmed to apply the entry: TXN_NOT_PROPOSED otherwise
+        this.engine.checkTxnPeers();
+        try {
+            byte[] entry = KvTxnApplier.entry(request).toByteArray();
+            return this.<TxnResponse>applyOperation(KVOperation.createTxn(entry)).get();
+        } catch (Exception e) {
+            // With the cause: the message alone doesn't tell what failed, and where
+            throw new PDException(Pdpb.ErrorType.UNKNOWN_VALUE, e.getMessage(), e);
+        }
+    }
+
     @Override
     public void close() {
         store.close();
@@ -249,6 +278,62 @@ public class RaftKVStore implements HgKVStore, RaftTaskHandler {
     public void doPutWithTTL(byte[] key, byte[] value, long ttl, TimeUnit timeUnit) throws
                                                                                     PDException {
         this.store.putWithTTL(key, value, ttl, timeUnit);
+    }
+
+    /**
+     * Whether a raft entry that writes the store is one the store holds already. jraft applies
+     * the entries after the last snapshot again on restart, and without a snapshot that is
+     * over the store that holds them. Every entry up to the last applied TXN was applied before
+     * it, so all of them are skipped, plain writes too: a plain write replayed before a skipped
+     * TXN would overwrite what the TXN wrote. Plain writes after the last TXN are applied again
+     * in order, which leaves the store as it was. TTL entries are kept in memory, not in the
+     * store, so their replay is not skipped, and neither is CLEAR, which empties that memory.
+     * <p>
+     * Only a replay is skipped: an entry that was in this node's log when it started. An entry
+     * above that index is new in this run, and a store that claims to hold it is ahead of the
+     * log (restored from a backup without the log, or written by a build that put another
+     * count under the TXN index key). Skipping it would leave this node behind the peers, which
+     * apply it, so the apply fails instead: jraft stops this node's state machine, a leader
+     * steps down, the probes report the error, and the node takes no further part until an
+     * operator removes its data directory and lets it rejoin from a snapshot.
+     */
+    private boolean appliedBefore(KVOperation op) throws PDException {
+        if (op.getIndex() <= 0L) {
+            // Not a raft entry, such as a snapshot save or load
+            return false;
+        }
+        switch (op.getOp()) {
+            case KVOperation.PUT:
+            case KVOperation.REMOVE:
+            case KVOperation.REMOVE_BY_PREFIX:
+            case KVOperation.TXN:
+                break;
+            default:
+                return false;
+        }
+        long last = KvTxnApplier.lastIndex(this.store);
+        if (op.getIndex() > last) {
+            return false;
+        }
+        if (op.getIndex() > this.engine.getLastLogIndexAtStart()) {
+            String message = "The store of this PD node is ahead of its raft log: entry " +
+                             op.getIndex() + " is new in this run, and the store holds TXN " +
+                             "index " + last + " already. The entry is applied on the other " +
+                             "nodes; this node stops applying, so that it does not serve " +
+                             "stale data. Remove its data directory and let it rejoin from a " +
+                             "snapshot.";
+            log.error(message);
+            throw new PDException(Pdpb.ErrorType.UNKNOWN_VALUE, message);
+        }
+        return true;
+    }
+
+    public TxnResponse doTxn(byte[] entry, long index) throws PDException {
+        try {
+            return KvTxnApplier.apply(this.store, TxnEntry.parseFrom(entry), index);
+        } catch (InvalidProtocolBufferException e) {
+            throw new PDException(Pdpb.ErrorType.UNKNOWN_VALUE, e);
+        }
     }
 
     public void doSaveSnapshot(String snapshotPath) throws PDException {
@@ -329,6 +414,9 @@ public class RaftKVStore implements HgKVStore, RaftTaskHandler {
 
     @Override
     public boolean invoke(KVOperation op, KVStoreClosure response) throws PDException {
+        if (this.appliedBefore(op)) {
+            return false;
+        }
         switch (op.getOp()) {
             case KVOperation.GET:
                 break;
@@ -353,6 +441,12 @@ public class RaftKVStore implements HgKVStore, RaftTaskHandler {
                 break;
             case KVOperation.CLEAR:
                 doClear();
+                break;
+            case KVOperation.TXN:
+                TxnResponse result = doTxn(op.getValue(), op.getIndex());
+                if (response != null) {
+                    response.setData(result);
+                }
                 break;
             case KVOperation.SAVE_SNAPSHOT:
                 doSaveSnapshot((String) op.getAttach());

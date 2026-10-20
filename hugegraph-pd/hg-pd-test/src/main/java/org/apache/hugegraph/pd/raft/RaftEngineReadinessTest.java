@@ -28,6 +28,7 @@ import org.junit.Test;
 
 import com.alipay.sofa.jraft.Node;
 import com.alipay.sofa.jraft.Status;
+import com.alipay.sofa.jraft.conf.Configuration;
 import com.alipay.sofa.jraft.core.State;
 import com.alipay.sofa.jraft.entity.LeaderChangeContext;
 import com.alipay.sofa.jraft.entity.PeerId;
@@ -185,6 +186,24 @@ public class RaftEngineReadinessTest {
         this.engine.refreshAlivePeerCount();
 
         Assert.assertEquals(-1, this.engine.getAlivePeerCount());
+    }
+
+    /**
+     * shutDown() drops the TXN peer gate and the log index of the node it stops, so a txn that
+     * arrives after it fails like any proposal without a node, not with a NullPointerException
+     * from a gate that lists the peers of a dropped node
+     */
+    @Test
+    public void testShutdownDropsTheTxnPeerGate() throws Exception {
+        Whitebox.setInternalState(this.engine, "lastLogIndexAtStart", 7L);
+        Whitebox.setInternalState(this.engine, "txnPeerGate", new TxnPeerGate(
+                () -> { throw new NullPointerException("raftNode"); },
+                endpoint -> null, 3000L, 100L, System::currentTimeMillis));
+        this.engine.shutDown();
+        Assert.assertEquals(Long.MAX_VALUE, this.engine.getLastLogIndexAtStart());
+        Assert.assertNull(Whitebox.getInternalState(this.engine, "txnPeerGate"));
+        this.engine.checkTxnPeers();
+        this.engine.checkTxnPeers(new Configuration());
     }
 
     @Test

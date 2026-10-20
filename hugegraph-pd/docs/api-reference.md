@@ -433,6 +433,11 @@ String value = response.getValue().toStringUtf8();
 System.out.println("Retrieved value: " + value);
 ```
 
+`get` and `scanPrefix` are served by the leader after a Raft ReadIndex barrier, so a leader
+elected a moment ago never answers with a value older than a committed write. When the leader
+cannot confirm the ReadIndex within `raft.rpc-timeout`, the response carries an error and no
+value instead of a stale one; the caller retries.
+
 #### Scan
 
 Range scan for keys matching a prefix.
@@ -473,6 +478,43 @@ for (Kv.KvPair kv : response.getKvsList()) {
     System.out.println(kv.getKey() + " = " + kv.getValue().toStringUtf8());
 }
 ```
+
+#### Txn
+
+Atomic multi-key write: compares, ops and at most one graph record change, applied as one
+Raft entry and one RocksDB write batch. See [KV transactions](#kv-transactions) for the
+semantics and the retry contract.
+
+**Request**:
+```protobuf
+message TxnRequest {
+    pdpb.RequestHeader header = 1;
+    repeated TxnCompare compares = 2;  // key, kind (ABSENT | EQUALS), value
+    repeated TxnOp ops = 3;            // type (PUT | DELETE | DELETE_PREFIX), key, value
+    TxnRecord record = 4;              // key, op (BUMP | CREATE | DROP), expected_incarnation
+}
+```
+
+**Response**:
+```protobuf
+message TxnResponse {
+    pdpb.ResponseHeader header = 1;
+    bool succeeded = 2;
+    int64 revision = 3;      // the record's rev after the TXN (the Raft index, or the
+                             // previous rev plus one when higher); the index without a record
+    int64 incarnation = 4;   // the record's incarnation after the TXN, or the stored one
+    Failure failure = 5;     // NONE | COMPARE_FAILED | GRAPH_DROPPED | INCARNATION_MISMATCH |
+                             // INVALID_RECORD
+    int32 failed_compare = 6;
+    string state = 7;        // LIVE | DROPPED, or "" for an absent or unreadable record
+}
+```
+
+A failed compare or a rejected record is an unsuccessful response, not an error. The zero
+value of each enum is `UNSPECIFIED`: a compare, op or record whose field was never set is
+rejected before the proposal, as is an empty key, with error type `TXN_NOT_PROPOSED` (nothing
+was applied). The TXN is proposed by the leader; a follower forwards it. Each node applies the
+entry with the keys as the proposing node encoded them, so every replica writes the same bytes.
 
 ### 3. Pulse Service (HgPdPulseGrpc)
 
@@ -755,6 +797,81 @@ for (Map.Entry<String, byte[]> entry : results.entrySet()) {
     System.out.println(entry.getKey() + " = " + new String(entry.getValue()));
 }
 ```
+
+### KV transactions
+
+`KvClient.txn(TxnRequest)` commits writes and an optional graph record update as one Raft
+entry, applied in one RocksDB batch on every PD node. Only the leader proposes it: a follower
+forwards it. `txn` sends the request to one PD, and once more to the leader found again only
+when the connection was refused, so the request was never sent; it throws `PDException` when
+it gets no answer, or when PD answers with a gRPC status (the status is in the message and the
+cause: `UNIMPLEMENTED` from a PD older than this RPC means the call was rejected before any
+apply; `UNAVAILABLE` and `DEADLINE_EXCEEDED` mean it was lost). A `PDException` of error type
+`TXN_NOT_PROPOSED` is PD's answer to a request it did not propose (invalid, see below, or a PD
+peer that lacks the RPC), so nothing was applied; every other failure is an unknown outcome.
+The request has three parts:
+
+- **Compares.** Each names a key and a kind: `ABSENT` holds while the key does not exist (an
+  empty value is a value), `EQUALS` while its value equals the given one. If one fails, nothing
+  is written and the failure is `COMPARE_FAILED`, with the failed compare.
+- **Ops.** In order: `PUT` a key and value, `DELETE` a key, `DELETE_PREFIX` every key under a
+  prefix. An op or compare with an empty key, or whose kind, type or record op was left at the
+  zero value `UNSPECIFIED`, is rejected before the TXN is proposed. A value that was put with a
+  TTL has a cleanup marker next to it; an op that replaces or deletes such a value deletes the
+  marker in the same batch, so the cleanup cannot delete what the TXN wrote.
+- **Record.** At most one graph record, `HUGEGRAPH/{cluster}/SCHEMA_SYNC/{graphspace}/{graph}`,
+  with an op and the incarnation the writer expects:
+  - `BUMP` sets `rev` to the Raft index of the entry, or to the previous `rev` plus one when
+    that is higher (after `raft.enable` changed on the store, the index starts low again), so
+    `rev` only rises. With expected incarnation 0 it creates an absent record as `LIVE`
+    incarnation 1. It fails with `GRAPH_DROPPED` on a dropped graph and `INCARNATION_MISMATCH`
+    on another incarnation.
+  - `CREATE` starts the next incarnation, or 1, as `LIVE`, whatever the stored state, and marks
+    the record `"src":"create"`, which `BUMP` and `DROP` keep and nothing removes; a record a
+    `BUMP` created has no mark. A caller that must not take over a `LIVE` record guards the
+    `CREATE` with compares on its own keys and on the record as it read it (`ABSENT`, or
+    `EQUALS` the `DROPPED` value).
+  - `DROP` marks the expected incarnation `DROPPED`. It fails with `INCARNATION_MISMATCH` when
+    the record is absent or of another incarnation, and `GRAPH_DROPPED` when it is dropped
+    already.
+  - A stored record that is not `{"rev":<n>,"inc":<n>,"state":"LIVE"|"DROPPED"}` with positive
+    integers fails every txn on it with `INVALID_RECORD`.
+
+The response carries `succeeded`, the `revision` (the record's `rev` after the TXN, or the
+Raft index of the entry for a TXN without a record), the record's `incarnation` and `state`,
+and the `failure`. Keys and values share the namespace of `put`,
+`get` and `scanPrefix`, and a TXN write fires no plain watch event. PD keeps no request ids
+and a txn applied twice is not always harmless (a guarded `CREATE` fails its record compare
+the second time), so `KvClient` sends a txn once, and a PD that lost the leadership after it
+took a txn answers with the error instead of forwarding it. When `txn` throws, the outcome is
+unknown: read the state before retrying. This is the one call the retry advice under
+[Best Practices](#4-retry-strategy) does not cover.
+
+A TXN is proposed only once every other node of the Raft group (voters and learners) has
+answered the leader's member probe as a release that applies the TXN entry; that answer is
+remembered for the life of the leader process, and a peer that has not answered yet, or
+answered as an older release, blocks every `txn` with `TXN_NOT_PROPOSED` naming it, while a
+confirmed peer that is unreachable later does not block. Unconfirmed peers are probed again
+on a `txn` attempt at most every 3 seconds, and at once when the group's configuration changes,
+so a node added to the group blocks `txn` until it answers, and after a leader restart the
+first `txn` probes every peer once. A peer that joins applies the log, `txn` entries included,
+so a membership change (`changePeerList`, `updatePdRaft`) probes every peer of the new
+configuration first and is refused with `TXN_NOT_PROPOSED` when one is unconfirmed or older:
+an old-release PD can no longer be added to an upgraded group. Upgrade every PD node before
+the first `txn`; a PD downgrade after it is unsupported.
+
+On a restart without a snapshot, PD applies the Raft log after the last snapshot again over
+the store that holds it. Every TXN records its Raft index in the store, and a restarted node
+skips every store write at or below that index, plain puts included: a plain put from before
+the first TXN, applied again over what a later TXN wrote, would undo the TXN. Only a replay is
+skipped: an entry that was in the node's log when it started. An entry above that index is new
+in this run, and a store that claims to hold it is ahead of its log (a store restored from a
+backup without the log): the other nodes apply the entry, and this node fails the apply instead
+of skipping it, so that it does not fall behind them in silence. jraft then stops this node's
+state machine, a leader steps down, the readiness probe reports the error, and the node logs
+the entry and the stored index at error level. Recovery: remove the node's data directory and
+let it rejoin from a snapshot. A PD run without Raft (`raft.enable=false`) counts its TXNs
+under a key of its own, so switching such a store to Raft does not trip this.
 
 ### KV watch recovery
 
@@ -1057,6 +1174,8 @@ ManagedChannel channel = ManagedChannelBuilder
 - Implement exponential backoff for retries
 - Retry on transient errors (UNAVAILABLE, DEADLINE_EXCEEDED)
 - Don't retry on permanent errors (NOT_FOUND, INVALID_ARGUMENT)
+- Except for `txn`: a lost `txn` may have committed, so it is sent once and the caller reads
+  the state before retrying (see [KV transactions](#kv-transactions))
 
 ```java
 int maxRetries = 3;

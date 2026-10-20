@@ -19,6 +19,7 @@ package org.apache.hugegraph.pd.raft;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 
 import org.apache.hugegraph.pd.config.PDConfig;
 import org.apache.hugegraph.pd.raft.auth.IpAuthHandler;
@@ -43,15 +44,23 @@ import io.netty.channel.ChannelHandler;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 
 public class RaftEngineIpAuthIntegrationTest {
 
     private Node originalRaftNode;
+    private Object originalTxnPeerGate;
 
     @Before
     public void setUp() {
         // Save original raftNode so we can restore it after the test
         originalRaftNode = RaftEngine.getInstance().getRaftNode();
+        // changePeerList probes the new peers first; here every peer answers as upgraded
+        originalTxnPeerGate = Whitebox.getInternalState(RaftEngine.getInstance(),
+                                                        "txnPeerGate");
+        Whitebox.setInternalState(RaftEngine.getInstance(), "txnPeerGate",
+                                  gateAnswering(KVOperation.TXN));
         // Reset IpAuthHandler singleton for a clean state
         Whitebox.setInternalState(IpAuthHandler.class, "instance", null);
     }
@@ -60,8 +69,42 @@ public class RaftEngineIpAuthIntegrationTest {
     public void tearDown() {
         // Restore original raftNode
         Whitebox.setInternalState(RaftEngine.getInstance(), "raftNode", originalRaftNode);
+        Whitebox.setInternalState(RaftEngine.getInstance(), "txnPeerGate", originalTxnPeerGate);
         // Reset IpAuthHandler singleton
         Whitebox.setInternalState(IpAuthHandler.class, "instance", null);
+    }
+
+    /**
+     * A gate whose every peer answers the member probe with the given highest KV opcode
+     */
+    private static TxnPeerGate gateAnswering(byte maxKvOp) {
+        return new TxnPeerGate(Collections::emptyList, endpoint -> {
+            RaftRpcProcessor.GetMemberResponse response = new RaftRpcProcessor.GetMemberResponse();
+            response.setMaxKvOp(maxKvOp);
+            return CompletableFuture.completedFuture(response);
+        }, 3000L, 100L, System::currentTimeMillis);
+    }
+
+    /**
+     * A peer of the new configuration that answers as a release without the TXN entry stops
+     * the membership change before changePeers: it would replay the log and skip TXN entries
+     */
+    @Test
+    public void testChangePeerListRefusesAPeerWithoutTheTxnEntry() throws Exception {
+        IpAuthHandler handler = IpAuthHandler.getInstance(
+                Collections.singleton("10.0.0.1"));
+        Whitebox.setInternalState(RaftEngine.getInstance(), "txnPeerGate",
+                                  gateAnswering((byte) 0));
+        Node mockNode = mock(Node.class);
+        Whitebox.setInternalState(RaftEngine.getInstance(), "raftNode", mockNode);
+
+        Status status = RaftEngine.getInstance().changePeerList("127.0.0.1:8610");
+
+        Assert.assertFalse(status.isOk());
+        Assert.assertTrue(status.getErrorMsg(), status.getErrorMsg().contains("127.0.0.1:8610"));
+        verify(mockNode, never()).changePeers(any(Configuration.class), any(Closure.class));
+        Assert.assertTrue(invokeIsIpAllowed(handler, "10.0.0.1"));
+        Assert.assertFalse(invokeIsIpAllowed(handler, "127.0.0.1"));
     }
 
     @Test

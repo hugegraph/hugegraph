@@ -20,6 +20,7 @@ package org.apache.hugegraph.pd.raft;
 import com.alipay.sofa.jraft.Node;
 import com.alipay.sofa.jraft.ReplicatorGroup;
 import com.alipay.sofa.jraft.core.Replicator;
+import com.alipay.sofa.jraft.storage.LogManager;
 import com.alipay.sofa.jraft.entity.PeerId;
 import com.alipay.sofa.jraft.util.ThreadId;
 
@@ -27,6 +28,29 @@ import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 public class RaftReflectionUtil {
+
+    /**
+     * The last index of the node's raft log, read from its log manager; Long.MAX_VALUE when
+     * it cannot be read, which the caller treats as "unknown"
+     */
+    public static long getLastLogIndex(Node node) {
+        if (node == null) {
+            return Long.MAX_VALUE;
+        }
+        try {
+            var f = node.getClass().getDeclaredField("logManager");
+            f.setAccessible(true);
+            try {
+                LogManager logManager = (LogManager) f.get(node);
+                return logManager == null ? Long.MAX_VALUE : logManager.getLastLogIndex();
+            } finally {
+                f.setAccessible(false);
+            }
+        } catch (NoSuchFieldException | IllegalAccessException | ClassCastException e) {
+            log.warn("Failed to get the last log index via reflection: {}", e.getMessage(), e);
+            return Long.MAX_VALUE;
+        }
+    }
 
     public static Replicator.State getReplicatorState(Node node, PeerId peerId) {
         if (node == null || peerId == null) {

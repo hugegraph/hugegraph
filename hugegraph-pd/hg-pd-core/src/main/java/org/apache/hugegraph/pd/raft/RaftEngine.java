@@ -87,11 +87,17 @@ public class RaftEngine {
     private volatile static RaftEngine instance = new RaftEngine();
     private RaftStateMachine stateMachine;
     private String groupId = "pd_raft";
+    // How long an unconfirmed peer is left alone between txn attempts, see TxnPeerGate
+    private static final long TXN_PEER_PROBE_INTERVAL_MS = 3000L;
     private PDConfig.Raft config;
     private RaftGroupService raftGroupService;
     private RpcServer rpcServer;
     private volatile Node raftNode;
     private RaftRpcClient raftRpcClient;
+    // The last index of this node's log when it started, Long.MAX_VALUE until a node runs
+    private volatile long lastLogIndexAtStart = Long.MAX_VALUE;
+    // Confirms that every peer applies the TXN entry before one is proposed, null without a node
+    private volatile TxnPeerGate txnPeerGate;
     private volatile int alivePeerCount = -1;
     private ScheduledExecutorService alivePeersRefresher;
 
@@ -155,6 +161,13 @@ public class RaftEngine {
                 new RaftGroupService(groupId, serverId, nodeOptions, rpcServer, true);
         this.stateMachine.resetForNewNode();
         this.raftNode = raftGroupService.start(false);
+        // Read before the node appends anything new: the entries up to here are the replay
+        this.lastLogIndexAtStart = RaftReflectionUtil.getLastLogIndex(this.raftNode);
+        log.info("Raft log ends at index {} at start", this.lastLogIndexAtStart);
+        this.txnPeerGate = new TxnPeerGate(() -> otherPeerEndpoints(serverId),
+                                           raftRpcClient::getGrpcAddress,
+                                           TXN_PEER_PROBE_INTERVAL_MS, config.getRpcTimeout(),
+                                           System::currentTimeMillis);
         startAlivePeersRefresher();
         log.info("RaftEngine start successfully: id = {}, peers list = {}", groupId,
                  nodeOptions.getInitialConf().getPeers());
@@ -240,6 +253,9 @@ public class RaftEngine {
                 this.alivePeersRefresher = null;
             }
             this.alivePeerCount = -1;
+            // Without a node there is no configuration to gate and no log to tell a replay by
+            this.txnPeerGate = null;
+            this.lastLogIndexAtStart = Long.MAX_VALUE;
             if (this.raftGroupService != null) {
                 this.raftGroupService.shutdown();
                 boolean joined = false;
@@ -579,6 +595,8 @@ public class RaftEngine {
                 throw new PDException(-1, "the number of peer list must be odd.");
             }
             newPeers.parse(peerList);
+            // A peer that joins applies the log, TXN entries included
+            checkTxnPeers(newPeers);
             CountDownLatch latch = new CountDownLatch(1);
             this.raftNode.changePeers(newPeers, status -> {
                 result.compareAndSet(null, status);
@@ -648,6 +666,74 @@ public class RaftEngine {
 
     public Node getRaftNode() {
         return raftNode;
+    }
+
+    /**
+     * The last index of this node's raft log when the node started. After a restart jraft
+     * applies the log after the last snapshot again, and every entry at or below this index
+     * is such a replay; an entry above it is new in this run. Long.MAX_VALUE while no node
+     * runs or the index could not be read, so every entry counts as a replay then.
+     */
+    public long getLastLogIndexAtStart() {
+        return this.lastLogIndexAtStart;
+    }
+
+    /**
+     * Fails when a peer of the current configuration is not confirmed to apply the TXN
+     * entry, see {@link TxnPeerGate}; does nothing without a node
+     *
+     * @throws PDException TXN_NOT_PROPOSED
+     */
+    public void checkTxnPeers() throws PDException {
+        TxnPeerGate gate = this.txnPeerGate;
+        if (gate != null) {
+            gate.check();
+        }
+    }
+
+    /**
+     * Fails when a peer of a configuration about to be installed is not confirmed to apply
+     * the TXN entry: a peer that joins replays the log, TXN entries included. Called before
+     * every membership change; does nothing without a node
+     *
+     * @throws PDException TXN_NOT_PROPOSED, naming the peer
+     */
+    public void checkTxnPeers(Configuration next) throws PDException {
+        TxnPeerGate gate = this.txnPeerGate;
+        if (gate == null) {
+            return;
+        }
+        PeerId self = this.config == null ? null : JRaftUtils.getPeerId(this.config.getAddress());
+        List<String> endpoints = new ArrayList<>();
+        List<PeerId> peers = new ArrayList<>(next.getPeers());
+        peers.addAll(next.getLearners());
+        for (PeerId peer : peers) {
+            if (!PeerUtil.isPeerEquals(peer, self)) {
+                endpoints.add(peer.getEndpoint().toString());
+            }
+        }
+        gate.confirm(endpoints);
+    }
+
+    /**
+     * The endpoints of the voters and learners of the current configuration, this node
+     * left out
+     */
+    private List<String> otherPeerEndpoints(PeerId self) {
+        List<String> endpoints = new ArrayList<>();
+        Node node = this.raftNode;
+        if (node == null) {
+            // Shut down meanwhile: no configuration; the proposal fails without a node
+            return endpoints;
+        }
+        List<PeerId> peers = new ArrayList<>(node.listPeers());
+        peers.addAll(node.listLearners());
+        for (PeerId peer : peers) {
+            if (!PeerUtil.isPeerEquals(peer, self)) {
+                endpoints.add(peer.getEndpoint().toString());
+            }
+        }
+        return endpoints;
     }
 
     /**

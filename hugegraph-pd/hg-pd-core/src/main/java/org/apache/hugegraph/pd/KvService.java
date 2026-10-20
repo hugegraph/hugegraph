@@ -18,18 +18,26 @@
 package org.apache.hugegraph.pd;
 
 import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.apache.hugegraph.pd.common.PDException;
 import org.apache.hugegraph.pd.config.PDConfig;
+import org.apache.hugegraph.pd.grpc.Pdpb;
 import org.apache.hugegraph.pd.grpc.kv.Kv;
+import org.apache.hugegraph.pd.grpc.kv.TxnCompare;
+import org.apache.hugegraph.pd.grpc.kv.TxnOp;
+import org.apache.hugegraph.pd.grpc.kv.TxnRequest;
+import org.apache.hugegraph.pd.grpc.kv.TxnResponse;
 import org.apache.hugegraph.pd.grpc.kv.V;
 import org.apache.hugegraph.pd.meta.MetadataKeyHelper;
 import org.apache.hugegraph.pd.meta.MetadataRocksDBStore;
 import org.apache.hugegraph.pd.store.KV;
+import org.apache.hugegraph.pd.store.KvTxnApplier;
 import org.springframework.stereotype.Service;
 
 import com.google.protobuf.InvalidProtocolBufferException;
@@ -51,6 +59,8 @@ public class KvService {
     private static final byte[] EMPTY_VALUE = new byte[0];
     private MetadataRocksDBStore meta;
     private PDConfig pdConfig;
+    // Whether the TTL cleanup deletes with plain removes, because a PD peer blocks txn
+    private final AtomicBoolean plainTtlCleanup = new AtomicBoolean();
 
     public KvService(PDConfig config) {
         this.pdConfig = config;
@@ -69,6 +79,24 @@ public class KvService {
     public static byte[] getKeyBytes(Object... keys) {
         String key = getKey(keys);
         return key.getBytes(Charset.defaultCharset());
+    }
+
+    /**
+     * The TTL marker {@link #getTTLStoreKey(String, long)} wrote next to the store key of a
+     * value that expires at expireAt (the ttl field of its {@link V}), built from the store
+     * key's bytes so every raft node names the same marker. clearTTLData deletes the key a
+     * marker names once the marker's time has passed, whatever the key holds by then, so a
+     * write that replaces a TTL value must delete its marker too.
+     */
+    public static byte[] ttlMarkerKey(byte[] storeKey, long expireAt) {
+        // K@T@<time>@<key>; the prefix is ASCII, which every default charset encodes alike
+        byte[] prefix = (KV_PREFIX_DELIMITER + TTL_PREFIX + KV_DELIMITER + expireAt +
+                         KV_DELIMITER).getBytes(StandardCharsets.US_ASCII);
+        int keyStart = KV_PREFIX_DELIMITER.length();
+        byte[] marker = new byte[prefix.length + storeKey.length - keyStart];
+        System.arraycopy(prefix, 0, marker, 0, prefix.length);
+        System.arraycopy(storeKey, keyStart, marker, prefix.length, storeKey.length - keyStart);
+        return marker;
     }
 
     public static String getKeyWithoutPrefix(Object... keys) {
@@ -104,6 +132,16 @@ public class KvService {
         meta.put(getStoreKey(key), storeValue.toByteArray());
         meta.put(getTTLStoreKey(key, curTime), EMPTY_VALUE);
         // log.warn("add key with key-{}:value-{}:ttl-{}", key, value, ttl);
+    }
+
+    /**
+     * Atomic multi-key write, see {@link KvTxnApplier}. A failed compare or a rejected record
+     * is an unsuccessful response, not an exception. Keys a TXN writes must not be written with
+     * put or delete as well.
+     */
+    public TxnResponse txn(TxnRequest request) throws PDException {
+        KvTxnApplier.validate(request);
+        return meta.getStore().txn(request);
     }
 
     public String get(String key) throws PDException {
@@ -297,15 +335,88 @@ public class KvService {
             byte[] ttlStartKey = getTTLStoreKey("", 0);
             byte[] ttlEndKey = getTTLStoreKey("", System.currentTimeMillis());
             List<KV> kvList = meta.scanRange(ttlStartKey, ttlEndKey);
+            // A marker is K@T@<time>@<key>: the key starts after the delimiter that ends the time
+            int timeStart = (KV_PREFIX_DELIMITER + TTL_PREFIX + KV_DELIMITER).length();
             for (KV kv : kvList) {
                 String key = new String(kv.getKey());
-                int index = key.indexOf(KV_DELIMITER, 2);
+                int index = key.indexOf(KV_DELIMITER, timeStart);
                 String delKey = key.substring(index + 1);
-                delete(delKey);
-                meta.remove(kv.getKey());
+                byte[] stored = meta.getOne(getStoreKey(delKey));
+                removeExpired(delKey, key.substring(KV_PREFIX_DELIMITER.length()), stored);
             }
         } catch (Exception e) {
             log.error("clear ttl data with error :", e);
+        }
+    }
+
+    /**
+     * Deletes a key whose TTL marker expired, and the marker, with one guarded txn bound to
+     * that marker's generation of the value. The value the cleanup read must carry the
+     * marker's expiry, so a value written after the marker (with another TTL, or none) is kept
+     * and only the stale marker goes. At the apply, the txn deletes only while the marker
+     * still exists and the key still holds the value read: a txn that wrote the key removes
+     * its marker in the same batch, so it keeps its value whenever it lands, even with the
+     * identical string. A plain put without a TTL keeps the marker, so one that rewrites the
+     * identical string between the read and the apply is still deleted. While a PD peer blocks
+     * txn (a rolling upgrade), the cleanup deletes with plain removes as before, and says so
+     * once.
+     *
+     * @param key    the key, without the K@ prefix
+     * @param marker the marker key, without the K@ prefix: T@<time>@<key>
+     * @param stored what the cleanup read under the key, null if it is absent
+     */
+    public void removeExpired(String key, String marker, byte[] stored) throws PDException {
+        if (stored == null) {
+            meta.remove(getStoreKey(marker));
+            return;
+        }
+        V read;
+        try {
+            read = V.parseFrom(stored);
+        } catch (InvalidProtocolBufferException e) {
+            // Not a value KvService wrote: the plain delete of before
+            delete(key);
+            meta.remove(getStoreKey(marker));
+            return;
+        }
+        int timeEnd = marker.indexOf(KV_DELIMITER, TTL_PREFIX.length() + 1);
+        long expireAt = Long.parseLong(marker.substring(TTL_PREFIX.length() + 1, timeEnd));
+        if (read.getTtl() != expireAt) {
+            // Written after the marker, with another TTL or none: not the value it names
+            meta.remove(getStoreKey(marker));
+            return;
+        }
+        TxnRequest request = TxnRequest.newBuilder()
+                // The marker still exists: no txn wrote the key since the scan
+                .addCompares(TxnCompare.newBuilder().setKey(marker)
+                                       .setKind(TxnCompare.Kind.EQUALS).setValue(""))
+                .addCompares(TxnCompare.newBuilder().setKey(key)
+                                       .setKind(TxnCompare.Kind.EQUALS)
+                                       .setValue(read.getValue()))
+                .addOps(TxnOp.newBuilder().setType(TxnOp.Type.DELETE).setKey(key))
+                .addOps(TxnOp.newBuilder().setType(TxnOp.Type.DELETE).setKey(marker))
+                .build();
+        TxnResponse response;
+        try {
+            response = txn(request);
+        } catch (PDException e) {
+            if (e.getErrorCode() != Pdpb.ErrorType.TXN_NOT_PROPOSED_VALUE) {
+                throw e;
+            }
+            if (this.plainTtlCleanup.compareAndSet(false, true)) {
+                log.warn("TTL cleanup deletes with plain removes until txn is allowed: {}",
+                         e.getMessage());
+            }
+            delete(key);
+            meta.remove(getStoreKey(marker));
+            return;
+        }
+        if (this.plainTtlCleanup.compareAndSet(true, false)) {
+            log.info("TTL cleanup deletes with guarded txns again");
+        }
+        if (!response.getSucceeded()) {
+            // The key changed since the read: keep it, drop the marker that named the old value
+            meta.remove(getStoreKey(marker));
         }
     }
 
