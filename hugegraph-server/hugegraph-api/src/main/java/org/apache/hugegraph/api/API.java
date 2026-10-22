@@ -29,6 +29,7 @@ import org.apache.hugegraph.HugeGraph;
 import org.apache.hugegraph.core.GraphManager;
 import org.apache.hugegraph.define.Checkable;
 import org.apache.hugegraph.exception.NotFoundException;
+import org.apache.hugegraph.meta.SchemaSyncClient;
 import org.apache.hugegraph.metrics.MetricsUtil;
 import org.apache.hugegraph.space.GraphSpace;
 import org.apache.hugegraph.space.SchemaTemplate;
@@ -99,6 +100,18 @@ public class API {
 
     public static HugeGraph graph(GraphManager manager, String graphSpace,
                                   String graph) {
+        HugeGraph g = graphWithoutSyncCheck(manager, graphSpace, graph);
+        // A new request is not served from a schema cache that may be stale
+        SchemaSyncClient.check(graphSpace, graph);
+        return g;
+    }
+
+    /**
+     * The graph also while its schema is not synced, for a listing that reads only its
+     * config and metadata: one graph that is not served must not fail the listing
+     */
+    public static HugeGraph graphWithoutSyncCheck(GraphManager manager, String graphSpace,
+                                                  String graph) {
         HugeGraph g = manager.graph(graphSpace, graph);
         if (g == null) {
             throw new NotFoundException(String.format(

@@ -114,6 +114,17 @@ public class HugeFactory {
         GRAPHS.remove(spaceGraphName);
     }
 
+    /**
+     * Removes the registration of the graph only while it is the registered instance of its
+     * name. A stale instance, such as the one of a create that rolls back after its name was
+     * dropped and created again, must not remove the instance that replaced it.
+     *
+     * @return whether the graph was the registered instance and is removed
+     */
+    public static synchronized boolean removeIfRegistered(HugeGraph graph) {
+        return GRAPHS.remove(graph.spaceGraphName(), graph);
+    }
+
     public static void closeCurrentThreadTransactions() {
         List<StandardHugeGraph> graphs;
         synchronized (HugeFactory.class) {

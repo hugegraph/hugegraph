@@ -44,6 +44,7 @@ import org.apache.hugegraph.config.CoreOptions;
 import org.apache.hugegraph.exception.ConnectionException;
 import org.apache.hugegraph.exception.NotFoundException;
 import org.apache.hugegraph.meta.MetaManager;
+import org.apache.hugegraph.meta.SchemaSyncClient;
 import org.apache.hugegraph.meta.lock.LockResult;
 import org.apache.hugegraph.structure.HugeVertex;
 import org.apache.hugegraph.util.E;
@@ -137,9 +138,16 @@ public class DistributedTaskScheduler extends TaskAndResultScheduler {
             return;
         }
 
+        /*
+         * No task starts, or is set to start again, while the schema cache of the graph may
+         * be stale. The tasks this Server runs are still cancelled and deleted.
+         */
+        boolean serving = SchemaSyncClient.serving(this.graphSpace, this.graphName);
+
         // Handle tasks in NEW status
-        Iterator<HugeTask<Object>> news = queryTaskWithoutResultByStatus(
-                TaskStatus.NEW);
+        Iterator<HugeTask<Object>> news = serving ?
+                                          queryTaskWithoutResultByStatus(TaskStatus.NEW) :
+                                          QueryResults.emptyIterator();
 
         while (!this.closed.get() && news.hasNext()) {
             HugeTask<?> newTask = news.next();
@@ -174,8 +182,9 @@ public class DistributedTaskScheduler extends TaskAndResultScheduler {
         }
 
         // Handle tasks in FAILED/HANGING state
-        Iterator<HugeTask<Object>> faileds =
-                queryTaskWithoutResultByStatus(TaskStatus.FAILED);
+        Iterator<HugeTask<Object>> faileds = serving ?
+                                             queryTaskWithoutResultByStatus(TaskStatus.FAILED) :
+                                             QueryResults.emptyIterator();
 
         while (!this.closed.get() && faileds.hasNext()) {
             HugeTask<?> failed = faileds.next();

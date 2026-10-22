@@ -65,6 +65,12 @@ public class EdgeLabelRemoveJob extends SchemaJob {
                 for (Id indexId : indexIds) {
                     IndexLabelRemoveJob.removeIndexLabel(graph, indexId);
                 }
+                // Removing the index labels saved a new edge label object: writes
+                // invalidate the schema cache instead of updating the cached one
+                EdgeLabel latest = schemaTx.getEdgeLabel(id);
+                if (latest != null) {
+                    edgeLabel = latest;
+                }
                 // Remove all edges which has matched label
                 // TODO: use event to replace direct call
                 graphTx.removeEdges(edgeLabel);
@@ -76,7 +82,15 @@ public class EdgeLabelRemoveJob extends SchemaJob {
                 // Remove edge label
                 removeSchema(schemaTx, edgeLabel);
             } catch (Throwable e) {
-                schemaTx.updateSchemaStatus(edgeLabel, SchemaStatus.UNDELETED);
+                /*
+                 * Restore the status on the label as stored now: the object read before
+                 * still lists the index labels removed meanwhile, saving it would bring their
+                 * ids back
+                 */
+                EdgeLabel current = schemaTx.getEdgeLabel(id);
+                if (current != null) {
+                    schemaTx.updateSchemaStatus(current, SchemaStatus.UNDELETED);
+                }
                 throw e;
             }
         } finally {

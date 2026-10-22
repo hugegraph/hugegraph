@@ -18,6 +18,7 @@
 package org.apache.hugegraph.pd.client;
 
 import java.io.Closeable;
+import java.net.ConnectException;
 import java.util.LinkedList;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -42,6 +43,7 @@ import io.grpc.ClientCall;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
 import io.grpc.MethodDescriptor;
+import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
 import io.grpc.stub.AbstractBlockingStub;
 import io.grpc.stub.AbstractStub;
@@ -105,8 +107,16 @@ public abstract class AbstractClient implements Closeable {
     }
 
     protected synchronized AbstractBlockingStub getBlockingStub() throws PDException {
+        return getBlockingStub(stubResetTimeoutMillis());
+    }
+
+    /**
+     * The blocking stub, connecting again within the given time when there is none
+     */
+    private synchronized AbstractBlockingStub getBlockingStub(long resetTimeoutMillis)
+            throws PDException {
         if (proxy.getBlockingStub() == null) {
-            String host = resetStub(stubResetTimeoutMillis());
+            String host = resetStub(resetTimeoutMillis);
             if (host.isEmpty()) {
                 throw new PDException(Pdpb.ErrorType.PD_UNREACHABLE_VALUE,
                                       "PD unreachable, pd.peers=" + config.getServerHost());
@@ -257,7 +267,35 @@ public abstract class AbstractClient implements Closeable {
 
     protected <ReqT, RespT> RespT blockingUnaryCall(
             MethodDescriptor<ReqT, RespT> method, ReqT req, int retry) throws PDException {
-        AbstractBlockingStub stub = getBlockingStub();
+        return blockingUnaryCall(method, req, retry, 0L);
+    }
+
+    /**
+     * As {@link #blockingUnaryCall(MethodDescriptor, Object)}, with a deadline for each attempt
+     * instead of the configured gRPC timeout, which 0 keeps. Connecting, when an attempt finds
+     * no stub, gets the same deadline for each PD it tries, so a PD host that lost power costs
+     * that deadline, not the TCP connect timeout.
+     */
+    protected <ReqT, RespT> RespT blockingUnaryCallWithin(
+            long timeoutMillis, MethodDescriptor<ReqT, RespT> method, ReqT req)
+            throws PDException {
+        if (timeoutMillis <= 0L) {
+            return blockingUnaryCall(method, req);
+        }
+        return blockingUnaryCall(method, req, 0, timeoutMillis);
+    }
+
+    private <ReqT, RespT> RespT blockingUnaryCall(MethodDescriptor<ReqT, RespT> method, ReqT req,
+                                                  int retry, long timeoutMillis)
+            throws PDException {
+        AbstractBlockingStub stub;
+        if (timeoutMillis > 0L) {
+            stub = getBlockingStub(timeoutMillis * Math.max(1, proxy.getHostCount()));
+            stub = (AbstractBlockingStub) stub.withDeadlineAfter(timeoutMillis,
+                                                                 TimeUnit.MILLISECONDS);
+        } else {
+            stub = getBlockingStub();
+        }
         try {
             RespT resp =
                     ClientCalls.blockingUnaryCall(stub.getChannel(), method, stub.getCallOptions(),
@@ -270,13 +308,75 @@ public abstract class AbstractClient implements Closeable {
                     synchronized (this) {
                         proxy.setBlockingStub(null);
                     }
-                    return blockingUnaryCall(method, req, ++retry);
+                    return blockingUnaryCall(method, req, ++retry, timeoutMillis);
                 }
             } else {
                 log.error(method.getFullMethodName() + " exception, ", e);
             }
         }
         return null;
+    }
+
+    /**
+     * Sends the request once, for a call that is not idempotent: it can't be sent again when
+     * its response is lost. An UNAVAILABLE status drops the stub if it still holds the channel
+     * of the call, so the next call connects again; other failures keep it, since calls of
+     * other threads may be running on the channel and a reconnect would cut them off. A call
+     * whose connection was refused never left this client, so it is sent once more on a new
+     * stub, as a PD that stopped a moment ago leaves it.
+     *
+     * @return null when the call failed
+     */
+    protected <ReqT, RespT> RespT blockingUnaryCallOnce(
+            MethodDescriptor<ReqT, RespT> method, ReqT req) throws PDException {
+        return blockingUnaryCallOnce(method, req, false);
+    }
+
+    private <ReqT, RespT> RespT blockingUnaryCallOnce(
+            MethodDescriptor<ReqT, RespT> method, ReqT req, boolean resent) throws PDException {
+        AbstractBlockingStub stub;
+        Channel attemptChannel;
+        synchronized (this) {
+            stub = getBlockingStub();
+            // The stub of the call wraps the channel with its interceptors: compare the stored one
+            attemptChannel = proxy.getBlockingStub().getChannel();
+        }
+        try {
+            return ClientCalls.blockingUnaryCall(stub.getChannel(), method,
+                                                 stub.getCallOptions(), req);
+        } catch (StatusRuntimeException e) {
+            boolean unsent = !resent && refused(e);
+            log.warn("{} failed, {}: {}", method.getFullMethodName(),
+                     unsent ? "never sent, sending it once more" : "not sent again",
+                     e.getStatus());
+            if (e.getStatus().getCode() == Status.Code.UNAVAILABLE) {
+                synchronized (this) {
+                    AbstractBlockingStub current = proxy.getBlockingStub();
+                    if (current != null && current.getChannel() == attemptChannel) {
+                        proxy.setBlockingStub(null);
+                    }
+                }
+            }
+            return unsent ? blockingUnaryCallOnce(method, req, true) : null;
+        } catch (RuntimeException e) {
+            log.error(method.getFullMethodName() + " exception, not sent again", e);
+            return null;
+        }
+    }
+
+    /**
+     * Whether the call failed to connect, so its request was never written
+     */
+    private static boolean refused(StatusRuntimeException e) {
+        if (e.getStatus().getCode() != Status.Code.UNAVAILABLE) {
+            return false;
+        }
+        for (Throwable cause = e.getCause(); cause != null; cause = cause.getCause()) {
+            if (cause instanceof ConnectException) {
+                return true;
+            }
+        }
+        return false;
     }
 
     // this.stubs = new ConcurrentHashMap<String,AbstractBlockingStub>(hosts.length);

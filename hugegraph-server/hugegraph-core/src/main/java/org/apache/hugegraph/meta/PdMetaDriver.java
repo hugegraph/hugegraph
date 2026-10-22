@@ -22,6 +22,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Consumer;
+import java.util.function.LongConsumer;
 
 import org.apache.hugegraph.exception.HugeException;
 import org.apache.hugegraph.constant.ServiceConstant;
@@ -35,6 +36,8 @@ import org.apache.hugegraph.pd.grpc.kv.KResponse;
 import org.apache.hugegraph.pd.grpc.kv.LockResponse;
 import org.apache.hugegraph.pd.grpc.kv.ScanPrefixResponse;
 import org.apache.hugegraph.pd.grpc.kv.TTLResponse;
+import org.apache.hugegraph.pd.grpc.kv.TxnRequest;
+import org.apache.hugegraph.pd.grpc.kv.TxnResponse;
 import org.apache.hugegraph.pd.grpc.kv.WatchEvent;
 import org.apache.hugegraph.pd.grpc.kv.WatchResponse;
 import org.apache.hugegraph.pd.grpc.kv.WatchType;
@@ -43,7 +46,15 @@ import com.google.common.base.Strings;
 
 public class PdMetaDriver implements MetaDriver {
 
+    // The deadline of each attempt of an ACK
+    private static final long ACK_TIMEOUT = 3000L;
+
     private final KvClient<WatchResponse> client;
+    /*
+     * The schema sync watch, on a channel of its own: a failed unary call resets the channel
+     * of its client, which would end the session and stop serving every HStore graph
+     */
+    private final KvClient<WatchResponse> syncClient;
     private final PDClient pdClient;
     private final PdDistributedLock lock;
 
@@ -52,6 +63,7 @@ public class PdMetaDriver implements MetaDriver {
                 PDConfig.of(pdPeer)
                         .setAuthority(ServiceConstant.SERVICE_NAME, ServiceConstant.AUTHORITY);
         this.client = new KvClient<>(pdConfig);
+        this.syncClient = new KvClient<>(pdConfig);
         this.pdClient = PDClient.create(pdConfig);
         this.lock = new PdDistributedLock(this.client);
     }
@@ -108,6 +120,16 @@ public class PdMetaDriver implements MetaDriver {
     }
 
     @Override
+    public TxnResponse commit(TxnRequest request) {
+        try {
+            return this.client.txn(request);
+        } catch (PDException e) {
+            throw new HugeException("Failed to commit a txn of %s ops to pd", e,
+                                    request.getOpsCount());
+        }
+    }
+
+    @Override
     public <T> void listen(String key, Consumer<T> consumer) {
         try {
             this.client.listen(key, (Consumer<WatchResponse>) consumer);
@@ -122,6 +144,39 @@ public class PdMetaDriver implements MetaDriver {
             this.client.listenPrefix(prefix, (Consumer<WatchResponse>) consumer);
         } catch (PDException e) {
             throw new HugeException("Failed to listenPrefix '%s' to pd", e, prefix);
+        }
+    }
+
+    /**
+     * Opens the schema sync watch on the prefix, see {@link KvClient#listenSync}
+     */
+    public void listenSync(String prefix, Consumer<WatchResponse> consumer,
+                           LongConsumer sessionClosed, Consumer<Throwable> stopped) {
+        try {
+            this.syncClient.listenSync(prefix, consumer, sessionClosed, stopped);
+        } catch (PDException e) {
+            throw new HugeException("Failed to listenSync '%s' to pd", e, prefix);
+        }
+    }
+
+    /**
+     * Replaces the stream of the schema sync watch, see {@link KvClient#restartSync}
+     */
+    public boolean restartSync(String prefix) {
+        return this.syncClient.restartSync(prefix);
+    }
+
+    /**
+     * Acknowledges a schema sync record on the main client, not on the watch's own: a failed
+     * call resets the channel of its client, which would end the session. Each attempt has a
+     * short deadline, so an ACK to a PD host that stopped answering fails in seconds, and the
+     * next attempt connects to the leader again.
+     */
+    public boolean ack(long clientId, String key, long revision) {
+        try {
+            return this.client.ack(clientId, key, revision, ACK_TIMEOUT);
+        } catch (PDException e) {
+            throw new HugeException("Failed to ack '%s' rev %s to pd", e, key, revision);
         }
     }
 
