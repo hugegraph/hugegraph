@@ -127,8 +127,8 @@ RUN --mount=type=secret,id=proxy_ca,required=false \
     --mount=type=bind,from=topling-jni,target=/run/topling-jni \
     if [ "$RUNTIME_VARIANT" = topling ]; then \
         if [ -f /run/secrets/proxy_ca ]; then export CURL_CA_BUNDLE=/run/secrets/proxy_ca; fi; \
-        bash /tmp/prepare-topling-image.sh; \
-        chown -R "${HG_UID}:${HG_GID}" topling conf/toplingdb.yaml; \
+        bash /tmp/prepare-topling-image.sh \
+            && chown -R "${HG_UID}:${HG_GID}" topling conf/toplingdb.yaml; \
     fi \
     && rm /tmp/prepare-topling-image.sh /tmp/topling-runtime.env /tmp/toplingdb.yaml
 

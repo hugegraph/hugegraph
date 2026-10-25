@@ -49,6 +49,27 @@ for entry in ("installed_license_directory=topling/licenses/",
               "installed_notice=topling/NOTICE"):
     assert entry in inventory, entry
 
+# Execute the actual RUN chain with failures injected after payload creation.
+# Ownership adjustment must never hide a failed capability/license preparation.
+for dockerfile in ("hugegraph-server/Dockerfile", "hugegraph-pd/Dockerfile", "hugegraph-store/Dockerfile"):
+    commands = re.findall(r"(?m)^RUN (.*(?:\n[ \t].*)*)", (repo / dockerfile).read_text())
+    preparation = next(command for command in commands if "bash /tmp/prepare-topling-image.sh" in command)
+    preparation = re.sub(r"--mount=\S+\s*", "", preparation.replace("\\\n", " "))
+    stubs = ('bash() { echo PREPARE; return "$PREPARE_STATUS"; }; '
+             'chown() { echo OWNERSHIP; return "$CHOWN_STATUS"; }; '
+             'rm() { echo CLEANUP; }; ')
+    for variant, prepare_status, chown_status, expected in (
+            ("topling", 17, 0, 17), ("topling", 0, 23, 23),
+            ("topling", 0, 0, 0), ("standard", 17, 23, 0)):
+        environment = dict(os.environ, RUNTIME_VARIANT=variant, HG_UID="10001", HG_GID="10001",
+                           PREPARE_STATUS=str(prepare_status), CHOWN_STATUS=str(chown_status))
+        result = subprocess.run(["sh", "-c", stubs + preparation], env=environment,
+                                capture_output=True, text=True)
+        assert result.returncode == expected, (dockerfile, variant, result.returncode, result.stdout)
+        assert ("CLEANUP" in result.stdout) == (expected == 0), result.stdout
+        assert ("OWNERSHIP" in result.stdout) == (variant == "topling" and prepare_status == 0)
+    print(f"PASS: {dockerfile} preserves preparation/ownership failures before non-root runtime")
+
 docker = shutil.which("docker")
 if docker is not None:
     buildx = subprocess.run([docker, "buildx", "version"], capture_output=True, text=True)
