@@ -401,6 +401,55 @@ class SeaTunnelChartTest(unittest.TestCase):
         dns = [port for rule in engine["egress"] if not rule.get("to") for port in rule["ports"]]
         self.assertTrue({("UDP", 53), ("TCP", 53)} <= {(p["protocol"], p["port"]) for p in dns})
 
+    def test_member_ingress_is_isolated_when_full_network_policy_is_disabled(self):
+        for mode in ("easy", "strict"):
+            with self.subTest(mode=mode):
+                documents = self.documents({}, mode=mode, networkPolicy={"enabled": False})
+                policy, = engine_resources(documents, "NetworkPolicy")
+                spec = policy["spec"]
+                self.assertEqual(["Ingress"], spec["policyTypes"])
+                self.assertNotIn("egress", spec)
+                workload, = engine_resources(documents, "StatefulSet")
+                labels = pod(workload)["metadata"]["labels"]
+                self.assertTrue(matches(spec["podSelector"]["matchLabels"], labels))
+                member_rules = [rule for rule in spec["ingress"]
+                                if any(port["port"] == 5801 for port in rule["ports"])]
+                self.assertEqual(1, len(member_rules))
+                self.assertEqual([{"podSelector": {"matchLabels": spec["podSelector"]["matchLabels"]}}],
+                                 member_rules[0]["from"])
+                selector = member_rules[0]["from"][0]["podSelector"]["matchLabels"]
+                self.assertFalse(matches(selector, {**labels, "app.kubernetes.io/component": "server"}))
+                self.assertFalse(matches(selector, {**labels, "app.kubernetes.io/instance": "other"}))
+                open_rules = [rule for rule in spec["ingress"] if not rule.get("from")]
+                self.assertEqual([{"ports": [{"protocol": "TCP", "port": 8080}]}], open_rules)
+
+    def test_engine_security_defaults_and_native_scheduling_overrides(self):
+        workload, = engine_resources(self.documents({}), "StatefulSet")
+        container, = pod(workload)["spec"]["containers"]
+        self.assertEqual({"allowPrivilegeEscalation": False,
+                          "capabilities": {"drop": ["ALL"]},
+                          "seccompProfile": {"type": "RuntimeDefault"}}, container["securityContext"])
+        overrides = {
+            "podSecurityContext": {"runAsUser": 1000, "fsGroup": 1000},
+            "securityContext": {"runAsNonRoot": True},
+            "nodeSelector": {"workload": "ingestion"},
+            "tolerations": [{"key": "ingestion", "operator": "Exists", "effect": "NoSchedule"}],
+            "affinity": {"podAntiAffinity": {"preferredDuringSchedulingIgnoredDuringExecution": []}},
+            "priorityClassName": "ingestion",
+        }
+        workload, = engine_resources(self.documents(overrides), "StatefulSet")
+        spec = pod(workload)["spec"]
+        self.assertEqual(overrides["podSecurityContext"], spec["securityContext"])
+        for field in ("nodeSelector", "tolerations", "affinity", "priorityClassName"):
+            self.assertEqual(overrides[field], spec[field])
+        container, = spec["containers"]
+        self.assertTrue(container["securityContext"]["runAsNonRoot"])
+        self.assertFalse(container["securityContext"]["allowPrivilegeEscalation"])
+        for invalid in ({"securityContext": []}, {"nodeSelector": []}, {"tolerations": {}},
+                        {"affinity": []}, {"priorityClassName": 1}):
+            with self.subTest(invalid=invalid):
+                self.assertNotEqual(0, self.render(invalid).returncode)
+
     def test_packaged_chart_has_both_modes_without_seatunnel_dependency(self):
         with tempfile.TemporaryDirectory(prefix="seatunnel-package-") as directory:
             self.run_helm(["package", str(CHART), "--destination", directory],

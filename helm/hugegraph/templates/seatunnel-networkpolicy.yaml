@@ -14,7 +14,7 @@
 # limitations under the License.
 
 {{ include "hugegraph.resolveValues" . }}
-{{- if and (.Values.seatunnel | default dict).enabled .Values.networkPolicy.enabled }}
+{{- if (.Values.seatunnel | default dict).enabled }}
 {{- $rules := get .Values.networkPolicy "seatunnel" | default dict }}
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -29,15 +29,23 @@ spec:
       {{- include "hugegraph.netpol.seatunnelLabels" . | nindent 6 }}
   policyTypes:
     - Ingress
+    {{- if .Values.networkPolicy.enabled }}
     - Egress
+    {{- end }}
   ingress:
     - from:
         {{- include "hugegraph.netpol.seatunnelPeer" . | nindent 8 }}
       ports:
         {{- include "hugegraph.netpol.ports" (list 5801 8080) | nindent 8 }}
+    {{- if not .Values.networkPolicy.enabled }}
+    # Easy mode keeps the authenticated HTTP entry open, never the member port.
+    - ports:
+        {{- include "hugegraph.netpol.ports" (list 8080) | nindent 8 }}
+    {{- end }}
     {{- with get $rules "extraIngress" }}
     {{- toYaml . | nindent 4 }}
     {{- end }}
+  {{- if .Values.networkPolicy.enabled }}
   egress:
     - to:
         {{- include "hugegraph.netpol.seatunnelPeer" . | nindent 8 }}
@@ -51,4 +59,5 @@ spec:
     {{- with get $rules "extraEgress" }}
     {{- toYaml . | nindent 4 }}
     {{- end }}
+  {{- end }}
 {{- end }}

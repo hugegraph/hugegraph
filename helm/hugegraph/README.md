@@ -81,18 +81,27 @@ helm install hugegraph ./helm/hugegraph -n hugegraph --create-namespace \
 
 Inactive credential values may remain in the values file when auth is disabled.
 
-### 可选 SeaTunnel
+### Optional SeaTunnel
 
-增加 `--set seatunnel.enabled=true`，与 HugeGraph 一起启动一个常驻 hybrid 节点；
-增加 `--set seatunnel.mode=cluster`，使用同一套官方原生 Kubernetes 资源扩为多个节点（默认两个）。
-SeaTunnel 默认关闭，拓扑独立于 HugeGraph 的单机/集群预设。两种模式均提供引擎内置的任务可视化前端；
-HTTP 入口继承 `easy` 的 NodePort 或 `strict` 的 ClusterIP/NetworkPolicy，可用 `seatunnel.service` 显式覆盖并指定 NodePort。
+Set `seatunnel.enabled=true` to start one persistent hybrid member alongside HugeGraph;
+set `seatunnel.mode=cluster` to use multiple members of the same native StatefulSet
+(two by default). SeaTunnel is disabled by default and its topology is independent
+of the HugeGraph single-/multi-node presets. Both modes include the engine's task UI.
+The HTTP Service inherits NodePort in `easy` mode or ClusterIP in `strict` mode;
+`seatunnel.service` can explicitly override the type and NodePort.
 
-Chart 自动为同 release 的演示作业注入 Server 地址、图空间和管理员 Secret 引用，
-并挂载 Source/Sink 配置；先创建目标图，即可手动提交，无需复制密码或上传作业文件。
-Helm 不自动建图或导入数据。前端和 REST 提交接口使用独立管理员的原生 HTTP Basic 认证，
-默认密码自动生成在 SeaTunnel Secret 中并随升级保留；它与作业连接 HugeGraph 的凭据分别配置。
-启动、访问、演示作业与跨环境 Schema／顶点／边复制见 [SeaTunnel 联合部署指南](docs/seatunnel.md)。
+Member/CLI port 5801 is restricted to same-release peers by a SeaTunnel ingress
+NetworkPolicy in every mode, including when the chart-wide policy flag is disabled.
+Easy mode leaves the authenticated HTTP entry open. Actual isolation requires CNI
+support and trusted namespace RBAC; full isolation additionally limits egress.
+
+The chart injects the same-release Server address, GraphSpace and administrator
+Secret references into the mounted Source/Sink examples. Create the target graph
+before submitting them manually; Helm does not create graphs or import data.
+UI and REST submission use a separate native HTTP Basic administrator account,
+whose generated Secret is retained and reused during online upgrades. Container
+security and scheduling options follow the other components; see the
+[SeaTunnel deployment guide](docs/seatunnel.md) for configuration and limits.
 
 ### Internal image registry
 
