@@ -20,8 +20,11 @@ import base64
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
+import tempfile
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -182,6 +185,84 @@ def verify_standalone_recreate(compose, container, image, expected):
     verify_persisted_graph()
 
 
+def verify_readonly_graphs(image):
+    """Start actual images with directory and individual-file read-only binds."""
+    environment = json.loads(command("docker", "image", "inspect", "--format",
+                                     "{{json .Config.Env}}", image))
+    selected = dict(item.split("=", 1) for item in environment if "=" in item)[
+        "TOPLINGDB_ROCKSDB_PROVIDER"]
+    if selected not in {"rocksdb", "topling"}:
+        raise RuntimeError(f"Unexpected image provider: {selected}")
+    default = command("docker", "run", "--rm", "--pull", "never", "--entrypoint", "cat",
+                      image, "/hugegraph-server/conf/graphs.default/hugegraph.properties")
+    default = re.sub(r"(?m)^[ \t]*rocksdb\.provider\s*[:=].*$", "", default) + "\n"
+    with tempfile.TemporaryDirectory(prefix="hg-readonly-") as temporary:
+        root = Path(temporary)
+        for mount_kind in ("directory", "file"):
+            for configured in (None, "rocksdb", "topling"):
+                case = f"{mount_kind}-{configured or 'default'}"
+                graphs = root / case
+                graphs.mkdir()
+                config = graphs / "hugegraph.properties"
+                config.write_text(default + (f"rocksdb.provider={configured}\n" if configured else ""))
+                original = config.read_bytes()
+                source = graphs if mount_kind == "directory" else config
+                destination = "/hugegraph-server/conf/graphs"
+                if mount_kind == "file":
+                    destination += "/hugegraph.properties"
+                name = root.name + "-" + case
+                should_start = (configured or "rocksdb") == selected
+                try:
+                    container = command("docker", "run", "--detach", "--pull", "never", "--name", name,
+                                        "--publish", "127.0.0.1::8080", "--mount",
+                                        f"type=bind,src={source},dst={destination},readonly", image)
+                    port = (command("docker", "port", container, "8080/tcp").rsplit(":", 1)[1]
+                            if should_start else None)
+                    deadline = time.monotonic() + 180
+                    while True:
+                        state = json.loads(command("docker", "inspect", "--format",
+                                                   "{{json .State}}", container))
+                        if not state["Running"]:
+                            break
+                        if should_start:
+                            try:
+                                if response(f"http://127.0.0.1:{port}/graphspaces/DEFAULT/graphs")[0] == 200:
+                                    break
+                            except (urllib.error.URLError, ConnectionError, TimeoutError):
+                                pass
+                        if time.monotonic() >= deadline:
+                            raise RuntimeError(f"Read-only graph case timed out: {case}")
+                        time.sleep(1)
+                    if should_start:
+                        if not state["Running"]:
+                            raise RuntimeError(f"Matching read-only graph did not start: {case}")
+                        probe = subprocess.run(["docker", "exec", container, "sh", "-c",
+                                                "printf probe >> /hugegraph-server/conf/graphs/hugegraph.properties"],
+                                               capture_output=True, text=True, timeout=30)
+                        if probe.returncode == 0 or "Read-only file system" not in probe.stderr:
+                            raise RuntimeError(f"Graph configuration mount is not read-only: {case}")
+                        subprocess.run(["docker", "stop", "--time", "60", container], check=True, timeout=90)
+                        stopped = json.loads(command("docker", "inspect", "--format",
+                                                     "{{json .State}}", container))
+                        if stopped["OOMKilled"] or stopped["ExitCode"] not in {0, 143}:
+                            raise RuntimeError(f"Read-only graph shutdown failed: {case}: {stopped}")
+                    else:
+                        logs = command("docker", "logs", container)
+                        expected = f"cannot change rocksdb.provider from '{configured or 'rocksdb'}'"
+                        if state["ExitCode"] == 0 or expected not in logs or \
+                           f"'{selected}' in ./conf/graphs/hugegraph.properties" not in logs or \
+                           "Initializing HugeGraph Store" in logs:
+                            raise RuntimeError(f"Mismatched read-only graph did not fail clearly: {case}: {logs}")
+                    if config.read_bytes() != original:
+                        raise RuntimeError(f"Read-only graph configuration changed: {case}")
+                    print(f"PASS: {selected} {case} read-only graph configuration", flush=True)
+                except BaseException:
+                    subprocess.run(["docker", "logs", name], check=False, timeout=30)
+                    raise
+                finally:
+                    subprocess.run(["docker", "rm", "--force", "--volumes", name], check=True, timeout=120)
+
+
 def smoke(tag, topology, images):
     root = Path(__file__).resolve().parents[2]
     project = f"hg-pr-{tag}-{Path(topology).stem}"
@@ -235,6 +316,7 @@ def main(tag):
                       HUGEGRAPH_AUTH_TOKEN_SECRET="0123456789abcdef" * 4,
                       HG_PD_AUTH_SECRET_KEY=PD_PASSWORD)
     smoke(tag, "docker-compose.yml", {"server": "hugegraph/hugegraph"})
+    verify_readonly_graphs(f"hugegraph/hugegraph:{tag}")
     smoke(tag, "docker-compose-hstore.yml", {"pd": "hugegraph/pd", "store": "hugegraph/store",
                                            "server": "hugegraph/server"})
 

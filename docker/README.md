@@ -322,6 +322,16 @@ volume or a bind mount lacks this directory, the entrypoint initializes it once
 from the image's `conf/graphs.default`. Existing definitions and database files
 are preserved; explicitly mounted `conf/graphs` directories take precedence.
 
+An explicitly mounted graph directory or file may be read-only when its
+`rocksdb.provider` already matches the selected image. An absent property means
+`rocksdb`, so a Topling configuration must explicitly select `topling`. Matching
+files are left unchanged. If the provider differs, startup reports the graph
+file and required change; supply a matching configuration or use a writable
+directory mount before switching images. A single-file bind mount cannot be
+replaced by the entrypoint's in-place editor, even when mounted writable.
+Other environment-driven configuration changes, authentication setup, and API
+graph creation/deletion still require writable configuration where they apply.
+
 For the first upgrade from an older image, preserve **custom graph definitions
 and settings** that existed only in its installation directory. Default seeding
 does not recover those files from the database. Stop the old Server and copy its

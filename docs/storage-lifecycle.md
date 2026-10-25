@@ -551,7 +551,12 @@ those missing definitions. See the linked Compose guide for that upgrade path.
 Both image variants explicitly select their provider. The entrypoint synchronizes
 `rocksdb.provider` in all persisted or writable mounted `backend=rocksdb` graph
 files to that selection, including when returning to the unsuffixed standard
-image. Other settings and `backend=hstore` definitions are preserved. PD/Store
+image. Files whose provider already matches are not written; an absent property
+defaults to `rocksdb`. Matching read-only graph mounts can start, while a required
+provider change fails with the graph path and current/selected providers. Use a
+writable directory or supply a matching configuration before switching; see the
+[Compose guide](../docker/README.md) for configuration-mount constraints.
+Other settings and `backend=hstore` definitions are preserved. PD/Store
 apply the selected provider through their runtime configuration overrides.
 
 ### Standalone Server setup

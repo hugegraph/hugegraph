@@ -597,6 +597,29 @@ if (
 fi
 cmp "${TEST_HOME}/analytics.before-invalid-provider" "${TEST_HOME}/conf/graphs/analytics.properties"
 
+# Matching providers must leave the configuration byte-for-byte unchanged.
+# Real read-only directory/file mounts are also exercised by Docker deployment CI.
+for provider_case in default rocksdb topling; do
+    selected_provider="${provider_case}"
+    [[ "${provider_case}" != default ]] || selected_provider=rocksdb
+    readonly_graph="${TEST_HOME}/conf/graphs/readonly.properties"
+    printf 'backend=rocksdb\n# Preserve formatting and unrelated settings\ncustom=true\n' > "${readonly_graph}"
+    if [[ "${provider_case}" != default ]]; then
+        printf 'rocksdb.provider : %s   \n' "${provider_case}" >> "${readonly_graph}"
+    fi
+    cp "${readonly_graph}" "${TEST_HOME}/readonly.before"
+    chmod 444 "${readonly_graph}"
+    readonly_identity=$(ls -di "${readonly_graph}")
+    (
+        cd "${TEST_HOME}"
+        TOPLINGDB_ROCKSDB_PROVIDER="${selected_provider}" bash ./docker-entrypoint.sh
+    )
+    cmp "${TEST_HOME}/readonly.before" "${readonly_graph}"
+    [[ "$(ls -di "${readonly_graph}")" == "${readonly_identity}" ]]
+    chmod 644 "${readonly_graph}"
+    rm "${readonly_graph}"
+done
+
 # Reproduce the image's symlink with an already populated legacy data directory.
 # The default copy must bootstrap it, retain data, and never replace later user
 # definitions. An explicit conf/graphs directory must also bypass bootstrapping.

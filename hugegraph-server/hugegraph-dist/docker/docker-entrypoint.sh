@@ -74,7 +74,7 @@ set_prop_encoded() {
     key_re="^[[:space:]]*${esc_key}([[:space:]]*[:=]|[[:space:]]+|[[:space:]]*$)"
 
     if grep -qE "${key_re}" "${file}"; then
-        sed -ri "0,/${key_re}/!{/${key_re}/d;}" "${file}"
+        sed -ri "0,/${key_re}/!{/${key_re}/d;}" "${file}" || return
         sed -ri "0,/${key_re}/s~${key_re}.*~${key}=${esc_val}~" "${file}"
     else
         printf '%s=%s\n' "$key" "$encoded_val" >> "${file}"
@@ -268,7 +268,20 @@ if [[ -n "${TOPLINGDB_ROCKSDB_PROVIDER:-}" ]]; then
     for graph_conf in ./conf/graphs/*.properties; do
         [[ -f "${graph_conf}" ]] || continue
         if [[ "$(get_prop_encoded backend "${graph_conf}")" == rocksdb ]]; then
-            set_prop "rocksdb.provider" "${ROCKSDB_PROVIDER}" "${graph_conf}"
+            current_provider=$(get_prop_encoded rocksdb.provider "${graph_conf}")
+            current_provider="${current_provider%"${current_provider##*[![:space:]]}"}"
+            # RocksDBOptions defaults an absent property to rocksdb. Do not
+            # touch matching configurations, including read-only mounts.
+            if ! grep -qE '^[[:space:]]*rocksdb[.]provider([[:space:]]*[:=]|[[:space:]]|$)' "${graph_conf}"; then
+                current_provider=rocksdb
+            fi
+            if [[ "${current_provider}" != "${ROCKSDB_PROVIDER}" ]] &&
+               ! set_prop "rocksdb.provider" "${ROCKSDB_PROVIDER}" "${graph_conf}"; then
+                log "ERROR: cannot change rocksdb.provider from '${current_provider}' to" \
+                    "'${ROCKSDB_PROVIDER}' in ${graph_conf}; make the graph configuration" \
+                    "writable or configure the provider to match the selected image"
+                exit 1
+            fi
         fi
     done
 fi
