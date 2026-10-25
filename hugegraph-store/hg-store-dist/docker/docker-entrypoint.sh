@@ -5,7 +5,7 @@
 # this work for additional information regarding copyright ownership.
 # The ASF licenses this file to You under the Apache License, Version 2.0
 # (the "License"); you may not use this file except in compliance with
-# the License.  You may obtain a copy of the License at
+# the License. You may obtain a copy of the License at
 #
 #     http://www.apache.org/licenses/LICENSE-2.0
 #
@@ -84,7 +84,11 @@ JSON
 export SPRING_APPLICATION_JSON
 
 log "effective config:"
-log "  rocksdb.provider=${ROCKSDB_PROVIDER}"
+if [[ -n "${TOPLINGDB_ROCKSDB_PROVIDER:-}" ]]; then
+    log "  rocksdb.provider=${ROCKSDB_PROVIDER}"
+else
+    log "  rocksdb.provider=<preserved from mounted configuration>"
+fi
 log "  pdserver.address=${HG_STORE_PD_ADDRESS}"
 log "  grpc.host=${HG_STORE_GRPC_HOST}"
 log "  grpc.port=${HG_STORE_GRPC_PORT}"
