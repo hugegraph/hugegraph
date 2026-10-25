@@ -334,15 +334,18 @@ public class DistributedTaskScheduler extends TaskAndResultScheduler {
         String context = TaskManager.getContext();
         AtomicBoolean cleaned = new AtomicBoolean(true);
         TaskManager.ContextCallable<Void> owned = new TaskManager.ContextCallable<>(() -> {
+            boolean callerTxOpen = this.graph.graph().tx().isOpen();
             try {
                 this.cancelTask(task, true);
                 return null;
             } finally {
-                try {
-                    this.graph.closeTx();
-                } catch (RuntimeException | Error error) {
-                    cleaned.set(false);
-                    throw error;
+                if (!callerTxOpen) {
+                    try {
+                        this.graph.closeTx();
+                    } catch (RuntimeException | Error error) {
+                        cleaned.set(false);
+                        throw error;
+                    }
                 }
             }
         });
@@ -550,13 +553,17 @@ public class DistributedTaskScheduler extends TaskAndResultScheduler {
         HugeTask<?> running = this.runningTasks.get(id);
 
         if (running != null) {
-            this.cancelOwned(this.executions.get(id), () -> {
+            boolean cancelled = this.cancelOwned(this.executions.get(id), () -> {
                 this.markTaskDeleting(running);
                 return running.cancel(true);
             }, false);
-            @SuppressWarnings("unchecked")
-            HugeTask<V> result = (HugeTask<V>) running;
-            return result;
+            if (cancelled || this.executions.containsKey(id)) {
+                @SuppressWarnings("unchecked")
+                HugeTask<V> result = (HugeTask<V>) running;
+                return result;
+            }
+            // The local owner finished before cancellation; delete its now-completed database record.
+            task = this.taskWithoutResult(id);
         }
 
         if (!force && !task.completed()) {
@@ -619,25 +626,28 @@ public class DistributedTaskScheduler extends TaskAndResultScheduler {
             cronFuture.cancel(false);
         }
 
-        // Wait behind the scheduler thread to ensure any running cron task is completed
-        try {
-            Future<?> barrier = this.schedulerExecutor.submit(() -> {
-                // pass
-            });
-            barrier.get(schedulePeriod + 5, TimeUnit.SECONDS);
-        } catch (TimeoutException e) {
-            LOG.warn("Cron task did not complete in time when closing scheduler");
-            return false;
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            LOG.warn("Interrupted while waiting for cron task to complete", e);
-            return false;
-        } catch (ExecutionException e) {
-            LOG.warn("Exception while waiting for cron task to complete", e);
-            return false;
-        } catch (RejectedExecutionException e) {
-            LOG.warn("Scheduler executor was stopped before its graphs drained", e);
-            return false;
+        // A terminated executor has already completed all its cron work.
+        // Otherwise wait behind that work before closing its owners.
+        if (!this.schedulerExecutor.isTerminated()) {
+            try {
+                Future<?> barrier = this.schedulerExecutor.submit(() -> {
+                    // pass
+                });
+                barrier.get(schedulePeriod + 5, TimeUnit.SECONDS);
+            } catch (TimeoutException e) {
+                LOG.warn("Cron task did not complete in time when closing scheduler");
+                return false;
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                LOG.warn("Interrupted while waiting for cron task to complete", e);
+                return false;
+            } catch (ExecutionException e) {
+                LOG.warn("Exception while waiting for cron task to complete", e);
+                return false;
+            } catch (RejectedExecutionException e) {
+                LOG.warn("Scheduler executor was stopped before its graphs drained", e);
+                return false;
+            }
         }
 
         // cancel all running tasks
@@ -924,10 +934,13 @@ public class DistributedTaskScheduler extends TaskAndResultScheduler {
             pending.callbacks++;
         }
         TaskManager.ContextCallable<Boolean> owned = new TaskManager.ContextCallable<>(() -> {
+            boolean callerTxOpen = this.graph.graph().tx().isOpen();
             try {
                 return action.call();
             } finally {
-                this.closeOwner(pending);
+                if (!callerTxOpen) {
+                    this.closeOwner(pending);
+                }
             }
         });
         Callable<Boolean> cancellation = () -> {

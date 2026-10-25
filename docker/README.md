@@ -172,6 +172,22 @@ curl -fsS http://localhost:8088/about
 
 </details>
 
+### PD health and readiness
+
+PD's `/v1/ready` returns HTTP 503 while it cannot serve through a Raft quorum.
+`/v1/health` remains HTTP 200 during an election or temporary quorum loss, but
+returns HTTP 503 after a fatal Raft error or state-machine shutdown. Both health
+responses retain the empty text body. Probes read cached state without waiting
+for the Raft node lock.
+
+A failed snapshot, for example after the PD disk fills, leaves JRaft in a terminal
+error state. Free disk space before restarting the affected PD; freeing space
+alone does not reinitialize its Raft node. Configure liveness against `/v1/health`
+with an image containing this fix and gate traffic on `/v1/ready` using an external
+readiness gate. The shipped Compose `service_healthy` dependencies still use
+`/v1/health`; they do not wait for PD quorum readiness. Older images
+still need the single-PD readiness-based liveness workaround supplied by the Helm chart.
+
 ### Stop or remove a deployment
 
 `stop` keeps containers and data; `down` removes containers and the network but keeps data. **`down -v` also deletes all topology data.**
@@ -269,6 +285,49 @@ Standalone stores RocksDB data at `/hugegraph-server/rocksdb-data`. The HStore t
 
 `docker compose down` keeps named-volume data. `docker compose down -v` intentionally deletes it.
 
+### Server service identity
+
+Server image builds containing this configuration mapping accept
+`HG_SERVER_SERVICE_ID` and `HG_SERVER_GRAPHSPACE`, which write `server.service_id` and `server.graphspace`
+in `conf/rest-server.properties`. A property keeps its existing value when both
+its `HG_SERVER_*` variable and its older name are unset or empty; the shipped
+defaults are both `DEFAULT`.
+The older `SERVICE_ID` and `GRAPH_SPACE` variables emitted by the Kubernetes driver
+are also accepted. A non-empty `HG_SERVER_*` value takes precedence over its older name.
+These container identity inputs accept printable ASCII (bytes 0x20–0x7E);
+spaces and backslashes in service IDs round-trip unchanged. Non-ASCII and control
+characters are rejected before the entrypoint writes configuration, because the
+Server reads properties using ISO-8859-1. This is the container input's
+serialization limit; it does not change the core service-name contract.
+The full service ID, including `/` and `-`, is retained when service metadata is
+reloaded or its graph space is cleared.
+`HG_SERVER_GRAPHSPACE` and a migrated `GRAPH_SPACE` must also match the Server
+API graph-space rule: `DEFAULT`, or up to 48 lowercase letters, digits and
+underscores, starting with a letter. Invalid environment values are rejected
+before writing configuration; existing mounted properties are preserved.
+
+For a PD-backed Server, add the variables to the Server container's environment,
+for example `HG_SERVER_SERVICE_ID=analytics` and `HG_SERVER_GRAPHSPACE=team_a`.
+Create `team_a` in the existing cluster before starting the assigned Server;
+these settings do not create graph spaces. The Compose files do not pass these
+variables through from the host, so add explicit `environment:` entries to a
+local Compose override. The Helm chart exposes the same settings as
+[`server.serviceId` and `server.graphSpace`](../helm/hugegraph/README.md#server-service-identity).
+
+Use a chart and Server image from the same source version containing these
+mappings. Older release images without them do not apply these environment
+values; select the matching image build explicitly.
+The Server's existing `SERVICE_ID` normalization (`GraphManager.serviceId()`) is
+unchanged and can map different raw names to the same identifier. Select
+`GRAPHSPACE` and the complete raw `SERVICE_NAME` in discovery queries;
+identifier-only lookup does not provide a uniqueness or isolation guarantee.
+
+This selects the Server's PD service metadata. It does not change
+`server.path_graphspace` for REST paths that omit `/graphspaces/<name>`, or
+configure Hubble's chosen service. Actual non-default service discovery,
+authentication and graph-space isolation still require verification with a
+running Linux cluster.
+
 ### Server logs and crash files
 
 The Server container owns its foreground launcher and returns the JVM's exit status after startup,
@@ -314,6 +373,31 @@ A heap dump can be as large as the JVM heap. Every start uses a new directory an
 The launcher never deletes dumps or `heapdump_*` directories. Each start that gets as far as starting Java leaves a directory behind, empty unless something ran out of memory; the launcher keeps it because a computer-job JVM can go on using it after its Server exits. Move or delete old directories once no HugeGraph JVM from that launch is running, but never the newest one of a running Server: without its directory, the next dump is written as a file with that name and later dumps from that launch fail.
 
 To turn heap dumps off for every JVM, set `JAVA_TOOL_OPTIONS=-XX:-HeapDumpOnOutOfMemoryError`, which also keeps the image's default `JAVA_OPTS`. Set it in the container's environment, not in the host shell: `docker run -e JAVA_TOOL_OPTIONS=...`, an `environment:` entry on the Server service in Compose (the shipped Compose files do not pass it through), or `env` on the container in Kubernetes. Putting the flag in `JAVA_OPTS` turns dumps off for the Server JVM only, because the JVMs it starts do not see its command line, and setting `JAVA_OPTS` replaces the image default (`-XX:+UseContainerSupport -XX:MaxRAMPercentage=50 ...`), so repeat those flags. Either way, each start still creates its empty `heapdump_*` directory, unless creating it failed or the logs path contains a double quote or `%`.
+
+### JVM thread creation failures during startup
+
+If startup reports `pthread_create failed (EPERM)`, the host may be denying the
+JVM's thread-creation syscall through its seccomp profile or another security
+policy. HotSpot prints this warning to its stdout (the container log with
+`STDOUT_MODE=true`), while its crash file may contain only the generic
+`Cannot create worker GC thread` message. After an initialization or Server
+readiness failure, the entrypoint checks new crash files and newly appended
+Server log output and prints possible causes without changing the exit code.
+With `STDOUT_MODE=false`, it scans newly written `logs/hugegraph-server-stdout.log`
+bytes before crash files, so a generic crash header cannot hide the EPERM warning.
+Check the preceding JVM output for the specific error. Crash files left by
+previous starts do not trigger the hint.
+
+To confirm a seccomp restriction, retry the same container with
+`--security-opt seccomp=unconfined`. Use a compatible Docker/runtime seccomp profile
+for normal operation. EPERM indicates a security denial, not a process-limit
+failure. If the JVM instead reports EAGAIN, inspect process/thread limits and
+use `--ulimit nproc=65535:65535` if appropriate. The startup helper also recognizes
+`pthread_create failed (EAGAIN)` without an accompanying GC worker error. A generic
+`Cannot create worker GC thread` message alone does not distinguish seccomp
+denial from insufficient memory or process/thread limits. Check the container's
+memory budget and the preceding JVM output. The entrypoint changes neither
+the host security policy nor the container limits.
 
 ## Developers
 

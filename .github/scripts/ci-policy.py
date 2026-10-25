@@ -39,11 +39,12 @@ PREFIXES = {
 WORKFLOWS = {
     "server": {"server-ci.yml": MAINLINE, "commons-ci.yml": {"commons"},
                "pd-store-ci.yml": {"struct", "pd", "store", "hstore"}, "cluster-test-ci.yml": {"cluster"},
-               "docker-build-ci.yml": {"docker"}, "helm-chart-ci.yml": {"helm"},
+               "docker-build-ci.yml": {"docker"},
                "codeql-analysis.yml": {"security"}, "server-memory-ci.yml": {"server"},
                "server-tests.yml": {"server", "hbase"},
                "server-compatibility-ci.yml": {"macos", "macos_full", "hbase", "riscv64"},
-               "riscv64-ci.yml": {"riscv64"}, "check-dependencies.yml": {"dependency_license"}},
+               "riscv64-ci.yml": {"riscv64"}, "check-dependencies.yml": {"dependency_license"},
+               "submit-dependencies.yml": {"dependency_license"}},
     "toolchain": {"client-ci.yml": {"client"}, "client-go-ci.yml": {"go"},
                   "loader-ci.yml": {"loader"}, "tools-ci.yml": {"tools"},
                   "spark-connector-ci.yml": {"spark"}, "hubble-ci.yml": {"hubble"},
@@ -57,21 +58,31 @@ DEPENDENTS = {
     "toolchain": {"client": {"loader", "tools", "spark", "hubble"}, "loader": {"hubble"}},
 }
 MAINTENANCE_INPUTS = {
+    ".github/actions/helm-checks/action.yml": {"helm"},
+    ".github/actions/rocksdb-compatibility/action.yml": {"pd", "store", "hstore"},
     ".asf.yaml": set(), ".editorconfig": set(), ".licenserc.yaml": set(),
     ".github/PULL_REQUEST_TEMPLATE.md": set(), ".github/dependabot.yml": set(),
     ".github/workflows/.java-version": MAINLINE | {"macos_full", "hbase", "riscv64"},
+    ".github/scripts/dependency-snapshot.py": {"dependency_license"},
+    ".github/scripts/dependency-inventory.py": {"dependency_license"},
+    ".github/scripts/test_dependency_snapshot.py": set(),  # Covered by preflight discovery.
     ".github/scripts/check-docker-images.sh": {"docker"},
     ".github/scripts/docker-deployment.py": {"docker"},
     ".github/scripts/test_docker_deployment.py": {"docker"},
 }
 PRESETS = {
     "mainline": MAINLINE,
+    "dependencies": {"dependency_license"},
     "distributed": {"struct", "pd", "store", "hstore", "cluster", "distributed_smoke"},
     "macos-arm": {"macos", "macos_full"}, "hbase": {"hbase"},
     "riscv64": {"riscv64"}, "codeql": {"security"}, "full": set(MODULES["server"]),
 }
 SERVER_CORE = "hugegraph-server/hugegraph-core/src/main/java/org/apache/hugegraph/"
 SERVER_API = "hugegraph-server/hugegraph-api/src/main/java/org/apache/hugegraph/"
+SECURITY_INPUTS = {
+    SERVER_CORE + "backend/cache/CachedSchemaTransaction.java",
+    SERVER_CORE + "backend/cache/CachedSchemaTransactionV2.java",
+}
 DISTRIBUTED_SERVER_INPUTS = (
     "hugegraph-server/hugegraph-hstore/", SERVER_CORE + "backend/", SERVER_CORE + "meta/",
     SERVER_CORE + "space/", SERVER_CORE + "task/", SERVER_CORE + "masterelection/", SERVER_CORE + "HugeGraph",
@@ -90,6 +101,9 @@ RISCV_PROTO_ROOTS = ("hugegraph-server/hugegraph-core/", "hugegraph-pd/hg-pd-grp
 TRAVIS = "hugegraph-server/hugegraph-dist/src/assembly/travis/"
 # Contract tests follow their executing suites, without runtime consumer fan-out.
 CONTRACT_SUITES = {
+    TRAVIS + "test-check-java-runtime-logs.sh": {"struct"},
+    TRAVIS + "check-java-runtime-logs.sh": {"server", "commons", "struct", "pd", "store", "hstore", "cluster",
+                                          "macos", "macos_full", "hbase", "riscv64"},
     TRAVIS + "test-stop-hugegraph-store.sh": {"struct"},
     TRAVIS + "test-check-jacoco-report.sh": {"struct"},
     TRAVIS + "test-codecov-upload-config.sh": {"struct"},
@@ -153,7 +167,8 @@ def select(project, paths):
             if path.startswith("install-dist/"):
                 selected.add("dependency_license")
                 continue
-            if ({"auth", "security", "permission", "permissions"}.intersection(p.parts)
+            if (path in SECURITY_INPUTS
+                    or {"auth", "security", "permission", "permissions"}.intersection(p.parts)
                     or p.stem.startswith(("Authentication", "Authorization"))
                     or p.stem.endswith(("Authentication", "Authenticator", "Permission", "WithAuth"))
                     or p.name in {"AuthOptions.java", "OkHttpBasicAuthInterceptor.java", "java-security.properties",
@@ -238,13 +253,14 @@ def event_selection(project, paths, event, event_name):
         if preset not in PRESETS:
             raise ValueError("unknown test-set: " + str(preset))
         return set(PRESETS[preset])
-    selected = select(project, paths)
     if event_name == "push" and event.get("ref") == "refs/heads/master":
+        # Test contracts do not change deployed runtime inputs.
+        selected = select(project, [path for path in paths if path not in CONTRACT_SUITES])
         smoke = selected.intersection({"docker", "helm", "dependency_license", "macos", "distributed_smoke"})
         if selected.intersection({"server", "commons", "struct", "pd", "store", "hstore", "cluster"}):
             smoke.add("distributed_smoke")
         return smoke
-    return selected
+    return select(project, paths)
 
 
 def suites(project, selected):

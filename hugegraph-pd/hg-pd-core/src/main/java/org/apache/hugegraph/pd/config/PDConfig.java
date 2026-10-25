@@ -55,6 +55,10 @@ public class PDConfig implements InitializingBean {
     @Value("${pd.cluster_id:1}")
     private long clusterId;
 
+    // Server metadata namespace, distinct from the numeric PD cluster ID.
+    @Value("${pd.server-cluster:hg}")
+    private String serverCluster = "hg";
+
     // The patrol task interval
     @Value("${pd.patrol-interval:300}")
     private long patrolInterval = 300;
@@ -186,10 +190,23 @@ public class PDConfig implements InitializingBean {
         private int snapshotInterval;
         @Value("${raft.rpc-timeout:10000}")
         private int rpcTimeout;
+        // Bounds the ping that opens a connection to a peer; kept apart from rpc-timeout
+        // because a candidate opens its connections while it holds the raft node lock
+        @Value("${raft.rpc-connect-timeout:1000}")
+        private int rpcConnectTimeout = 1000;
+        // A follower that fell behind the log receives the whole store within this time;
+        // 0 keeps the timeout it always had, raft.rpc-timeout
+        @Value("${raft.rpc-install-snapshot-timeout:0}")
+        private int rpcInstallSnapshotTimeout;
         @Value("${grpc.host}")
         private String host;
         @Value("${server.port}")
         private int port;
+
+        public int getRpcInstallSnapshotTimeout() {
+            return this.rpcInstallSnapshotTimeout > 0 ? this.rpcInstallSnapshotTimeout :
+                   this.rpcTimeout;
+        }
 
         @Value("${pd.cluster_id:1}")
         private long clusterId;
