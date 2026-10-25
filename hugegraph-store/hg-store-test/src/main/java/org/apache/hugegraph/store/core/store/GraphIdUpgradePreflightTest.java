@@ -30,6 +30,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -65,6 +66,7 @@ import org.apache.hugegraph.store.raft.PartitionStateMachine;
 import org.apache.hugegraph.store.pd.PdProvider;
 import org.apache.hugegraph.store.snapshot.SnapshotHandler;
 import org.apache.hugegraph.store.term.Bits;
+import org.apache.hugegraph.store.util.GraphIdPreflightException;
 import org.apache.hugegraph.store.util.HgStoreException;
 import org.apache.hugegraph.pd.grpc.Metapb;
 import org.junit.BeforeClass;
@@ -113,6 +115,100 @@ public class GraphIdUpgradePreflightTest {
         config.put("rocksdb.write_buffer_size", "1048576");
         config.put("rocksdb.bloom_filter_bits_per_key", "10");
         BusinessHandlerImpl.initRocksdb(config, null);
+    }
+
+    @Test
+    public void testStoreStartupRejectsLegacyPartitionBeforeRegisteringWithPd() throws Exception {
+        Path location = this.temporary.newFolder("store-startup").toPath();
+        Path data = Files.createDirectory(location.resolve("db"));
+        writeDatabase(data, "00000", 1);
+        // A clean latest version must not hide affected data in a retained older version.
+        writeDatabase(data, "00001_1", 65534);
+        writeDatabase(data, "00001_2", 1);
+        Map<String, String> before = fileHashes(location);
+        Constructor<HgStoreEngine> constructor = HgStoreEngine.class.getDeclaredConstructor();
+        constructor.setAccessible(true);
+        HgStoreEngine engine = constructor.newInstance();
+        HgStoreEngineOptions options = new HgStoreEngineOptions();
+        options.setDataPath(location.toString());
+        options.setRocksdbConfig(new HashMap<>(Map.of("rocksdb.write_buffer_size", "1048576",
+                                                     "rocksdb.bloom_filter_bits_per_key", "10")));
+        // No PD/RPC endpoint or worker configuration is needed to reject local legacy data.
+        GraphIdPreflightException failure = assertThrows(GraphIdPreflightException.class,
+                                                        () -> engine.init(options));
+
+        assertTrue(failure.getMessage(), failure.getMessage().contains("startup"));
+        assertTrue(failure.getMessage(), failure.getMessage().contains("partition 00001"));
+        assertTrue(failure.getMessage(), failure.getMessage().contains("g+v"));
+        assertTrue(failure.getMessage(), failure.getMessage().contains(data.resolve("00001_1").toString()));
+        assertNull(engine.getPdProvider());
+        assertNull(engine.getRaftRpcServer());
+        assertNull(engine.getHeartbeatService());
+        assertNull(engine.getPartitionManager());
+        assertEquals(before, fileHashes(location));
+        assertFalse(RocksDBFactory.getInstance().getGraphNames().contains("00000"));
+        assertFalse(RocksDBFactory.getInstance().getGraphNames().contains("00001"));
+    }
+
+    @Test
+    public void testStoreStartupAcceptsCleanPartitionsInAllDataRootsWithoutWrites() throws Exception {
+        Path first = this.temporary.newFolder("store-clean-first").toPath();
+        Path second = this.temporary.newFolder("store-clean-second").toPath();
+        Path firstData = Files.createDirectory(first.resolve("db"));
+        Path secondData = Files.createDirectory(second.resolve("db"));
+        writeDatabase(firstData, "00000_1", 65533);
+        writeDatabase(firstData, "00000_2", 1);
+        writeDatabase(secondData, "00001", 2);
+        Map<String, String> firstBefore = fileHashes(first);
+        Map<String, String> secondBefore = fileHashes(second);
+
+        GraphIdManager.checkStoreDataBeforeStartup(first + "," + second + "," + first.resolve("new-store"));
+
+        assertEquals(firstBefore, fileHashes(first));
+        assertEquals(secondBefore, fileHashes(second));
+        assertFalse(Files.exists(first.resolve("new-store")));
+    }
+
+    @Test
+    public void testStoreStartupRejectsNativeFailureWithoutChangingFiles() throws Exception {
+        Path location = this.temporary.newFolder("store-corrupt").toPath();
+        Path data = Files.createDirectory(location.resolve("db"));
+        writeDatabase(data, "00001", 1);
+        Files.writeString(data.resolve("00001/CURRENT"), "invalid-current");
+        Map<String, String> before = fileHashes(location);
+
+        GraphIdPreflightException failure = assertThrows(GraphIdPreflightException.class,
+                () -> GraphIdManager.checkStoreDataBeforeStartup(location.toString()));
+
+        assertTrue(failure.getMessage(), failure.getMessage().contains("startup"));
+        assertTrue(failure.getCause().getCause() instanceof RocksDBException);
+        assertEquals(before, fileHashes(location));
+    }
+
+    @Test
+    public void testStoreStartupRejectsUnlistableDirectoryAndIncompleteLatestVersion() throws Exception {
+        Path location = this.temporary.newFolder("store-unlistable").toPath();
+        Path data = Files.writeString(location.resolve("db"), "not a directory");
+        assertThrows(GraphIdPreflightException.class,
+                     () -> GraphIdManager.checkStoreDataBeforeStartup(location.toString()));
+        assertEquals("not a directory", Files.readString(data));
+        Files.delete(data);
+        Files.createDirectory(data);
+        writeDatabase(data, "00001_1", 1);
+        Files.createDirectory(data.resolve("00001_2"));
+        Map<String, String> before = fileHashes(location);
+        assertThrows(GraphIdPreflightException.class,
+                     () -> GraphIdManager.checkStoreDataBeforeStartup(location.toString()));
+        assertEquals(before, fileHashes(location));
+    }
+
+    @Test
+    public void testStoreStartupRejectsAnUninspectablePartitionEntry() throws Exception {
+        Path location = this.temporary.newFolder("store-uninspectable-partition").toPath();
+        Path data = Files.createDirectory(location.resolve("db"));
+        Files.createSymbolicLink(data.resolve("00001"), location.resolve("missing-target"));
+        assertThrows(GraphIdPreflightException.class,
+                     () -> GraphIdManager.checkStoreDataBeforeStartup(location.toString()));
     }
 
     @Test
@@ -384,6 +480,9 @@ public class GraphIdUpgradePreflightTest {
             GraphIdManager.checkLegacyGraphIdData(cached.getDbPath(), PARTITION_ID);
             assertThrows(HgStoreException.class, () -> GraphIdManager.checkLegacyGraphIdData(cached, PARTITION_ID));
             int references = cached.getRefCount();
+            assertThrows(GraphIdPreflightException.class,
+                         () -> GraphIdManager.checkStoreDataBeforeStartup(location.toString()));
+            assertEquals(references, cached.getRefCount());
             PartitionEngine engine = partitionEngine(location, true);
             PartitionEngineOptions options = new PartitionEngineOptions();
             options.setGroupId(PARTITION_ID);

@@ -324,9 +324,23 @@ public class RocksDBSession implements AutoCloseable, Cloneable {
 
     private static boolean hasCurrentFile(String dbPath) {
         try {
-            return Files.readAttributes(Paths.get(dbPath, "CURRENT"), BasicFileAttributes.class).isRegularFile();
+            if (!Files.readAttributes(Paths.get(dbPath, "CURRENT"), BasicFileAttributes.class).isRegularFile()) {
+                throw new DBStoreException("Database path %s has a non-file CURRENT", dbPath);
+            }
+            return true;
         } catch (NoSuchFileException e) {
-            return false;
+            // A checkpoint can contain SSTs but no WAL. Without CURRENT, a later
+            // createIfMissing open would replace its data with an empty database.
+            try (Stream<Path> files = Files.list(Paths.get(dbPath))) {
+                if (files.findAny().isPresent()) {
+                    throw new DBStoreException("Nonempty database path %s has no CURRENT", dbPath);
+                }
+                return false;
+            } catch (NoSuchFileException missingDirectory) {
+                return false;
+            } catch (IOException | UncheckedIOException failure) {
+                throw new DBStoreException(String.format("Unable to inspect database path %s", dbPath), failure);
+            }
         } catch (IOException e) {
             throw new DBStoreException(String.format("Unable to inspect database path %s", dbPath), e);
         }

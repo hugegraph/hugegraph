@@ -19,11 +19,14 @@ limitations under the License.
 
 `RocksDBSession.resolveExistingDBPath(dbDataPath, graphName, version)` uses the
 same version-directory selection as the constructor, without opening, creating,
-pruning or renaming databases. It returns `null` when the selected path has no
-`CURRENT` and no existing database version is present. If an incomplete selected
-version would hide another existing database, it fails without changing either
-path. Directory listing or `CURRENT` inspection failures are rejected; unknown
-access or I/O state is not treated as an absent database. Paths queued for removal retain the constructor's existing treatment.
+pruning or renaming databases. It returns `null` for a missing or empty selected
+directory when no existing database version is present. A nonempty directory
+without `CURRENT` is rejected: a checkpoint can contain SST files without a WAL,
+and a later create-if-missing open could otherwise expose an empty database.
+If an incomplete selected version would hide another existing database, it also
+fails without changing either path. Directory listing or `CURRENT` inspection
+failures are rejected; unknown access or I/O state is not treated as an absent
+database. Paths queued for removal retain the constructor's existing treatment.
 The normal constructor continues to open read/write and prune old versions.
 
 `RocksDBFactory.createGraphDB(path, name, version, Consumer<String> validator)`

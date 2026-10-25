@@ -131,6 +131,40 @@ public class RocksDBSessionTest {
     }
 
     @Test
+    public void resolveMissingCurrentDoesNotTreatCheckpointAsNewDatabase() throws Exception {
+        Path root = this.temporary.newFolder("missing-current-checkpoint").toPath();
+        Path source = root.resolve("producer");
+        Path database = root.resolve("db");
+        writeNative(source, bytes("existing"));
+        createNativeSnapshot(source, database);
+        assertArrayEquals(bytes("existing"), readNative(database));
+        Files.delete(database.resolve("CURRENT"));
+        Map<String, String> before = fileHashes(root);
+
+        DBStoreException failure = assertThrows(DBStoreException.class,
+                () -> RocksDBSession.resolveExistingDBPath(root.toString(), "db", 0L));
+
+        assertTrue(failure.getMessage(), failure.getMessage().contains("no CURRENT"));
+        assertEquals(before, fileHashes(root));
+        assertArrayEquals(bytes("existing"), readNative(source));
+    }
+
+    @Test
+    public void resolveRejectsNonemptyRetainedVersionWithoutCurrent() throws Exception {
+        Path root = this.temporary.newFolder("retained-missing-current").toPath();
+        writeNative(root.resolve("db_1"), bytes("retained"));
+        writeNative(root.resolve("db_2"), bytes("latest"));
+        Files.delete(root.resolve("db_1/CURRENT"));
+        Map<String, String> before = fileHashes(root);
+
+        assertThrows(DBStoreException.class,
+                     () -> RocksDBSession.resolveExistingDBPath(root.toString(), "db", 2L));
+
+        assertEquals(before, fileHashes(root));
+        assertArrayEquals(bytes("latest"), readNative(root.resolve("db_2")));
+    }
+
+    @Test
     public void resolveRejectsUnreadableParent() throws Exception {
         Path root = this.temporary.newFolder("unreadable-parent").toPath();
         assertRestrictedPathRejected(root, root, "-wx------", root);
