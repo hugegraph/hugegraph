@@ -20,6 +20,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import stat
 import unittest
 from unittest.mock import patch
 
@@ -101,6 +102,37 @@ class ImageIdentityTest(unittest.TestCase):
             storage.assert_called_once_with()
             graph.assert_called_once_with("hg_pr_ci_1_1_docker_compose_hstore")
             self.assertEqual(run.call_args_list[-1].args[0][-3:], ["down", "-v", "--remove-orphans"])
+
+
+class ReadOnlyGraphFixtureTest(unittest.TestCase):
+    def test_fixture_is_readable_by_image_uid_under_restrictive_runner_umask(self):
+        inspected = []
+
+        def command(*args):
+            if args[:3] == ("docker", "image", "inspect"):
+                return json.dumps(["TOPLINGDB_ROCKSDB_PROVIDER=rocksdb"])
+            if "--entrypoint" in args:
+                return "backend=rocksdb\n"
+            mount = args[args.index("--mount") + 1]
+            source = Path(dict(option.split("=", 1) for option in mount.split(",") if "=" in option)["src"])
+            directory_mode = stat.S_IMODE(source.stat().st_mode)
+            file_mode = stat.S_IMODE((source / "hugegraph.properties").stat().st_mode)
+            self.assertEqual(directory_mode & (stat.S_IROTH | stat.S_IXOTH),
+                             stat.S_IROTH | stat.S_IXOTH)
+            self.assertTrue(file_mode & stat.S_IROTH)
+            inspected.append(source)
+            raise RuntimeError("fixture inspected before Docker startup")
+
+        previous_umask = os.umask(0o077)
+        try:
+            with patch.object(deployment, "command", side_effect=command), \
+                 patch.object(deployment.subprocess, "run"):
+                with self.assertRaisesRegex(RuntimeError, "fixture inspected"):
+                    deployment.verify_readonly_graphs("hugegraph/hugegraph:fixture")
+            self.assertEqual(len(inspected), 1)
+            self.assertFalse(inspected[0].exists())
+        finally:
+            os.umask(previous_umask)
 
 
 class GraphDefinitionPersistenceTest(unittest.TestCase):

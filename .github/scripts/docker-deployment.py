@@ -203,8 +203,12 @@ def verify_readonly_graphs(image):
                 case = f"{mount_kind}-{configured or 'default'}"
                 graphs = root / case
                 graphs.mkdir()
+                # A restrictive runner umask must not hide the fixture from
+                # the image's distinct non-root UID. The bind itself is read-only.
+                graphs.chmod(0o755)
                 config = graphs / "hugegraph.properties"
                 config.write_text(default + (f"rocksdb.provider={configured}\n" if configured else ""))
+                config.chmod(0o644)
                 original = config.read_bytes()
                 source = graphs if mount_kind == "directory" else config
                 destination = "/hugegraph-server/conf/graphs"
