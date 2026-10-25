@@ -26,6 +26,7 @@ import org.apache.hugegraph.store.util.FilterIteratorCleanupTest;
 import org.apache.hugegraph.store.util.SortShuffleSerializerTest;
 import org.apache.hugegraph.store.util.SortShuffleTest;
 import org.apache.hugegraph.store.util.TypeTransIteratorTest;
+import org.apache.hugegraph.store.util.UnionFilterIteratorTest;
 import org.junit.runner.RunWith;
 import org.junit.runners.Suite;
 
@@ -57,6 +58,7 @@ import lombok.extern.slf4j.Slf4j;
         SortShuffleSerializerTest.class,
         SortShuffleTest.class,
         TypeTransIteratorTest.class,
+        UnionFilterIteratorTest.class,
         HeartbeatShutdownTest.class,
         MetricSessionTest.class,
         HgSnapshotHandlerTest.class,
