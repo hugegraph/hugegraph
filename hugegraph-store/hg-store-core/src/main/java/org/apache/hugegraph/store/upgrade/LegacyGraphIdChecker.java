@@ -149,7 +149,7 @@ public final class LegacyGraphIdChecker {
         }
         try (DatabaseLocks locks = new DatabaseLocks()) {
             Path metadata = roots.get(0).resolve("hgstore-metadata");
-            if (offline && Files.exists(metadata.resolve("CURRENT"))) {
+            if (Files.exists(metadata.resolve("CURRENT"))) {
                 locks.add(metadata);
             }
             Set<Path> databases = new LinkedHashSet<>();
@@ -175,9 +175,7 @@ public final class LegacyGraphIdChecker {
                 }
             }
             for (Path database : databases) {
-                if (offline) {
-                    locks.add(database);
-                }
+                locks.add(database);
                 checkDatabase(database, config);
             }
             for (Path snapshot : snapshots) {
