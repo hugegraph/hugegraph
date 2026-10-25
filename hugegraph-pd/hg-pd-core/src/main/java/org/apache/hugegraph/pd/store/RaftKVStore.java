@@ -210,7 +210,7 @@ public class RaftKVStore implements HgKVStore, RaftTaskHandler {
             applyOperation(op, term).get();
         } catch (ExecutionException e) {
             // Keeps NOT_LEADER, which is how jraft's EPERM for another term arrives here
-            throw e.getCause() instanceof PDException ? (PDException) e.getCause() :
+            throw e.getCause() instanceof PDException failure ? failure :
                   new PDException(Pdpb.ErrorType.UNKNOWN_VALUE, e.getCause());
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();

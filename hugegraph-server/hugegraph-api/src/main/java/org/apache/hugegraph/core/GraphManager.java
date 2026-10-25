@@ -1674,8 +1674,8 @@ public final class GraphManager {
         Graph graph = this.graphs.get(spaceGraphName);
         if (graph == null) {
             return null;
-        } else if (graph instanceof HugeGraph) {
-            return (HugeGraph) graph;
+        } else if (graph instanceof HugeGraph matchedHugeGraph) {
+            return matchedHugeGraph;
         }
         throw new NotSupportException("graph instance of %s", graph.getClass());
     }
@@ -2399,8 +2399,8 @@ public final class GraphManager {
                 return graph1;
             }
             throw new NotFoundException(String.format("Graph '%s' does not exist", name));
-        } else if (graph instanceof HugeGraph) {
-            return (HugeGraph) graph;
+        } else if (graph instanceof HugeGraph matchedHugeGraph) {
+            return matchedHugeGraph;
         }
         throw new NotSupportException("graph instance of %s", graph.getClass());
     }
@@ -3022,8 +3022,7 @@ public final class GraphManager {
         for (String graphName : graphNames) {
             if (this.graphs.containsKey(graphName)) {
                 Graph graph = this.graphs.get(graphName);
-                if (graph instanceof HugeGraph) {
-                    HugeGraph hugeGraph = (HugeGraph) graph;
+                if (graph instanceof HugeGraph hugeGraph) {
                     String[] values =
                             graphName.split(MetaManager.META_PATH_JOIN);
                     if (values.length < 2) {
@@ -3054,8 +3053,7 @@ public final class GraphManager {
         for (String graphName : graphNames) {
             if (this.graphs.containsKey(graphName)) {
                 Graph graph = this.graphs.get(graphName);
-                if (graph instanceof HugeGraph) {
-                    HugeGraph hugeGraph = (HugeGraph) graph;
+                if (graph instanceof HugeGraph hugeGraph) {
                     ((AbstractBackendStoreProvider) hugeGraph.storeProvider())
                             .notifyAndWaitEvent(Events.STORE_CLEAR);
                 }
