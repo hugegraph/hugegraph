@@ -17,7 +17,10 @@
 
 package org.apache.hugegraph.pd.raft;
 
+import java.lang.reflect.Constructor;
 import java.util.Arrays;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 import org.apache.hugegraph.testutil.Whitebox;
 import org.junit.Assert;
@@ -54,13 +57,19 @@ public class RaftEngineReadinessTest {
     private RaftStateMachine stateMachine;
 
     @Before
-    public void setUp() {
+    public void setUp() throws Exception {
         // Other suites leave scheduled tasks reading the shared engine. Keep this mock
         // private to the test so their isLeader() calls cannot affect interaction checks.
-        engine = new RaftEngine();
+        engine = newEngine();
         mockNode = mock(Node.class);
         stateMachine = Whitebox.getInternalState(engine, "stateMachine");
         Whitebox.setInternalState(engine, "raftNode", mockNode);
+    }
+
+    private static RaftEngine newEngine() throws Exception {
+        Constructor<RaftEngine> constructor = RaftEngine.class.getDeclaredConstructor();
+        constructor.setAccessible(true);
+        return constructor.newInstance();
     }
 
     private static LeaderChangeContext ctx() {
@@ -203,6 +212,22 @@ public class RaftEngineReadinessTest {
     }
 
     @Test
+    public void testNewNodeResetAllowsLeadershipAfterShutdown() throws Exception {
+        stateMachine.onLeaderStart(5);
+        stateMachine.onShutdown();
+        stateMachine.stopLeaderCallbacks();
+        CountDownLatch notified = new CountDownLatch(1);
+        stateMachine.addStateListener(notified::countDown);
+        stateMachine.resetForNewNode();
+        Assert.assertEquals(State.STATE_UNINITIALIZED.name(), engine.getRaftStatus().getState());
+        Assert.assertFalse(stateMachine.isLeader());
+        stateMachine.onLeaderStart(7);
+        Assert.assertEquals(State.STATE_LEADER.name(), engine.getRaftStatus().getState());
+        Assert.assertTrue(stateMachine.isLeader());
+        Assert.assertTrue(notified.await(5, TimeUnit.SECONDS));
+    }
+
+    @Test
     public void testAlivePeerCountStopsAfterALeaderErrorsOrShutsDown() {
         // The terminal callbacks clear the leader term, so the refresher stops reading the
         // count off a node that errored or shut down and the gauge falls back to NaN
@@ -218,13 +243,13 @@ public class RaftEngineReadinessTest {
 
         stateMachine.onLeaderStart(6);
         engine.refreshAlivePeerCount();
-        Assert.assertEquals(2, engine.getAlivePeerCount());
+        Assert.assertEquals(-1, engine.getAlivePeerCount());
 
         stateMachine.onShutdown();
         engine.refreshAlivePeerCount();
         Assert.assertEquals(-1, engine.getAlivePeerCount());
-        // Twice, once per leader phase: the terminal states never reached the node
-        verify(mockNode, times(2)).listAlivePeers();
+        // Only the initial leader phase reads the node; queued starts cannot recover terminal state.
+        verify(mockNode, times(1)).listAlivePeers();
     }
 
     @Test
