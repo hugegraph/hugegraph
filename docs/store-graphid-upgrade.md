@@ -40,6 +40,31 @@ can have changed Store/Raft location metadata. The persisted ID format is
 unchanged, and the check never infers row ownership or
 performs a migration.
 
+### Incomplete database directories
+
+`Nonempty database path <path> has no CURRENT` identifies a directory that cannot
+be safely opened. It does not by itself establish that reserved GraphID rows
+exist. For example, interruption while the normal opener removes an older
+`db/00000_1` may leave it incomplete beside a valid `db/00000_2`. The read-only
+preflight preserves and rejects that leftover rather than deleting or skipping it.
+
+Keep the Store stopped and preserve its complete matching data, metadata and
+Raft backup. Check the exact reported path against the partition's stored
+location, previous Store logs and all sibling versions. A larger numeric suffix
+alone does not establish that another directory is the correct live database.
+
+Only after independently confirming that the reported directory is an obsolete,
+partly deleted version and verifying the selected database, move that one
+leftover to a backed-up quarantine outside **every** configured Store data and
+Raft root. Keep its files. Renaming it inside a data root is not a recovery check.
+Retry the guarded startup only after that check, with writes still stopped.
+
+Do not apply this procedure to a selected/latest database, a current snapshot or
+an uncertain directory. Do not fabricate a `CURRENT` file. Preserve the evidence
+and recover a complete matching backup or use the verified logical recovery
+workflow below. This manual recovery step does not make the guard automatically
+distinguish harmless cleanup remnants from damaged data or certify the upgrade.
+
 ## Upgrade workflow
 
 Keep an upgrade backup of the stopped cluster's data, metadata and Raft state.

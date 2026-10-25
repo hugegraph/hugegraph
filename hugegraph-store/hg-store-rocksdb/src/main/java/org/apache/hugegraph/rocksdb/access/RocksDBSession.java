@@ -333,7 +333,9 @@ public class RocksDBSession implements AutoCloseable, Cloneable {
             // createIfMissing open would replace its data with an empty database.
             try (Stream<Path> files = Files.list(Paths.get(dbPath))) {
                 if (files.findAny().isPresent()) {
-                    throw new DBStoreException("Nonempty database path %s has no CURRENT", dbPath);
+                    throw new DBStoreException("Nonempty database path %s has no CURRENT; preserve this path. " +
+                                               "See docs/store-graphid-upgrade.md#incomplete-database-directories",
+                                               dbPath);
                 }
                 return false;
             } catch (NoSuchFileException missingDirectory) {

@@ -145,6 +145,8 @@ public class RocksDBSessionTest {
                 () -> RocksDBSession.resolveExistingDBPath(root.toString(), "db", 0L));
 
         assertTrue(failure.getMessage(), failure.getMessage().contains("no CURRENT"));
+        assertTrue(failure.getMessage(), failure.getMessage().contains(database.toString()));
+        assertTrue(failure.getMessage(), failure.getMessage().contains("#incomplete-database-directories"));
         assertEquals(before, fileHashes(root));
         assertArrayEquals(bytes("existing"), readNative(source));
     }
@@ -157,9 +159,11 @@ public class RocksDBSessionTest {
         Files.delete(root.resolve("db_1/CURRENT"));
         Map<String, String> before = fileHashes(root);
 
-        assertThrows(DBStoreException.class,
-                     () -> RocksDBSession.resolveExistingDBPath(root.toString(), "db", 2L));
+        DBStoreException failure = assertThrows(DBStoreException.class,
+                () -> RocksDBSession.resolveExistingDBPath(root.toString(), "db", 2L));
 
+        assertTrue(failure.getMessage(), failure.getMessage().contains(root.resolve("db_1").toString()));
+        assertTrue(failure.getMessage(), failure.getMessage().contains("#incomplete-database-directories"));
         assertEquals(before, fileHashes(root));
         assertArrayEquals(bytes("latest"), readNative(root.resolve("db_2")));
     }
