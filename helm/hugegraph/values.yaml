@@ -556,7 +556,10 @@ seatunnel:
     username: admin
     # Empty generates a kept Secret; upgrades reuse the existing password.
     password: ""
-  javaOpts: "-Xms512m -Xmx1g"
+  # Replaces the image's jvm_options; reserve memory outside the heap under 2Gi.
+  javaOpts: >-
+    -Xms512m -Xmx1g -XX:+UseG1GC -XX:MaxMetaspaceSize=256m
+    -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/tmp/seatunnel.hprof
   resources:
     requests:
       cpu: 500m

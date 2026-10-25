@@ -190,7 +190,11 @@ require the explicit `HG_SOURCE_*` and `HG_TARGET_*` values below; the chart doe
 not discover remote graphs. Connector credentials do not replace entry auth.
 
 Tune the JVM with `seatunnel.javaOpts` and container resources with
-`seatunnel.resources`. `seatunnel.podSecurityContext` and
+`seatunnel.resources`. Defaults retain G1 and OOM heap dumps, with a 1 GiB maximum
+heap and 256 MiB metaspace cap to leave room for native memory under the 2 GiB limit.
+Heap dumps use writable `/tmp/seatunnel.hprof` and are ephemeral. `javaOpts` and
+`config.jvm_options` each replace the complete image JVM options file; keep the
+required GC and diagnostic flags when overriding either. `seatunnel.podSecurityContext` and
 `seatunnel.securityContext` follow the other chart components. The container
 starts with privilege escalation disabled, all capabilities dropped and
 `RuntimeDefault` seccomp. The upstream image runs as root: configure a compatible
@@ -203,7 +207,6 @@ Override complete native configuration files through `seatunnel.config`, for exa
 
 ```yaml
 seatunnel:
-  javaOpts: "-Xms512m -Xmx1g"
   config:
     jvm_client_options: |
       -Xms128m

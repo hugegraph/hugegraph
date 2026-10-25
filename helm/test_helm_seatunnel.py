@@ -153,6 +153,9 @@ class SeaTunnelChartTest(unittest.TestCase):
             self.assertIn("/opt/seatunnel/bin/seatunnel-cluster.sh", launch)
             self.assertNotIn(" -r ", launch)
             data = engine_config(documents)
+            for option in ("-Xms512m", "-Xmx1g", "-XX:+UseG1GC", "-XX:MaxMetaspaceSize=256m",
+                           "-XX:+HeapDumpOnOutOfMemoryError", "-XX:HeapDumpPath=/tmp/seatunnel.hprof"):
+                self.assertIn(option, data["jvm_options"].splitlines())
             engine = yaml.safe_load(data["seatunnel.yaml"])["seatunnel"]["engine"]
             self.assertEqual(backups, engine["backup-count"])
             self.assertTrue(engine["http"]["enable-http"])
