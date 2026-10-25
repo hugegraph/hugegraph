@@ -14,7 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Copy schema to an existing empty graph, preserving IDs for subsequent data copy."""
+"""Copy ordinary-label schema to an empty graph, preserving IDs for data copy."""
 import argparse
 import base64
 import copy
@@ -61,8 +61,15 @@ def main():
     parser.add_argument('--target', required=True, help='Target graph URL, including graph name')
     args = parser.parse_args()
     source = client(args.source, 'SOURCE')
-    target = client(args.target, 'TARGET')
     schema = source('GET', '/schema')
+    for label in schema['edgelabels']:
+        label_type = label.get('edgelabel_type', 'NORMAL')
+        if label_type != 'NORMAL':
+            raise SystemExit(
+                f"Unsupported edge label type {label_type!r} for {label['name']!r}: "
+                'this example only supports NORMAL edge labels; '
+                'inherited PARENT/SUB edge labels are not supported.')
+    target = client(args.target, 'TARGET')
     target_schema = target('GET', '/schema')
     if any(target_schema[kind] for kind in KINDS):
         raise SystemExit('Target schema must be empty; use a new graph.')

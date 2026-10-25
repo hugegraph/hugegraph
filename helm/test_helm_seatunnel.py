@@ -17,12 +17,14 @@
 """Check native hybrid deployment, release isolation, connectivity and packaging."""
 
 import base64
+import importlib.util
 from pathlib import Path
 import shutil
 import subprocess
 import tarfile
 import tempfile
 import unittest
+from unittest import mock
 
 import yaml
 
@@ -95,6 +97,25 @@ class SeaTunnelChartTest(unittest.TestCase):
         documents = self.documents()
         self.assertEqual([], engine_resources(documents))
         self.assertFalse(any("seatunnel" in doc["metadata"]["name"] for doc in documents))
+
+    def test_schema_copy_rejects_unsupported_edges_before_contacting_target(self):
+        path = CHART / "examples/seatunnel/clone/copy-schema.py"
+        spec = importlib.util.spec_from_file_location("copy_schema", path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        for label_type in ("PARENT", "SUB", "UNKNOWN"):
+            with self.subTest(label_type=label_type):
+                source = mock.Mock(return_value={"edgelabels": [
+                    {"name": "relation", "edgelabel_type": label_type}]})
+                target = mock.Mock()
+                with mock.patch.object(module, "client", side_effect=[source, target]) as factory, \
+                        mock.patch("sys.argv", [str(path), "--source", "http://source/graph",
+                                                "--target", "http://target/graph"]):
+                    with self.assertRaisesRegex(SystemExit, "only supports NORMAL edge labels"):
+                        module.main()
+                source.assert_called_once_with("GET", "/schema")
+                factory.assert_called_once_with("http://source/graph", "SOURCE")
+                target.assert_not_called()
 
     def test_legacy_release_without_seatunnel_values_still_renders(self):
         with tempfile.TemporaryDirectory(prefix="seatunnel-legacy-") as directory:

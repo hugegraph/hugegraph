@@ -208,6 +208,8 @@ curl -fsS -u "$HG_USERNAME:$HG_PASSWORD" -H 'Content-Type: application/json' \
 
 先通过 HugeGraph 原生 API 创建空的 `graph_b`，再执行 [copy-schema.py](../examples/seatunnel/clone/copy-schema.py)。脚本在目标图的 RESTORING 状态下保留源 Schema ID，复制属性键、顶点标签、边标签和索引；不传输图数据。源、目标应使用兼容的 HugeGraph 版本，账号需有相应管理权限，目标 Schema 必须为空。
 
+这份示例只支持普通边标签。遇到 `PARENT`、`SUB` 或未知边标签类型时，脚本会在访问目标图前退出；继承边需要按父子关系另行迁移。
+
 ```bash
 # 两个 URL 均包含图空间及图名；对应账号密码由本机环境提供
 export HG_SOURCE_GRAPH_URL=https://source.example.com/graphspaces/DEFAULT/graphs/graph_a
@@ -234,6 +236,10 @@ done
 作业使用 `ERROR_WHEN_SCHEMA_NOT_EXIST`，复用已经复制的 Schema；边依赖先前写入的端点顶点。这组映射覆盖 [person](../examples/seatunnel/clone/person.conf)、[company](../examples/seatunnel/clone/company.conf)、[works_at](../examples/seatunnel/clone/works_at.conf) 和 [knows](../examples/seatunnel/clone/knows.conf)。官方 Sink 要求显式提供 `mappings` 或 `schema_config`。复制其他图时需按实际标签、属性和 ID 策略调整原生映射，不会自动枚举全图并提交迁移作业。
 
 这组示例验证 `PRIMARY_KEY` 和 `CUSTOMIZE_NUMBER` 顶点 ID 策略。现有连接器对 `AUTOMATIC` 顶点会生成新 ID，不能用这组映射直接无损复制其边端点；迁移前先核对源图的 ID 策略。
+
+四份映射均显式设置 `timeZone = UTC`，假设源 Server 的 `DATE` 字符串按 UTC 序列化，避免复制结果随 SeaTunnel worker 的默认时区变化。
+源 Server 使用其他时区时，应把每个 Sink `mappings` 条目中的 `timeZone` 改为源 Server 的实际时区。
+Source 的 `time_zone` 不能修正 REST 返回的无时区日期字符串；含 `DATE` 属性时，验收还需比较原始时间戳。
 
 验收应同时核对属性键类型、基数、标签、主键、边端点定义、索引和 Schema ID，以及全部顶点 ID/属性、边 ID/端点/属性；只比较数量或作业状态不够。相关选项见官方 [HugeGraph Source](https://github.com/apache/seatunnel/blob/v3.0.0/docs/en/connectors/source/HugeGraph.md) 和 [Sink](https://github.com/apache/seatunnel/blob/v3.0.0/docs/en/connectors/sink/HugeGraph.md)。
 
