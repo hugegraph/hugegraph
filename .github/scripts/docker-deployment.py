@@ -29,6 +29,8 @@ import xml.etree.ElementTree as ET
 
 ADMIN_PASSWORD = "ci-compose-password"
 PD_PASSWORD = "ci-compose-pd-secret"
+GRAPH_CONFIG_LINK = "../rocksdb-data/.hugegraph-config/graphs"
+GRAPH_CONFIG_PROBE = "/hugegraph-server/conf/graphs/.compose-recreate-probe"
 
 
 def command(*args):
@@ -124,6 +126,28 @@ def verify_graph(run_id):
                    check=True, timeout=960, env=environment)
 
 
+def verify_standalone_recreate(compose, container, image, expected):
+    # GraphManager writes dynamic definitions through conf/graphs. The image
+    # redirects that path into the existing data volume; prove a real Compose
+    # replacement keeps the path and does not merely pass a static Dockerfile check.
+    script = (f'test "$(readlink /hugegraph-server/conf/graphs)" = "{GRAPH_CONFIG_LINK}"\n'
+              f'printf persisted > {GRAPH_CONFIG_PROBE}')
+    command("docker", "exec", container, "sh", "-ceu", script)
+    subprocess.run(compose + ["up", "-d", "--pull", "never", "--force-recreate",
+                              "--no-deps", "--wait", "--wait-timeout", "600", "server"],
+                   check=True, timeout=660)
+    replacement = command(*compose, "ps", "-q", "server")
+    if not replacement or "\n" in replacement or replacement == container:
+        raise RuntimeError("Compose did not replace the standalone Server container")
+    verify_image(replacement, image, expected)
+    health = command("docker", "inspect", "--format", "{{.State.Health.Status}}", replacement)
+    if health != "healthy":
+        raise RuntimeError(f"Replacement Server is {health}")
+    if command("docker", "exec", replacement, "cat", GRAPH_CONFIG_PROBE) != "persisted":
+        raise RuntimeError("conf/graphs did not survive the standalone container replacement")
+    verify_server()
+
+
 def smoke(tag, topology, images):
     root = Path(__file__).resolve().parents[2]
     project = f"hg-pr-{tag}-{Path(topology).stem}"
@@ -132,6 +156,7 @@ def smoke(tag, topology, images):
     expected = {service: command("docker", "image", "inspect", "--format", "{{.Id}}",
                                  f"{repository}:{tag}") for service, repository in images.items()}
     failed = False
+    containers = {}
     try:
         subprocess.run(compose + ["up", "-d", "--pull", "never", "--wait",
                                   "--wait-timeout", "600"] + list(images), check=True, timeout=660)
@@ -139,6 +164,7 @@ def smoke(tag, topology, images):
             container = command(*compose, "ps", "-q", service)
             if not container or "\n" in container:
                 raise RuntimeError(f"Expected exactly one {service} container")
+            containers[service] = container
             verify_image(container, f"{repository}:{tag}", expected[service])
             health = command("docker", "inspect", "--format", "{{.State.Health.Status}}", container)
             if health != "healthy":
@@ -147,6 +173,9 @@ def smoke(tag, topology, images):
         if "pd" in images:
             verify_storage()
         verify_graph(project.replace("-", "_"))
+        if topology == "docker-compose.yml":
+            verify_standalone_recreate(compose, containers["server"],
+                                       f"{images['server']}:{tag}", expected["server"])
     except BaseException:
         failed = True
         for args in (["ps"], ["logs", "--no-color", "--tail", "200"]):

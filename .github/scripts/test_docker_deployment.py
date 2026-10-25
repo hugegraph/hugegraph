@@ -68,6 +68,22 @@ class ImageIdentityTest(unittest.TestCase):
                 deployment.smoke("ci-1-1", "docker-compose.yml", {"server": "hugegraph/hugegraph"})
             self.assertEqual(run.call_args_list[-1].args[0][-3:], ["down", "-v", "--remove-orphans"])
 
+    def test_standalone_recreates_after_graph_checks(self):
+        with patch.object(deployment, "command",
+                          side_effect=["sha256:server", "server", "sha256:server", "healthy"]), \
+             patch.object(deployment.subprocess, "run") as run, \
+             patch.object(deployment, "verify_server") as server, \
+             patch.object(deployment, "verify_graph") as graph, \
+             patch.object(deployment, "verify_standalone_recreate") as recreate:
+            deployment.smoke("ci-1-1", "docker-compose.yml", {"server": "hugegraph/hugegraph"})
+            args = recreate.call_args.args
+            self.assertEqual(args[1:], ("server", "hugegraph/hugegraph:ci-1-1", "sha256:server"))
+            self.assertEqual(args[0][:4], ["docker", "compose", "-p",
+                                          "hg-pr-ci-1-1-docker-compose"])
+            server.assert_called_once_with()
+            graph.assert_called_once_with("hg_pr_ci_1_1_docker_compose")
+            self.assertEqual(run.call_args_list[-1].args[0][-3:], ["down", "-v", "--remove-orphans"])
+
     def test_hstore_starts_only_pr_services_and_cleans_after_checks(self):
         images = {"pd": "hugegraph/pd", "store": "hugegraph/store", "server": "hugegraph/server"}
         identities = ["sha256:pd", "sha256:store", "sha256:server"]
@@ -85,6 +101,33 @@ class ImageIdentityTest(unittest.TestCase):
             storage.assert_called_once_with()
             graph.assert_called_once_with("hg_pr_ci_1_1_docker_compose_hstore")
             self.assertEqual(run.call_args_list[-1].args[0][-3:], ["down", "-v", "--remove-orphans"])
+
+
+class GraphDefinitionPersistenceTest(unittest.TestCase):
+    def test_force_recreate_keeps_graph_config_in_data_volume(self):
+        compose = ["docker", "compose", "-p", "fixture", "-f", "/repo/docker/docker-compose.yml"]
+        with patch.object(deployment, "command",
+                          side_effect=["", "replacement", "healthy", "persisted"]) as command, \
+             patch.object(deployment.subprocess, "run") as run, \
+             patch.object(deployment, "verify_image") as image, \
+             patch.object(deployment, "verify_server") as server:
+            deployment.verify_standalone_recreate(
+                compose, "original", "hugegraph/hugegraph:ci-1-1", "sha256:pr")
+
+            recreate = run.call_args.args[0]
+            self.assertEqual(recreate[:len(compose)], compose)
+            for option in ("--force-recreate", "--no-deps", "--wait"):
+                self.assertIn(option, recreate)
+            self.assertEqual(recreate[-1], "server")
+            image.assert_called_once_with("replacement", "hugegraph/hugegraph:ci-1-1", "sha256:pr")
+            server.assert_called_once_with()
+            write = command.call_args_list[0].args
+            self.assertEqual(write[:4], ("docker", "exec", "original", "sh"))
+            self.assertIn(deployment.GRAPH_CONFIG_LINK, write[-1])
+            self.assertIn(deployment.GRAPH_CONFIG_PROBE, write[-1])
+            self.assertEqual(command.call_args_list[-1].args,
+                             ("docker", "exec", "replacement", "cat",
+                              deployment.GRAPH_CONFIG_PROBE))
 
 
 class GraphSmokeTest(unittest.TestCase):
