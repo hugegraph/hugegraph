@@ -42,6 +42,11 @@ local configuration files containing the resolved effective RocksDB settings.
 For example, a Docker deployment's `HG_STORE_DATA_PATH` must be supplied as
 `--data-path`; the command does not read the entrypoint's `SPRING_APPLICATION_JSON`.
 Relative paths are resolved from the Store distribution, as with its startup scripts.
+The checker uses the same verified runtime selector as the Store launcher. For a
+Topling deployment, prepare its runtime first, set
+`TOPLINGDB_ROCKSDB_PROVIDER=topling`, and retain `rocksdb.provider=topling` in the
+effective configuration. Its selected JNI JAR takes precedence over the bundled
+standard RocksDB classes; missing or unverified runtime assets fail the check.
 Do not point the command at a running Store: it refuses locked active databases,
 and a separate read-only database cannot observe another process's memtables.
 

@@ -19,13 +19,16 @@ package org.apache.hugegraph.store.node;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
+import org.apache.hugegraph.store.upgrade.LegacyGraphIdChecker;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
@@ -75,7 +78,24 @@ public class GraphIdCheckCommandTest {
         }
         assertEquals(2, GraphIdCheckCommand.run("--check", "--config", config.toString()));
         assertEquals(2, GraphIdCheckCommand.run("--check", "--config", config.toString()));
+        RuntimeException refusal = assertThrows(LegacyGraphIdChecker.StartupPreflightException.class,
+                () -> LegacyGraphIdChecker.checkStore(root.toString(),
+                                                     LegacyGraphIdChecker.configuration(Map.of())));
+        assertTrue(StoreNodeApplication.isGraphIdPreflightFailure(refusal));
+        assertTrue(StoreNodeApplication.isGraphIdPreflightFailure(new RuntimeException(refusal)));
         assertFalse(Files.exists(root.resolve("hgstore-metadata")));
+    }
+
+    @Test
+    public void testUnrelatedStartupErrorsKeepTheirExistingLifecycle() {
+        assertFalse(StoreNodeApplication.isGraphIdPreflightFailure(
+                new RuntimeException("PD unreachable")));
+        assertFalse(StoreNodeApplication.isGraphIdPreflightFailure(
+                new RuntimeException("GraphID upgrade preflight refused Store startup")));
+        RuntimeException first = new RuntimeException();
+        RuntimeException second = new RuntimeException(first);
+        first.initCause(second);
+        assertFalse(StoreNodeApplication.isGraphIdPreflightFailure(first));
     }
 
     @Test

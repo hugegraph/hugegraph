@@ -17,7 +17,12 @@
 
 package org.apache.hugegraph.store.node;
 
+import java.util.Collections;
+import java.util.IdentityHashMap;
+import java.util.Set;
+
 import org.apache.hugegraph.store.node.listener.PdConfigureListener;
+import org.apache.hugegraph.store.upgrade.LegacyGraphIdChecker;
 import org.apache.hugegraph.util.RocksDBRuntime;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.SpringApplication;
@@ -36,11 +41,24 @@ public class StoreNodeApplication {
         try {
             start(args);
         } catch (RuntimeException e) {
+            if (!isGraphIdPreflightFailure(e)) {
+                throw e;
+            }
             LoggerFactory.getLogger(StoreNodeApplication.class)
-                         .error("HugeGraph Store startup failed; exiting with status 1", e);
+                         .error("GraphID preflight refused Store startup; exiting with status 1", e);
             // An incomplete Spring bootstrap can leave non-daemon native/Raft executors alive.
             System.exit(1);
         }
+    }
+
+    static boolean isGraphIdPreflightFailure(Throwable failure) {
+        Set<Throwable> visited = Collections.newSetFromMap(new IdentityHashMap<>());
+        for (Throwable cause = failure; cause != null && visited.add(cause); cause = cause.getCause()) {
+            if (cause instanceof LegacyGraphIdChecker.StartupPreflightException) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public static void start() {

@@ -35,7 +35,12 @@ MODULE_OPTIONS=()
 while IFS= read -r option || [[ -n "$option" ]]; do
     [[ -z "$option" || "$option" == \#* ]] || MODULE_OPTIONS+=("$option")
 done < "$BIN/jvm-module.options"
+source "$BIN/preload-topling.sh"
+CHECKER_CLASSPATH="${JARS[0]}"
+if [[ -n "${TOPLING_RUNTIME_CLASSPATH:-}" ]]; then
+    CHECKER_CLASSPATH="${TOPLING_RUNTIME_CLASSPATH}:$CHECKER_CLASSPATH"
+fi
 cd -- "$TOP"
 exec "$JAVA" "${MODULE_OPTIONS[@]}" \
     -Dloader.main=org.apache.hugegraph.store.node.GraphIdCheckCommand \
-    -cp "${JARS[0]}" org.springframework.boot.loader.PropertiesLauncher "$@"
+    -cp "$CHECKER_CLASSPATH" org.springframework.boot.loader.PropertiesLauncher "$@"

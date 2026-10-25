@@ -75,10 +75,20 @@ public final class LegacyGraphIdChecker {
         try {
             inspect(dataPaths, config, false);
         } catch (IOException | RocksDBException | RuntimeException e) {
-            throw new HgStoreException("GraphID upgrade preflight refused Store startup: " +
+            throw new StartupPreflightException("GraphID upgrade preflight refused Store startup: " +
                     e.getMessage() + ". Preserve the complete 1.7 backup. Run " +
                     "bin/hugegraph-store-check.sh --check while the Store is stopped; " +
                     "see docs/graphid-upgrade.md", e);
+        }
+    }
+
+    /** Identifies the startup refusal across Spring's initialization wrappers. */
+    public static final class StartupPreflightException extends HgStoreException {
+
+        private static final long serialVersionUID = 1L;
+
+        private StartupPreflightException(String message, Throwable cause) {
+            super(message, cause);
         }
     }
 
