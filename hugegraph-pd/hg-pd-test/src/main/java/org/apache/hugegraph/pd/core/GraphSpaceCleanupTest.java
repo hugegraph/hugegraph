@@ -18,6 +18,7 @@
 package org.apache.hugegraph.pd.core;
 
 import java.lang.reflect.Field;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -101,6 +102,45 @@ public class GraphSpaceCleanupTest {
                 Metapb.Graph.newBuilder().setGraphName("shop-other/g/g").build()));
         fixture.service.deleteGraphSpace("shop", fixture.partitions);
         Assert.assertNull(fixture.service.refreshGraphSpaceUsage("shop", 512, fixture.partitions));
+    }
+
+    @Test
+    public void testLeftoverPdGraphIsNamedAndRetainedForOperatorRecovery() throws Exception {
+        Fixture fixture = new Fixture();
+        Mockito.when(fixture.partitions.getGraphs()).thenReturn(List.of(
+                Metapb.Graph.newBuilder().setGraphName("shop/old/g").build(),
+                Metapb.Graph.newBuilder().setGraphName("shop-other/live/g").build()));
+        PDException failure = Assert.assertThrows(PDException.class,
+                () -> fixture.service.deleteGraphSpace("shop", fixture.partitions));
+        Assert.assertTrue(failure.getMessage().contains("1 graph record(s)"));
+        Assert.assertTrue(failure.getMessage().contains("shop/old/g"));
+        Assert.assertTrue(failure.getMessage().contains("GET /v1/graphs"));
+        Assert.assertFalse(failure.getMessage().contains("shop-other/live/g"));
+        Assert.assertNotNull(fixture.stored.get());
+        Mockito.verify(fixture.meta, Mockito.never()).deleteGraphSpace(Mockito.any());
+        Mockito.verify(fixture.partitions, Mockito.never()).delGraph(Mockito.any());
+    }
+
+    @Test
+    public void testRemainingGraphDiagnosticBoundsNamesAndPayload() throws Exception {
+        Fixture fixture = new Fixture();
+        List<Metapb.Graph> graphs = new ArrayList<>();
+        for (int i = 0; i < 12; i++) {
+            graphs.add(Metapb.Graph.newBuilder().setGraphName(
+                    "shop/" + i + "-\n" + "x".repeat(2000) + "/g").build());
+        }
+        Mockito.when(fixture.partitions.getGraphs()).thenReturn(graphs);
+        PDException failure = Assert.assertThrows(PDException.class,
+                () -> fixture.service.deleteGraphSpace("shop", fixture.partitions));
+        String message = failure.getMessage();
+        Assert.assertTrue(message.contains("12 graph record(s)"));
+        Assert.assertTrue(message.contains("showing up to 10 names, 128 characters each"));
+        Assert.assertTrue(message.contains("shop/9-?"));
+        Assert.assertFalse(message.contains("shop/10-"));
+        Assert.assertFalse(message.contains("\n"));
+        Assert.assertTrue(message.length() < 1800);
+        Mockito.verify(fixture.meta, Mockito.never()).deleteGraphSpace(Mockito.any());
+        Mockito.verify(fixture.partitions, Mockito.never()).delGraph(Mockito.any());
     }
 
     @Test

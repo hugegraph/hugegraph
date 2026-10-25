@@ -17,6 +17,7 @@
 
 package org.apache.hugegraph.pd;
 
+import java.util.ArrayList;
 import java.util.List;
 
 import org.apache.hugegraph.pd.common.PDException;
@@ -34,6 +35,8 @@ public class ConfigService implements RaftStateListener {
 
     // PD service facades share one metadata store, but have separate ConfigService instances.
     private static final Object GRAPH_SPACE_LOCK = new Object();
+    private static final int GRAPH_SPACE_DIAGNOSTIC_NAMES = 10;
+    private static final int GRAPH_SPACE_DIAGNOSTIC_NAME_LENGTH = 128;
 
     private ConfigMetaStore meta;
     private PDConfig pdConfig;
@@ -113,9 +116,32 @@ public class ConfigService implements RaftStateListener {
             throw new PDException(Pdpb.ErrorType.UNKNOWN_VALUE, "Invalid graph space name");
         }
         synchronized (GRAPH_SPACE_LOCK) {
-            if (hasGraphs(name, partitions)) {
+            String prefix = name + "/";
+            int count = 0;
+            List<String> names = new ArrayList<>(GRAPH_SPACE_DIAGNOSTIC_NAMES);
+            for (Metapb.Graph graph : partitions.getGraphs()) {
+                String graphName = graph.getGraphName();
+                if (!graphName.startsWith(prefix)) {
+                    continue;
+                }
+                count++;
+                if (names.size() < GRAPH_SPACE_DIAGNOSTIC_NAMES) {
+                    int end = Math.min(graphName.length(), GRAPH_SPACE_DIAGNOSTIC_NAME_LENGTH);
+                    if (end < graphName.length() && Character.isHighSurrogate(graphName.charAt(end - 1))) {
+                        end--;
+                    }
+                    String displayName = graphName.substring(0, end).replaceAll("\\p{Cntrl}", "?");
+                    names.add(displayName + (end < graphName.length() ? "..." : ""));
+                }
+            }
+            if (count != 0) {
                 throw new PDException(Pdpb.ErrorType.UNKNOWN_VALUE,
-                                      "Remove the graph space's graphs before its statistics");
+                                      String.format("PD still has %s graph record(s) in space '%s': %s " +
+                                                    "(showing up to %s names, %s characters each). " +
+                                                    "Inspect GET /v1/graphs and compare Server graph " +
+                                                    "configuration before retrying space deletion.",
+                                                    count, name, names, GRAPH_SPACE_DIAGNOSTIC_NAMES,
+                                                    GRAPH_SPACE_DIAGNOSTIC_NAME_LENGTH));
             }
             this.meta.deleteGraphSpace(name);
         }

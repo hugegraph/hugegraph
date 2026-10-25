@@ -986,6 +986,21 @@ at the cleanup step until PD is upgraded. This cleanup does not serialize graph
 creation with space deletion across Server replicas; avoid creating graphs in a space
 while deleting it.
 
+If cleanup is refused, the Server response includes the PD reason, remaining
+record count and up to ten PD graph names (each limited to 128 characters).
+Inspect PD's authenticated `GET /v1/graphs` endpoint for the full identifiers and
+compare them with the Server's graph configuration. For example, `shop/old/g`
+identifies graph `old` in space `shop`, with backend suffix `g`. Earlier failed
+graph drops can leave a PD record after its Server configuration is gone;
+retrying space deletion alone does not remove that record.
+
+Confirm ownership and any data that must be retained before recovery. For a
+confirmed obsolete graph, use the normal Server graph APIs to recreate the
+missing graph configuration with its original space, graph name and backend,
+then drop that graph normally and retry space deletion. A graph owned by another
+Server must be removed through that owner instead. The cleanup operation does
+not guess ownership or delete remaining graph data automatically.
+
 An administrator can raise limits with `PUT /graphspaces/DEFAULT`, for example:
 
 ```json

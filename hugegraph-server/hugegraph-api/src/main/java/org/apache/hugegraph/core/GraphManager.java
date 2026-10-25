@@ -1157,7 +1157,10 @@ public final class GraphManager {
         if (metaDriver instanceof PdMetaDriver) {
             try {
                 ((PdMetaDriver) metaDriver).pdClient().deleteGraphSpace(name);
-            } catch (PDException | StatusRuntimeException e) {
+            } catch (PDException e) {
+                throw new HugeException("Failed to remove graph space '%s' statistics from PD: %s", e,
+                                        name, StringUtils.abbreviate(e.getMessage(), 2048));
+            } catch (StatusRuntimeException e) {
                 throw new HugeException("Failed to remove graph space '%s' statistics from PD", e, name);
             }
         }

@@ -124,6 +124,12 @@ public class GraphManagerConfigTest {
     }
 
     @Test
+    public void testEmptyServerSpaceKeepsRemainingPdGraphDiagnosis() throws Exception {
+        this.checkGraphSpaceStatisticsCleanup(new PDException(1003,
+                "PD still has 1 graph record in space 'shop': [shop/old/g]. Inspect GET /v1/graphs"), false);
+    }
+
+    @Test
     public void testGraphSpaceDropDoesNotCleanStatisticsWhenGraphRemovalFails() throws Exception {
         this.checkGraphSpaceStatisticsCleanup(null, true);
     }
@@ -151,7 +157,12 @@ public class GraphManagerConfigTest {
             Mockito.doThrow(new HugeException("graph removal failed")).when(manager).clearGraphSpace("shop");
         }
         if (pdFailure != null || graphFailure) {
-            Assert.assertThrows(HugeException.class, () -> manager.dropGraphSpace("shop"));
+            HugeException failure = Assert.assertThrows(HugeException.class,
+                    () -> manager.dropGraphSpace("shop"));
+            if (pdFailure instanceof PDException) {
+                Assert.assertTrue(failure.getMessage().contains(pdFailure.getMessage()));
+                Assert.assertSame(pdFailure, failure.getCause());
+            }
             Mockito.verify(meta, Mockito.never()).removeGraphSpaceConfig(Mockito.any());
             Mockito.verify(meta, Mockito.never()).notifyGraphSpaceRemove(Mockito.any());
             if (graphFailure) {
