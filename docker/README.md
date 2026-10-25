@@ -358,8 +358,12 @@ data mounts. For standalone, from this directory:
 ```bash
 docker compose -f docker-compose.yml stop
 HUGEGRAPH_VERSION='<matching-version>-topling' \
-  docker compose -f docker-compose.yml -f docker-compose.graph-config.yml up -d --wait
+  docker compose -f docker-compose.yml up -d --wait
 ```
+
+If you use the working configuration mount above, retain
+`-f docker-compose.graph-config.yml` after the base Compose file on subsequent
+commands. Deployments using the default data-volume configuration need no override.
 
 Use `docker-compose-hstore.yml` for the corresponding distributed deployment.
 The named data volumes are reattached automatically; no export/import or new
