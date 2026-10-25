@@ -988,10 +988,15 @@ while deleting it.
 
 If cleanup is refused, the Server response includes the PD reason, remaining
 record count and up to ten PD graph names (each limited to 128 characters).
-Inspect PD's authenticated `GET /v1/graphs` endpoint for the full identifiers and
-compare them with the Server's graph configuration. For example, `shop/old/g`
-identifies graph `old` in space `shop`, with backend suffix `g`. Earlier failed
-graph drops can leave a PD record after its Server configuration is gone;
+Inspect PD's authenticated `GET /v1/partitionsAndStats` diagnostic endpoint. The
+keys of its `partitions` object retain every full PD graph identifier, including
+records with no partitions. This supplies the full names omitted or truncated in
+the bounded error message. `GET /v1/graphs` lists only `/g` records and is not a
+complete inventory for this check: schema `/m` records can also block cleanup.
+Compare all matching identifiers with the Server's graph configuration. For
+example, `shop/old/g` and `shop/old/m` belong to graph `old` in space `shop`, with
+data and schema backend suffixes respectively. Earlier failed graph drops can
+leave a PD record after its Server configuration is gone;
 retrying space deletion alone does not remove that record.
 
 Confirm ownership and any data that must be retained before recovery. For a

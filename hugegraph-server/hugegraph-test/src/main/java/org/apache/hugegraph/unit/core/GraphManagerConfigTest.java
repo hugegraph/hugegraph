@@ -126,7 +126,8 @@ public class GraphManagerConfigTest {
     @Test
     public void testEmptyServerSpaceKeepsRemainingPdGraphDiagnosis() throws Exception {
         this.checkGraphSpaceStatisticsCleanup(new PDException(1003,
-                "PD still has 1 graph record in space 'shop': [shop/old/g]. Inspect GET /v1/graphs"), false);
+                "PD still has 1 graph record in space 'shop': [shop/old/g]. " +
+                "Inspect GET /v1/partitionsAndStats"), false);
     }
 
     @Test

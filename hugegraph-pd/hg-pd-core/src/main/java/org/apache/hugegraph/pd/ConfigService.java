@@ -138,8 +138,9 @@ public class ConfigService implements RaftStateListener {
                 throw new PDException(Pdpb.ErrorType.UNKNOWN_VALUE,
                                       String.format("PD still has %s graph record(s) in space '%s': %s " +
                                                     "(showing up to %s names, %s characters each). " +
-                                                    "Inspect GET /v1/graphs and compare Server graph " +
-                                                    "configuration before retrying space deletion.",
+                                                    "Inspect GET /v1/partitionsAndStats and compare " +
+                                                    "Server graph configuration before retrying " +
+                                                    "space deletion.",
                                                     count, name, names, GRAPH_SPACE_DIAGNOSTIC_NAMES,
                                                     GRAPH_SPACE_DIAGNOSTIC_NAME_LENGTH));
             }

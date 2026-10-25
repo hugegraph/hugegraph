@@ -109,12 +109,14 @@ public class GraphSpaceCleanupTest {
         Fixture fixture = new Fixture();
         Mockito.when(fixture.partitions.getGraphs()).thenReturn(List.of(
                 Metapb.Graph.newBuilder().setGraphName("shop/old/g").build(),
+                Metapb.Graph.newBuilder().setGraphName("shop/old/m").build(),
                 Metapb.Graph.newBuilder().setGraphName("shop-other/live/g").build()));
         PDException failure = Assert.assertThrows(PDException.class,
                 () -> fixture.service.deleteGraphSpace("shop", fixture.partitions));
-        Assert.assertTrue(failure.getMessage().contains("1 graph record(s)"));
+        Assert.assertTrue(failure.getMessage().contains("2 graph record(s)"));
         Assert.assertTrue(failure.getMessage().contains("shop/old/g"));
-        Assert.assertTrue(failure.getMessage().contains("GET /v1/graphs"));
+        Assert.assertTrue(failure.getMessage().contains("shop/old/m"));
+        Assert.assertTrue(failure.getMessage().contains("GET /v1/partitionsAndStats"));
         Assert.assertFalse(failure.getMessage().contains("shop-other/live/g"));
         Assert.assertNotNull(fixture.stored.get());
         Mockito.verify(fixture.meta, Mockito.never()).deleteGraphSpace(Mockito.any());
