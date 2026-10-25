@@ -105,7 +105,7 @@ class ImageIdentityTest(unittest.TestCase):
 
 
 class ReadOnlyGraphFixtureTest(unittest.TestCase):
-    def test_fixture_is_readable_by_image_uid_under_restrictive_runner_umask(self):
+    def test_fixture_is_usable_by_image_uid_before_readonly_mount_under_restrictive_umask(self):
         inspected = []
 
         def command(*args):
@@ -117,9 +117,9 @@ class ReadOnlyGraphFixtureTest(unittest.TestCase):
             source = Path(dict(option.split("=", 1) for option in mount.split(",") if "=" in option)["src"])
             directory_mode = stat.S_IMODE(source.stat().st_mode)
             file_mode = stat.S_IMODE((source / "hugegraph.properties").stat().st_mode)
-            self.assertEqual(directory_mode & (stat.S_IROTH | stat.S_IXOTH),
-                             stat.S_IROTH | stat.S_IXOTH)
-            self.assertTrue(file_mode & stat.S_IROTH)
+            self.assertEqual(directory_mode & (stat.S_IROTH | stat.S_IWOTH | stat.S_IXOTH),
+                             stat.S_IROTH | stat.S_IWOTH | stat.S_IXOTH)
+            self.assertEqual(file_mode & (stat.S_IROTH | stat.S_IWOTH), stat.S_IROTH | stat.S_IWOTH)
             inspected.append(source)
             raise RuntimeError("fixture inspected before Docker startup")
 
