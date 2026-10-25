@@ -17,8 +17,8 @@
 
 package org.apache.hugegraph.pd;
 
-import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Stream;
 
 import org.apache.hugegraph.pd.common.PDException;
 import org.apache.hugegraph.pd.config.PDConfig;
@@ -116,32 +116,17 @@ public class ConfigService implements RaftStateListener {
             throw new PDException(Pdpb.ErrorType.UNKNOWN_VALUE, "Invalid graph space name");
         }
         synchronized (GRAPH_SPACE_LOCK) {
-            String prefix = name + "/";
-            int count = 0;
-            List<String> names = new ArrayList<>(GRAPH_SPACE_DIAGNOSTIC_NAMES);
-            for (Metapb.Graph graph : partitions.getGraphs()) {
-                String graphName = graph.getGraphName();
-                if (!graphName.startsWith(prefix)) {
-                    continue;
-                }
-                count++;
-                if (names.size() < GRAPH_SPACE_DIAGNOSTIC_NAMES) {
-                    int end = Math.min(graphName.length(), GRAPH_SPACE_DIAGNOSTIC_NAME_LENGTH);
-                    if (end < graphName.length() && Character.isHighSurrogate(graphName.charAt(end - 1))) {
-                        end--;
-                    }
-                    String displayName = graphName.substring(0, end).replaceAll("\\p{Cntrl}", "?");
-                    names.add(displayName + (end < graphName.length() ? "..." : ""));
-                }
-            }
-            if (count != 0) {
+            List<String> names = graphNames(name, partitions).toList();
+            if (!names.isEmpty()) {
+                List<String> sample = names.stream().limit(GRAPH_SPACE_DIAGNOSTIC_NAMES)
+                                           .map(ConfigService::diagnosticGraphName).toList();
                 throw new PDException(Pdpb.ErrorType.UNKNOWN_VALUE,
                                       String.format("PD still has %s graph record(s) in space '%s': %s " +
                                                     "(showing up to %s names, %s characters each). " +
                                                     "Inspect GET /v1/partitionsAndStats and compare " +
                                                     "Server graph configuration before retrying " +
                                                     "space deletion.",
-                                                    count, name, names, GRAPH_SPACE_DIAGNOSTIC_NAMES,
+                                                    names.size(), name, sample, GRAPH_SPACE_DIAGNOSTIC_NAMES,
                                                     GRAPH_SPACE_DIAGNOSTIC_NAME_LENGTH));
             }
             this.meta.deleteGraphSpace(name);
@@ -149,8 +134,21 @@ public class ConfigService implements RaftStateListener {
     }
 
     private static boolean hasGraphs(String name, PartitionService partitions) throws PDException {
+        return graphNames(name, partitions).findAny().isPresent();
+    }
+
+    private static Stream<String> graphNames(String name, PartitionService partitions) throws PDException {
         String prefix = name + "/";
-        return partitions.getGraphs().stream().anyMatch(graph -> graph.getGraphName().startsWith(prefix));
+        return partitions.getGraphs().stream().map(Metapb.Graph::getGraphName)
+                         .filter(graphName -> graphName.startsWith(prefix));
+    }
+
+    private static String diagnosticGraphName(String name) {
+        int end = Math.min(name.length(), GRAPH_SPACE_DIAGNOSTIC_NAME_LENGTH);
+        if (end < name.length() && Character.isHighSurrogate(name.charAt(end - 1))) {
+            end--;
+        }
+        return name.substring(0, end).replaceAll("\\p{Cntrl}", "?") + (end < name.length() ? "..." : "");
     }
 
     private Metapb.GraphSpace.Builder graphSpaceBuilder(String name) throws PDException {

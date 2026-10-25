@@ -44,6 +44,7 @@ import java.util.stream.Collectors;
 
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
+import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
 
 import org.apache.commons.configuration2.Configuration;
@@ -1161,6 +1162,14 @@ public final class GraphManager {
                 throw new HugeException("Failed to remove graph space '%s' statistics from PD: %s", e,
                                         name, StringUtils.abbreviate(e.getMessage(), 2048));
             } catch (StatusRuntimeException e) {
+                if (e.getStatus().getCode() == Status.Code.UNIMPLEMENTED) {
+                    throw new HugeException("PD does not support graph-space statistics cleanup " +
+                                            "(UNIMPLEMENTED). Upgrade all PD nodes before retrying " +
+                                            "deletion of graph space '%s'. Graphs, graph-space " +
+                                            "authorization, schema templates and services have " +
+                                            "already been cleared; space configuration and its " +
+                                            "list entry are retained.", e, name);
+                }
                 throw new HugeException("Failed to remove graph space '%s' statistics from PD", e, name);
             }
         }

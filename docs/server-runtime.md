@@ -976,13 +976,19 @@ they do not impose process limits in other deployments.
 Deleting a graph space also removes its exact PD storage-limit/usage record after
 all its graphs have been removed. An empty space that still exists retains its limit
 and reports zero usage. Cleanup is idempotent; if PD cleanup fails, the Server keeps
-the space configuration and reports the failure so deletion can be retried. Graphs
-already deleted are not restored. PD rejects cleanup while the space still has graph
+the space configuration and list entry, and reports the failure so deletion can be
+retried. By that stage, graphs, graph-space authorization, schema templates and
+services have already been cleared. This is not a transaction: retrying does not
+restore any of those resources. PD rejects cleanup while the space still has graph
 metadata and rechecks current graphs before recreating a missing usage record, so an
 older quota collection cannot recreate a deleted space's statistics. This does not
 purge records left by deletions before the upgrade. Upgrade PD before Server: older
-PD versions do not implement the new `DeleteGraphSpace` RPC and deletion will fail
-at the cleanup step until PD is upgraded. This cleanup does not serialize graph
+PD versions do not implement the new `DeleteGraphSpace` RPC. An `UNIMPLEMENTED`
+response arrives after the clearing steps above, retains the remaining space
+configuration/list entry, and prevents completion until all PD nodes are upgraded.
+Do not start space deletion during a Server-first rolling upgrade before PD
+supports this RPC. No unsupported-RPC response silently skips statistics cleanup.
+This cleanup does not serialize graph
 creation with space deletion across Server replicas; avoid creating graphs in a space
 while deleting it.
 

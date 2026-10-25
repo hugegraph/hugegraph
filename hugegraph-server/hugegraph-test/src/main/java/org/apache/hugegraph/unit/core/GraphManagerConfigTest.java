@@ -140,6 +140,11 @@ public class GraphManagerConfigTest {
         this.checkGraphSpaceStatisticsCleanup(io.grpc.Status.UNIMPLEMENTED.asRuntimeException(), false);
     }
 
+    @Test
+    public void testGraphSpaceDropDoesNotMislabelOtherRpcFailuresAsOldPd() throws Exception {
+        this.checkGraphSpaceStatisticsCleanup(io.grpc.Status.UNAVAILABLE.asRuntimeException(), false);
+    }
+
     private void checkGraphSpaceStatisticsCleanup(Exception pdFailure, boolean graphFailure) throws Exception {
         GraphManager manager = Mockito.mock(GraphManager.class, Mockito.CALLS_REAL_METHODS);
         MetaManager meta = Mockito.mock(MetaManager.class);
@@ -164,7 +169,21 @@ public class GraphManagerConfigTest {
                 Assert.assertTrue(failure.getMessage().contains(pdFailure.getMessage()));
                 Assert.assertSame(pdFailure, failure.getCause());
             }
+            if (pdFailure instanceof io.grpc.StatusRuntimeException) {
+                io.grpc.StatusRuntimeException rpcFailure = (io.grpc.StatusRuntimeException) pdFailure;
+                Assert.assertSame(pdFailure, failure.getCause());
+                if (rpcFailure.getStatus().getCode() == io.grpc.Status.Code.UNIMPLEMENTED) {
+                    for (String detail : List.of("UNIMPLEMENTED", "Upgrade all PD nodes", "Graphs",
+                                                 "authorization", "schema templates", "services",
+                                                 "already been cleared", "list entry are retained")) {
+                        Assert.assertContains(detail, failure.getMessage());
+                    }
+                } else {
+                    Assert.assertFalse(failure.getMessage().contains("UNIMPLEMENTED"));
+                }
+            }
             Mockito.verify(meta, Mockito.never()).removeGraphSpaceConfig(Mockito.any());
+            Mockito.verify(meta, Mockito.never()).clearGraphSpaceList(Mockito.any());
             Mockito.verify(meta, Mockito.never()).notifyGraphSpaceRemove(Mockito.any());
             if (graphFailure) {
                 Mockito.verify(client, Mockito.never()).deleteGraphSpace(Mockito.any());
