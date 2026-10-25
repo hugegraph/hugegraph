@@ -34,14 +34,30 @@ public class RocksDBStoreProvider extends AbstractBackendStoreProvider {
     }
 
     @Override
-    protected BackendStore newSchemaStore(HugeConfig config, String store) {
+    public BackendStore loadSchemaStore(HugeConfig config) {
         applyImageProvider(config);
+        return super.loadSchemaStore(config);
+    }
+
+    @Override
+    public BackendStore loadGraphStore(HugeConfig config) {
+        applyImageProvider(config);
+        return super.loadGraphStore(config);
+    }
+
+    @Override
+    public BackendStore loadSystemStore(HugeConfig config) {
+        applyImageProvider(config);
+        return super.loadSystemStore(config);
+    }
+
+    @Override
+    protected BackendStore newSchemaStore(HugeConfig config, String store) {
         return new RocksDBStore.RocksDBSchemaStore(this, this.database(), store);
     }
 
     @Override
     protected BackendStore newGraphStore(HugeConfig config, String store) {
-        applyImageProvider(config);
         return new RocksDBStore.RocksDBGraphStore(this, this.database(), store);
     }
 
@@ -70,7 +86,6 @@ public class RocksDBStoreProvider extends AbstractBackendStoreProvider {
 
     @Override
     protected BackendStore newSystemStore(HugeConfig config, String store) {
-        applyImageProvider(config);
         return new RocksDBStore.RocksDBSystemStore(this, this.database(), store);
     }
 
@@ -79,7 +94,7 @@ public class RocksDBStoreProvider extends AbstractBackendStoreProvider {
     }
 
     private static void applyImageProvider(HugeConfig config, String provider) {
-        if (config.containsKey(RocksDBOptions.PROVIDER.name()) ||
+        if (config == null || config.containsKey(RocksDBOptions.PROVIDER.name()) ||
             provider == null || provider.isBlank()) {
             return;
         }

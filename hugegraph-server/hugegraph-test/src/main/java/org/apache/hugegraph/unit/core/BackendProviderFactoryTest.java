@@ -113,6 +113,8 @@ public class BackendProviderFactoryTest extends BaseUnitTest {
 
     @Test
     public void testRocksDBImageProviderIsRuntimeOnlyAndPreservesExplicitConfig() {
+        applyImageProvider(null, "topling");
+
         HugeConfig implicit = rocksConfig();
         applyImageProvider(implicit, "topling");
         Assert.assertEquals("topling", implicit.get(RocksDBOptions.PROVIDER));
