@@ -21,13 +21,48 @@ python3 - "$repo" <<'PY'
 import json
 import os
 from pathlib import Path
-import shutil
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
+import zipfile
 
 repo = Path(sys.argv[1])
+
+# Lock the source/build contracts that do not require a Docker daemon.
+bake = (repo / "docker/bake.hcl").read_text()
+assert 'condition     = RUNTIME_VARIANT == "standard" || RUNTIME_VARIANT == "topling"' in bake
+assert 'error_message = "RUNTIME_VARIANT must be standard or topling"' in bake
+standalone = (repo / "hugegraph-server/Dockerfile").read_text()
+assert "mv ./conf/graphs ./rocksdb-data/.hugegraph-config/graphs" in standalone
+assert "ln -s ../rocksdb-data/.hugegraph-config/graphs ./conf/graphs" in standalone
+assert "VOLUME /hugegraph-server/rocksdb-data" in standalone
+for generic in (repo / "install-dist/release-docs/LICENSE",
+                repo / "install-dist/release-docs/NOTICE"):
+    assert "ToplingDB JNI" not in generic.read_text(), generic
+assert not (repo / "install-dist/release-docs/licenses/LICENSE-toplingdb-jni-8.10.2.txt").exists()
+inventory = (repo / "install-dist/scripts/dependency/optional-image-dependencies.txt").read_text()
+for entry in ("installed_license_directory=topling/licenses/",
+              "installed_license_summary=topling/LICENSE",
+              "installed_notice=topling/NOTICE"):
+    assert entry in inventory, entry
+
+docker = shutil.which("docker")
+if docker is not None:
+    buildx = subprocess.run([docker, "buildx", "version"], capture_output=True, text=True)
+    if buildx.returncode == 0:
+        invalid = subprocess.run(
+            [docker, "buildx", "bake", "-f", str(repo / "docker/bake.hcl"), "--print", "pd"],
+            env={**os.environ, "RUNTIME_VARIANT": "toplingdb"},
+            capture_output=True, text=True)
+        assert invalid.returncode != 0, "Bake accepted an invalid runtime variant"
+        assert "RUNTIME_VARIANT must be standard or topling" in invalid.stderr + invalid.stdout
+    else:
+        print("SKIP: Docker buildx is unavailable; Bake validation checked statically")
+else:
+    print("SKIP: Docker CLI is unavailable; Bake validation checked statically")
+
 required = {
     "pd": {
         "HG_PD_GRPC_HOST": "pd",
@@ -86,8 +121,15 @@ with tempfile.TemporaryDirectory(prefix="topling-entrypoints-") as temporary:
         assert "Error: Topling builds require" in result.stderr, result.stderr
     print("PASS: image preparation rejects missing/untrusted artifact inputs")
 
-    # Exercise the real image helper through preparation and profile installation,
-    # with only download/native preparation stubbed (native JNI is tested separately).
+    # Exercise the real image helper through preparation, notice extraction and
+    # profile installation, with only native preparation stubbed.
+    fixture_jar = Path(temporary) / "rocksdbjni.jar"
+    with zipfile.ZipFile(fixture_jar, "w") as jar:
+        jar.writestr("META-INF/licenses/LICENSE.Apache", "Apache fixture\n")
+        jar.writestr("META-INF/licenses/LICENSE.leveldb", "BSD fixture\n")
+        jar.writestr("META-INF/licenses/manifest.sha256", "fixture manifest\n")
+        jar.writestr("META-INF/topling-build-info.txt", "fixture build\n")
+
     distribution = Path(temporary) / "distribution"
     (distribution / "bin").mkdir(parents=True)
     (distribution / "conf").mkdir()
@@ -96,11 +138,21 @@ with tempfile.TemporaryDirectory(prefix="topling-entrypoints-") as temporary:
     original_bytes = original_profile.read_bytes()
     shutil.copy(original_profile, distribution / "conf/toplingdb.yaml")
     preparer = distribution / "bin/prepare-topling.sh"
-    preparer.write_text("#!/bin/bash\ntest -r \"$TOPLING_JNI_JAR\" && test \"${#TOPLING_JNI_SHA256}\" -eq 64\n")
+    preparer.write_text("#!/bin/bash\n"
+                        "test -r \"$TOPLING_JNI_JAR\" && test \"${#TOPLING_JNI_SHA256}\" -eq 64\n"
+                        "mkdir -p topling\n"
+                        "cp \"$TOPLING_JNI_JAR\" topling/rocksdbjni.jar\n")
     downloader = distribution / "tools/curl"
-    downloader.write_text("#!/bin/bash\nwhile (( $# )); do if [[ $1 == --output ]]; then printf stub > \"$2\"; exit 0; fi; shift; done\nexit 1\n")
+    downloader.write_text("#!/bin/bash\n"
+                          "while (( $# )); do\n"
+                          "  if [[ $1 == --output ]]; then cp \"$FIXTURE_JAR\" \"$2\"; exit 0; fi\n"
+                          "  shift\n"
+                          "done\n"
+                          "exit 1\n")
     downloader.chmod(0o755)
-    environment.update(TOPLING_JNI_SHA256="a" * 64, TOPLING_JNI_URL="https://example.invalid/immutable.jar")
+    environment.update(TOPLING_JNI_SHA256="a" * 64,
+                       TOPLING_JNI_URL="https://example.invalid/immutable.jar",
+                       FIXTURE_JAR=str(fixture_jar))
     environment["PATH"] = str(distribution / "tools") + os.pathsep + environment["PATH"]
     result = subprocess.run(["bash", str(helper)], cwd=distribution, env=environment,
                             capture_output=True, text=True)
@@ -108,6 +160,13 @@ with tempfile.TemporaryDirectory(prefix="topling-entrypoints-") as temporary:
     community_profile = repo / "docker/toplingdb.yaml"
     assert (distribution / "conf/toplingdb.yaml").read_bytes() == community_profile.read_bytes()
     assert original_profile.read_bytes() == original_bytes, "distribution source profile changed"
+    assert (distribution / "topling/LICENSE").is_file()
+    assert (distribution / "topling/NOTICE").is_file()
+    assert (distribution / "topling/licenses/LICENSE.Apache").read_text() == "Apache fixture\n"
+    assert (distribution / "topling/licenses/LICENSE.leveldb").read_text() == "BSD fixture\n"
+    assert (distribution / "topling/licenses/manifest.sha256").is_file()
+    assert "ToplingDB JNI community runtime" in (distribution / "topling/NOTICE").read_text()
+
     profile = community_profile.read_text()
     # This profile contains only indentation-based mappings. Reject duplicate
     # paths instead of silently letting the YAML reader discard an earlier key.
@@ -130,5 +189,5 @@ with tempfile.TemporaryDirectory(prefix="topling-entrypoints-") as temporary:
     for setting in ("capacity: 64M", "write_buffer_size: 16M", "max_write_buffer_number: 3",
                     "memtable_as_log_index: false", "auto_start_http: false"):
         assert setting in profile, setting
-    print("PASS: community image installs small native profile and preserves full distribution profile")
+    print("PASS: community image installs notices, small native profile and preserves full distribution profile")
 PY

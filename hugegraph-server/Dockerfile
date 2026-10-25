@@ -105,7 +105,10 @@ RUN --mount=type=secret,id=proxy_ca,required=false \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=build /pkg/hugegraph-server/apache-hugegraph-server-*/ /hugegraph-server/
-RUN sed -i "s/^restserver.url.*$/restserver.url=http:\/\/0.0.0.0:8080/g" ./conf/rest-server.properties
+RUN sed -i "s/^restserver.url.*$/restserver.url=http:\/\/0.0.0.0:8080/g" ./conf/rest-server.properties \
+    && mkdir -p ./rocksdb-data/.hugegraph-config \
+    && mv ./conf/graphs ./rocksdb-data/.hugegraph-config/graphs \
+    && ln -s ../rocksdb-data/.hugegraph-config/graphs ./conf/graphs
 
 # 2. Init docker script
 COPY hugegraph-server/hugegraph-dist/docker/scripts/remote-connect.groovy ./scripts
@@ -127,7 +130,8 @@ RUN --mount=type=secret,id=proxy_ca,required=false \
     && rm /tmp/prepare-topling-image.sh /tmp/topling-runtime.env /tmp/toplingdb.yaml
 
 EXPOSE 8080
-# The default data and WAL share this directory. Keep lib/bin/conf image-owned.
+# The named data volume seeds and retains graph definitions through conf/graphs,
+# while lib/bin and the rest of conf stay image-owned across replacement.
 VOLUME /hugegraph-server/rocksdb-data
 
 HEALTHCHECK --interval=15s --timeout=10s --start-period=90s --retries=3 \

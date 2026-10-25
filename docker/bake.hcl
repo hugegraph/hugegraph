@@ -37,6 +37,11 @@ variable "SOURCE_URL" {
 
 variable "RUNTIME_VARIANT" {
   default = "standard"
+
+  validation {
+    condition     = RUNTIME_VARIANT == "standard" || RUNTIME_VARIANT == "topling"
+    error_message = "RUNTIME_VARIANT must be standard or topling"
+  }
 }
 
 variable "TOPLING_JNI_URL" {
