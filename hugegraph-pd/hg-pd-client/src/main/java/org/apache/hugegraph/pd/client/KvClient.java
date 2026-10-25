@@ -341,8 +341,8 @@ public class KvClient<T extends WatchResponse> extends AbstractClient implements
                 super.close();
                 return false;
             }
-            if (e instanceof PDException) {
-                throw (PDException) e;
+            if (e instanceof PDException failure) {
+                throw failure;
             }
             throw new PDException(Pdpb.ErrorType.PD_UNREACHABLE_VALUE, e);
         }
@@ -456,10 +456,10 @@ public class KvClient<T extends WatchResponse> extends AbstractClient implements
         Throwable cause = throwable;
         while (cause != null) {
             Status.Code code = null;
-            if (cause instanceof StatusException) {
-                code = ((StatusException) cause).getStatus().getCode();
-            } else if (cause instanceof StatusRuntimeException) {
-                code = ((StatusRuntimeException) cause).getStatus().getCode();
+            if (cause instanceof StatusException failure) {
+                code = failure.getStatus().getCode();
+            } else if (cause instanceof StatusRuntimeException failure) {
+                code = failure.getStatus().getCode();
             }
             if (code != null) {
                 return code == Status.Code.UNAVAILABLE || code == Status.Code.UNKNOWN;
