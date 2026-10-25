@@ -186,32 +186,6 @@ if [[ -n "${PASSWORD:-}" &&
     exit 1
 fi
 
-AUTH_TOKEN_SECRET_ENCODED=""
-if [[ -n "${PASSWORD:-}" && -z "${HG_SERVER_AUTH_TOKEN_SECRET:-}" ]]; then
-    rest_secret=$(get_prop_encoded "auth.token_secret" "${REST_SERVER_CONF}")
-    graph_secret=$(get_prop_encoded "auth.token_secret" "${GRAPH_CONF}")
-    if [[ -n "${rest_secret}" ]]; then
-        AUTH_TOKEN_SECRET_ENCODED="${rest_secret}"
-        if [[ -n "${graph_secret}" && "${graph_secret}" != "${rest_secret}" ]]; then
-            log "WARN: authentication token secrets differ; using REST secret"
-        fi
-    elif [[ -n "${graph_secret}" ]]; then
-        AUTH_TOKEN_SECRET_ENCODED="${graph_secret}"
-    else
-        HG_SERVER_AUTH_TOKEN_SECRET=$(head -c 32 /dev/urandom | base64 | tr -d '\n')
-        log "generated a shared authentication token secret"
-    fi
-fi
-
-# Encode authentication strings before changing either configuration file.
-if [[ -n "${HG_SERVER_AUTH_TOKEN_SECRET:-}" ]]; then
-    AUTH_TOKEN_SECRET_ENCODED=$(encode_auth_prop_value "${HG_SERVER_AUTH_TOKEN_SECRET}")
-fi
-AUTH_ADMIN_PASSWORD_ENCODED=""
-if [[ -n "${PASSWORD:-}" ]]; then
-    AUTH_ADMIN_PASSWORD_ENCODED=$(encode_auth_prop_value "${PASSWORD}")
-fi
-
 # Same accepted spellings as HG_SERVER_INIT_STORE_ENABLED below, checked
 # before the mapping so an invalid value leaves both conf files untouched.
 # URLs hold no whitespace, and the Server splits the list on bare commas, so
@@ -253,6 +227,33 @@ prepare_graph_directory() {
     log "Initialized graph definitions in the existing data volume"
 }
 prepare_graph_directory
+
+# Read persisted authentication only after a missing graph directory is seeded.
+AUTH_TOKEN_SECRET_ENCODED=""
+if [[ -n "${PASSWORD:-}" && -z "${HG_SERVER_AUTH_TOKEN_SECRET:-}" ]]; then
+    rest_secret=$(get_prop_encoded "auth.token_secret" "${REST_SERVER_CONF}")
+    graph_secret=$(get_prop_encoded "auth.token_secret" "${GRAPH_CONF}")
+    if [[ -n "${rest_secret}" ]]; then
+        AUTH_TOKEN_SECRET_ENCODED="${rest_secret}"
+        if [[ -n "${graph_secret}" && "${graph_secret}" != "${rest_secret}" ]]; then
+            log "WARN: authentication token secrets differ; using REST secret"
+        fi
+    elif [[ -n "${graph_secret}" ]]; then
+        AUTH_TOKEN_SECRET_ENCODED="${graph_secret}"
+    else
+        HG_SERVER_AUTH_TOKEN_SECRET=$(head -c 32 /dev/urandom | base64 | tr -d '\n')
+        log "generated a shared authentication token secret"
+    fi
+fi
+
+# Encode authentication strings before changing either configuration file.
+if [[ -n "${HG_SERVER_AUTH_TOKEN_SECRET:-}" ]]; then
+    AUTH_TOKEN_SECRET_ENCODED=$(encode_auth_prop_value "${HG_SERVER_AUTH_TOKEN_SECRET}")
+fi
+AUTH_ADMIN_PASSWORD_ENCODED=""
+if [[ -n "${PASSWORD:-}" ]]; then
+    AUTH_ADMIN_PASSWORD_ENCODED=$(encode_auth_prop_value "${PASSWORD}")
+fi
 
 # ── Map env → properties file ─────────────────────────────────────────
 # TODO: drop the Helm chart's (helm/hugegraph) rest-server.properties wrapper once its minimum

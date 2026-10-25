@@ -606,7 +606,8 @@ printf 'legacy data\n' > "${TEST_HOME}/rocksdb-data/data/keep"
 ln -s ../rocksdb-data/.hugegraph-config/graphs "${TEST_HOME}/conf/graphs"
 (
     cd "${TEST_HOME}"
-    TOPLINGDB_ROCKSDB_PROVIDER=topling bash ./docker-entrypoint.sh
+    env -u HG_SERVER_AUTH_TOKEN_SECRET PASSWORD=entrypoint-test-secret \
+        TOPLINGDB_ROCKSDB_PROVIDER=topling bash ./docker-entrypoint.sh
 )
 grep -qx 'legacy data' "${TEST_HOME}/rocksdb-data/data/keep"
 grep -qx 'rocksdb.provider=topling' "${TEST_HOME}/conf/graphs/hugegraph.properties"
