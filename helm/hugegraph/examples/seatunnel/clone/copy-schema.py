@@ -86,10 +86,20 @@ def main():
                 if kind == 'indexlabels':
                     body['rebuild'] = False  # Empty graph; subsequent data writes build indexes.
                 target('POST', '/schema/' + kind, body)
-    finally:
+        if normalize(schema) != normalize(target('GET', '/schema')):
+            raise RuntimeError('Schema comparison failed')
+    except Exception as error:
+        raise SystemExit(
+            'Schema copy failed; the target remains in RESTORING mode. '
+            'Inspect it or delete and recreate the graph before copying data: '
+            f'{error}') from error
+    try:
         target('PUT', '/mode', original_mode)
-    if normalize(schema) != normalize(target('GET', '/schema')):
-        raise SystemExit('Schema comparison failed; inspect the new graph before copying data.')
+    except Exception as error:
+        raise SystemExit(
+            'Schema copy verified, but restoring the target mode failed; '
+            'the target remains in RESTORING mode: '
+            f'{error}') from error
     print(json.dumps({'schema_equal': True, 'ids_preserved': True,
                       'counts': {kind: len(schema[kind]) for kind in KINDS}}))
 
