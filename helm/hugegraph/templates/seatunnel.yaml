@@ -174,10 +174,33 @@ spec:
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      {{- with .Values.seatunnel.priorityClassName }}
+      priorityClassName: {{ . | quote }}
+      {{- end }}
+      {{- with .Values.seatunnel.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.seatunnel.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.seatunnel.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.seatunnel.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: seatunnel
           image: {{ include "hugegraph.image" (dict "image" .Values.seatunnel.image "appVersion" "3.0.0") | quote }}
           imagePullPolicy: {{ .Values.seatunnel.image.pullPolicy }}
+          {{- with .Values.seatunnel.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           # The default upstream role is hybrid; an explicit -r is unnecessary.
           command: ["/opt/seatunnel/bin/seatunnel-cluster.sh"]
           env:

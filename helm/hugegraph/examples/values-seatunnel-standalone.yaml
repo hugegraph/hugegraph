@@ -13,8 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# 复用官方原生 hybrid StatefulSet；HTTP8080 同时提供 REST 和任务可视化前端。
-# HugeGraph 拓扑独立选择，1 PD + 1 Store + 1 Server 可用 ../values-single.yaml。
+# Use the official native hybrid StatefulSet; HTTP 8080 serves REST and the task UI.
+# Choose HugeGraph topology independently; ../values-single.yaml uses 1 PD + 1 Store + 1 Server.
 seatunnel:
   enabled: true
   mode: standalone
