@@ -511,8 +511,11 @@ still requires an explicit JAR and its trusted checksum.
 Compose uses its existing `HUGEGRAPH_VERSION=latest-topling` parameter. Helm uses
 `--set global.runtimeVariant=topling` to select matching images and amd64 scheduling.
 The HStore Server keeps `backend=hstore` and uses the Topling-enabled PD and Store;
-it does not load a local Topling runtime. The images configure the business
-provider and launcher together. See the [Compose guide](../docker/README.md#toplingdb-images)
+it does not load a local Topling runtime. Explicit `TOPLINGDB_ROCKSDB_PROVIDER`
+selection stays above retained PD-managed Store configuration without rewriting
+that PD configuration. Newly created local RocksDB graphs inherit the selected
+image provider only when the request omits `rocksdb.provider`; explicit graph
+values and HStore backends remain unchanged. See the [Compose guide](../docker/README.md#toplingdb-images)
 and [Helm guide](../helm/hugegraph/README.md#toplingdb-runtime) for complete commands,
 source builds, custom registries and immutable image digests.
 
@@ -535,8 +538,19 @@ from one Apache HugeGraph commit.
 
 For an older custom Docker deployment with data stored only in an anonymous volume
 covering the entire installation, preserve its database directories explicitly before
-changing to data-only mounts. The supplied Compose data mounts already keep these
-directories separate. See the linked deployment guides for the stop/switch/up commands.
+changing to data-only mounts. The supplied Compose data mounts keep database
+directories separate, but they do not persist `conf/graphs/*.properties`, including
+API-created graph definitions. Before the first image replacement, copy those
+definitions from the stopped old container and keep a separate backup plus a
+writable working configuration mount on subsequent starts. Do not assume data
+files alone can restore missing definitions. No automatic configuration migration
+or new persistence model is implemented here.
+
+Topling startup also rewrites the provider in mounted local RocksDB graph files.
+Before returning to a standard image, stop the Server and manually restore
+`rocksdb.provider=rocksdb` in those working files. Standard images preserve mounted
+provider values; selecting an unsuffixed tag alone does not undo the earlier write.
+See the linked Compose guide for the complete backup/mount and switch prerequisites.
 
 ### Standalone Server setup
 

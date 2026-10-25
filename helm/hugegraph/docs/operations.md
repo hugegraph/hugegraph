@@ -217,8 +217,10 @@ still apply.
 
 The compatibility scope is the pinned community profile, which uses SkipList and
 BlockBasedTable. Other JNI versions and custom SST formats need their own
-compatibility evidence. Exact image digest overrides must identify the target
-runtime, since a digest takes precedence over a derived tag. See the
+compatibility evidence. For `global.runtimeVariant=topling`, clear the PD, Store
+and Server `image.digest` values and use matching `-topling` version tags; the
+chart rejects those digest overrides instead of silently running the wrong
+runtime. Standard mode retains exact digest support. See the
 [storage runtime guide](../../../docs/storage-lifecycle.md#storage-provider-selection-and-toplingdb)
 for the tested native versions and data coverage.
 

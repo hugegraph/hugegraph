@@ -314,27 +314,63 @@ checks schema, indexes, graph operations and restart persistence. See
 [Topling runtime preparation and validation](../docs/storage-lifecycle.md#storage-provider-selection-and-toplingdb)
 for the native configuration and tested compatibility boundary.
 
-For an existing deployment, stop incoming work, stop the services normally, and
+For an existing standalone deployment, first preserve **graph definitions as well
+as database files**. API-created graphs write `conf/graphs/*.properties`; the
+supplied named `server-data` volume does not persist that directory. Before the
+first image replacement, stop incoming work and the old Server, then copy its
+definitions out while the old container still exists:
+
+```bash
+docker compose -f docker-compose.yml stop server
+docker compose -f docker-compose.yml cp server:/hugegraph-server/conf/graphs ./graphs-backup
+cp -a ./graphs-backup ./graph-config
+```
+
+Keep `graphs-backup` untouched. Save a writable configuration mount for the working
+copy as `docker-compose.graph-config.yml`, and retain it on every subsequent start:
+
+```yaml
+services:
+  server:
+    volumes:
+      - ./graph-config:/hugegraph-server/conf/graphs
+```
+
+Apply this override alongside the normal Compose file when starting the new
+image. Verify all expected definitions and their data/WAL paths before replacement.
+Custom `graphs` directories need equivalent backup and mounts. Database directories
+alone cannot rediscover missing graph definitions. This is a manual prerequisite;
+the image does not migrate old anonymous volumes or automatically persist future
+API-created graph definitions outside the mounted configuration directory.
+
+Then stop incoming work, stop the services normally, and
 select the matching Topling images. Keep the same Compose project, credentials and
 data mounts. For standalone, from this directory:
 
 ```bash
 docker compose -f docker-compose.yml stop
 HUGEGRAPH_VERSION='<matching-version>-topling' \
-  docker compose -f docker-compose.yml up -d --wait
+  docker compose -f docker-compose.yml -f docker-compose.graph-config.yml up -d --wait
 ```
 
 Use `docker-compose-hstore.yml` for the corresponding distributed deployment.
 The named data volumes are reattached automatically; no export/import or new
-project is needed. Return to standard RocksDB with the same stop/up sequence and
-its matching unsuffixed tag. Prefer versioned tags or verified digests: Topling
+project is needed for the compatible database files. When returning to standard
+RocksDB with mounted graph definitions, first set `rocksdb.provider=rocksdb` in
+each `backend=rocksdb` working configuration while the Server is stopped. The
+Topling entrypoint writes `rocksdb.provider=topling` into these writable files;
+the standard image intentionally preserves mounted values and does not reset
+them. Do not edit `backend=hstore` definitions. Then use the same stop/up sequence
+and matching unsuffixed tag, retaining the configuration override above.
+Prefer versioned tags or verified digests: Topling
 `latest-topling` is published on demand and can lag standard `latest`. Changing
 storage providers does not bypass HugeGraph or RocksDB version compatibility.
 Back up the data and qualify representative existing data before production use.
 
 The images declare only database directories as Docker volumes, so replacing an
 image also replaces its binaries, configuration defaults and JNI. The supplied
-Compose files already mount these data directories separately. If an older
+Compose files mount these database directories separately, but graph definitions
+still require the configuration backup and mount described above. If an older
 custom deployment kept data only in an anonymous whole-application volume, first
 identify and preserve that volume's database directories; they are not copied
 automatically into a new data volume. Custom data/WAL paths must remain mounted.
@@ -388,6 +424,11 @@ Each topology creates its own normal Compose network and named volumes. No netwo
 <summary>Data locations inside the containers</summary>
 
 Standalone stores RocksDB data at `/hugegraph-server/rocksdb-data`. The HStore topologies keep PD and Store data in topology-local volumes. Hubble uses `jdbc:h2:file:/hubble/data/hubble;DB_CLOSE_ON_EXIT=FALSE` and stores uploaded files under `/hubble/data/upload-files`.
+
+Standalone API-created graph definitions are separate files under `conf/graphs`.
+Before any first replacement of an older root-volume image, including a standard
+to standard upgrade, follow the [configuration backup and mount steps](#toplingdb-images).
+The data volume alone does not preserve or reload those definitions.
 
 </details>
 

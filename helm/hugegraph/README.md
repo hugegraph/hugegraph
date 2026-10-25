@@ -132,9 +132,12 @@ The architecture selector does not inspect CPU extensions; use a compatible node
 
 A component tag such as `1.8.0` becomes `1.8.0-topling`; tags already ending in
 `-topling` are kept. Custom repositories and `global.imageRegistry` work as usual.
-An explicit `image.digest` remains exact and takes priority over the derived tag;
-supply the digest of the matching Topling deployment image. Explicit helper image
-overrides also remain exact.
+In `global.runtimeVariant=topling`, clear `pd.image.digest`, `store.image.digest`
+and `server.image.digest`; the chart rejects these overrides because a digest
+would bypass the derived `-topling` tag. Use matching version tags for this runtime.
+Variant-specific immutable digest fields are not currently supported. In standard
+mode an explicit digest still takes precedence over the tag. Explicit helper image
+overrides remain exact.
 
 The default `global.runtimeVariant=standard` keeps RocksDB. The verified stock
 RocksDB 8.10.2 and pinned community ToplingDB 8.10.2 use compatible data: the
