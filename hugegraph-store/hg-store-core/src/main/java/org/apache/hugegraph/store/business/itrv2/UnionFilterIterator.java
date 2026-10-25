@@ -183,57 +183,46 @@ public class UnionFilterIterator<T extends Serializable> implements ScanIterator
 
         private final Iterator<E> iterator;
         private final Comparator<E> comparator;
-        private E prev = null;
-        private E data = null;
-        private int count = 0;
+        private E prev;
+        private E data;
 
         public NoRepeatValueIterator(Iterator<E> iterator, Comparator<E> comparator) {
-            this.count = 0;
             this.iterator = iterator;
             this.comparator = comparator;
         }
 
         @Override
         public boolean hasNext() {
-            while (iterator.hasNext()) {
-                var n = iterator.next();
-                if (prev == null) {
-                    // prev = iterator.next();
-                    prev = n;
-                    continue;
-                }
-
-                // E current = iterator.next();
-                E current = n;
-
-                if (comparator.compare(prev, current) == 0) {
-                    count += 1;
-                } else {
-                    if (count > 0) {
-                        // --- pre is dup
-                        prev = current;
-                    } else {
-                        data = prev;
-                        prev = current;
-                        return true;
-                    }
-                    count = 0;
-                }
-            }
-
-            // last result
-            if (count == 0) {
-                data = prev;
-                count = 1;
+            if (this.data != null) {
                 return true;
             }
+            while (this.iterator.hasNext()) {
+                E current = this.iterator.next();
+                if (this.prev == null) {
+                    this.prev = current;
+                } else if (this.comparator.compare(this.prev, current) != 0) {
+                    this.data = this.prev;
+                    this.prev = current;
+                    return true;
+                }
+            }
 
+            if (this.prev != null) {
+                this.data = this.prev;
+                this.prev = null;
+                return true;
+            }
             return false;
         }
 
         @Override
         public E next() {
-            return data;
+            if (!hasNext()) {
+                throw new NoSuchElementException();
+            }
+            E result = this.data;
+            this.data = null;
+            return result;
         }
     }
 }
