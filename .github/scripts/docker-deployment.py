@@ -23,6 +23,7 @@ from pathlib import Path
 import subprocess
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 
@@ -30,7 +31,8 @@ import xml.etree.ElementTree as ET
 ADMIN_PASSWORD = "ci-compose-password"
 PD_PASSWORD = "ci-compose-pd-secret"
 GRAPH_CONFIG_LINK = "../rocksdb-data/.hugegraph-config/graphs"
-GRAPH_CONFIG_PROBE = "/hugegraph-server/conf/graphs/.compose-recreate-probe"
+PERSISTED_GRAPH = "ci_persisted"
+PERSISTED_VERTEX = "retained-vertex"
 
 
 def command(*args):
@@ -43,8 +45,11 @@ def verify_image(container, image, expected):
         raise RuntimeError(f"Container {container} uses {actual}; expected {image} ({expected})")
 
 
-def response(url, credentials=None):
-    request = urllib.request.Request(url)
+def response(url, credentials=None, *, method=None, payload=None):
+    data = json.dumps(payload).encode() if payload is not None else None
+    request = urllib.request.Request(url, data=data, method=method)
+    if data is not None:
+        request.add_header("Content-Type", "application/json")
     if credentials:
         encoded = base64.b64encode(credentials.encode()).decode()
         request.add_header("Authorization", "Basic " + encoded)
@@ -55,8 +60,8 @@ def response(url, credentials=None):
         return error.code, error.read().decode()
 
 
-def expect_response(url, expected=200, credentials=None):
-    actual, body = response(url, credentials)
+def expect_response(url, expected=200, credentials=None, **request_options):
+    actual, body = response(url, credentials, **request_options)
     if actual != expected:
         raise RuntimeError(f"{url}: HTTP {actual}, expected {expected}")
     return body
@@ -126,13 +131,43 @@ def verify_graph(run_id):
                    check=True, timeout=960, env=environment)
 
 
+def create_persisted_graph():
+    url = f"http://localhost:8080/graphspaces/DEFAULT/graphs/{PERSISTED_GRAPH}"
+    credentials = f"admin:{ADMIN_PASSWORD}"
+    expect_response(url, 201, credentials, method="POST", payload={
+        "backend": "rocksdb",
+        "rocksdb.data_path": "/hugegraph-server/rocksdb-data/ci-persisted/data",
+        "rocksdb.wal_path": "/hugegraph-server/rocksdb-data/ci-persisted/wal",
+    })
+    expect_response(url + "/schema/propertykeys", 202, credentials, method="POST",
+                    payload={"name": "name", "data_type": "TEXT", "cardinality": "SINGLE"})
+    expect_response(url + "/schema/vertexlabels", 201, credentials, method="POST",
+                    payload={"name": "retained", "id_strategy": "CUSTOMIZE_STRING",
+                             "properties": ["name"]})
+    expect_response(url + "/graph/vertices", 201, credentials, method="POST",
+                    payload={"id": PERSISTED_VERTEX, "label": "retained",
+                             "properties": {"name": "survives-recreate"}})
+    verify_persisted_graph()
+
+
+def verify_persisted_graph():
+    url = f"http://localhost:8080/graphspaces/DEFAULT/graphs/{PERSISTED_GRAPH}"
+    credentials = f"admin:{ADMIN_PASSWORD}"
+    vertex_id = urllib.parse.quote(json.dumps(PERSISTED_VERTEX), safe="")
+    vertex = json.loads(expect_response(url + "/graph/vertices/" + vertex_id,
+                                        credentials=credentials))
+    if vertex.get("properties", {}).get("name") != "survives-recreate":
+        raise RuntimeError("API-created graph data did not survive container replacement")
+
+
 def verify_standalone_recreate(compose, container, image, expected):
     # GraphManager writes dynamic definitions through conf/graphs. The image
     # redirects that path into the existing data volume; prove a real Compose
     # replacement keeps the path and does not merely pass a static Dockerfile check.
-    script = (f'test "$(readlink /hugegraph-server/conf/graphs)" = "{GRAPH_CONFIG_LINK}"\n'
-              f'printf persisted > {GRAPH_CONFIG_PROBE}')
-    command("docker", "exec", container, "sh", "-ceu", script)
+    link = command("docker", "exec", container, "readlink", "/hugegraph-server/conf/graphs")
+    if link != GRAPH_CONFIG_LINK:
+        raise RuntimeError(f"Graph configuration does not use the data volume: {link}")
+    create_persisted_graph()
     subprocess.run(compose + ["up", "-d", "--pull", "never", "--force-recreate",
                               "--no-deps", "--wait", "--wait-timeout", "600", "server"],
                    check=True, timeout=660)
@@ -143,9 +178,8 @@ def verify_standalone_recreate(compose, container, image, expected):
     health = command("docker", "inspect", "--format", "{{.State.Health.Status}}", replacement)
     if health != "healthy":
         raise RuntimeError(f"Replacement Server is {health}")
-    if command("docker", "exec", replacement, "cat", GRAPH_CONFIG_PROBE) != "persisted":
-        raise RuntimeError("conf/graphs did not survive the standalone container replacement")
     verify_server()
+    verify_persisted_graph()
 
 
 def smoke(tag, topology, images):

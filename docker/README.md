@@ -314,11 +314,18 @@ checks schema, indexes, graph operations and restart persistence. See
 [Topling runtime preparation and validation](../docs/storage-lifecycle.md#storage-provider-selection-and-toplingdb)
 for the native configuration and tested compatibility boundary.
 
-For an existing standalone deployment, first preserve **graph definitions as well
-as database files**. API-created graphs write `conf/graphs/*.properties`; the
-supplied named `server-data` volume does not persist that directory. Before the
-first image replacement, stop incoming work and the old Server, then copy its
-definitions out while the old container still exists:
+Standalone images retain graph definitions in
+`rocksdb-data/.hugegraph-config/graphs`, reached through the `conf/graphs` symlink.
+The supplied `server-data` volume therefore keeps API-created graph definitions
+as well as database files through container replacement. If an older nonempty
+volume or a bind mount lacks this directory, the entrypoint initializes it once
+from the image's `conf/graphs.default`. Existing definitions and database files
+are preserved; explicitly mounted `conf/graphs` directories take precedence.
+
+For the first upgrade from an older image, preserve **custom graph definitions
+and settings** that existed only in its installation directory. Default seeding
+does not recover those files from the database. Stop the old Server and copy its
+definitions while that container still exists:
 
 ```bash
 docker compose -f docker-compose.yml stop server
@@ -338,10 +345,11 @@ services:
 
 Apply this override alongside the normal Compose file when starting the new
 image. Verify all expected definitions and their data/WAL paths before replacement.
-Custom `graphs` directories need equivalent backup and mounts. Database directories
-alone cannot rediscover missing graph definitions. This is a manual prerequisite;
-the image does not migrate old anonymous volumes or automatically persist future
-API-created graph definitions outside the mounted configuration directory.
+Custom `graphs` directories need equivalent backup and mounts. This one-time step
+preserves older configuration files that are outside the data volume; it does not
+migrate old anonymous volumes. Subsequent API-created definitions persist in the
+selected configuration directory, either the default data-volume location above
+or this explicit mount.
 
 Then stop incoming work, stop the services normally, and
 select the matching Topling images. Keep the same Compose project, credentials and
@@ -355,13 +363,12 @@ HUGEGRAPH_VERSION='<matching-version>-topling' \
 
 Use `docker-compose-hstore.yml` for the corresponding distributed deployment.
 The named data volumes are reattached automatically; no export/import or new
-project is needed for the compatible database files. When returning to standard
-RocksDB with mounted graph definitions, first set `rocksdb.provider=rocksdb` in
-each `backend=rocksdb` working configuration while the Server is stopped. The
-Topling entrypoint writes `rocksdb.provider=topling` into these writable files;
-the standard image intentionally preserves mounted values and does not reset
-them. Do not edit `backend=hstore` definitions. Then use the same stop/up sequence
-and matching unsuffixed tag, retaining the configuration override above.
+project is needed for the compatible database files. To return to standard
+RocksDB, use the same stop/up sequence and matching unsuffixed tag. Standard
+images explicitly select `rocksdb`, so the entrypoint resets the provider in all
+persisted or writable mounted `backend=rocksdb` graph definitions. Topling images
+select `topling` in the same way. Other graph settings and `backend=hstore`
+definitions remain unchanged. Retain any configuration override used above.
 Prefer versioned tags or verified digests: Topling
 `latest-topling` is published on demand and can lag standard `latest`. Changing
 storage providers does not bypass HugeGraph or RocksDB version compatibility.
@@ -369,8 +376,9 @@ Back up the data and qualify representative existing data before production use.
 
 The images declare only database directories as Docker volumes, so replacing an
 image also replaces its binaries, configuration defaults and JNI. The supplied
-Compose files mount these database directories separately, but graph definitions
-still require the configuration backup and mount described above. If an older
+Compose files mount these database directories separately and standalone graph
+definitions live in that data volume. Older custom definitions require the
+one-time configuration preservation described above. If an older
 custom deployment kept data only in an anonymous whole-application volume, first
 identify and preserve that volume's database directories; they are not copied
 automatically into a new data volume. Custom data/WAL paths must remain mounted.

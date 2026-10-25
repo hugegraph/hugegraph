@@ -56,6 +56,7 @@ FROM scratch AS topling-jni
 # 2nd stage: runtime env
 # Note: ZGC (The Z Garbage Collector) is only supported on ARM-Mac with java > 13
 FROM eclipse-temurin:17-jdk-jammy AS standard-base
+ENV TOPLINGDB_ROCKSDB_PROVIDER=rocksdb
 
 # The fork's JNI requires glibc 2.38+ and a Java 17 JDK for its capability probe.
 FROM eclipse-temurin:17-jdk-noble AS topling-base

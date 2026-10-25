@@ -37,6 +37,7 @@ assert 'error_message = "RUNTIME_VARIANT must be standard or topling"' in bake
 standalone = (repo / "hugegraph-server/Dockerfile").read_text()
 assert "mv ./conf/graphs ./rocksdb-data/.hugegraph-config/graphs" in standalone
 assert "ln -s ../rocksdb-data/.hugegraph-config/graphs ./conf/graphs" in standalone
+assert "cp -a ./conf/graphs ./conf/graphs.default" in standalone
 assert "VOLUME /hugegraph-server/rocksdb-data" in standalone
 for generic in (repo / "install-dist/release-docs/LICENSE",
                 repo / "install-dist/release-docs/NOTICE"):

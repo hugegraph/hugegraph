@@ -228,6 +228,32 @@ case "${DEPLOY_IN_K8S}" in
        exit 1 ;;
 esac
 
+# An old nonempty volume or a bind mount hides the image's seeded graphs.
+# Only initialize a missing target of the image-owned link; existing graph
+# definitions and explicitly mounted conf/graphs directories remain authoritative.
+prepare_graph_directory() {
+    local graphs=./conf/graphs defaults=./conf/graphs.default
+    local parent=./rocksdb-data/.hugegraph-config target staging
+    [[ -L "$graphs" && "$(readlink "$graphs")" == ../rocksdb-data/.hugegraph-config/graphs ]] || return 0
+    [[ ! -d "$graphs" ]] || return 0
+    target="$parent/graphs"
+    if [[ -e "$target" || -L "$target" || ! -d "$defaults" ]]; then
+        log "ERROR: cannot initialize graph definitions at $target from $defaults"
+        return 1
+    fi
+    mkdir -p "$parent"
+    staging=$(mktemp -d "$parent/.graphs-init.XXXXXX")
+    if ! cp -a "$defaults/." "$staging/" || ! mv -T -n "$staging" "$target"; then
+        rm -rf -- "$staging"
+        log "ERROR: failed to initialize graph definitions at $target"
+        return 1
+    fi
+    rm -rf -- "$staging"
+    [[ -d "$graphs" ]] || { log "ERROR: graph definitions target is not a directory: $target"; return 1; }
+    log "Initialized graph definitions in the existing data volume"
+}
+prepare_graph_directory
+
 # ── Map env → properties file ─────────────────────────────────────────
 # TODO: drop the Helm chart's (helm/hugegraph) rest-server.properties wrapper once its minimum
 # Server image has the server.urls_to_pd and server.deploy_in_k8s mappings below. A read-only root

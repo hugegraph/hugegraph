@@ -56,6 +56,7 @@ FROM scratch AS topling-jni
 # 2nd stage: runtime env
 # Note: ZGC (The Z Garbage Collector) is only supported on ARM-Mac with java > 13
 FROM eclipse-temurin:17-jdk-jammy AS standard-base
+ENV TOPLINGDB_ROCKSDB_PROVIDER=rocksdb
 
 # The fork's JNI requires glibc 2.38+ and a Java 17 JDK for its capability probe.
 FROM eclipse-temurin:17-jdk-noble AS topling-base
@@ -106,6 +107,7 @@ RUN --mount=type=secret,id=proxy_ca,required=false \
 
 COPY --from=build /pkg/hugegraph-server/apache-hugegraph-server-*/ /hugegraph-server/
 RUN sed -i "s/^restserver.url.*$/restserver.url=http:\/\/0.0.0.0:8080/g" ./conf/rest-server.properties \
+    && cp -a ./conf/graphs ./conf/graphs.default \
     && mkdir -p ./rocksdb-data/.hugegraph-config \
     && mv ./conf/graphs ./rocksdb-data/.hugegraph-config/graphs \
     && ln -s ../rocksdb-data/.hugegraph-config/graphs ./conf/graphs

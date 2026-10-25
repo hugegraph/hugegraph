@@ -538,19 +538,21 @@ from one Apache HugeGraph commit.
 
 For an older custom Docker deployment with data stored only in an anonymous volume
 covering the entire installation, preserve its database directories explicitly before
-changing to data-only mounts. The supplied Compose data mounts keep database
-directories separate, but they do not persist `conf/graphs/*.properties`, including
-API-created graph definitions. Before the first image replacement, copy those
-definitions from the stopped old container and keep a separate backup plus a
-writable working configuration mount on subsequent starts. Do not assume data
-files alone can restore missing definitions. No automatic configuration migration
-or new persistence model is implemented here.
+changing to data-only mounts. Standalone images now link `conf/graphs` to
+`rocksdb-data/.hugegraph-config/graphs`, so the supplied Compose data volume keeps
+API-created graph definitions across replacement. When an old nonempty volume or
+bind mount lacks that directory, the entrypoint seeds it from `conf/graphs.default`
+without replacing existing definitions or changing database files. Explicit
+configuration mounts keep precedence. Custom definitions and settings that existed
+only in the older installation still need one-time backup and a writable working
+configuration mount before the first replacement; database files cannot recreate
+those missing definitions. See the linked Compose guide for that upgrade path.
 
-Topling startup also rewrites the provider in mounted local RocksDB graph files.
-Before returning to a standard image, stop the Server and manually restore
-`rocksdb.provider=rocksdb` in those working files. Standard images preserve mounted
-provider values; selecting an unsuffixed tag alone does not undo the earlier write.
-See the linked Compose guide for the complete backup/mount and switch prerequisites.
+Both image variants explicitly select their provider. The entrypoint synchronizes
+`rocksdb.provider` in all persisted or writable mounted `backend=rocksdb` graph
+files to that selection, including when returning to the unsuffixed standard
+image. Other settings and `backend=hstore` definitions are preserved. PD/Store
+apply the selected provider through their runtime configuration overrides.
 
 ### Standalone Server setup
 

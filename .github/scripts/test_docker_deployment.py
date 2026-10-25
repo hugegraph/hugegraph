@@ -107,10 +107,12 @@ class GraphDefinitionPersistenceTest(unittest.TestCase):
     def test_force_recreate_keeps_graph_config_in_data_volume(self):
         compose = ["docker", "compose", "-p", "fixture", "-f", "/repo/docker/docker-compose.yml"]
         with patch.object(deployment, "command",
-                          side_effect=["", "replacement", "healthy", "persisted"]) as command, \
+                          side_effect=[deployment.GRAPH_CONFIG_LINK, "replacement", "healthy"]) as command, \
              patch.object(deployment.subprocess, "run") as run, \
              patch.object(deployment, "verify_image") as image, \
-             patch.object(deployment, "verify_server") as server:
+             patch.object(deployment, "verify_server") as server, \
+             patch.object(deployment, "create_persisted_graph") as create, \
+             patch.object(deployment, "verify_persisted_graph") as verify:
             deployment.verify_standalone_recreate(
                 compose, "original", "hugegraph/hugegraph:ci-1-1", "sha256:pr")
 
@@ -121,13 +123,21 @@ class GraphDefinitionPersistenceTest(unittest.TestCase):
             self.assertEqual(recreate[-1], "server")
             image.assert_called_once_with("replacement", "hugegraph/hugegraph:ci-1-1", "sha256:pr")
             server.assert_called_once_with()
-            write = command.call_args_list[0].args
-            self.assertEqual(write[:4], ("docker", "exec", "original", "sh"))
-            self.assertIn(deployment.GRAPH_CONFIG_LINK, write[-1])
-            self.assertIn(deployment.GRAPH_CONFIG_PROBE, write[-1])
-            self.assertEqual(command.call_args_list[-1].args,
-                             ("docker", "exec", "replacement", "cat",
-                              deployment.GRAPH_CONFIG_PROBE))
+            create.assert_called_once_with()
+            verify.assert_called_once_with()
+            self.assertEqual(command.call_args_list[0].args,
+                             ("docker", "exec", "original", "readlink",
+                              "/hugegraph-server/conf/graphs"))
+
+    def test_rejects_missing_graph_after_recreate(self):
+        with patch.object(deployment, "response", return_value=(404, "missing graph")):
+            with self.assertRaisesRegex(RuntimeError, "expected 200"):
+                deployment.verify_persisted_graph()
+
+    def test_rejects_missing_vertex_even_when_graph_exists(self):
+        with patch.object(deployment, "response", return_value=(200, '{"properties":{}}')):
+            with self.assertRaisesRegex(RuntimeError, "did not survive"):
+                deployment.verify_persisted_graph()
 
 
 class GraphSmokeTest(unittest.TestCase):

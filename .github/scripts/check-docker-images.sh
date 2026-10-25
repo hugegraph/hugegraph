@@ -51,6 +51,12 @@ for pair in \
             echo "ERROR: $dockerfile declares volumes [$ACTUAL_VOLUMES]; expected [$EXPECTED_VOLUME]"
             exit 1
         }
+        if [[ "$dockerfile" != hugegraph-server/Dockerfile-hstore ]]; then
+            expected_provider=rocksdb
+            if [[ "${RUNTIME_VARIANT:-standard}" == topling ]]; then expected_provider=topling; fi
+            docker image inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$IMAGE_ID" |
+                grep -qx "TOPLINGDB_ROCKSDB_PROVIDER=$expected_provider"
+        fi
 
         # Helm reuses these images for tool containers instead of pulling curlimages/curl.
         # Check the same non-root/read-only tool environment as the Server test hook.
