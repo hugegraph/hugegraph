@@ -175,6 +175,7 @@ public final class LegacyGraphIdChecker {
                 }
             }
             for (Path database : databases) {
+                requireCurrent(database);
                 locks.add(database);
                 checkDatabase(database, config);
             }
@@ -231,6 +232,14 @@ public final class LegacyGraphIdChecker {
         }
     }
 
+    private static void requireCurrent(Path path) throws IOException {
+        if (!Files.isRegularFile(path.resolve("CURRENT"))) {
+            throw new IOException("Incomplete RocksDB directory: " + path +
+                    ". CURRENT is missing or not a regular file. Preserve this directory; see " +
+                    "docs/graphid-upgrade.md#incomplete-database-directories");
+        }
+    }
+
     private static boolean startsWith(byte[] value, byte[] prefix) {
         return value.length >= prefix.length && Arrays.equals(value, 0, prefix.length, prefix, 0, prefix.length);
     }
@@ -251,11 +260,7 @@ public final class LegacyGraphIdChecker {
 
         private Database(Path path, HugeConfig config) throws IOException, RocksDBException {
             try {
-                if (!Files.isRegularFile(path.resolve("CURRENT"))) {
-                    throw new IOException("Incomplete RocksDB directory: " + path +
-                            ". CURRENT is missing or not a regular file. Preserve this directory; see " +
-                            "docs/graphid-upgrade.md#incomplete-database-directories");
-                }
+                requireCurrent(path);
                 RocksDBSession.initOptions(config, null, null, this.familyOptions, this.familyOptions);
                 this.options.setCreateIfMissing(false).setCreateMissingColumnFamilies(false).setLogger(this.logger);
                 try (Options listing = new Options().setLogger(this.logger)) {
