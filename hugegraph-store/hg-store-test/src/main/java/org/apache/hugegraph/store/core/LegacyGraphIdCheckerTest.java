@@ -160,6 +160,38 @@ public class LegacyGraphIdCheckerTest {
     }
 
     @Test
+    public void testIncompleteRetainedDirectoryNeedsExplicitRecoveryWithoutPruning() throws Exception {
+        Path root = this.temporary.newFolder().toPath();
+        Path retained = root.resolve("db/00000");
+        write(retained, "g+v", LEGAL_KEY, VALUE);
+        write(root.resolve("db/00000_42"), "g+v", LEGAL_KEY, VALUE);
+        Files.delete(retained.resolve("CURRENT"));
+        Map<String, String> before = hashes(root);
+
+        HgStoreException failure = assertThrows(HgStoreException.class,
+                () -> LegacyGraphIdChecker.checkStore(root.toString(), config));
+        assertTrue(failure.getMessage(), failure.getMessage().contains(retained.toString()));
+        assertTrue(failure.getMessage(), failure.getMessage().contains("CURRENT is missing"));
+        assertTrue(failure.getMessage(), failure.getMessage().contains("#incomplete-database-directories"));
+        assertEquals(before, hashes(root));
+    }
+
+    @Test
+    public void testIncompleteLatestDirectoryIsNeverIgnored() throws Exception {
+        Path root = this.temporary.newFolder().toPath();
+        write(root.resolve("db/00000"), "g+v", LEGAL_KEY, VALUE);
+        Path latest = root.resolve("db/00000_42");
+        write(latest, "g+v", LEGAL_KEY, VALUE);
+        Files.delete(latest.resolve("CURRENT"));
+        Map<String, String> before = hashes(root);
+
+        HgStoreException failure = assertThrows(HgStoreException.class,
+                () -> LegacyGraphIdChecker.checkStore(root.toString(), config));
+        assertTrue(failure.getMessage(), failure.getMessage().contains(latest.toString()));
+        assertEquals(before, hashes(root));
+    }
+
+    @Test
     public void testLatestSnapshotIsCheckedDespiteShouldNotLoadMarker() throws Exception {
         Path root = this.temporary.newFolder().toPath();
         write(root.resolve("db/00000"), "g+v", LEGAL_KEY, VALUE);

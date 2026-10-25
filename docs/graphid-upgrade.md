@@ -80,6 +80,32 @@ index. Local snapshots are also checked at startup: a `should_not_load` marker
 only skips local installation and does not stop a checkpoint reaching another
 replica.
 
+### Incomplete database directories
+
+`Incomplete RocksDB directory: <path>` means the reported directory has no
+regular `CURRENT` file. This is distinct from finding a reserved GraphID row.
+For example, interruption while the normal opener removes an old `db/00000`
+can leave that directory incomplete beside a valid `db/00000_42`. The read-only
+checker cannot certify the leftover directory and does not delete or skip it.
+
+Keep the Store stopped and preserve a complete backup before changing any
+directory. Check the exact reported path against the partition's stored location,
+the previous Store logs and all sibling versions. A larger numeric suffix alone
+does not establish that another directory is the correct live database.
+
+If an operator has independently confirmed that the reported path is only an
+obsolete, partly deleted version and has verified the selected database, move
+that one leftover directory to a backed-up quarantine location outside **every**
+configured Store data and Raft root. Keep its files; renaming it within a data
+root is not a recovery check. Run the offline command again on every Store with
+the effective configuration and data roots before attempting startup.
+
+Do not use that procedure for a selected/latest database, a current snapshot or
+a directory whose role is uncertain. Do not fabricate a `CURRENT` file. Preserve
+the evidence and recover a complete matching backup or follow the independently
+verified logical recovery route below. This manual procedure does not make the
+checker automatically distinguish harmless cleanup remnants from damaged data.
+
 ## Choose the recovery source first
 
 Do not infer that every `0xFFFE` row belongs to the graph named in the Server
