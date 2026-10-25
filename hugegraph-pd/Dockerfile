@@ -102,11 +102,21 @@ RUN --mount=type=secret,id=proxy_ca,required=false \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=build /pkg/hugegraph-pd/apache-hugegraph-pd-*/ /hugegraph-pd/
+# 2. Run as a fixed non-root user; USER must be numeric so Kubernetes can
+# verify runAsNonRoot.  The data and log directories exist in the image so
+# named volumes mounted there start out owned by that user.  See
+# docker/README.md before upgrading volumes written by an older image.
+ARG HG_UID=10001
+ARG HG_GID=10001
+RUN groupadd --system --gid "${HG_GID}" hugegraph \
+    && useradd --system --uid "${HG_UID}" --gid hugegraph --no-create-home \
+       --home-dir /hugegraph-pd --shell /usr/sbin/nologin hugegraph \
+    && install -d -o "${HG_UID}" -g "${HG_GID}" /hugegraph-pd /hugegraph-pd/pd_data /hugegraph-pd/logs
 
-# 2. Init docker script
-COPY hugegraph-pd/hg-pd-dist/docker/docker-entrypoint.sh .
-RUN chmod 755 ./docker-entrypoint.sh
+COPY --from=build --chown=${HG_UID}:${HG_GID} /pkg/hugegraph-pd/apache-hugegraph-pd-*/ /hugegraph-pd/
+
+# 3. Init docker script
+COPY --chown=${HG_UID}:${HG_GID} --chmod=755 hugegraph-pd/hg-pd-dist/docker/docker-entrypoint.sh .
 
 # Download only during an explicit Topling build, verify and prepare with the
 # distribution's normal capability probe. No network access is needed at startup.
@@ -118,8 +128,11 @@ RUN --mount=type=secret,id=proxy_ca,required=false \
     if [ "$RUNTIME_VARIANT" = topling ]; then \
         if [ -f /run/secrets/proxy_ca ]; then export CURL_CA_BUNDLE=/run/secrets/proxy_ca; fi; \
         bash /tmp/prepare-topling-image.sh; \
+        chown -R "${HG_UID}:${HG_GID}" topling conf/toplingdb.yaml; \
     fi \
     && rm /tmp/prepare-topling-image.sh /tmp/topling-runtime.env /tmp/toplingdb.yaml
+
+USER ${HG_UID}:${HG_GID}
 
 EXPOSE 8620
 # Persist data without hiding a replacement image's binaries and native runtime.

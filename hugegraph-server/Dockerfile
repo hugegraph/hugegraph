@@ -105,18 +105,28 @@ RUN --mount=type=secret,id=proxy_ca,required=false \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=build /pkg/hugegraph-server/apache-hugegraph-server-*/ /hugegraph-server/
+# 2. Run as a fixed non-root user; USER must be numeric so Kubernetes can
+# verify runAsNonRoot.  The data and log directories exist in the image so
+# named volumes mounted there start out owned by that user.  See
+# docker/README.md before upgrading volumes written by an older image.
+ARG HG_UID=10001
+ARG HG_GID=10001
+RUN groupadd --system --gid "${HG_GID}" hugegraph \
+    && useradd --system --uid "${HG_UID}" --gid hugegraph --no-create-home \
+       --home-dir /hugegraph-server --shell /usr/sbin/nologin hugegraph \
+    && install -d -o "${HG_UID}" -g "${HG_GID}" /hugegraph-server /hugegraph-server/rocksdb-data /hugegraph-server/logs
+
+COPY --from=build --chown=${HG_UID}:${HG_GID} /pkg/hugegraph-server/apache-hugegraph-server-*/ /hugegraph-server/
 RUN sed -i "s/^restserver.url.*$/restserver.url=http:\/\/0.0.0.0:8080/g" ./conf/rest-server.properties \
     && cp -a ./conf/graphs ./conf/graphs.default \
-    && mkdir -p ./rocksdb-data/.hugegraph-config \
+    && install -d -o "${HG_UID}" -g "${HG_GID}" ./rocksdb-data/.hugegraph-config \
     && mv ./conf/graphs ./rocksdb-data/.hugegraph-config/graphs \
     && ln -s ../rocksdb-data/.hugegraph-config/graphs ./conf/graphs
 
-# 2. Init docker script
-COPY hugegraph-server/hugegraph-dist/docker/scripts/remote-connect.groovy ./scripts
-COPY hugegraph-server/hugegraph-dist/docker/scripts/detect-storage.groovy ./scripts
-COPY hugegraph-server/hugegraph-dist/docker/docker-entrypoint.sh .
-RUN chmod 755 ./docker-entrypoint.sh
+# 3. Init docker script
+COPY --chown=${HG_UID}:${HG_GID} hugegraph-server/hugegraph-dist/docker/scripts/remote-connect.groovy ./scripts
+COPY --chown=${HG_UID}:${HG_GID} hugegraph-server/hugegraph-dist/docker/scripts/detect-storage.groovy ./scripts
+COPY --chown=${HG_UID}:${HG_GID} --chmod=755 hugegraph-server/hugegraph-dist/docker/docker-entrypoint.sh .
 
 # Download only during an explicit Topling build, verify and prepare with the
 # distribution's normal capability probe. No network access is needed at startup.
@@ -128,8 +138,11 @@ RUN --mount=type=secret,id=proxy_ca,required=false \
     if [ "$RUNTIME_VARIANT" = topling ]; then \
         if [ -f /run/secrets/proxy_ca ]; then export CURL_CA_BUNDLE=/run/secrets/proxy_ca; fi; \
         bash /tmp/prepare-topling-image.sh; \
+        chown -R "${HG_UID}:${HG_GID}" topling conf/toplingdb.yaml; \
     fi \
     && rm /tmp/prepare-topling-image.sh /tmp/topling-runtime.env /tmp/toplingdb.yaml
+
+USER ${HG_UID}:${HG_GID}
 
 EXPOSE 8080
 # The named data volume seeds and retains graph definitions through conf/graphs,
