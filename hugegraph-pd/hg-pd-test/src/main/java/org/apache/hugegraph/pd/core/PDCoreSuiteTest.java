@@ -56,6 +56,7 @@ import lombok.extern.slf4j.Slf4j;
         PartitionServiceTest.class,
         StoreMonitorDataServiceTest.class,
         StoreServiceTest.class,
+        StoreDrainTest.class,
         TaskScheduleServiceTest.class,
         IpAuthHandlerTest.class,
         RaftEngineCliProcessorsTest.class,

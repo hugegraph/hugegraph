@@ -131,7 +131,7 @@ public class StoreNodeService {
      *
      * @param store
      */
-    public Metapb.Store register(Metapb.Store store) throws PDException {
+    public synchronized Metapb.Store register(Metapb.Store store) throws PDException {
         if (store.getId() == 0) {
             // Initial registration, generate a new ID, and ensure that the ID is not duplicated.
             store = newStoreNode(store);
@@ -167,11 +167,15 @@ public class StoreNodeService {
         // also exposes liveness that tells stale membership apart.
         // https://github.com/apache/hugegraph/issues/3229
         Metapb.StoreState storeState = lastStore.getState();
-        if (storeState == Metapb.StoreState.Offline || storeState == Metapb.StoreState.Up
-            || inInitialStoreList(store)) {
-            storeState = Metapb.StoreState.Up;
-        } else {
-            storeState = Metapb.StoreState.Pending;
+        // Restarting an exiting Store must not cancel its persisted drain intent, including
+        // when its address is still present in the bootstrap allowlist.
+        if (storeState != Metapb.StoreState.Exiting) {
+            if (storeState == Metapb.StoreState.Offline || storeState == Metapb.StoreState.Up
+                || inInitialStoreList(store)) {
+                storeState = Metapb.StoreState.Up;
+            } else {
+                storeState = Metapb.StoreState.Pending;
+            }
         }
 
         store = Metapb.Store.newBuilder(lastStore)
@@ -212,6 +216,8 @@ public class StoreNodeService {
             storeInfoMeta.keepStoreAlive(store);
             onStoreStatusChanged(store, Metapb.StoreState.Offline, Metapb.StoreState.Up);
             checkStoreStatus();
+        } else if (storeState == Metapb.StoreState.Exiting) {
+            storeInfoMeta.keepStoreAlive(store);
         }
 
         // Wait for the store information to be saved before sending the changes
@@ -409,6 +415,21 @@ public class StoreNodeService {
         return storeInfoMeta.getActiveStores();
     }
 
+    /**
+     * Return live Stores that may receive new replicas. The TTL entry records liveness and can
+     * still contain an older Up state after a Store starts exiting, so consult Store metadata.
+     */
+    public List<Metapb.Store> getPlacementStores() throws PDException {
+        List<Metapb.Store> stores = new ArrayList<>();
+        for (Metapb.Store activeStore : storeInfoMeta.getActiveStores()) {
+            Metapb.Store store = storeInfoMeta.getStore(activeStore.getId());
+            if (store != null && store.getState() == Metapb.StoreState.Up) {
+                stores.add(store);
+            }
+        }
+        return stores;
+    }
+
     public List<Metapb.Store> getTombStores() throws PDException {
         List<Metapb.Store> stores = new ArrayList<>();
         for (Metapb.Store store : this.getStores()) {
@@ -437,7 +458,7 @@ public class StoreNodeService {
         // number cannot exceed the number of raft groups
         if (storeInfoMeta.getShardGroup(partId) == null) {
             // Get active store key
-            List<Metapb.Store> stores = storeInfoMeta.getActiveStores();
+            List<Metapb.Store> stores = getPlacementStores();
 
             if (stores.size() == 0) {
                 throw new PDException(Pdpb.ErrorType.NO_ACTIVE_STORE_VALUE,
@@ -497,7 +518,7 @@ public class StoreNodeService {
      */
     public synchronized List<Metapb.Shard> reallocShards(Metapb.ShardGroup shardGroup) throws
                                                                                        PDException {
-        List<Metapb.Store> stores = storeInfoMeta.getActiveStores();
+        List<Metapb.Store> stores = getPlacementStores();
 
         if (stores.size() == 0) {
             throw new PDException(Pdpb.ErrorType.NO_ACTIVE_STORE_VALUE,
@@ -727,7 +748,7 @@ public class StoreNodeService {
      * @param storeStats
      * @throws PDException
      */
-    public Metapb.ClusterStats heartBeat(Metapb.StoreStats storeStats) throws PDException {
+    public synchronized Metapb.ClusterStats heartBeat(Metapb.StoreStats storeStats) throws PDException {
         this.storeInfoMeta.updateStoreStats(storeStats);
         Metapb.Store lastStore = this.getStore(storeStats.getStoreId());
         if (lastStore == null) {
@@ -745,21 +766,16 @@ public class StoreNodeService {
         Metapb.Store nowStore;
         // If you are going to take the store offline
         if (lastStore.getState() == Metapb.StoreState.Exiting) {
-            List<Metapb.Store> activeStores = this.getActiveStores();
-            Map<Long, Metapb.Store> storeMap = new HashMap<>();
-            activeStores.forEach(store -> {
-                storeMap.put(store.getId(), store);
-            });
-            // If the partition of the offline store is 0, it means that the migration has been
-            // completed and can be taken offline, if it is not 0, the migration is still in
-            // progress and you need to wait
-            if (storeStats.getPartitionCount() > 0 &&
-                storeMap.containsKey(storeStats.getStoreId())) {
+            // TTL expiry only means the last heartbeat is stale, not that migration finished.
+            // Require both the source and PD's group view to be empty before retiring it.
+            if (storeStats.getPartitionCount() > 0 ||
+                !getShardGroupsByStore(storeStats.getStoreId()).isEmpty()) {
                 nowStore = Metapb.Store.newBuilder(lastStore)
                                        .setStats(storeStats)
                                        .setLastHeartbeat(System.currentTimeMillis())
                                        .setState(Metapb.StoreState.Exiting).build();
                 this.storeInfoMeta.updateStore(nowStore);
+                this.storeInfoMeta.keepStoreAlive(nowStore);
                 return this.clusterStats;
             } else {
                 nowStore = Metapb.Store.newBuilder(lastStore)

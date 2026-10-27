@@ -298,7 +298,8 @@ public class TaskScheduleService {
             return null;
         }
 
-        int activeStores = storeService.getActiveStores().size();
+        List<Metapb.Store> placementStores = storeService.getPlacementStores();
+        int activeStores = placementStores.size();
         if (activeStores == 0) {
             log.warn("balancePartitionShard non active stores, skip to balancePartitionShard");
             return null;
@@ -318,7 +319,7 @@ public class TaskScheduleService {
 
         // Count the partitions on each store, StoreId -> PartitionID, ShardRole
         Map<Long, Map<Integer, Metapb.ShardRole>> partitionMap = new HashMap<>();
-        storeService.getActiveStores().forEach(store -> {
+        placementStores.forEach(store -> {
             partitionMap.put(store.getId(), new HashMap<>());
         });
 
@@ -751,12 +752,15 @@ public class TaskScheduleService {
         Map<Integer, Long> partitionDataSize = new HashMap<>();
 
         storeService.getActiveStores().forEach(store -> {
+            if (store.getId() == sourceStore.getId()) {
+                resultMap.put("current_store_is_online", true);
+            }
+        });
+        storeService.getPlacementStores().forEach(store -> {
             if (store.getId() != sourceStore.getId()) {
                 otherPartitionMap.put(store.getId(), new HashMap<>());
                 // Records the remaining disk space of other stores, in bytes
                 availableDiskSpace.put(store.getId(), store.getStats().getAvailable());
-            } else {
-                resultMap.put("current_store_is_online", true);
             }
         });
         // Count the size of the partition to be migrated (from storeStats in KB)
@@ -791,10 +795,9 @@ public class TaskScheduleService {
         }
         // Count the number of partitions of other stores and save them with a small top heap, so
         // that stores with fewer partitions are always prioritized
-        PriorityQueue<KVPair<Long, Integer>> minHeap = new PriorityQueue<>(otherPartitionMap.size(),
-                                                                           (o1, o2) -> o1.getValue()
-                                                                                         .compareTo(
-                                                                                                 o2.getValue()));
+        PriorityQueue<KVPair<Long, Integer>> minHeap =
+                new PriorityQueue<>(Math.max(1, otherPartitionMap.size()),
+                                    (o1, o2) -> o1.getValue().compareTo(o2.getValue()));
         otherPartitionMap.forEach((storeId, shards) -> {
             minHeap.add(new KVPair(storeId, shards.size()));
         });
