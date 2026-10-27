@@ -20,6 +20,9 @@ package org.apache.hugegraph.security;
 import java.lang.reflect.Field;
 import java.util.Set;
 
+import javax.script.ScriptException;
+
+import org.apache.tinkerpop.gremlin.groovy.jsr223.GremlinGroovyScriptEngine;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -36,5 +39,47 @@ public class HugeSecurityManagerTest {
         Assert.assertFalse(properties.contains("socksProxyHost"));
         Assert.assertFalse(properties.contains("file.encoding"));
         Assert.assertTrue(properties.contains("java.specification.version"));
+    }
+
+    @Test
+    public void testGrpcAllocatorPropertyIsReadOnlyFromGremlin() throws Exception {
+        String key = "io.grpc.netty.shaded.io.grpc.netty.useCustomAllocator";
+        String originalValue = System.getProperty(key);
+        SecurityManager originalManager = System.getSecurityManager();
+        Thread thread = Thread.currentThread();
+        String originalName = thread.getName();
+        GremlinGroovyScriptEngine engine = new GremlinGroovyScriptEngine();
+        try {
+            engine.eval("1 + 1");
+            System.setSecurityManager(new HugeSecurityManager());
+            thread.setName("gremlin-server-exec-security-test");
+
+            Assert.assertEquals(originalValue,
+                                engine.eval("System.getProperty('" + key + "')"));
+            Assert.assertEquals(originalValue == null ? "true" : originalValue,
+                                engine.eval("System.getProperty('" + key + "', 'true')"));
+            assertGremlinDenied(engine, "System.getProperty('user.home')",
+                                "Not allowed to access system property(user.home) via Gremlin");
+            assertGremlinDenied(engine, "System.getProperty('file.encoding')",
+                                "Not allowed to access system property(file.encoding) via Gremlin");
+            assertGremlinDenied(engine, "System.setProperty('" + key + "', 'false')",
+                                "Not allowed to modify system property(" + key + ") via Gremlin");
+            assertGremlinDenied(engine, "System.clearProperty('" + key + "')",
+                                "Not allowed to modify system property(" + key + ") via Gremlin");
+            Assert.assertEquals(originalValue, System.getProperty(key));
+        } finally {
+            thread.setName(originalName);
+            System.setSecurityManager(originalManager);
+        }
+    }
+
+    private static void assertGremlinDenied(GremlinGroovyScriptEngine engine,
+                                            String script, String message) throws Exception {
+        try {
+            engine.eval(script);
+            Assert.fail("Expected Gremlin access to be denied: " + script);
+        } catch (ScriptException e) {
+            Assert.assertTrue(e.toString(), e.toString().contains(message));
+        }
     }
 }

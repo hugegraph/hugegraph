@@ -30,6 +30,14 @@ component files. CI checks positive-test and startup logs for Java module-access
 errors and unsupported JVM options, including errors printed without failing the
 operation.
 
+### Gremlin and HStore transport reconnection
+
+The Gremlin security manager permits reads of the gRPC shaded Netty boolean property
+`io.grpc.netty.shaded.io.grpc.netty.useCustomAllocator`. gRPC reads this flag when it
+rebuilds a transport, including after a PD restart during a Gremlin request. Gremlin
+cannot set or clear this property. Sensitive properties such as `user.home` remain
+unreadable from Gremlin; this exception does not grant access to other Netty properties.
+
 ### Launcher GC options
 
 Use `bin/start-hugegraph.sh -g g1` (or `-g G1`) to select G1 explicitly.

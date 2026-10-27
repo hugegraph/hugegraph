@@ -21,6 +21,7 @@ import java.io.FileDescriptor;
 import java.net.InetAddress;
 import java.security.Permission;
 import java.util.Map;
+import java.util.PropertyPermission;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArraySet;
 
@@ -39,6 +40,8 @@ public class HugeSecurityManager extends SecurityManager {
 
     private static final String GREMLIN_SERVER_WORKER = "gremlin-server-exec";
     private static final String TASK_WORKER = "task-worker";
+    private static final String GRPC_USE_CUSTOM_ALLOCATOR =
+            "io.grpc.netty.shaded.io.grpc.netty.useCustomAllocator";
     private static final Set<String> GREMLIN_EXECUTOR_CLASS = ImmutableSet.of(
             "org.apache.tinkerpop.gremlin.groovy.jsr223.GremlinGroovyScriptEngine"
     );
@@ -63,7 +66,9 @@ public class HugeSecurityManager extends SecurityManager {
             "line.separator",
             "file.separator",
             // Sofa
-            "java.specification.version"
+            "java.specification.version",
+            // gRPC reads this flag when rebuilding an HStore transport from Gremlin.
+            GRPC_USE_CUSTOM_ALLOCATOR
     );
 
     private static final Set<String> ASYNC_SCHEMA_METHODS = ImmutableSet.of(
@@ -122,6 +127,12 @@ public class HugeSecurityManager extends SecurityManager {
 
     @Override
     public void checkPermission(Permission perm) {
+        if (perm instanceof PropertyPermission &&
+            GRPC_USE_CUSTOM_ALLOCATOR.equals(perm.getName()) &&
+            perm.getActions().contains("write") && callFromGremlin()) {
+            throw newSecurityException("Not allowed to modify system property(%s) via Gremlin",
+                                       perm.getName());
+        }
         if (DENIED_PERMISSIONS.contains(perm.getName()) && callFromGremlin()) {
             // TODO: consider ban the Reflection/Runtime/SerializablePermission after
             //       identifying the "callFromGremlin()" clearly
