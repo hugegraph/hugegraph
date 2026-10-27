@@ -654,6 +654,21 @@ curl http://192.168.1.10:8620/v1/partitionsAndStatus
 
 5. **Verify**: Wait for even distribution (may take hours)
 
+### Restoring Store Membership after a Restart
+
+For a persisted partition, startup verifies the shard group directly with PD and refreshes
+the derived local `SHARDGROUP` once per group when this Store is still a member and no
+engine is running for the group. This lets JRaft restore its durable configuration even
+when the business database contains older membership metadata. Running engines and
+durable Raft configuration are not replaced by the PD bootstrap metadata.
+
+Missing, invalid or unavailable PD metadata blocks recovery while retaining local data;
+this includes members with an unspecified `None` role until PD reports usable member roles.
+PD exclusion is not proof that a Store has been safely retired. Check every assigned
+group after a restart before continuing a rolling operation. This recovery correction
+does not establish why older derived metadata was persisted, or provide a complete
+desired/observed membership protocol or protection against partial PD partition queries.
+
 ### Removing Store Nodes
 
 **When to Remove**:
