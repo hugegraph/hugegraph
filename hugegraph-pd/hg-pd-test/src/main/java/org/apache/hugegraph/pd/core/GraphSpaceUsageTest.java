@@ -76,7 +76,7 @@ public class GraphSpaceUsageTest {
         Mockito.when(config.getGraphSpace("")).thenReturn(List.of(stored));
         Mockito.when(partitions.getGraphs()).thenReturn(Collections.emptyList());
         service.getQuota();
-        Mockito.verify(config).setGraphSpaceUsage("shop", 0);
+        Mockito.verify(config).refreshGraphSpaceUsage("shop", 0, partitions);
     }
 
     @Test
@@ -99,7 +99,7 @@ public class GraphSpaceUsageTest {
                                           .build();
         Mockito.doReturn(List.of(store)).when(service).getStores("shop/g/g");
         service.getQuota();
-        Mockito.verify(config).setGraphSpaceUsage("shop", 512);
+        Mockito.verify(config).refreshGraphSpaceUsage("shop", 512, partitions);
     }
 
     @Test

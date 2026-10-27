@@ -973,6 +973,45 @@ configured storage limit, PD marks the space's graphs
 CPU and memory limits configure Kubernetes namespace quotas when `server.use_k8s=true`;
 they do not impose process limits in other deployments.
 
+Deleting a graph space also removes its exact PD storage-limit/usage record after
+all its graphs have been removed. An empty space that still exists retains its limit
+and reports zero usage. Cleanup is idempotent; if PD cleanup fails, the Server keeps
+the space configuration and list entry, and reports the failure so deletion can be
+retried. By that stage, graphs, graph-space authorization, schema templates and
+services have already been cleared. This is not a transaction: retrying does not
+restore any of those resources. PD rejects cleanup while the space still has graph
+metadata and rechecks current graphs before recreating a missing usage record, so an
+older quota collection cannot recreate a deleted space's statistics. This does not
+purge records left by deletions before the upgrade. Upgrade PD before Server: older
+PD versions do not implement the new `DeleteGraphSpace` RPC. An `UNIMPLEMENTED`
+response arrives after the clearing steps above, retains the remaining space
+configuration/list entry, and prevents completion until all PD nodes are upgraded.
+Do not start space deletion during a Server-first rolling upgrade before PD
+supports this RPC. No unsupported-RPC response silently skips statistics cleanup.
+This cleanup does not serialize graph
+creation with space deletion across Server replicas; avoid creating graphs in a space
+while deleting it.
+
+If cleanup is refused, the Server response includes the PD reason, remaining
+record count and up to ten PD graph names (each limited to 128 characters).
+Inspect PD's authenticated `GET /v1/partitionsAndStats` diagnostic endpoint. The
+keys of its `partitions` object retain every full PD graph identifier, including
+records with no partitions. This supplies the full names omitted or truncated in
+the bounded error message. `GET /v1/graphs` lists only `/g` records and is not a
+complete inventory for this check: schema `/m` records can also block cleanup.
+Compare all matching identifiers with the Server's graph configuration. For
+example, `shop/old/g` and `shop/old/m` belong to graph `old` in space `shop`, with
+data and schema backend suffixes respectively. Earlier failed graph drops can
+leave a PD record after its Server configuration is gone;
+retrying space deletion alone does not remove that record.
+
+Confirm ownership and any data that must be retained before recovery. For a
+confirmed obsolete graph, use the normal Server graph APIs to recreate the
+missing graph configuration with its original space, graph name and backend,
+then drop that graph normally and retry space deletion. A graph owned by another
+Server must be removed through that owner instead. The cleanup operation does
+not guess ownership or delete remaining graph data automatically.
+
 An administrator can raise limits with `PUT /graphspaces/DEFAULT`, for example:
 
 ```json

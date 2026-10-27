@@ -375,8 +375,8 @@ public final class Consumers<V> {
     }
 
     public static RuntimeException wrapException(Throwable e) {
-        if (e instanceof RuntimeException) {
-            throw (RuntimeException) e;
+        if (e instanceof RuntimeException runtimeException) {
+            throw runtimeException;
         }
         throw new HugeException("Error when running task: %s", e,
                                 HugeException.rootCause(e).getMessage());
