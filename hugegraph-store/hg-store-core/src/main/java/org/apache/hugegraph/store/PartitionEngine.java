@@ -218,11 +218,7 @@ public class PartitionEngine implements Lifecycle<PartitionEngineOptions>, RaftS
         nodeOptions.setServiceFactory(new DefaultJRaftServiceFactory() {
             @Override
             public LogStorage createLogStorage(final String uri, final RaftOptions raftOptions) {
-                if (options.getRaftOptions().isUseRocksDBSegmentLogStorage()) {
-                    return new RocksDBSegmentLogStorage(uri, raftOptions);
-                } else {
-                    return new RocksDBLogStorage(uri, raftOptions);
-                }
+                return PartitionEngine.createLogStorage(uri, raftOptions, raft);
             }
         });
         // Initial cluster
@@ -265,6 +261,16 @@ public class PartitionEngine implements Lifecycle<PartitionEngineOptions>, RaftS
         log.info("PartitionEngine start successfully: id = {}, peers list = {}",
                  options.getGroupId(), nodeOptions.getInitialConf().getPeers());
         return this.started;
+    }
+
+    static LogStorage createLogStorage(String uri, RaftOptions raftOptions,
+                                       HgStoreEngineOptions.RaftOptions storeRaftOptions) {
+        if (storeRaftOptions.isUseRocksDBSegmentLogStorage()) {
+            return RocksDBSegmentLogStorage.builder(uri, raftOptions)
+                                          .setMaxSegmentFileSize(storeRaftOptions.getMaxSegmentFileSize())
+                                          .build();
+        }
+        return new RocksDBLogStorage(uri, raftOptions);
     }
 
     public HgStoreEngine getStoreEngine() {
