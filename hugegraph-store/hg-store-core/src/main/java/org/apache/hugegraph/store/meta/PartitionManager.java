@@ -823,7 +823,11 @@ public class PartitionManager extends GlobalMetaStore {
             for (Shard shard : shardGroup.getShards()) {
                 Store store = getStore(shard.getStoreId());
                 if (store != null && !store.getRaftAddress().isEmpty()) {
-                    peers.add(store.getRaftAddress() + "::" + priority);
+                    String peer = store.getRaftAddress() + "::" + priority;
+                    if (shard.getRole() == Metapb.ShardRole.Learner) {
+                        peer += "/learner";
+                    }
+                    peers.add(peer);
                     final int gap = Math.max(decayPriorityGap, (priority / 5));
                     priority = Math.max(ElectionPriority.MinValue, (priority - gap));
                 }

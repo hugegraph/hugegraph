@@ -304,6 +304,14 @@ public class PartitionRecoveryMembershipTest {
                 .setStoreId(SELF).setRole(Metapb.ShardRole.Learner)).build();
         manager.loadPartition();
         assertEquals(directGroup, localGroup.get());
+
+        List<String> peers = manager.getPartitionPeers(ShardGroup.from(directGroup));
+        assertEquals(List.of(SELF_ADDRESS + "::100/learner"), peers);
+        com.alipay.sofa.jraft.conf.Configuration initial =
+                new com.alipay.sofa.jraft.conf.Configuration();
+        assertTrue(initial.parse(String.join(",", peers)));
+        assertTrue(initial.listPeers().isEmpty());
+        assertEquals(SELF_ADDRESS, initial.listLearners().get(0).getEndpoint().toString());
     }
 
     private void assertRecoveryBlocked() {
