@@ -33,10 +33,23 @@ operation.
 ### Gremlin and HStore transport reconnection
 
 The Gremlin security manager permits reads of the gRPC shaded Netty boolean property
-`io.grpc.netty.shaded.io.grpc.netty.useCustomAllocator`. gRPC reads this flag when it
-rebuilds a transport, including after a PD restart during a Gremlin request. Gremlin
-cannot set or clear this property. Sensitive properties such as `user.home` remain
-unreadable from Gremlin; this exception does not grant access to other Netty properties.
+`io.grpc.netty.shaded.io.grpc.netty.useCustomAllocator` and the DNS cache setting
+`networkaddress.cache.ttl`. gRPC reads these settings when it builds a DNS resolver or
+rebuilds a transport, including after a PD or Store restart during a Gremlin request.
+Gremlin cannot set or clear these properties. Sensitive properties such as `user.home`
+remain unreadable from Gremlin.
+
+HStore constructs each target's lazy channel pool on the calling thread so custom
+channel builders retain the caller's Gremlin security context. The client publishes
+the pool after all channels are constructed. If construction fails, it closes the
+partial pool and reports the failure; a subsequent request can retry. RPC transport
+work remains asynchronous. This change does not grant Gremlin permission to create
+threads or thread groups.
+
+The shared gRPC framework and provider discovery initialize during normal PD/framework
+bootstrap before Server accepts Gremlin requests. This does not initialize the pools
+for every future Store target. Unit checks that obtain a stub verify lazy pool
+construction; a successful RPC and its readback are separate runtime checks.
 
 ### Launcher GC options
 

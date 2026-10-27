@@ -43,12 +43,22 @@ public class HugeSecurityManagerTest {
 
     @Test
     public void testGrpcAllocatorPropertyIsReadOnlyFromGremlin() throws Exception {
-        String key = "io.grpc.netty.shaded.io.grpc.netty.useCustomAllocator";
+        assertReadOnlyProperty("io.grpc.netty.shaded.io.grpc.netty.useCustomAllocator", "true");
+    }
+
+    @Test
+    public void testDnsCacheTtlPropertyIsReadOnlyFromGremlin() throws Exception {
+        assertReadOnlyProperty("networkaddress.cache.ttl", "30");
+    }
+
+    private static void assertReadOnlyProperty(String key, String fallback) throws Exception {
         String originalValue = System.getProperty(key);
         SecurityManager originalManager = System.getSecurityManager();
         Thread thread = Thread.currentThread();
         String originalName = thread.getName();
         GremlinGroovyScriptEngine engine = new GremlinGroovyScriptEngine();
+        // Server initializes logging before accepting sandboxed Gremlin requests.
+        org.apache.hugegraph.util.Log.logger(HugeSecurityManager.class);
         try {
             engine.eval("1 + 1");
             System.setSecurityManager(new HugeSecurityManager());
@@ -56,8 +66,8 @@ public class HugeSecurityManagerTest {
 
             Assert.assertEquals(originalValue,
                                 engine.eval("System.getProperty('" + key + "')"));
-            Assert.assertEquals(originalValue == null ? "true" : originalValue,
-                                engine.eval("System.getProperty('" + key + "', 'true')"));
+            Assert.assertEquals(originalValue == null ? fallback : originalValue,
+                                engine.eval("System.getProperty('" + key + "', '" + fallback + "')"));
             assertGremlinDenied(engine, "System.getProperty('user.home')",
                                 "Not allowed to access system property(user.home) via Gremlin");
             assertGremlinDenied(engine, "System.getProperty('file.encoding')",

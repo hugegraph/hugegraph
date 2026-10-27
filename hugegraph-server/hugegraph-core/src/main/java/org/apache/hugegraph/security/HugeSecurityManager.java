@@ -42,6 +42,10 @@ public class HugeSecurityManager extends SecurityManager {
     private static final String TASK_WORKER = "task-worker";
     private static final String GRPC_USE_CUSTOM_ALLOCATOR =
             "io.grpc.netty.shaded.io.grpc.netty.useCustomAllocator";
+    private static final Set<String> READ_ONLY_SYSTEM_PROPERTIES = ImmutableSet.of(
+            GRPC_USE_CUSTOM_ALLOCATOR,
+            "networkaddress.cache.ttl"
+    );
     private static final Set<String> GREMLIN_EXECUTOR_CLASS = ImmutableSet.of(
             "org.apache.tinkerpop.gremlin.groovy.jsr223.GremlinGroovyScriptEngine"
     );
@@ -62,14 +66,12 @@ public class HugeSecurityManager extends SecurityManager {
             "com.github.benmanes.caffeine.cache.BoundedLocalCache"
     );
 
-    private static final Set<String> WHITE_SYSTEM_PROPERTIES = ImmutableSet.of(
+    private static final Set<String> WHITE_SYSTEM_PROPERTIES = ImmutableSet.<String>builder().add(
             "line.separator",
             "file.separator",
             // Sofa
-            "java.specification.version",
-            // gRPC reads this flag when rebuilding an HStore transport from Gremlin.
-            GRPC_USE_CUSTOM_ALLOCATOR
-    );
+            "java.specification.version"
+    ).addAll(READ_ONLY_SYSTEM_PROPERTIES).build();
 
     private static final Set<String> ASYNC_SCHEMA_METHODS = ImmutableSet.of(
             "removeVertexLabel", "removeEdgeLabel", "removeIndexLabel", "rebuildIndex"
@@ -128,7 +130,7 @@ public class HugeSecurityManager extends SecurityManager {
     @Override
     public void checkPermission(Permission perm) {
         if (perm instanceof PropertyPermission &&
-            GRPC_USE_CUSTOM_ALLOCATOR.equals(perm.getName()) &&
+            READ_ONLY_SYSTEM_PROPERTIES.contains(perm.getName()) &&
             perm.getActions().contains("write") && callFromGremlin()) {
             throw newSecurityException("Not allowed to modify system property(%s) via Gremlin",
                                        perm.getName());
