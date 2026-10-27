@@ -61,22 +61,29 @@ public abstract class AbstractGrpcClient {
                             value[i] = createChannel(target);
                         }
                         channels.put(target, tc = value);
-                    } catch (Exception e) {
-                        for (ManagedChannel channel : value) {
-                            if (channel != null) {
-                                try {
-                                    channel.shutdownNow();
-                                } catch (RuntimeException closeFailure) {
-                                    e.addSuppressed(closeFailure);
-                                }
-                            }
-                        }
+                    } catch (RuntimeException e) {
+                        closeChannels(value, e);
                         throw new RuntimeException(e);
+                    } catch (Error e) {
+                        closeChannels(value, e);
+                        throw e;
                     }
                 }
             }
         }
         return tc;
+    }
+
+    private static void closeChannels(ManagedChannel[] value, Throwable failure) {
+        for (ManagedChannel channel : value) {
+            if (channel != null) {
+                try {
+                    channel.shutdownNow();
+                } catch (RuntimeException | Error closeFailure) {
+                    failure.addSuppressed(closeFailure);
+                }
+            }
+        }
     }
 
     public abstract AbstractBlockingStub getBlockingStub(ManagedChannel channel);
