@@ -654,6 +654,12 @@ curl http://192.168.1.10:8620/v1/partitionsAndStatus
 
 5. **Verify**: Wait for even distribution (may take hours)
 
+Replica migration can leave learners in a Raft group while they receive a snapshot or catch up.
+If the same membership change is retried after a catch-up timeout, Store resumes those learners
+and promotes them to voting members after catch-up; it does not need to create them again.
+Verify the actual voter and learner lists before treating migration as complete: a target count
+that includes learners is not proof of voting membership.
+
 ### Removing Store Nodes
 
 **When to Remove**:
