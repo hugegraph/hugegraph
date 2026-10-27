@@ -151,6 +151,24 @@ public class PartitionEngineMembershipTest {
     }
 
     @Test
+    public void testRetriesAfterLearnersWereRemovedButPromotionFailed() throws Exception {
+        Fixture fixture = new Fixture(List.of(A), List.of(B, C));
+        fixture.changeResults.add(new Status(RaftError.EBUSY, "configuration busy"));
+
+        Status first = fixture.engine.changePeers(TARGET, null);
+
+        assertEquals(HgRaftError.TASK_ERROR.getNumber(), first.getCode());
+        fixture.assertMembership(List.of(A), List.of());
+        assertTrue(fixture.created.isEmpty());
+
+        assertTrue(fixture.engine.changePeers(TARGET, null).isOk());
+        fixture.assertMembership(TARGET, List.of());
+        assertEquals(List.of(B, C), fixture.created);
+        assertEquals(List.of(List.of(B, C), List.of(B, C)), fixture.engine.waitedPeers);
+        assertTrue(fixture.destroyed.isEmpty());
+    }
+
+    @Test
     public void testRemovesStaleLearnerEvenWhenVotersAlreadyMatch() throws Exception {
         Fixture fixture = new Fixture(TARGET, List.of(D));
 
