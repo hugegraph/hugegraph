@@ -450,20 +450,59 @@ public class TaskScheduleService {
             maxHeap.addAll(tmpList);
         }
 
-        kvService.put(BALANCE_SHARD_KEY, "DOING", 180 * 1000);
-
-        // Start the migration
-        movedPartitions.forEach((partId, storePair) -> {
-            // Neither the source nor destination storeID is 0
-            if (storePair.getKey() > 0 && storePair.getValue() > 0) {
-                partitionService.movePartitionsShard(partId, storePair.getKey(),
-                                                     storePair.getValue());
-            } else {
+        boolean submitted = false;
+        Iterator<Map.Entry<Integer, KVPair<Long, Long>>> submission =
+                movedPartitions.entrySet().iterator();
+        while (submission.hasNext()) {
+            Map.Entry<Integer, KVPair<Long, Long>> move = submission.next();
+            KVPair<Long, Long> stores = move.getValue();
+            if (stores.getKey() <= 0 || stores.getValue() <= 0) {
                 log.warn("balancePartitionShard key or value is zero, partId:{} storePair:{}",
-                         partId, storePair);
+                         move.getKey(), stores);
+                submission.remove();
+                continue;
             }
-        });
+            if (!movePartitionIfPlacementStore(move.getKey(), stores.getKey(),
+                                               stores.getValue())) {
+                submission.remove();
+                continue;
+            }
+            submitted = true;
+        }
+        if (submitted) {
+            kvService.put(BALANCE_SHARD_KEY, "DOING", 180 * 1000);
+        }
         return movedPartitions;
+    }
+
+    /**
+     * Revalidate destination liveness and state while serializing with Store state changes.
+     * Preserve the existing service lock order: PartitionService then StoreNodeService.
+     */
+    private boolean movePartitionIfPlacementStore(int partitionId, long sourceStoreId,
+                                                  long destStoreId) {
+        synchronized (partitionService) {
+            synchronized (storeService) {
+                try {
+                    boolean eligible = storeService.getPlacementStores().stream()
+                                                   .anyMatch(store ->
+                                                           store.getId() == destStoreId);
+                    if (!eligible) {
+                        log.warn("Skip moving partition {} from store {} to store {}: " +
+                                 "destination is no longer an Up placement store",
+                                 partitionId, sourceStoreId, destStoreId);
+                        return false;
+                    }
+                    partitionService.movePartitionsShard(partitionId, sourceStoreId,
+                                                         destStoreId);
+                    return true;
+                } catch (PDException e) {
+                    log.error("Cannot revalidate destination store {} for partition {}",
+                              destStoreId, partitionId, e);
+                    return false;
+                }
+            }
+        }
     }
 
     /**
@@ -873,15 +912,19 @@ public class TaskScheduleService {
         if (!isLeader()) {
             return null;
         }
-        // Start the migration
+        // Start the migration, but revalidate every destination because a plan may be stale.
         log.info("begin move partitions:");
-        movedPartitions.forEach((partId, storePair) -> {
-            // Neither the source nor destination storeID is 0
-            if (storePair.getKey() > 0 && storePair.getValue() > 0) {
-                partitionService.movePartitionsShard(partId, storePair.getKey(),
-                                                     storePair.getValue());
+        Iterator<Map.Entry<Integer, KVPair<Long, Long>>> iterator =
+                movedPartitions.entrySet().iterator();
+        while (iterator.hasNext()) {
+            Map.Entry<Integer, KVPair<Long, Long>> move = iterator.next();
+            KVPair<Long, Long> stores = move.getValue();
+            if (stores.getKey() <= 0 || stores.getValue() <= 0 ||
+                !movePartitionIfPlacementStore(move.getKey(), stores.getKey(),
+                                               stores.getValue())) {
+                iterator.remove();
             }
-        });
+        }
         return movedPartitions;
     }
 
