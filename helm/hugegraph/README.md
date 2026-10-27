@@ -81,6 +81,28 @@ helm install hugegraph ./helm/hugegraph -n hugegraph --create-namespace \
 
 Inactive credential values may remain in the values file when auth is disabled.
 
+### Optional SeaTunnel
+
+Set `seatunnel.enabled=true` to start one persistent hybrid member alongside HugeGraph;
+set `seatunnel.mode=cluster` to use multiple members of the same native StatefulSet
+(two by default). SeaTunnel is disabled by default and its topology is independent
+of the HugeGraph single-/multi-node presets. Both modes include the engine's task UI.
+The HTTP Service inherits NodePort in `easy` mode or ClusterIP in `strict` mode;
+`seatunnel.service` can explicitly override the type and NodePort.
+
+Member/CLI port 5801 is restricted to same-release peers by a SeaTunnel ingress
+NetworkPolicy in every mode, including when the chart-wide policy flag is disabled.
+Easy mode leaves the authenticated HTTP entry open. Actual isolation requires CNI
+support and trusted namespace RBAC; full isolation additionally limits egress.
+
+The chart injects the same-release Server address, GraphSpace and administrator
+Secret references into the mounted Source/Sink examples. Create the target graph
+before submitting them manually; Helm does not create graphs or import data.
+UI and REST submission use a separate native HTTP Basic administrator account,
+whose generated Secret is retained and reused during online upgrades. Container
+security and scheduling options follow the other components; see the
+[SeaTunnel deployment guide](docs/seatunnel.md) for configuration and limits.
+
 ### Internal image registry
 
 Mirror the four component images (`hugegraph/pd`, `hugegraph/store`,
