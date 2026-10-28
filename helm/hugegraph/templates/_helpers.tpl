@@ -1213,6 +1213,9 @@ over tag; otherwise fall back to tag, then to the chart appVersion. Takes a dict
 {{- define "hugegraph.vermeer.validate" -}}
 {{- if (.Values.vermeer | default dict).enabled -}}
 {{- $v := .Values.vermeer -}}
+{{- if and .Values.hubble.enabled (ne (.Values.hubble.mode | default "pd") "pd") -}}
+{{- fail "vermeer.enabled with Hubble requires hubble.mode=pd for graph-space discovery; disable Hubble to use Vermeer independently" -}}
+{{- end -}}
 {{- if not (has $v.mode (list "standalone" "cluster")) -}}
 {{- fail "vermeer.mode must be standalone or cluster" -}}
 {{- end -}}
