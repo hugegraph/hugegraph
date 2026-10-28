@@ -96,21 +96,37 @@ class MetadataClusterChartTest(unittest.TestCase):
                     self.assertFalse(any(document["metadata"].get("labels", {}).get(COMPONENT, "")
                                          .startswith("vermeer") for document in documents))
 
-    def test_server_wrapper_overwrites_image_cluster_before_starting(self):
+    def test_rendered_server_environment_reaches_native_property_mapping(self):
         selected = "production-graph_42"
         documents = self.documents({"metadataCluster": selected})
         container = self.container(self.workload(documents, "server"), "server")
         environment = dict(os.environ)
         for entry in container["env"]:
-            environment[entry["name"]] = str(entry.get("value", "fixture-secret"))
+            environment[entry["name"]] = str(entry.get("value", "fixture-secret-" + "x" * 32))
         with tempfile.TemporaryDirectory(prefix="metadata-cluster-wrapper-") as directory:
             root = Path(directory)
             (root / "conf").mkdir()
+            (root / "conf/graphs").mkdir()
+            (root / "conf/graphs/hugegraph.properties").write_text("backend=hstore\n")
+            (root / "bin").mkdir()
             properties = root / "conf/rest-server.properties"
             properties.write_text("cluster=unrelated-image-default\nunrelated.setting=preserved\n")
             entrypoint = root / "docker-entrypoint.sh"
-            entrypoint.write_text("#!/bin/sh\nexit 0\n")
+            entrypoint.write_bytes((CHART.parents[1] / "hugegraph-server/hugegraph-dist/docker/"
+                                    "docker-entrypoint.sh").read_bytes())
             entrypoint.chmod(0o755)
+            # Execute the real property mapping with service startup and
+            # readiness isolated; this fixture starts no JVM or HTTP client.
+            (root / "bin/util.sh").write_text(
+                "record_jvm_startup_diagnostics() { :; }\n"
+                "diagnose_jvm_startup_failure() { :; }\n"
+                "read_property() { printf 'http://127.0.0.1:8080'; }\n"
+                "wait_for_startup() { :; }\n")
+            for name in ("enable-auth.sh", "wait-storage.sh", "init-store.sh",
+                         "start-hugegraph.sh", "wait-partition.sh"):
+                executable = root / "bin" / name
+                executable.write_text("#!/bin/sh\nexit 0\n")
+                executable.chmod(0o755)
             result = subprocess.run(["bash", "-c", container["args"][0]], cwd=root,
                                     env=environment, capture_output=True, text=True, timeout=15)
             self.assertEqual(0, result.returncode, result.stderr)

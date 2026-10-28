@@ -18,8 +18,6 @@
 suite: Metadata namespace changes protect existing Server metadata
 templates:
   - server-deployment.yaml
-release:
-  upgrade: true
 kubernetesProvider:
   scheme:
     "apps/v1/Deployment":
@@ -155,12 +153,16 @@ kubernetesProvider:
                         key: cluster
 tests:
   - it: permits an unchanged explicitly recorded namespace
+    release:
+      upgrade: true
     asserts:
       - equal:
           path: metadata.annotations["hugegraph.apache.org/metadata-cluster"]
           value: hg-test
 
   - it: refuses changing an explicitly configured namespace
+    release:
+      upgrade: true
     set:
       metadataCluster: production
     asserts:
