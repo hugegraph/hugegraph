@@ -22,6 +22,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -131,6 +132,36 @@ public class StoreDrainTest {
         Assert.assertEquals(sharedPartitions.get(0), changes.get(0).getArgument(0));
         Assert.assertEquals(result, changes.get(0).getArgument(1));
         Assert.assertEquals(ConfChangeType.CONF_CHANGE_TYPE_ADJUST, changes.get(0).getArgument(2));
+    }
+
+    @Test
+    public void testPreSubmittedDrainGroupIsNotDispatchedAgain() throws Exception {
+        Fixture fixture = new Fixture();
+        for (long id = 1; id <= 4; id++) {
+            fixture.addStore(id, Metapb.StoreState.Up);
+        }
+        Metapb.Store source = fixture.stores.get(4L);
+        Mockito.when(fixture.meta.getActiveStores())
+               .thenAnswer(call -> new ArrayList<>(fixture.stores.values()));
+        Metapb.ShardGroup submitted = group(0, 1, 2, 4);
+        fixture.groups.put(0, submitted);
+        fixture.groups.put(1, group(1, 1, 2, 4));
+        Metapb.Partition fallback = Metapb.Partition.newBuilder()
+                                                   .setId(1)
+                                                   .setGraphName("graph").build();
+        Mockito.when(fixture.partitions.getPartitionById(1))
+               .thenReturn(List.of(fallback));
+        Metapb.Store drain = source.toBuilder()
+                                    .setState(Metapb.StoreState.Exiting).build();
+
+        fixture.service.updateStore(drain, Set.of(0));
+
+        Assert.assertEquals(submitted, fixture.groups.get(0));
+        Assert.assertTrue(fixture.groups.get(1).getShardsList().stream()
+                                 .noneMatch(shard -> shard.getStoreId() == 4));
+        List<Invocation> changes = changeShardInvocations(fixture.partitions);
+        Assert.assertEquals(1, changes.size());
+        Assert.assertEquals(fallback, changes.get(0).getArgument(0));
     }
 
     @Test
