@@ -149,7 +149,9 @@ public final class LegacyGraphIdChecker {
         }
         try (DatabaseLocks locks = new DatabaseLocks()) {
             Path metadata = roots.get(0).resolve("hgstore-metadata");
-            if (Files.exists(metadata.resolve("CURRENT"))) {
+            boolean metadataExists = Files.exists(metadata);
+            if (metadataExists) {
+                requireCurrent(metadata);
                 locks.add(metadata);
             }
             Set<Path> databases = new LinkedHashSet<>();
@@ -158,7 +160,7 @@ public final class LegacyGraphIdChecker {
             for (Path root : roots) {
                 discover(root, null, databases, snapshots, discovered);
             }
-            if (Files.exists(metadata.resolve("CURRENT"))) {
+            if (metadataExists) {
                 try (Database database = new Database(metadata, config);
                      RocksIterator iterator = database.db.newIterator()) {
                     byte[] prefix = MetadataKeyHelper.getPartitionStorePrefix();

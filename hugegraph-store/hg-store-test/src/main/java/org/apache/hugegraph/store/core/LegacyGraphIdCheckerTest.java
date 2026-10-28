@@ -192,6 +192,35 @@ public class LegacyGraphIdCheckerTest {
     }
 
     @Test
+    public void testIncompleteMetadataDirectoryIsNeverIgnored() throws Exception {
+        Path root = this.temporary.newFolder().toPath();
+        Path metadata = root.resolve("hgstore-metadata");
+        write(metadata, "default", new byte[]{1}, VALUE);
+        Files.delete(metadata.resolve("CURRENT"));
+        Map<String, String> before = hashes(root);
+
+        LegacyGraphIdChecker.StartupPreflightException startupFailure = assertThrows(
+                LegacyGraphIdChecker.StartupPreflightException.class,
+                () -> LegacyGraphIdChecker.checkStore(root.toString(), config));
+        assertTrue(startupFailure.getMessage(),
+                   startupFailure.getMessage().contains(metadata.toString()));
+        assertTrue(startupFailure.getMessage(),
+                   startupFailure.getMessage().contains("CURRENT is missing"));
+        assertTrue(startupFailure.getMessage(),
+                   startupFailure.getMessage().contains("#incomplete-database-directories"));
+
+        IOException offlineFailure = assertThrows(IOException.class,
+                () -> LegacyGraphIdChecker.checkOffline(root.toString(), config));
+        assertTrue(offlineFailure.getMessage(),
+                   offlineFailure.getMessage().contains(metadata.toString()));
+        assertTrue(offlineFailure.getMessage(),
+                   offlineFailure.getMessage().contains("CURRENT is missing"));
+        assertTrue(offlineFailure.getMessage(),
+                   offlineFailure.getMessage().contains("#incomplete-database-directories"));
+        assertEquals(before, hashes(root));
+    }
+
+    @Test
     public void testLatestSnapshotIsCheckedDespiteShouldNotLoadMarker() throws Exception {
         Path root = this.temporary.newFolder().toPath();
         write(root.resolve("db/00000"), "g+v", LEGAL_KEY, VALUE);
