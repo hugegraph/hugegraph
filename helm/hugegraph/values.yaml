@@ -557,10 +557,9 @@ seatunnel:
     tag: "3.0.0"
     pullPolicy: IfNotPresent
   service:
-    # Unset inherits mode (easy: NodePort, strict: ClusterIP).
-    # Explicit ClusterIP keeps HTTP private. This does not select engine topology.
+    # Unset inherits easy: NodePort / strict: ClusterIP; explicit ClusterIP stays private.
     type:
-    # Unset or 0 lets Kubernetes allocate a NodePort; nonzero requires type NodePort.
+    # Unset or 0 allocates a port; nonzero requires type NodePort.
     nodePort:
     annotations: {}
   auth:
@@ -632,10 +631,9 @@ vermeer:
     existingSecret: ""
     key: credentials.json
   service:
-    # Unset inherits mode (easy: NodePort, strict: ClusterIP).
-    # Explicit ClusterIP keeps HTTP private. This does not select engine topology.
+    # Unset inherits easy: NodePort / strict: ClusterIP; explicit ClusterIP stays private.
     type:
-    # Unset or 0 lets Kubernetes allocate a NodePort; nonzero requires type NodePort.
+    # Unset or 0 allocates a port; nonzero requires type NodePort.
     nodePort:
     annotations: {}
   master:
@@ -689,15 +687,14 @@ vermeer:
 
 # Kubernetes NetworkPolicy: mode default plus explicit per-component rules.
 # easy exposes enabled browser/API entries; strict additionally isolates release egress.
-# Native NodePort Services admit authenticated HTTP callers; their RPC/member
-# ports remain restricted to the required in-cluster peers in every mode.
+# Native HTTP follows Service exposure; RPC/member ports remain private.
 # Enforced only when the network plugin implements NetworkPolicy (kind v0.25+,
 # k3s, Calico, Cilium); elsewhere the objects are accepted and do nothing.
-# With core policies enabled, list outside application/monitoring callers in
-# <component>.extraIngress. Server/Hubble/PD exposure does not add policy rules.
-# Native HTTP is public when its Service is NodePort; explicit ClusterIP keeps
-# the internal caller rules. Extra native callers use Pod/namespace selectors.
-# Configure extraEgress for additional external dependencies.
+# For core components, nothing outside the release is admitted unless listed in
+# <component>.extraIngress as standard NetworkPolicy ingress rules: apps in
+# other namespaces, Prometheus, Vermeer, and the Ingress controller. Exposing
+# a core component does not automatically add callers: configure extraIngress
+# and extraEgress using native Kubernetes NetworkPolicy rules.
 networkPolicy:
   # Unset inherits mode (easy: false, strict: true).
   enabled:
