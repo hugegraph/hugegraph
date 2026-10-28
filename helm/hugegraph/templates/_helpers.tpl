@@ -1216,6 +1216,15 @@ over tag; otherwise fall back to tag, then to the chart appVersion. Takes a dict
 {{- if and .Values.hubble.enabled (ne (.Values.hubble.mode | default "pd") "pd") -}}
 {{- fail "vermeer.enabled with Hubble requires hubble.mode=pd for graph-space discovery; disable Hubble to use Vermeer independently" -}}
 {{- end -}}
+{{- if .Values.hubble.enabled -}}
+{{- $hubbleContainer := .Values.hubble.securityContext | default dict -}}
+{{- $hubblePod := .Values.hubble.podSecurityContext | default dict -}}
+{{- $nonRoot := get $hubblePod "runAsNonRoot" | default false -}}
+{{- if hasKey $hubbleContainer "runAsNonRoot" -}}{{- $nonRoot = get $hubbleContainer "runAsNonRoot" -}}{{- end -}}
+{{- if and $nonRoot (le (int (include "hugegraph.hubble.vermeerUid" .)) 0) -}}
+{{- fail "Vermeer token files require an explicit positive hubble.securityContext.runAsUser or hubble.podSecurityContext.runAsUser when runAsNonRoot=true" -}}
+{{- end -}}
+{{- end -}}
 {{- if not (has $v.mode (list "standalone" "cluster")) -}}
 {{- fail "vermeer.mode must be standalone or cluster" -}}
 {{- end -}}

@@ -487,6 +487,12 @@ class VermeerChartTest(unittest.TestCase):
         result = self.render({}, hubble={"mode": "direct"})
         self.assertNotEqual(0, result.returncode)
         self.assertIn("pd", result.stderr.lower())
+        for location in ("securityContext", "podSecurityContext"):
+            with self.subTest(non_root_context=location):
+                result = self.render({}, hubble={location: {"runAsNonRoot": True}})
+                self.assertNotEqual(0, result.returncode)
+                self.assertIn("runAsUser", result.stderr)
+                self.documents({}, hubble={location: {"runAsNonRoot": True, "runAsUser": 10001}})
         # --set yields integer types distinct from values.yaml's numbers;
         # collision validation must compare their numeric values.
         result = subprocess.run(["helm", "template", "fixture", str(CHART),

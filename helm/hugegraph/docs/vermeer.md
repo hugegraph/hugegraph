@@ -164,6 +164,11 @@ graph space and graph it will load. The chart does not reconcile future account
 memberships. A configured missing or invalid credential file fails the load.
 These credentials do not configure the separate native HugeGraph result writer.
 
+For a custom non-root Hubble image, set an explicit numeric `runAsUser` in
+`hubble.securityContext` or `hubble.podSecurityContext`. The token init container
+uses that same UID so Hubble can read its private `0600` file. Setting
+`runAsNonRoot=true` without a positive UID is rejected before installation.
+
 For GitOps, pin all credential sources before rendering; offline `helm template`
 cannot reuse live generated Secrets through `lookup`. Preserve the existing
 factor when adopting GitOps. Rotate it deliberately through its source values
