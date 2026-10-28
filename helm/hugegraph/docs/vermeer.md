@@ -165,9 +165,10 @@ Never place a real factor in a public values file.
 Master reads the factor from its mounted file. Hubble's init container reads the
 same factor and writes a long-lived native administrator service token to a
 private temporary volume; the Hubble application mounts the token, not the factor.
-The native CLI's `-factor-file` mode creates the matching versioned token. Do not
-replace it with the legacy `-factor` option: inline configuration retains the
-older signing protocol and its tokens are rejected by file-backed deployments.
+The bundled `/go/bin/vermeer-token` accepts only `-factor-file` and rejects the
+inline `-factor` option. That legacy interface remains only in the source tool
+`tools/token/token_generator.go`; its older tokens are rejected by file-backed
+deployments.
 Worker group `$` provides the common pool, so newly created graph spaces do not
 require manual Worker allocation.
 
@@ -298,3 +299,16 @@ after restart, rerun the graph load/computation; a retained successful task reco
 does not recreate its result cache. Configure `vermeer.master.resources` and
 `worker.resources` for the real graph size and algorithm workspace; disk space
 does not replace sufficient Worker memory.
+
+<details>
+<summary>Advanced: Worker peer connection timeout</summary>
+
+`grpc_dial_timeout` defaults to `5s`; `VERMEER_GRPC_DIAL_TIMEOUT` overrides it.
+The value must be a positive Go duration such as `500ms` or `10s`. It bounds
+blocking Worker peer dialing so an unreachable bootstrap peer fails within a
+limited time and Kubernetes can retry. It does not limit established streams
+or algorithm execution. If troubleshooting needs another budget, set the
+environment override on the affected role through `vermeer.master.extraEnv`
+or `vermeer.worker.extraEnv`.
+
+</details>
