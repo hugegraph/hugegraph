@@ -273,6 +273,11 @@ public class StoreNodeService {
      * Update the store information, detect the change of store status, and notify Hugestore
      */
     public Metapb.Store updateStore(Metapb.Store store) throws PDException {
+        return updateStore(store, Collections.emptyList());
+    }
+
+    public Metapb.Store updateStore(Metapb.Store store,
+                                    List<Integer> submittedGroups) throws PDException {
         Metapb.Store lastStore;
         boolean stateChanged;
         synchronized (this) {
@@ -322,7 +327,7 @@ public class StoreNodeService {
                     log.info("updateStore removeActiveStores store {}", store.getId());
                     storeInfoMeta.removeActiveStore(store);
                 }
-                storeTurnoff(store);
+                storeTurnoff(store, submittedGroups);
             } else if (stateChanged) {
                 if (store.getState() == Metapb.StoreState.Offline) {
                     // Monitor that the store has gone offline and is removed from the active
@@ -355,8 +360,22 @@ public class StoreNodeService {
      * @throws PDException
      */
     public synchronized void storeTurnoff(Metapb.Store store) throws PDException {
+        storeTurnoff(store, Collections.emptyList());
+    }
+
+    public synchronized void storeTurnoff(Metapb.Store store,
+                                          List<Integer> submittedGroups)
+            throws PDException {
         // Traverse ShardGroup,redistribution
         for (Metapb.ShardGroup group : getShardGroupsByStore(store.getId())) {
+            // PDService can submit a capacity-aware migration before persisting
+            // Exiting. Keep that accepted destination authoritative instead of
+            // immediately issuing a second, independently planned change.
+            if (submittedGroups.contains(group.getId())) {
+                log.info("Skip duplicate drain submission for shard group {}",
+                         group.getId());
+                continue;
+            }
             Metapb.ShardGroup.Builder builder = Metapb.ShardGroup.newBuilder(group);
             builder.clearShards();
             group.getShardsList().forEach(shard -> {
