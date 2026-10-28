@@ -189,7 +189,6 @@ jobs:
         run: |
           bash $TRAVIS_DIR/test-topling-selection.sh
           bash hugegraph-store/hg-store-dist/src/assembly/travis/test-store-preloads.sh
-          bash hugegraph-store/hg-store-dist/src/assembly/travis/test-store-check-launcher.sh
 
       - name: Run PD docker entrypoint secret override tests
         run: |
@@ -364,6 +363,9 @@ jobs:
       - name: Check source formatting
         run: |
           mvn editorconfig:check -pl hugegraph-store/hg-store-test -am -ntp
+
+      - name: Check Store GraphID checker launcher
+        run: bash hugegraph-store/hg-store-dist/src/assembly/travis/test-store-check-launcher.sh
 
       - name: Check startup test prerequisites (Store)
         id: store-preflight

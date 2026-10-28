@@ -194,30 +194,55 @@ public class LegacyGraphIdCheckerTest {
     @Test
     public void testIncompleteMetadataDirectoryIsNeverIgnored() throws Exception {
         Path root = this.temporary.newFolder().toPath();
-        Path metadata = root.resolve("hgstore-metadata");
-        write(metadata, "default", new byte[]{1}, VALUE);
-        Files.delete(metadata.resolve("CURRENT"));
-        Map<String, String> before = hashes(root);
-
-        LegacyGraphIdChecker.StartupPreflightException startupFailure = assertThrows(
-                LegacyGraphIdChecker.StartupPreflightException.class,
-                () -> LegacyGraphIdChecker.checkStore(root.toString(), config));
-        assertTrue(startupFailure.getMessage(),
-                   startupFailure.getMessage().contains(metadata.toString()));
-        assertTrue(startupFailure.getMessage(),
-                   startupFailure.getMessage().contains("CURRENT is missing"));
-        assertTrue(startupFailure.getMessage(),
-                   startupFailure.getMessage().contains("#incomplete-database-directories"));
-
-        IOException offlineFailure = assertThrows(IOException.class,
+        Path stored = this.temporary.newFolder().toPath();
+        write(stored.resolve("db/00007"), "g+oe", LEGACY_KEY, VALUE);
+        storeLocation(root, stored, 7);
+        IllegalStateException legacy = assertThrows(IllegalStateException.class,
                 () -> LegacyGraphIdChecker.checkOffline(root.toString(), config));
-        assertTrue(offlineFailure.getMessage(),
-                   offlineFailure.getMessage().contains(metadata.toString()));
-        assertTrue(offlineFailure.getMessage(),
-                   offlineFailure.getMessage().contains("CURRENT is missing"));
-        assertTrue(offlineFailure.getMessage(),
-                   offlineFailure.getMessage().contains("#incomplete-database-directories"));
-        assertEquals(before, hashes(root));
+        assertTrue(legacy.getMessage(), legacy.getMessage().contains(stored.toString()));
+
+        Path metadata = root.resolve("hgstore-metadata");
+        // Check missing CURRENT alone, then CURRENT and LOCK together: diagnose before locking.
+        for (String file : List.of("CURRENT", "LOCK")) {
+            Files.delete(metadata.resolve(file));
+            Map<String, String> before = hashes(this.temporary.getRoot().toPath());
+            IOException offline = assertThrows(IOException.class,
+                    () -> LegacyGraphIdChecker.checkOffline(root.toString(), config));
+            LegacyGraphIdChecker.StartupPreflightException startup = assertThrows(
+                    LegacyGraphIdChecker.StartupPreflightException.class,
+                    () -> LegacyGraphIdChecker.checkStore(root.toString(), config));
+            for (Exception failure : List.of(offline, startup)) {
+                assertTrue(failure.getMessage(), failure.getMessage().contains(metadata.toString()));
+                assertTrue(failure.getMessage(), failure.getMessage().contains("CURRENT is missing"));
+                assertTrue(failure.getMessage(), failure.getMessage().contains("#incomplete-database-directories"));
+            }
+            assertEquals(before, hashes(this.temporary.getRoot().toPath()));
+        }
+    }
+
+    @Test
+    public void testFreshDataRootWithoutMetadataIsAccepted() throws Exception {
+        Path root = this.temporary.newFolder().toPath();
+        LegacyGraphIdChecker.checkOffline(root.toString(), config);
+        LegacyGraphIdChecker.checkStore(root.toString(), config);
+        assertFalse(Files.exists(root.resolve("hgstore-metadata")));
+        assertTrue(hashes(root).isEmpty());
+    }
+
+    @Test
+    public void testDanglingMetadataLinkIsRejected() throws Exception {
+        Path root = this.temporary.newFolder().toPath();
+        Path metadata = root.resolve("hgstore-metadata");
+        Path missing = root.resolve("missing-metadata");
+        Files.createSymbolicLink(metadata, missing);
+        IOException failure = assertThrows(IOException.class,
+                () -> LegacyGraphIdChecker.checkOffline(root.toString(), config));
+        assertTrue(failure.getMessage(), failure.getMessage().contains(metadata.toString()));
+        assertTrue(failure.getMessage(), failure.getMessage().contains("CURRENT is missing"));
+        assertThrows(LegacyGraphIdChecker.StartupPreflightException.class,
+                () -> LegacyGraphIdChecker.checkStore(root.toString(), config));
+        assertEquals(missing, Files.readSymbolicLink(metadata));
+        assertFalse(Files.exists(missing));
     }
 
     @Test

@@ -88,6 +88,12 @@ For example, interruption while the normal opener removes an old `db/00000`
 can leave that directory incomplete beside a valid `db/00000_42`. The read-only
 checker cannot certify the leftover directory and does not delete or skip it.
 
+An existing `hgstore-metadata` path must also have a regular `CURRENT` file.
+This database records partition locations, so an incomplete metadata directory
+or a dangling link cannot be treated as a new Store. Preserve it and recover a
+complete matching backup; do not move it aside to make the check pass. A new
+Store with no metadata path is still allowed.
+
 Keep the Store stopped and preserve a complete backup before changing any
 directory. Check the exact reported path against the partition's stored location,
 the previous Store logs and all sibling versions. A larger numeric suffix alone
