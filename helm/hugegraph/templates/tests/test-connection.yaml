@@ -16,7 +16,6 @@
 #
 
 {{ include "hugegraph.resolveValues" . }}
-{{- $vermeerEnabled := (.Values.vermeer | default dict).enabled | default false }}
 {{- $smoke := `def ids = [] as Set;
 (graph.schema().getVertexLabels() + graph.schema().getEdgeLabels()).each {
     ids.addAll(it.indexLabels())
@@ -55,10 +54,6 @@ spec:
   securityContext:
     seccompProfile:
       type: RuntimeDefault
-  {{- if $vermeerEnabled }}
-  initContainers:
-    {{- include "hugegraph.vermeer.tokenInit" (dict "root" . "uid" "100" "gid" "101" "resources" .Values.server.testResources) | nindent 4 }}
-  {{- end }}
   containers:
     - name: curl
       image: {{ .Values.server.waitImage | quote }}
@@ -189,52 +184,3 @@ spec:
             fi
             sleep 5
           done
-    {{- if $vermeerEnabled }}
-    - name: vermeer
-      image: {{ .Values.server.waitImage | quote }}
-      {{- if .Values.server.__waitImageInherited }}
-      imagePullPolicy: {{ .Values.server.image.pullPolicy }}
-      {{- end }}
-      securityContext:
-        allowPrivilegeEscalation: false
-        capabilities:
-          drop: ["ALL"]
-        readOnlyRootFilesystem: true
-        runAsGroup: 101
-        runAsNonRoot: true
-        runAsUser: 100
-      {{- with .Values.server.testResources }}
-      resources:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
-      command:
-        - sh
-        - -c
-        - |
-          set -eu
-          URL="http://{{ include "hugegraph.vermeer.masterName" . }}:{{ .Values.vermeer.master.httpPort }}/api/v1/workers/availability"
-          TOKEN=$(cat /var/run/hugegraph/vermeer/token)
-          START=$(date +%s)
-          DEADLINE_S="${HG_TEST_DEADLINE_S:-150}"
-          while :; do
-            # Scope readiness to the same service credential Hubble uses.
-            # A globally registered Worker may belong to another space.
-            if OUT=$(printf 'header = "Authorization: Bearer %s"\n' "${TOKEN}" |
-                curl --config - -fsS --connect-timeout 3 --max-time 20 "${URL}") &&
-                printf '%s' "${OUT}" | grep -Eq '"available"[[:space:]]*:[[:space:]]*true'; then
-              echo 'helm test: Vermeer service token and allocated Worker availability OK'
-              exit 0
-            fi
-            if [ $(( $(date +%s) - START )) -ge "${DEADLINE_S}" ]; then
-              echo 'helm test: Vermeer unavailable for the Hubble service space; inspect Worker allocation and authentication' >&2
-              exit 1
-            fi
-            sleep 5
-          done
-      volumeMounts:
-        - name: vermeer-token
-          mountPath: /var/run/hugegraph/vermeer
-          readOnly: true
-  volumes:
-    {{- include "hugegraph.vermeer.tokenVolumes" . | nindent 4 }}
-    {{- end }}
