@@ -52,14 +52,15 @@ public class StoreActiveLeaseStateTest {
         stores.put(2L, store(2L, Metapb.StoreState.Pending));
         stores.put(3L, store(3L, Metapb.StoreState.Tombstone));
 
+        List<byte[]> activeLeases = List.of(
+                stores.get(1L).toByteArray(),
+                stalePendingLease.toByteArray(),
+                staleTombstoneLease.toByteArray(),
+                stores.get(4L).toByteArray(),
+                stores.get(5L).toByteArray(),
+                stores.get(6L).toByteArray());
         StoreInfoMeta meta = Mockito.mock(StoreInfoMeta.class, Mockito.CALLS_REAL_METHODS);
-        Mockito.doReturn(List.of(
-                       stores.get(1L).toByteArray(),
-                       stalePendingLease.toByteArray(),
-                       staleTombstoneLease.toByteArray(),
-                       stores.get(4L).toByteArray(),
-                       stores.get(5L).toByteArray(),
-                       stores.get(6L).toByteArray()))
+        Mockito.doReturn(activeLeases)
                .when(meta).getListWithTTL(Mockito.any(byte[].class));
         Mockito.doAnswer(call -> stores.get(call.<Long>getArgument(0)))
                .when(meta).getStore(Mockito.anyLong());
