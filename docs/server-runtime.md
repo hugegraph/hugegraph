@@ -1046,3 +1046,6 @@ An administrator can raise limits with `PUT /graphspaces/DEFAULT`, for example:
 Read the current space first and preserve the fields that are not being changed. The
 example raises graph count to 200 and storage to 20480 GB. This changes configuration;
 it does not remove existing graphs or migrate other spaces.
+
+For resource paths, graph aliases and asynchronous Gremlin examples, see
+[REST API usage](rest-api-usage.md).

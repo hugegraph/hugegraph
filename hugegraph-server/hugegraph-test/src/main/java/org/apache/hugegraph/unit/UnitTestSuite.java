@@ -153,10 +153,12 @@ import org.apache.hugegraph.unit.util.collection.IntMapTest;
 import org.apache.hugegraph.unit.util.collection.IntSetTest;
 import org.apache.hugegraph.unit.util.collection.ObjectIntMappingTest;
 import org.junit.runner.RunWith;
+import org.apache.hugegraph.unit.api.profile.ProfileAPITest;
 import org.junit.runners.Suite;
 
 @RunWith(Suite.class)
 @Suite.SuiteClasses({
+        ProfileAPITest.class,
         /* api filter */
         AccessLogFilterTest.class,
         CompressInterceptorTest.class,

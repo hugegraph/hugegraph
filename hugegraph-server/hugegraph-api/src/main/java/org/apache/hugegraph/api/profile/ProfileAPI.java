@@ -108,7 +108,8 @@ public class ProfileAPI {
             Resource resource = Resource.from(clazz);
             APICategory apiCategory = APICategory.parse(resource.getName());
 
-            String url = resource.getPath();
+            // Return origin-relative paths, not paths relative to /apis/.
+            String url = "/" + StringUtils.strip(resource.getPath(), "/");
             // List all methods of this resource
             for (ResourceMethod rm : resource.getResourceMethods()) {
                 APIProfile profile = APIProfile.parse(url, rm);
@@ -116,7 +117,8 @@ public class ProfileAPI {
             }
             // List all methods of this resource's child resources
             for (Resource childResource : resource.getChildResources()) {
-                String childUrl = url + "/" + childResource.getPath();
+                String childUrl = StringUtils.stripEnd(url, "/") + "/" +
+                                  StringUtils.stripStart(childResource.getPath(), "/");
                 for (ResourceMethod rm : childResource.getResourceMethods()) {
                     APIProfile profile = APIProfile.parse(childUrl, rm);
                     apiProfiles.put(apiCategory, profile);
