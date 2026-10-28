@@ -287,6 +287,40 @@ RocksDB lock file or assigning an empty volume does not recover shard data.
 The chart does not provide backup or automatic disk-loss recovery; keep backups
 outside the data PVs and validate recovery separately.
 
+## PD metadata namespace
+
+`metadataCluster` is the shared PD metadata prefix for Server and Store. It
+defaults to `hg-test`, matching the existing Server default. The chart sets
+`HG_SERVER_CLUSTER` and `PD_CLUSTER` together; use this shared field rather than
+overriding either environment variable or adding `-Dpd.cluster` to Store options.
+It is independent of graph spaces, partition identifiers and Raft membership.
+
+Keep the initialized value when upgrading. A different prefix does not migrate
+Schema or graph metadata, and the chart rejects a change from the namespace
+recorded on the existing Server Deployment. Standard older installations using
+`hg-test` need no adoption step.
+
+For an older custom image or a cluster value supplied through `valueFrom`, first
+inspect the running Server configuration and startup log (`Meta cluster bound
+to ...`) to establish its actual existing prefix. Only after verifying that
+value, record it on the Server Deployment and retain it in the Helm values:
+
+```bash
+# Replace current-prefix only with the verified existing Server metadata prefix.
+kubectl -n hugegraph annotate deployment hugegraph-server \
+  hugegraph.apache.org/metadata-cluster=current-prefix --overwrite
+# Set metadataCluster: current-prefix in the reviewed values used for upgrade.
+```
+
+This records an existing namespace; it is not a migration command. A conflicting
+literal `HG_SERVER_CLUSTER` is still rejected. With Store `updateStrategy=OnDelete`,
+apply the existing one-at-a-time Store update procedure before expecting a new
+`PD_CLUSTER` environment value to take effect. Retain data volumes throughout
+that procedure; restarting a temporary Store is not a data-preserving upgrade.
+
+If Vermeer loading reports a missing vertex/edge label from Store, compare this
+prefix on Server and Store before changing Schema or retrying data imports.
+
 ## Networking and Hubble
 
 Easy mode leaves NetworkPolicy off; strict enables it. Explicit values win.

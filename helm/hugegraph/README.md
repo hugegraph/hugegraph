@@ -182,6 +182,15 @@ Vermeer adds separate Master and Worker data claims: two in standalone mode,
 or one Master claim plus one per Worker in cluster mode. Its storage flags
 inherit `persistence.enabled`; see [Vermeer storage](docs/vermeer.md#storage-and-recovery).
 
+### PD metadata namespace
+
+`metadataCluster` defaults to `hg-test`, preserving the namespace used by existing
+Server images. The chart gives Server and Store the same value so Store scans
+can find the Server's Schema. This is separate from a graph space or Raft group.
+Changing it does not migrate metadata; upgrades reject changes to a recorded
+namespace. See [metadata namespace adoption](docs/operations.md#pd-metadata-namespace)
+before upgrading a deployment that used custom metadata settings.
+
 ### Server service identity
 
 `server.serviceId` and `server.graphSpace` select the Server's PD service metadata.

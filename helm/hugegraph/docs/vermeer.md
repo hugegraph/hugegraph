@@ -22,6 +22,11 @@ Hubble's native loader requires HStore, PD discovery and `hubble.mode=pd`; the
 HugeGraph single-node preset meets these requirements. A RocksDB-only Server
 does not provide the same direct Store-loading path.
 
+Server and Store also need the same PD metadata prefix. The shared
+`metadataCluster` defaults to the existing Server namespace `hg-test` and wires
+both components consistently. Retain the initialized value on upgrade; see
+[namespace adoption](operations.md#pd-metadata-namespace) for older custom images.
+
 ## Image compatibility
 
 Use a Vermeer build that contains `/go/bin/vermeer-token`, file-based token-factor
@@ -236,6 +241,8 @@ service token's space can obtain Workers.
 
 For queued loads, verify Worker registration, common-pool membership, internal
 gRPC reachability, PD discovery, Store endpoints and Server Schema credentials.
+If Store reports `no such vertex label` or `no such edge label`, verify that its
+`PD_CLUSTER` matches the Server's `HG_SERVER_CLUSTER` and recorded metadata prefix.
 For Hubble configuration errors, check matching image capabilities, PD mode,
 the native Master origin and the generated token file. For lost result pages
 after restart, rerun the graph load/computation; a retained successful task record
