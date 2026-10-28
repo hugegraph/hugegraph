@@ -27,6 +27,13 @@
 {{- $roleValues := get $v $role }}
 {{- $name := include "hugegraph.vermeer.masterName" $ }}
 {{- if not $master }}{{- $name = include "hugegraph.vermeer.workerName" $ }}{{- end }}
+{{- $configChecksum := dict }}
+{{- if $master }}
+{{- $_ := set $configChecksum "master" (dict "mode" $v.mode "httpPort" $v.master.httpPort "grpcPort" $v.master.grpcPort) }}
+{{- end }}
+{{- if $worker }}
+{{- $_ := set $configChecksum "worker" (dict "mode" $v.mode "masterGrpcPort" $v.master.grpcPort "httpPort" $v.worker.httpPort "grpcPort" $v.worker.grpcPort) }}
+{{- end }}
 ---
 apiVersion: apps/v1
 kind: StatefulSet
@@ -57,7 +64,7 @@ spec:
         app.kubernetes.io/component: vermeer-{{ $role }}
         {{- with $v.podLabels }}{{ toYaml . | nindent 8 }}{{- end }}
       annotations:
-        checksum/config: {{ omit $v "auth" "hugegraphCredentials" | toJson | sha256sum | quote }}
+        checksum/config: {{ $configChecksum | toJson | sha256sum | quote }}
         checksum/pd-auth: {{ include "hugegraph.pd.authChecksum" $ | quote }}
         {{- if $master }}
         checksum/vermeer-auth: {{ include "hugegraph.vermeer.authChecksum" $ | quote }}
