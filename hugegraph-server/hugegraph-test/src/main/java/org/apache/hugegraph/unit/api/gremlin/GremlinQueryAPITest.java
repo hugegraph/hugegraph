@@ -18,8 +18,10 @@
 package org.apache.hugegraph.unit.api.gremlin;
 
 import java.lang.reflect.Method;
+import java.net.InetAddress;
 
 import org.apache.hugegraph.api.gremlin.GremlinQueryAPI;
+import org.apache.hugegraph.api.gremlin.GremlinRestExecutorFactory;
 import org.apache.hugegraph.testutil.Assert;
 import org.apache.hugegraph.unit.BaseUnitTest;
 import org.junit.Test;
@@ -31,6 +33,15 @@ public class GremlinQueryAPITest extends BaseUnitTest {
                 "matchBadRequestException", String.class);
         m.setAccessible(true);
         return (boolean) m.invoke(null, exClass);
+    }
+
+    private static boolean isSameProcessTarget(
+            InetAddress[] targetAddresses,
+            InetAddress bindAddress) throws Exception {
+        Method m = GremlinRestExecutorFactory.class.getDeclaredMethod(
+                "isSameProcessTarget", InetAddress[].class, InetAddress.class);
+        m.setAccessible(true);
+        return (boolean) m.invoke(null, (Object) targetAddresses, bindAddress);
     }
 
     @Test
@@ -59,5 +70,42 @@ public class GremlinQueryAPITest extends BaseUnitTest {
         Assert.assertFalse(matchBadRequest(null));
         Assert.assertFalse(matchBadRequest("java.lang.NullPointerException"));
         Assert.assertFalse(matchBadRequest("java.io.IOException"));
+    }
+
+    @Test
+    public void testSameProcessTargetMatchesAnyLoopbackAddress() throws Exception {
+        InetAddress ipv4 = InetAddress.getByName("127.0.0.1");
+        InetAddress ipv6 = InetAddress.getByName("::1");
+
+        Assert.assertTrue(isSameProcessTarget(
+                new InetAddress[]{ipv6, ipv4}, ipv4));
+        Assert.assertTrue(isSameProcessTarget(
+                new InetAddress[]{ipv4, ipv6}, ipv4));
+    }
+
+    @Test
+    public void testSameProcessTargetRejectsMixedOrDifferentAddresses()
+            throws Exception {
+        InetAddress ipv4 = InetAddress.getByName("127.0.0.1");
+        InetAddress ipv6 = InetAddress.getByName("::1");
+        InetAddress remote = InetAddress.getByName("192.0.2.1");
+
+        Assert.assertFalse(isSameProcessTarget(
+                new InetAddress[]{ipv4, remote}, ipv4));
+        Assert.assertFalse(isSameProcessTarget(
+                new InetAddress[]{ipv6}, ipv4));
+    }
+
+    @Test
+    public void testSameProcessTargetWithWildcardBind() throws Exception {
+        InetAddress ipv4 = InetAddress.getByName("127.0.0.1");
+        InetAddress ipv6 = InetAddress.getByName("::1");
+        InetAddress remote = InetAddress.getByName("192.0.2.1");
+        InetAddress wildcard = InetAddress.getByName("0.0.0.0");
+
+        Assert.assertTrue(isSameProcessTarget(
+                new InetAddress[]{ipv4, ipv6}, wildcard));
+        Assert.assertFalse(isSameProcessTarget(
+                new InetAddress[]{ipv4, remote}, wildcard));
     }
 }

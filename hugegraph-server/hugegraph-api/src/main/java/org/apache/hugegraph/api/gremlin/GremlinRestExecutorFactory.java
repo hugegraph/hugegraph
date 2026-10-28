@@ -21,6 +21,7 @@ import java.io.IOException;
 import java.net.InetAddress;
 import java.net.URI;
 import java.nio.file.Path;
+import java.util.Arrays;
 
 import org.apache.hugegraph.auth.StandardAuthenticator;
 import org.apache.hugegraph.auth.WsAndHttpBasicAuthHandler;
@@ -50,14 +51,16 @@ public final class GremlinRestExecutorFactory {
         }
         Settings settings = server.getServerGremlinExecutor().getSettings();
         URI target = URI.create(config.get(ServerOptions.GREMLIN_SERVER_URL));
+        String localTargetError =
+                "embedded requires gremlinserver.url to target this local Gremlin Server";
         E.checkArgument("http".equals(target.getScheme()) && target.getHost() != null &&
                         target.getUserInfo() == null && target.getFragment() == null &&
-                        InetAddress.getByName(target.getHost()).isLoopbackAddress() &&
-                        target.getPort() == settings.port &&
-                        (InetAddress.getByName(settings.host).isAnyLocalAddress() ||
-                         InetAddress.getByName(settings.host).equals(
-                                 InetAddress.getByName(target.getHost()))),
-                        "embedded requires gremlinserver.url to target this local Gremlin Server");
+                        target.getPort() == settings.port,
+                        localTargetError);
+        InetAddress[] targetAddresses = InetAddress.getAllByName(target.getHost());
+        InetAddress bindAddress = InetAddress.getByName(settings.host);
+        E.checkArgument(isSameProcessTarget(targetAddresses, bindAddress),
+                        localTargetError);
         E.checkArgument(settings.ssl == null || !settings.ssl.enabled,
                         "embedded does not support a TLS Gremlin listener");
         E.checkArgument(HugeGraphWsAndHttpChannelizer.class.getName().equals(settings.channelizer),
@@ -84,6 +87,19 @@ public final class GremlinRestExecutorFactory {
                             "embedded requires the same REST and Gremlin authentication config");
         }
         return new EmbeddedGremlinRestExecutor(config, server.getServerGremlinExecutor());
+    }
+
+    private static boolean isSameProcessTarget(InetAddress[] targetAddresses,
+                                               InetAddress bindAddress) {
+        if (targetAddresses.length == 0 ||
+            Arrays.stream(targetAddresses).anyMatch(address ->
+                    !address.isLoopbackAddress())) {
+            return false;
+        }
+        if (bindAddress.isAnyLocalAddress()) {
+            return true;
+        }
+        return Arrays.stream(targetAddresses).anyMatch(bindAddress::equals);
     }
 
     public static void initialize(GremlinRestExecutor executor, GremlinServer server) {
