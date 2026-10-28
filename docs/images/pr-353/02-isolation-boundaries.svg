@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1500" height="880" viewBox="0 0 1500 880">
+<title>HugeGraph PR 353：隔离转换的流程与两个安全边界</title>
+<rect width="1500" height="880" fill="#f7f9fc"/>
+<g font-family="Noto Sans CJK SC,Microsoft YaHei,sans-serif" fill="#183049">
+<text x="60" y="60" font-size="18" fill="#357d82">APACHE HUGEGRAPH  /  PR #353  /  02</text>
+<text x="60" y="125" font-size="40" font-weight="700">源库不动，结果先隔离：两个边界必须真正生效</text>
+<text x="60" y="170" font-size="23" fill="#576b80">上方是现有转换流程；下方是本轮交叉审查发现的 P1 缺口与最小修正方向。</text>
+<g fill="white" stroke="#d5dfe9">
+<rect x="60" y="220" width="250" height="165" rx="16"/><rect x="345" y="220" width="250" height="165" rx="16"/>
+<rect x="630" y="220" width="250" height="165" rx="16"/><rect x="915" y="220" width="250" height="165" rx="16"/>
+<rect x="1200" y="220" width="240" height="165" rx="16" fill="#fff3df"/>
+</g>
+<g font-size="26" font-weight="700">
+<text x="85" y="269">01 只读源库</text><text x="370" y="269">02 绑定计划</text><text x="655" y="269">03 隔离重写</text>
+<text x="940" y="269">04 重开验证</text><text x="1225" y="269">05 仅 DB 验证</text></g>
+<g font-size="21" fill="#576b80">
+<text x="85" y="313">持有源库 LOCK</text><text x="85" y="346">保留完整旧状态</text>
+<text x="370" y="313">归属规则 / 目标 ID</text><text x="370" y="346">全量逻辑摘要绑定</text>
+<text x="655" y="313">独立可变文件</text><text x="655" y="346">有界 WriteBatch</text>
+<text x="940" y="313">逐条内容 / 数量</text><text x="940" y="346">映射 / slot / 校验和</text>
+<text x="1225" y="313">不能直接上线</text><text x="1225" y="346">未改变 Raft 状态</text></g>
+<g stroke="#8195a9" stroke-width="3" fill="none">
+<path d="M315 301 H337 M329 292 L338 301 L329 310"/><path d="M600 301 H622 M614 292 L623 301 L614 310"/>
+<path d="M885 301 H907 M899 292 L908 301 L899 310"/><path d="M1170 301 H1192 M1184 292 L1193 301 L1184 310"/>
+</g>
+<rect x="60" y="430" width="670" height="212" rx="16" fill="#fff1ed" stroke="#e8c2b5"/>
+<rect x="770" y="430" width="670" height="212" rx="16" fill="#fff1ed" stroke="#e8c2b5"/>
+<text x="90" y="478" font-size="27" font-weight="700" fill="#9c4638">P1 · 不能读取复制源 LOCK 文件</text>
+<text x="90" y="523" font-size="22">关闭额外文件描述符，可能释放 POSIX 锁；</text>
+<text x="90" y="557" font-size="22">另一进程随后能写源库，旧只读视图仍可能验过。</text>
+<text x="90" y="606" font-size="23" font-weight="700">最小修正：目标新建空 LOCK，源锁全程持有。</text>
+<text x="800" y="478" font-size="27" font-weight="700" fill="#9c4638">P1 · 暂存区不能被 Store 发现</text>
+<text x="800" y="523" font-size="22">db/00000_999 会被识别成新的数据库版本；</text>
+<text x="800" y="557" font-size="22">标记文件不会阻止现有目录选择器清理旧库。</text>
+<text x="800" y="606" font-size="23" font-weight="700">最小修正：排除所有运行 data / Raft 根目录。</text>
+<rect x="60" y="680" width="1380" height="100" rx="16" fill="#eaf2f6"/>
+<text x="90" y="721" font-size="23">失败：INCOMPLETE　｜　成功：DB_VERIFIED_NOT_CLUSTER_READY</text>
+<text x="90" y="756" font-size="21" fill="#576b80">两种结果都只应留在隔离区；标记是状态说明，不是现有 Store 已支持的启动屏障。</text>
+<text x="60" y="832" font-size="18" fill="#687a8d">基线 5fea589 · 本轮实测发现，修正方向不代表 PR 已经完成修复。</text>
+</g></svg>
