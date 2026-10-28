@@ -29,8 +29,8 @@ both components consistently. Retain the initialized value on upgrade; see
 
 ## Image compatibility
 
-Use a Vermeer build that contains `/go/bin/vermeer-token`, file-based token-factor
-configuration, deployment PD/Server credential files,
+Use a Vermeer build that contains `/go/bin/vermeer-token`, versioned HMAC-SHA256
+file-based token-factor configuration, deployment PD/Server credential files,
 and space-aware Worker availability. Hubble needs a build containing its native
 Vermeer adapter and nine algorithm forms. Source support does not establish that
 an existing `latest` image contains these changes.
@@ -159,7 +159,10 @@ Never place a real factor in a public values file.
 Master reads the factor from its mounted file. Hubble's init container reads the
 same factor and writes a long-lived native administrator service token to a
 private temporary volume; the Hubble application mounts the token, not the factor.
-The native CLI uses the same token format. Worker group `$` provides the common
+The native CLI's `-factor-file` mode creates the matching versioned token. Do not
+replace it with the legacy `-factor` option: inline configuration retains the
+older signing protocol and its tokens are rejected by file-backed deployments.
+Worker group `$` provides the common
 pool, so newly created graph spaces do not require manual Worker allocation.
 
 The chart also wires both process roles to the release's PD peers and shared
