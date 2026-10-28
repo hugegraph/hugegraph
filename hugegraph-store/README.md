@@ -136,6 +136,7 @@ Extract the distribution package and edit `conf/application.yml`:
 | `grpc.port` | `8500` | gRPC server port for client connections |
 | `raft.address` | `127.0.0.1:8510` | Raft service address for this Store node |
 | `raft.snapshotInterval` | `1800` | Raft snapshot interval in seconds (30 minutes) |
+| `raft.maxSegmentFileSize` | `1073741824` | Maximum bytes per newly allocated segment log file when `raft.useRocksDBSegmentLogStorage=true`; nonempty files retain their size and incompatible blank allocations are isolated on restart |
 | `server.port` | `8520` | REST API port for management and metrics |
 | `app.data-path` | `./storage` | Directory for RocksDB data storage (supports multiple paths for multi-disk setups) |
 | `app.fake-pd` | `false` | Enable built-in PD mode for standalone testing (not for production) |
