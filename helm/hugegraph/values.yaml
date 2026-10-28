@@ -557,9 +557,10 @@ seatunnel:
     tag: "3.0.0"
     pullPolicy: IfNotPresent
   service:
-    # Internal in both easy and strict modes; use Hubble or port-forward.
-    type: ClusterIP
-    # Reserved compatibility field; native engines cannot use a NodePort.
+    # Unset inherits mode (easy: NodePort, strict: ClusterIP).
+    # Explicit ClusterIP keeps HTTP private. This does not select engine topology.
+    type:
+    # Unset or 0 lets Kubernetes allocate a NodePort; nonzero requires type NodePort.
     nodePort:
     annotations: {}
   auth:
@@ -631,8 +632,10 @@ vermeer:
     existingSecret: ""
     key: credentials.json
   service:
-    # Internal in both easy and strict modes; use Hubble or port-forward.
-    type: ClusterIP
+    # Unset inherits mode (easy: NodePort, strict: ClusterIP).
+    # Explicit ClusterIP keeps HTTP private. This does not select engine topology.
+    type:
+    # Unset or 0 lets Kubernetes allocate a NodePort; nonzero requires type NodePort.
     nodePort:
     annotations: {}
   master:
@@ -685,15 +688,16 @@ vermeer:
       timeoutSeconds: 3
 
 # Kubernetes NetworkPolicy: mode default plus explicit per-component rules.
-# easy exposes only Server/Hubble; strict additionally isolates release egress.
-# Native engine HTTP and RPC ports always require explicit internal callers.
+# easy exposes enabled browser/API entries; strict additionally isolates release egress.
+# Native NodePort Services admit authenticated HTTP callers; their RPC/member
+# ports remain restricted to the required in-cluster peers in every mode.
 # Enforced only when the network plugin implements NetworkPolicy (kind v0.25+,
 # k3s, Calico, Cilium); elsewhere the objects are accepted and do nothing.
-# Nothing outside the release is admitted unless it is listed in
-# <component>.extraIngress as standard NetworkPolicy ingress rules: apps in
-# other namespaces, Prometheus, Vermeer, and the Ingress controller. Exposing
-# a component does not automatically add callers: configure extraIngress
-# and extraEgress using native Kubernetes NetworkPolicy rules.
+# With core policies enabled, list outside application/monitoring callers in
+# <component>.extraIngress. Server/Hubble/PD exposure does not add policy rules.
+# Native HTTP is public when its Service is NodePort; explicit ClusterIP keeps
+# the internal caller rules. Extra native callers use Pod/namespace selectors.
+# Configure extraEgress for additional external dependencies.
 networkPolicy:
   # Unset inherits mode (easy: false, strict: true).
   enabled:
