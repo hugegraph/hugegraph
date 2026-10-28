@@ -210,34 +210,46 @@ class VermeerChartTest(unittest.TestCase):
                 launch = " ".join(container.get("command", []) + container.get("args", []))
                 self.assertIn("-grpc_peer", launch)
 
-    def test_only_master_http_inherits_public_entry_defaults(self):
-        for mode, service_type in (("easy", "NodePort"), ("strict", "ClusterIP")):
+    def test_native_services_remain_internal_in_every_entry_mode(self):
+        for mode in ("easy", "strict"):
             with self.subTest(mode=mode):
                 documents = self.documents({}, mode=mode)
                 services = vermeer_resources(documents, "Service")
-                public = [service for service in services if service["spec"].get("type") == "NodePort"]
-                self.assertEqual(1 if mode == "easy" else 0, len(public))
-                for service in public:
-                    self.assertEqual([6688], [port["port"] for port in service["spec"]["ports"]])
+                self.assertTrue(services)
+                for service in services:
+                    self.assertEqual("ClusterIP", service["spec"].get("type", "ClusterIP"))
+                    self.assertNotIn("externalIPs", service["spec"])
+                    self.assertFalse(any("nodePort" in port for port in service["spec"]["ports"]))
                 http = [service for service in services if service["spec"].get("clusterIP") != "None"
                         and [port["port"] for port in service["spec"]["ports"]] == [6688]]
                 self.assertEqual(1, len(http))
-                self.assertEqual(service_type, http[0]["spec"]["type"])
+                for component in ("server", "hubble"):
+                    entry, = [service for service in resources(documents, "Service", component)
+                              if service["spec"].get("clusterIP") != "None"]
+                    self.assertEqual("NodePort" if mode == "easy" else "ClusterIP", entry["spec"]["type"])
 
     def test_explicit_entry_and_custom_ports_follow_the_rendered_release(self):
         settings = {"mode": "cluster", "master": {"httpPort": 7688, "grpcPort": 7689},
                     "worker": {"httpPort": 7788, "grpcPort": 7789},
-                    "service": {"type": "NodePort", "nodePort": 31688}}
+                    "service": {"type": "ClusterIP", "annotations": {"internal.example.com/owner": "analytics"}}}
         documents = self.documents(settings, mode="strict", fullnameOverride="analytics")
         client, = [service for service in vermeer_resources(documents, "Service")
-                   if service["spec"].get("type") == "NodePort"]
+                   if service["spec"].get("clusterIP") != "None"
+                   and [port["port"] for port in service["spec"]["ports"]] == [7688]]
         self.assertEqual([7688], [port["port"] for port in client["spec"]["ports"]])
-        self.assertEqual(31688, client["spec"]["ports"][0]["nodePort"])
+        self.assertNotIn("nodePort", client["spec"]["ports"][0])
+        self.assertEqual("analytics", client["metadata"]["annotations"]["internal.example.com/owner"])
         self.assertTrue(all(workload["metadata"]["name"].startswith("analytics-vermeer-")
                             for workload in self.workloads(documents)))
         hubble, = resources(documents, "Deployment", "hubble")
         self.assertEqual("http://analytics-vermeer-master:7688",
                          env(pod(hubble)["spec"]["containers"][0])["HG_HUBBLE_VERMEER_URL"]["value"])
+
+    def test_legacy_null_service_fields_keep_the_native_entry_internal(self):
+        documents = self.documents({"service": {"type": None, "nodePort": None}})
+        for service in vermeer_resources(documents, "Service"):
+            self.assertEqual("ClusterIP", service["spec"].get("type", "ClusterIP"))
+            self.assertFalse(any("nodePort" in port for port in service["spec"]["ports"]))
 
     def test_credentials_are_secret_references_and_not_configmap_or_process_arguments(self):
         documents = self.documents({})
@@ -436,29 +448,55 @@ class VermeerChartTest(unittest.TestCase):
                 self.assertTrue(policy_allows(policies, labels[destination], labels[source], port, "ingress"))
                 self.assertTrue(policy_allows(policies, labels[source], labels[destination], port, "egress"))
 
-    def test_internal_rpc_remains_release_scoped_without_strict_egress(self):
-        for mode in ("standalone", "cluster"):
-            with self.subTest(mode=mode):
-                documents = self.documents({"mode": mode}, networkPolicy={"enabled": False})
-                policies = resources(documents, "NetworkPolicy")
-                self.assertTrue(vermeer_resources(documents, "NetworkPolicy"))
-                master = next(workload for workload in self.workloads(documents)
-                              if workload["metadata"]["labels"][COMPONENT] == "vermeer-master")
-                labels = pod(master)["metadata"]["labels"]
-                other_release = {**labels, INSTANCE: "other-release"}
-                other_component = {**labels, COMPONENT: "server"}
-                self.assertFalse(policy_allows(policies, labels, other_release, 6689, "ingress"))
-                self.assertFalse(policy_allows(policies, labels, other_component, 6689, "ingress"))
-                self.assertTrue(policy_allows(policies, labels, other_release, 6688, "ingress"))
+    def test_native_http_and_rpc_are_release_scoped_without_strict_egress(self):
+        for entry_mode in ("easy", "strict"):
+            for mode in ("standalone", "cluster"):
+                with self.subTest(entry_mode=entry_mode, mode=mode):
+                    self.assert_native_ingress(mode, entry_mode)
+
+    def assert_native_ingress(self, mode, entry_mode):
+        documents = self.documents({"mode": mode}, mode=entry_mode,
+                                   networkPolicy={"enabled": False})
+        policies = resources(documents, "NetworkPolicy")
+        self.assertTrue(vermeer_resources(documents, "NetworkPolicy"))
+        for policy in vermeer_resources(documents, "NetworkPolicy"):
+            self.assertEqual(["Ingress"], policy["spec"]["policyTypes"])
+            self.assertFalse(any(not rule.get("from") for rule in policy["spec"]["ingress"]))
+            self.assertFalse(any("ipBlock" in peer for rule in policy["spec"]["ingress"]
+                                 for peer in rule["from"]))
+        for workload in self.workloads(documents):
+            labels = pod(workload)["metadata"]["labels"]
+            is_master = labels[COMPONENT] == "vermeer-master"
+            http_port, rpc_port = (6688, 6689) if is_master else (6788, 6789)
+            for component in ("vermeer-master", "vermeer-worker", "hubble", "test"):
+                peer = {**labels, COMPONENT: component}
+                self.assertEqual(is_master or component.startswith("vermeer-"),
+                                 policy_allows(policies, labels, peer, http_port, "ingress"))
+                self.assertEqual(component.startswith("vermeer-"),
+                                 policy_allows(policies, labels, peer, rpc_port, "ingress"))
+            for peer in ({**labels, INSTANCE: "other-release"},
+                         {**labels, COMPONENT: "server"}, {**labels, COMPONENT: "unknown"}):
+                for port in (http_port, rpc_port):
+                    self.assertFalse(policy_allows(policies, labels, peer, port, "ingress"))
 
     def test_native_network_extensions_are_preserved(self):
-        ingress = {"from": [{"ipBlock": {"cidr": "10.15.0.0/16"}}], "ports": [{"port": 6688}]}
+        ingress = {"from": [{"namespaceSelector": {"matchLabels": {"team": "analytics"}},
+                             "podSelector": {"matchLabels": {"app": "analysis-client"}}}],
+                   "ports": [{"port": 6688}]}
         egress = {"to": [{"ipBlock": {"cidr": "10.16.0.0/16"}}], "ports": [{"port": 9443}]}
         documents = self.documents({"mode": "cluster"}, mode="strict", networkPolicy={
             "vermeer": {"extraIngress": [ingress], "extraEgress": [egress]}})
         for policy in vermeer_resources(documents, "NetworkPolicy"):
             self.assertIn(ingress, policy["spec"]["ingress"])
             self.assertIn(egress, policy["spec"]["egress"])
+
+    def test_native_ingress_extensions_require_explicit_internal_pod_selectors(self):
+        for rule in ({}, {"ports": [{"port": 6688}]}, {"from": []}, {"from": [{}]},
+                     {"from": [{"ipBlock": {"cidr": "0.0.0.0/0"}}]},
+                     {"from": [{"ipBlock": {"cidr": "10.0.0.0/8"}}]}):
+            with self.subTest(rule=rule):
+                result = self.render({}, networkPolicy={"vermeer": {"extraIngress": [rule]}})
+                self.assertNotEqual(0, result.returncode)
 
     def test_process_probes_do_not_depend_on_space_worker_availability(self):
         for container in (self.role_container(self.documents({}), "master"),
@@ -491,7 +529,10 @@ class VermeerChartTest(unittest.TestCase):
     def test_invalid_enabled_values_fail_before_install(self):
         cases = ({"mode": "unknown"}, {"mode": "cluster", "worker": {"replicas": 0}},
                  {"master": {"httpPort": 0}}, {"worker": {"grpcPort": 65536}},
+                 {"service": {"type": "NodePort"}}, {"service": {"type": "LoadBalancer"}},
+                 {"service": {"nodePort": 0}},
                  {"service": {"type": "ClusterIP", "nodePort": 31688}},
+                 {"service": {"externalIPs": ["192.0.2.10"]}},
                  {"auth": {"value": "", "autoGenerate": False}},
                  {"master": {"extraEnv": [{"name": "VERMEER_AUTH_TOKEN_FACTOR_FILE", "value": "/wrong"}]}},
                  {"worker": {"extraEnv": [{"name": "POD_IP", "value": "0.0.0.0"}]}})
