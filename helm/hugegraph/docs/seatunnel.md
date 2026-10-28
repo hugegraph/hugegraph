@@ -37,23 +37,32 @@ helm install hugegraph ./helm/hugegraph -n hugegraph --create-namespace \
   --wait --timeout 30m
 ```
 
-The default image is `apache/seatunnel:3.0.0`. Both modes keep the native UI
-and REST API on a private ClusterIP Service, HTTP 8080. NodePort, LoadBalancer,
-fixed node ports and external IPs are not supported. `helm install` prints
-credential retrieval and optional administration commands. Forward the private Service
-in a separate terminal when native administration or a manual REST submission is needed:
+The default image is `apache/seatunnel:3.0.0`. Native HTTP 8080 defaults to
+NodePort in easy mode and ClusterIP in strict mode. For easy mode:
+
+```bash
+kubectl -n hugegraph get svc hugegraph-seatunnel \
+  -o jsonpath='{.spec.ports[?(@.name=="http")].nodePort}{"\n"}'
+kubectl get nodes -o wide
+# Open http://<reachable-node-ip>:<nodePort>/#/overview
+```
+
+For a ClusterIP entry or when node access is unavailable, forward the Service:
 
 ```bash
 kubectl -n hugegraph port-forward svc/hugegraph-seatunnel 8081:8080
 ```
 
-Open <http://127.0.0.1:8081/#/overview> and use the separate SeaTunnel credentials
+Open <http://127.0.0.1:8081/#/overview> when forwarding, with the separate SeaTunnel credentials
 described below. The UI shows cluster members, jobs, DAGs and logs. Submit jobs
 through the CLI or authenticated REST API. Helm starts the engine and prepares
 examples; it does not create graphs or run jobs.
 
-Native HTTP 8080 and Hazelcast member/CLI port 5801 are restricted to their
-required release callers in both easy and strict mode, including when
+For Service overrides and existing values, see the [shared entry rules](../README.md#modes-and-entry-points).
+
+Only NodePort HTTP admits outside callers, including an explicit NodePort in
+strict mode. ClusterIP HTTP and Hazelcast member/CLI 5801 stay restricted to
+required release callers in both modes, including when
 `networkPolicy.enabled=false`. Strict additionally restricts egress.
 Additional internal ingress uses explicit Pod/namespace selectors in
 `networkPolicy.seatunnel.extraIngress`; unrestricted and IP-based rules are
@@ -101,7 +110,7 @@ usernames cannot contain a colon. Internal spaces and quotes are accepted.
 Pin `seatunnel.auth.password` for offline templates or GitOps rendering; automatic
 password reuse requires an online Helm lookup.
 
-The default release uses Secret `hugegraph-seatunnel-auth`. Open the forwarded
+The default release uses Secret `hugegraph-seatunnel-auth`. Open the native
 UI as `admin` with the password read by:
 
 ```bash
@@ -126,7 +135,7 @@ curl -fsS --user "$ST_USERNAME:$ST_PASSWORD" http://127.0.0.1:8081/overview
 </details>
 
 Use the same credentials for the native browser Basic login and REST requests
-through an authorized port-forward or trusted internal caller. REST submissions
+through the selected HTTP entry. REST submissions
 follow the [official REST API](https://github.com/apache/seatunnel/blob/v3.0.0/docs/en/engines/zeta/rest-api-and-web-ui.md).
 
 The Secret contains `username`, `password` and the final `seatunnel.yaml`.
@@ -140,9 +149,9 @@ SeaTunnel authentication.
 
 HTTP Basic does not authenticate the Hazelcast member/CLI protocol on 5801.
 The examples below execute the CLI inside an engine Pod under Kubernetes RBAC;
-manual clients use authenticated REST through an authorized port-forward.
+manual clients use authenticated REST through the HTTP entry.
 This is a single administrator entry, not per-user/per-job authorization or
-HugeGraph RBAC/SSO. Keep native services private.
+HugeGraph RBAC/SSO. Keep the member/CLI channel inside the cluster.
 
 ## Images, credentials and native configuration
 

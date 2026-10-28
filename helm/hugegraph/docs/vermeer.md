@@ -2,7 +2,7 @@
 
 Vermeer is optional and disabled by default, including with `values-single.yaml`
 and `values-cluster.yaml`. Enabling it deploys the native Master/Worker engine,
-configures Hubble automatically, and keeps its authenticated native UI/API private.
+configures Hubble automatically, and provides its authenticated native UI/API.
 For normal use, enable Vermeer and sign in to Hubble with the existing HugeGraph
 administrator account. Native administration is optional.
 It needs no Computer Operator, CRD, etcd or external coordination service.
@@ -107,15 +107,23 @@ Setting `hubble.enabled=false` keeps Vermeer available through its native entry.
 
 ## Optional native administration
 
-Vermeer HTTP/UI is a private ClusterIP Service in both easy and strict mode.
-Use Hubble for graph computation. When native administration is needed, forward
-its Master HTTP listener to your local machine in a separate terminal:
+Master HTTP defaults to NodePort in easy mode and ClusterIP in strict mode.
+For optional native administration in easy mode:
+
+```bash
+kubectl -n hugegraph get svc hugegraph-vermeer-master \
+  -o jsonpath='{.spec.ports[?(@.name=="http")].nodePort}{"\n"}'
+kubectl get nodes -o wide
+# Open http://<reachable-node-ip>:<nodePort>/
+```
+
+For a ClusterIP entry or when node access is unavailable, forward Master HTTP:
 
 ```bash
 kubectl -n hugegraph port-forward svc/hugegraph-vermeer-master 6688:6688
 ```
 
-Open <http://127.0.0.1:6688/>. Read the separate Vermeer administrator password:
+Open <http://127.0.0.1:6688/> when forwarding. Both entries use the password read by:
 
 ```bash
 kubectl -n hugegraph get secret hugegraph-vermeer-admin \
@@ -137,10 +145,13 @@ password and auto-generation. Read the actual Secret/key when overriding them.
 Changing an external administrator Secret requires restarting Master; this
 password rotation does not change Hubble's internal service token.
 
-Authentication stays enabled in both modes. Native Services do not support
-NodePort, LoadBalancer, fixed node ports or external IPs. NetworkPolicy limits
-Master HTTP and internal RPC to the required release callers even in easy mode;
-strict additionally controls egress. These policies need a supporting CNI.
+Authentication stays enabled. Service overrides and existing values follow the
+[shared entry rules](../README.md#modes-and-entry-points).
+
+Only NodePort Master HTTP admits outside callers, including in strict mode.
+ClusterIP HTTP, RPC and Worker HTTP remain internal; strict additionally controls
+egress. Same-release PD/Store access and Server Schema reads are allowed by
+default, without extra ingress/egress rules. These policies need a supporting CNI.
 Additional native ingress uses explicit internal Pod/namespace selectors under
 `networkPolicy.vermeer.extraIngress`; unrestricted and IP-based ingress rules
 are rejected. External data destinations can use `extraEgress` when needed.
