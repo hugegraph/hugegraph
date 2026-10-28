@@ -596,6 +596,82 @@ seatunnel:
   # Keep member port 5801 and HTTP 8080 when overriding discovery/engine files.
   config: {}
 
+# Optional native graph-computing engine. Both modes remain disabled until opted in.
+# standalone runs Master + Worker containers together; cluster uses separate Pods.
+vermeer:
+  enabled: false
+  mode: standalone
+  image:
+    repository: hugegraph/vermeer
+    # Select a build containing file credentials and /go/bin/vermeer-token.
+    tag: latest
+    digest: ""
+    pullPolicy: Always
+  auth:
+    # Token signing factor. existingSecret > value > a stable generated Secret.
+    value: ""
+    existingSecret: ""
+    key: token-factor
+    autoGenerate: true
+  # Optional JSON {"username":"...","password":"..."} for Schema reads.
+  # Empty reuses the deployment's Server administrator Secret as a password file.
+  hugegraphCredentials:
+    existingSecret: ""
+    key: credentials.json
+  service:
+    # Only the authenticated Master HTTP/UI entry is exposed.
+    type:
+    nodePort:
+    annotations: {}
+  master:
+    httpPort: 6688
+    grpcPort: 6689
+    resources: {}
+    storage:
+      enabled:
+      size: 10Gi
+      storageClassName: ""
+    extraEnv: []
+  worker:
+    # Ignored in standalone mode, which always has one colocated Worker.
+    replicas: 3
+    httpPort: 6788
+    grpcPort: 6789
+    resources: {}
+    storage:
+      enabled:
+      size: 20Gi
+      storageClassName: ""
+    extraEnv: []
+  podSecurityContext: {}
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop: ["ALL"]
+    seccompProfile:
+      type: RuntimeDefault
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  topologySpreadConstraints: []
+  priorityClassName: ""
+  podAnnotations: {}
+  podLabels: {}
+  terminationGracePeriodSeconds: 60
+  probes:
+    startup:
+      failureThreshold: 60
+      periodSeconds: 5
+      timeoutSeconds: 3
+    readiness:
+      failureThreshold: 3
+      periodSeconds: 10
+      timeoutSeconds: 3
+    liveness:
+      failureThreshold: 3
+      periodSeconds: 20
+      timeoutSeconds: 3
+
 # Kubernetes NetworkPolicy: mode default plus explicit per-component rules.
 # easy keeps HTTP clients open; strict isolates release traffic and DNS.
 # Enabled SeaTunnel always restricts member port 5801 to its release peers.
@@ -619,6 +695,9 @@ networkPolicy:
     extraIngress: []
     # For Hubble's optional outside endpoints (es.urls, prometheus.url set
     # through extraEnv). PD, Store and Server reach only the release and DNS.
+    extraEgress: []
+  vermeer:
+    extraIngress: []
     extraEgress: []
   seatunnel:
     # Member port 5801 is restricted even when networkPolicy.enabled is false.

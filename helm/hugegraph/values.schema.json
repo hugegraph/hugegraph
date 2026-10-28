@@ -113,6 +113,9 @@
           "type": "string"
         }
       }
+    },
+    "vermeer": {
+      "$ref": "#/definitions/vermeer"
     }
   },
   "definitions": {
@@ -136,12 +139,7 @@
     "networkPolicyEgressRules": {
       "type": "array",
       "items": {
-        "type": "object",
-        "properties": {
-          "to": {
-            "$ref": "#/definitions/networkPolicyPeers"
-          }
-        }
+        "type": "object"
       }
     },
     "networkPolicyComponent": {
@@ -187,6 +185,17 @@
         "seatunnel": {
           "type": "object",
           "additionalProperties": false,
+          "properties": {
+            "extraIngress": {
+              "$ref": "#/definitions/networkPolicyIngressRules"
+            },
+            "extraEgress": {
+              "$ref": "#/definitions/networkPolicyEgressRules"
+            }
+          }
+        },
+        "vermeer": {
+          "type": "object",
           "properties": {
             "extraIngress": {
               "$ref": "#/definitions/networkPolicyIngressRules"
@@ -1654,6 +1663,158 @@
               }
             }
           ]
+        }
+      }
+    },
+    "vermeerRole": {
+      "type": "object",
+      "properties": {
+        "httpPort": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "grpcPort": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "resources": {
+          "$ref": "#/definitions/resources"
+        },
+        "storage": {
+          "$ref": "#/definitions/storage"
+        },
+        "extraEnv": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "name"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        }
+      },
+      "required": [
+        "httpPort",
+        "grpcPort",
+        "storage"
+      ]
+    },
+    "vermeer": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "mode": {
+          "enum": [
+            "standalone",
+            "cluster"
+          ]
+        },
+        "image": {
+          "$ref": "#/definitions/image"
+        },
+        "service": {
+          "$ref": "#/definitions/service"
+        },
+        "auth": {
+          "type": "object",
+          "properties": {
+            "value": {
+              "type": "string",
+              "pattern": "^$|^[!-~]{4,}$"
+            },
+            "existingSecret": {
+              "type": "string"
+            },
+            "key": {
+              "type": "string",
+              "minLength": 1
+            },
+            "autoGenerate": {
+              "type": "boolean"
+            }
+          }
+        },
+        "hugegraphCredentials": {
+          "type": "object",
+          "properties": {
+            "existingSecret": {
+              "type": "string"
+            },
+            "key": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "master": {
+          "$ref": "#/definitions/vermeerRole"
+        },
+        "worker": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/vermeerRole"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "replicas": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 99
+                }
+              }
+            }
+          ]
+        },
+        "probes": {
+          "$ref": "#/definitions/probes"
+        },
+        "terminationGracePeriodSeconds": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "podSecurityContext": {
+          "type": "object"
+        },
+        "securityContext": {
+          "type": "object"
+        },
+        "nodeSelector": {
+          "type": "object"
+        },
+        "tolerations": {
+          "type": "array"
+        },
+        "affinity": {
+          "type": "object"
+        },
+        "topologySpreadConstraints": {
+          "type": "array"
+        },
+        "priorityClassName": {
+          "type": "string"
+        },
+        "podLabels": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "podAnnotations": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
         }
       }
     }

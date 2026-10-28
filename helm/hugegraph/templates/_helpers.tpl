@@ -26,9 +26,12 @@
 {{- if not (hasKey .Values "seatunnel") -}}
 {{- $_ := set .Values "seatunnel" (dict "enabled" false "service" dict) -}}
 {{- end -}}
+{{- if not (hasKey .Values "vermeer") -}}
+{{- $_ := set .Values "vermeer" (dict "enabled" false "service" dict) -}}
+{{- end -}}
 {{- $strict := eq (.Values.mode | default "easy") "strict" -}}
 {{- $serviceType := ternary "ClusterIP" "NodePort" (or $strict $legacy) -}}
-{{- range $comp := list "server" "hubble" "seatunnel" -}}
+{{- range $comp := list "server" "hubble" "seatunnel" "vermeer" -}}
 {{- $component := get $.Values $comp -}}
 {{- $svc := get $component "service" | default dict -}}
 {{- $_ := set $component "service" $svc -}}
@@ -48,10 +51,18 @@
 {{- $_ := set $component $key $storage -}}
 {{- if or (not (hasKey $storage "enabled")) (eq (get $storage "enabled" | toString) "<nil>") -}}{{- $_ := set $storage "enabled" $persistent -}}{{- end -}}
 {{- end -}}
+{{- if .Values.vermeer.enabled -}}
+{{- range $role := list "master" "worker" -}}
+{{- $storage := get (get $.Values.vermeer $role) "storage" -}}
+{{- if or (not (hasKey $storage "enabled")) (eq (get $storage "enabled" | toString) "<nil>") -}}
+{{- $_ := set $storage "enabled" $persistent -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
 {{- $registry := trimSuffix "/" (get (.Values.global | default dict) "imageRegistry" | default "") -}}
 {{- if contains "://" $registry -}}{{- fail "global.imageRegistry must be a registry host/path without http:// or https://" -}}{{- end -}}
 {{- if $registry -}}
-{{- range $comp := list "pd" "store" "server" "hubble" "seatunnel" -}}
+{{- range $comp := list "pd" "store" "server" "hubble" "seatunnel" "vermeer" -}}
 {{- $image := get (get $.Values $comp) "image" | default dict -}}
 {{- if $image -}}
 {{- $_ := set $image "repository" (include "hugegraph.registryImage" (dict "reference" $image.repository "registry" $registry)) -}}
@@ -752,6 +763,8 @@ The minimum Server replica count that a PDB must remain valid against.
 Cross-field validation that JSON Schema draft-07 cannot express.
 */}}
 {{- define "hugegraph.validateValues" -}}
+{{- include "hugegraph.resolveValues" . -}}
+{{- include "hugegraph.vermeer.validate" . -}}
 {{- if (.Values.seatunnel | default dict).enabled -}}
 {{- if not (has .Values.seatunnel.mode (list "standalone" "cluster")) -}}
 {{- fail "seatunnel.mode must be standalone or cluster" -}}
@@ -994,7 +1007,7 @@ start-hugegraph-pd.sh, start-hugegraph-store.sh, and hugegraph-server.sh).
       "pd" (list "HG_PD_GRPC_HOST" "HG_PD_GRPC_PORT" "HG_PD_REST_PORT" "HG_PD_RAFT_ADDRESS" "HG_PD_RAFT_PEERS_LIST" "HG_PD_INITIAL_STORE_LIST" "HG_PD_INITIAL_STORE_COUNT" "HG_PD_DATA_PATH" "HG_PD_AUTH_SECRET_KEY" "JAVA_OPTS" "JAVA_OPTIONS")
       "store" (list "HG_STORE_PD_ADDRESS" "HG_STORE_GRPC_HOST" "HG_STORE_GRPC_PORT" "HG_STORE_REST_PORT" "HG_STORE_RAFT_ADDRESS" "HG_STORE_DATA_PATH" "JAVA_OPTS" "JAVA_OPTIONS")
       "server" (list "POD_IP" "HG_SERVER_SERVICE_ID" "HG_SERVER_GRAPHSPACE" "SERVICE_ID" "GRAPH_SPACE" "HG_SERVER_BACKEND" "HG_SERVER_PD_PEERS" "HG_SERVER_PD_REST_ENDPOINT" "STORE_REST" "HG_SERVER_INIT_STORE_ENABLED" "HG_SERVER_URLS_TO_PD" "HG_SERVER_DEPLOY_IN_K8S" "HG_SERVER_STARTUP_TIMEOUT_S" "WAIT_STORAGE_TIMEOUT_S" "PD_AUTH_PASSWORD" "PASSWORD" "HG_SERVER_AUTH_TOKEN_SECRET" "JAVA_OPTS" "JAVA_OPTIONS")
-      "hubble" (list "HG_HUBBLE_PD_PEERS" "HG_HUBBLE_PD_SERVER" "HG_HUBBLE_PD_PASSWORD" "HG_HUBBLE_STORE_TARGETS" "HG_HUBBLE_SERVER_URL" "SPRING_DATASOURCE_URL") -}}
+      "hubble" (list "HG_HUBBLE_PD_PEERS" "HG_HUBBLE_PD_SERVER" "HG_HUBBLE_PD_PASSWORD" "HG_HUBBLE_STORE_TARGETS" "HG_HUBBLE_SERVER_URL" "HG_HUBBLE_VERMEER_URL" "HG_HUBBLE_VERMEER_TOKEN_FILE" "SPRING_DATASOURCE_URL") -}}
 {{- range $component, $reserved := $reservedEnv -}}
 {{- $componentValues := get $.Values $component | default dict -}}
 {{- range $entry := get $componentValues "extraEnv" | default list -}}
@@ -1131,5 +1144,132 @@ over tag; otherwise fall back to tag, then to the chart appVersion. Takes a dict
 {{- printf "%s@%s" $img.repository $digest -}}
 {{- else -}}
 {{- printf "%s:%s" $img.repository (default .appVersion $img.tag) -}}
+{{- end -}}
+{{- end }}
+
+{{/* Native Vermeer identities stay stable across standalone/cluster mode changes. */}}
+{{- define "hugegraph.vermeer.masterName" -}}
+{{- printf "%s-vermeer-master" (include "hugegraph.fullname" . | trunc 39 | trimSuffix "-") -}}
+{{- end }}
+{{- define "hugegraph.vermeer.workerName" -}}
+{{- printf "%s-vermeer-worker" (include "hugegraph.fullname" . | trunc 44 | trimSuffix "-") -}}
+{{- end }}
+{{- define "hugegraph.vermeer.configName" -}}
+{{- printf "%s-vermeer-config" (include "hugegraph.fullname" . | trunc 48 | trimSuffix "-") -}}
+{{- end }}
+{{- define "hugegraph.vermeer.standaloneWorkerDataName" -}}
+{{- printf "%s-vermeer-standalone-worker-data" (include "hugegraph.fullname" . | trunc 31 | trimSuffix "-") -}}
+{{- end }}
+{{/* Stable signing factor and rollout checksum; external Secrets contribute their revision. */}}
+{{- define "hugegraph.vermeer.authSecretName" -}}
+{{- $auth := get .Values.vermeer "auth" | default dict -}}
+{{- $existing := get $auth "existingSecret" | default "" -}}
+{{- if $existing -}}
+{{- $existing -}}
+{{- else -}}
+{{- printf "%s-vermeer-auth" (.Release.Name | trunc 50 | trimSuffix "-") -}}
+{{- end -}}
+{{- end }}
+
+{{- define "hugegraph.vermeer.authSecretKey" -}}
+{{- $auth := get .Values.vermeer "auth" | default dict -}}
+{{- get $auth "key" | default "token-factor" -}}
+{{- end }}
+
+{{- define "hugegraph.vermeer.authSecretValue" -}}
+{{- $auth := get .Values.vermeer "auth" | default dict -}}
+{{- $value := get $auth "value" | default "" -}}
+{{- if $value -}}
+{{- $value | b64enc -}}
+{{- else -}}
+{{- $name := include "hugegraph.vermeer.authSecretName" . -}}
+{{- $key := include "hugegraph.vermeer.authSecretKey" . -}}
+{{- $secret := lookup "v1" "Secret" .Release.Namespace $name -}}
+{{- if and $secret (hasKey $secret "data") (hasKey (get $secret "data") $key) -}}
+{{- get (get $secret "data") $key -}}
+{{- else -}}
+{{- include "hugegraph.generatedCredential" (dict "root" . "name" "vermeer-auth") | b64enc -}}
+{{- end -}}
+{{- end -}}
+{{- end }}
+
+{{- define "hugegraph.vermeer.authChecksum" -}}
+{{- $parts := list (include "hugegraph.vermeer.authSecretName" .) (include "hugegraph.vermeer.authSecretKey" .) -}}
+{{- $authCfg := get .Values.vermeer "auth" | default dict -}}
+{{- $inline := get $authCfg "value" | default "" -}}
+{{- $existing := get $authCfg "existingSecret" | default "" -}}
+{{- if $existing -}}
+{{- $secret := lookup "v1" "Secret" .Release.Namespace $existing -}}
+{{- if $secret -}}{{- $parts = append $parts (dig "metadata" "resourceVersion" "" $secret) -}}{{- end -}}
+{{- else if $inline -}}
+{{- $parts = append $parts (sha256sum $inline) -}}
+{{- else -}}
+{{- $parts = append $parts (include "hugegraph.vermeer.authSecretValue" . | b64dec | sha256sum) -}}
+{{- end -}}
+{{- join "|" $parts | sha256sum -}}
+{{- end }}
+
+
+{{- define "hugegraph.vermeer.validate" -}}
+{{- if (.Values.vermeer | default dict).enabled -}}
+{{- $v := .Values.vermeer -}}
+{{- if not (has $v.mode (list "standalone" "cluster")) -}}
+{{- fail "vermeer.mode must be standalone or cluster" -}}
+{{- end -}}
+{{- if ne .Values.server.backend "hstore" -}}
+{{- fail "vermeer.enabled requires server.backend=hstore" -}}
+{{- end -}}
+{{- if and (get $v.service "nodePort") (not (has $v.service.type (list "NodePort" "LoadBalancer"))) -}}
+{{- fail "vermeer.service.nodePort requires vermeer.service.type to be NodePort or LoadBalancer" -}}
+{{- end -}}
+{{- if and (not $v.auth.existingSecret) (not $v.auth.value) (not $v.auth.autoGenerate) -}}
+{{- fail "vermeer.auth requires existingSecret, value, or autoGenerate=true" -}}
+{{- end -}}
+{{- if and (not $v.image.tag) (not $v.image.digest) -}}
+{{- fail "vermeer.image needs a tag or digest matching the file-credential and token-helper interface" -}}
+{{- end -}}
+{{- $ports := list $v.master.httpPort $v.master.grpcPort $v.worker.httpPort $v.worker.grpcPort -}}
+{{- if ne (len (uniq $ports)) 4 -}}
+{{- fail "vermeer master and worker HTTP/gRPC ports must be distinct" -}}
+{{- end -}}
+{{- range $reserved := list "app.kubernetes.io/name" "app.kubernetes.io/instance" "app.kubernetes.io/component" -}}
+{{- if hasKey $v.podLabels $reserved -}}
+{{- fail (printf "vermeer.podLabels must not set %s" $reserved) -}}
+{{- end -}}
+{{- end -}}
+{{- range $key, $_ := $v.podAnnotations -}}
+{{- if hasPrefix "checksum/" $key -}}{{- fail "vermeer.podAnnotations must not set checksum/ annotations" -}}{{- end -}}
+{{- end -}}
+{{- range $role := list "master" "worker" -}}
+{{- range $entry := (get $v $role).extraEnv -}}
+{{- if has $entry.name (list "POD_IP" "VERMEER_AUTH_TOKEN_FACTOR_FILE" "VERMEER_PD_PASSWORD_FILE" "VERMEER_PD_PEERS" "VERMEER_HUGEGRAPH_USERNAME" "VERMEER_HUGEGRAPH_PASSWORD_FILE" "VERMEER_HUGEGRAPH_CREDENTIALS_FILE") -}}
+{{- fail (printf "vermeer.%s.extraEnv must not set chart-managed variable %s" $role $entry.name) -}}
+{{- end -}}
+{{- end -}}
+{{- if $.Release.IsUpgrade -}}
+{{- $name := include "hugegraph.vermeer.masterName" $ -}}
+{{- if eq $role "worker" -}}{{- $name = include "hugegraph.vermeer.workerName" $ -}}{{- end -}}
+{{- $live := lookup "apps/v1" "StatefulSet" $.Release.Namespace $name -}}
+{{- if $live -}}
+{{- $wasPersistent := false -}}
+{{- range $claim := dig "spec" "volumeClaimTemplates" list $live -}}
+{{- if eq (dig "metadata" "name" "" $claim) (printf "%s-data" $role) -}}{{- $wasPersistent = true -}}{{- end -}}
+{{- end -}}
+{{- if ne $wasPersistent (get (get $v $role) "storage").enabled -}}
+{{- fail (printf "vermeer.%s.storage.enabled cannot change on an initialized release; migrate retained data into a fresh workload" $role) -}}
+{{- end -}}
+{{- if eq $role "master" -}}
+{{- range $volume := dig "spec" "template" "spec" "volumes" list $live -}}
+{{- if and (eq $v.mode "standalone") (eq (get $volume "name") "worker-data") -}}
+{{- $workerPersistent := hasKey $volume "persistentVolumeClaim" -}}
+{{- if ne $workerPersistent $v.worker.storage.enabled -}}
+{{- fail "vermeer.worker.storage.enabled cannot change on an initialized standalone release; migrate retained data first" -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
 {{- end -}}
 {{- end }}
