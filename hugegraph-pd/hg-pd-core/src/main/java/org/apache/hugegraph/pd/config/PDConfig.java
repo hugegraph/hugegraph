@@ -65,6 +65,11 @@ public class PDConfig implements InitializingBean {
     @Value("${pd.data-path}")
     private String dataPath;
     @Value("${pd.initial-store-count:3}")
+    private int initialStoreCount = 3;
+
+    // Extra placement/retirement floor, persisted in PDConfig.min_store_count. Zero means
+    // no extra floor beyond the desired replica count, including metadata from older versions.
+    @Value("${pd.min-store-count:0}")
     private int minStoreCount;
 
     // The initial store list, within which the store is automatically activated

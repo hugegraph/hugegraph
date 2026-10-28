@@ -60,6 +60,7 @@ import lombok.extern.slf4j.Slf4j;
         StoreDrainTest.class,
         StorePlacementSubmissionTest.class,
         PDServiceDrainSubmissionTest.class,
+        StoreNodeLifecycleTest.class,
         TaskScheduleServiceTest.class,
         IpAuthHandlerTest.class,
         RaftEngineCliProcessorsTest.class,
