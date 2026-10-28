@@ -37,11 +37,8 @@ helm install hugegraph ./helm/hugegraph -n hugegraph --create-namespace \
   --wait --timeout 30m
 ```
 
-The default image is `apache/seatunnel:3.0.0`. The native UI and REST API use HTTP
-8080. Their Service defaults to NodePort in easy mode and ClusterIP in strict
-mode. `helm install` prints entry discovery, credential retrieval and optional
-administration commands. In easy mode, find the assigned HTTP NodePort and a
-reachable node IP:
+The default image is `apache/seatunnel:3.0.0`. Native HTTP 8080 defaults to
+NodePort in easy mode and ClusterIP in strict mode. For easy mode:
 
 ```bash
 kubectl -n hugegraph get svc hugegraph-seatunnel \
@@ -50,29 +47,22 @@ kubectl get nodes -o wide
 # Open http://<reachable-node-ip>:<nodePort>/#/overview
 ```
 
-For strict mode's default ClusterIP entry, or when node access is unavailable,
-forward the Service in a separate terminal:
+For a ClusterIP entry or when node access is unavailable, forward the Service:
 
 ```bash
 kubectl -n hugegraph port-forward svc/hugegraph-seatunnel 8081:8080
 ```
 
-With port forwarding active, open <http://127.0.0.1:8081/#/overview>. Either entry
-uses the separate SeaTunnel credentials described below. The UI shows cluster
-members, jobs, DAGs and logs. Submit jobs through the CLI or authenticated REST
-API. Helm starts the engine and prepares examples; it does not create graphs or
-run jobs.
+Open <http://127.0.0.1:8081/#/overview> when forwarding, with the separate SeaTunnel credentials
+described below. The UI shows cluster members, jobs, DAGs and logs. Submit jobs
+through the CLI or authenticated REST API. Helm starts the engine and prepares
+examples; it does not create graphs or run jobs.
 
-`seatunnel.service.type` accepts `ClusterIP` or `NodePort`; null inherits the mode.
-Existing explicit `ClusterIP` values stay private on upgrade. Set the type to
-null or `NodePort` when choosing easy mode's node entry. Set
-`seatunnel.service.nodePort` to fix the HTTP NodePort; omission or `0` allocates
-automatically. Native LoadBalancer, Ingress and external IP entries are not provided.
+For Service overrides and existing values, see the [shared entry rules](../README.md#modes-and-entry-points).
 
-NetworkPolicy admits outside callers only to HTTP 8080 when the Service uses
-NodePort, including an explicit NodePort in strict mode. With ClusterIP, HTTP
-remains limited to required release callers. Hazelcast member/CLI port 5801
-stays restricted to required release callers in both modes, including when
+Only NodePort HTTP admits outside callers, including an explicit NodePort in
+strict mode. ClusterIP HTTP and Hazelcast member/CLI 5801 stay restricted to
+required release callers in both modes, including when
 `networkPolicy.enabled=false`. Strict additionally restricts egress.
 Additional internal ingress uses explicit Pod/namespace selectors in
 `networkPolicy.seatunnel.extraIngress`; unrestricted and IP-based rules are
