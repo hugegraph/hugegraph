@@ -34,6 +34,7 @@ CHART = Path(__file__).resolve().parent / "hugegraph"
 COMPONENT = "app.kubernetes.io/component"
 INSTANCE = "app.kubernetes.io/instance"
 FACTOR = "vermeer-test-factor-0123456789abcdef0123456789abcdef"
+NATIVE_ADMIN = "VermeerAdmin0123"
 
 
 def resources(documents, kind=None, component=None):
@@ -118,7 +119,8 @@ class VermeerChartTest(unittest.TestCase):
         if not deterministic_auth:
             values = {}
         if vermeer is not None:
-            values["vermeer"] = merged({"enabled": True, "auth": {"value": FACTOR}}, vermeer)
+            values["vermeer"] = merged({"enabled": True, "auth": {
+                "value": FACTOR, "admin": {"password": NATIVE_ADMIN}}}, vermeer)
         values = merged(values, overrides)
         with tempfile.TemporaryDirectory(prefix="vermeer-values-") as directory:
             configuration = Path(directory) / "values.yaml"
@@ -253,20 +255,22 @@ class VermeerChartTest(unittest.TestCase):
 
     def test_credentials_are_secret_references_and_not_configmap_or_process_arguments(self):
         documents = self.documents({})
-        secret, = vermeer_resources(documents, "Secret")
+        secret, = [secret for secret in vermeer_resources(documents, "Secret")
+                   if "token-factor" in secret["data"]]
         self.assertEqual(FACTOR, base64.b64decode(secret["data"]["token-factor"]).decode())
         self.assertEqual("keep", secret["metadata"]["annotations"]["helm.sh/resource-policy"])
         for document in documents:
             if document["kind"] != "Secret":
                 serialized = yaml.safe_dump(document)
-                for value in (FACTOR, "graph-test-admin-password", "pd-test-service-password"):
+                for value in (FACTOR, NATIVE_ADMIN, "graph-test-admin-password", "pd-test-service-password"):
                     self.assertNotIn(value, serialized)
         for container in (self.role_container(documents, "master"), self.role_container(documents, "worker")):
             self.assertIn("VERMEER_PD_PASSWORD_FILE", env(container))
             self.assertIn("VERMEER_PD_PEERS", env(container))
 
     def test_external_credential_secret_names_and_keys_are_preserved(self):
-        documents = self.documents({"auth": {"existingSecret": "native-auth", "key": "signing-key"}},
+        documents = self.documents({"auth": {"existingSecret": "native-auth", "key": "signing-key",
+                                             "admin": {"existingSecret": "native-admin", "key": "login"}}},
                                    pd={"auth": {"existingSecret": "metadata-auth", "key": "service-key"}},
                                    server={"auth": {"admin": {"existingSecret": "graph-admin", "key": "admin-key"}}})
         self.assertEqual([], vermeer_resources(documents, "Secret"))
@@ -274,14 +278,15 @@ class VermeerChartTest(unittest.TestCase):
                       if workload["metadata"]["labels"][COMPONENT] == "vermeer-master")
         secrets = {volume["secret"]["secretName"]: volume["secret"]
                    for volume in pod(master)["spec"].get("volumes", []) if "secret" in volume}
-        self.assertEqual({"native-auth", "metadata-auth", "graph-admin"}, set(secrets))
+        self.assertEqual({"native-auth", "native-admin", "metadata-auth", "graph-admin"}, set(secrets))
         for name, key in (("native-auth", "signing-key"), ("metadata-auth", "service-key"),
-                          ("graph-admin", "admin-key")):
+                          ("graph-admin", "admin-key"), ("native-admin", "login")):
             self.assertIn(key, [entry["key"] for entry in secrets[name]["items"]])
 
     def test_generated_factor_and_pod_checksum_use_the_same_random_value(self):
         documents = self.documents({"auth": {"value": ""}})
-        secret, = vermeer_resources(documents, "Secret")
+        secret, = [secret for secret in vermeer_resources(documents, "Secret")
+                   if "token-factor" in secret["data"]]
         factor = base64.b64decode(secret["data"]["token-factor"]).decode()
         self.assertGreaterEqual(len(factor), 32)
         self.assertNotIn(factor, ("pd-test-service-password", "graph-test-admin-password"))
@@ -289,6 +294,81 @@ class VermeerChartTest(unittest.TestCase):
         checksum = digest(secret["metadata"]["name"] + "|token-factor|" + digest(factor))
         master, = resources(documents, "StatefulSet", "vermeer-master")
         self.assertEqual(checksum, pod(master)["metadata"]["annotations"]["checksum/vermeer-auth"])
+
+    def test_native_admin_password_is_short_separate_and_mounted_only_by_master(self):
+        for mode in ("standalone", "cluster"):
+            with self.subTest(mode=mode):
+                documents = self.documents({"mode": mode, "auth": {"admin": {"password": ""}}})
+                secret, = [secret for secret in vermeer_resources(documents, "Secret")
+                           if secret["metadata"]["name"] == "fixture-vermeer-admin"]
+                password = base64.b64decode(secret["data"]["password"]).decode()
+                self.assertRegex(password, r"^[A-Za-z0-9]{16}$")
+                self.assertNotIn(password, (FACTOR, "graph-test-admin-password", "pd-test-service-password"))
+                self.assertEqual("keep", secret["metadata"]["annotations"]["helm.sh/resource-policy"])
+                self.assert_master_only_admin_mount(documents, secret["metadata"]["name"], "password")
+                digest = lambda value: hashlib.sha256(value.encode()).hexdigest()
+                expected = digest(secret["metadata"]["name"] + "|password|" + digest(password))
+                master, = resources(documents, "StatefulSet", "vermeer-master")
+                self.assertEqual(expected, pod(master)["metadata"]["annotations"]["checksum/vermeer-admin"])
+                for document in documents:
+                    if document["kind"] != "Secret":
+                        self.assertNotIn(password, yaml.safe_dump(document))
+
+    def assert_master_only_admin_mount(self, documents, secret_name, key):
+        master_count = 0
+        for workload in resources(documents, "StatefulSet") + resources(documents, "Deployment"):
+            spec = pod(workload)["spec"]
+            admin_volumes = {volume["name"]: volume["secret"] for volume in spec.get("volumes", [])
+                             if volume.get("secret", {}).get("secretName") == secret_name}
+            for container in spec.get("containers", []) + spec.get("initContainers", []):
+                if workload["metadata"]["labels"].get(COMPONENT) == "vermeer-master" and container["name"] == "master":
+                    master_count += 1
+                    path = env(container)["VERMEER_ADMIN_PASSWORD_FILE"]["value"]
+                    mounts = [mount for mount in container["volumeMounts"] if mount["name"] in admin_volumes]
+                    self.assertEqual(1, len(mounts))
+                    self.assertTrue(mounts[0]["readOnly"])
+                    self.assertEqual(mounts[0]["mountPath"] + "/password", path)
+                    self.assertEqual([{"key": key, "path": "password"}],
+                                     admin_volumes[mounts[0]["name"]]["items"])
+                else:
+                    self.assertNotIn("VERMEER_ADMIN_PASSWORD_FILE", env(container))
+                    self.assertFalse(any(mount["name"] in admin_volumes
+                                         for mount in container.get("volumeMounts", [])))
+            if workload["metadata"]["labels"].get(COMPONENT) != "vermeer-master":
+                self.assertEqual({}, admin_volumes)
+        self.assertEqual(1, master_count)
+
+    def test_native_admin_external_secret_key_is_referenced_without_managing_or_leaking_it(self):
+        documents = self.documents({"mode": "cluster", "auth": {"admin": {
+            "existingSecret": "operator-native-admin", "key": "ui-password", "password": "unused-inline"}}})
+        self.assertFalse(any(secret["metadata"]["name"] == "operator-native-admin"
+                             or secret["metadata"]["name"] == "fixture-vermeer-admin"
+                             for secret in resources(documents, "Secret")))
+        self.assert_master_only_admin_mount(documents, "operator-native-admin", "ui-password")
+        for document in documents:
+            self.assertNotIn("unused-inline", yaml.safe_dump(document))
+
+    def test_native_admin_rotation_rolls_master_without_changing_worker_or_hubble(self):
+        first = self.documents({"mode": "cluster"})
+        second = self.documents({"mode": "cluster", "auth": {"admin": {"password": "RotatedAdmin0123"}}})
+        before, = resources(first, "StatefulSet", "vermeer-master")
+        after, = resources(second, "StatefulSet", "vermeer-master")
+        self.assertNotEqual(pod(before)["metadata"]["annotations"]["checksum/vermeer-admin"],
+                            pod(after)["metadata"]["annotations"]["checksum/vermeer-admin"])
+        self.assertEqual(pod(before)["metadata"]["annotations"]["checksum/vermeer-auth"],
+                         pod(after)["metadata"]["annotations"]["checksum/vermeer-auth"])
+        for component, kind in (("vermeer-worker", "StatefulSet"), ("hubble", "Deployment")):
+            before, = resources(first, kind, component)
+            after, = resources(second, kind, component)
+            self.assertEqual(pod(before), pod(after))
+
+    def test_native_admin_preserves_an_explicit_single_line_password(self):
+        password = "  ops'\"\\$密码:  "
+        documents = self.documents({"auth": {"admin": {"password": password, "key": "login-key"}}})
+        secret, = [secret for secret in vermeer_resources(documents, "Secret")
+                   if secret["metadata"]["name"] == "fixture-vermeer-admin"]
+        self.assertEqual(password, base64.b64decode(secret["data"]["login-key"]).decode())
+        self.assert_master_only_admin_mount(documents, secret["metadata"]["name"], "login-key")
 
     def test_schema_reader_override_replaces_the_server_admin_reference(self):
         documents = self.documents({"hugegraphCredentials": {"existingSecret": "schema-reader",
@@ -534,6 +614,10 @@ class VermeerChartTest(unittest.TestCase):
                  {"service": {"type": "ClusterIP", "nodePort": 31688}},
                  {"service": {"externalIPs": ["192.0.2.10"]}},
                  {"auth": {"value": "", "autoGenerate": False}},
+                 {"auth": {"admin": {"password": "", "autoGenerate": False}}},
+                 {"auth": {"admin": {"password": "  "}}},
+                 {"auth": {"admin": {"password": "line1\nline2"}}},
+                 {"master": {"extraEnv": [{"name": "VERMEER_ADMIN_PASSWORD_FILE", "value": "/wrong"}]}},
                  {"master": {"extraEnv": [{"name": "VERMEER_AUTH_TOKEN_FACTOR_FILE", "value": "/wrong"}]}},
                  {"worker": {"extraEnv": [{"name": "POD_IP", "value": "0.0.0.0"}]}})
         for settings in cases:
