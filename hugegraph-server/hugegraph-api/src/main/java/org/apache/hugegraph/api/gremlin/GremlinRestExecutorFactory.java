@@ -19,9 +19,10 @@ package org.apache.hugegraph.api.gremlin;
 
 import java.io.IOException;
 import java.net.InetAddress;
+import java.net.NetworkInterface;
 import java.net.URI;
+import java.net.UnknownHostException;
 import java.nio.file.Path;
-import java.util.Arrays;
 
 import org.apache.hugegraph.auth.StandardAuthenticator;
 import org.apache.hugegraph.auth.WsAndHttpBasicAuthHandler;
@@ -39,30 +40,16 @@ public final class GremlinRestExecutorFactory {
     }
 
     public static GremlinRestExecutor standalone(HugeConfig config) {
-        E.checkArgument("forward".equals(config.get(ServerOptions.GREMLIN_REST_EXECUTION_MODE)),
-                        "embedded requires startup through HugeGraphServer");
         return new ForwardGremlinRestExecutor(config);
     }
 
     public static GremlinRestExecutor create(HugeConfig config, GremlinServer server,
                                              String restConfigFile) throws IOException {
-        if ("forward".equals(config.get(ServerOptions.GREMLIN_REST_EXECUTION_MODE))) {
-            return new ForwardGremlinRestExecutor(config);
-        }
         Settings settings = server.getServerGremlinExecutor().getSettings();
         URI target = URI.create(config.get(ServerOptions.GREMLIN_SERVER_URL));
-        String localTargetError =
-                "embedded requires gremlinserver.url to target this local Gremlin Server";
-        E.checkArgument("http".equals(target.getScheme()) && target.getHost() != null &&
-                        target.getUserInfo() == null && target.getFragment() == null &&
-                        target.getPort() == settings.port,
-                        localTargetError);
-        InetAddress[] targetAddresses = InetAddress.getAllByName(target.getHost());
-        InetAddress bindAddress = InetAddress.getByName(settings.host);
-        E.checkArgument(isSameProcessTarget(targetAddresses, bindAddress),
-                        localTargetError);
-        E.checkArgument(settings.ssl == null || !settings.ssl.enabled,
-                        "embedded does not support a TLS Gremlin listener");
+        if (!targetsLocalServer(target, settings)) {
+            return new ForwardGremlinRestExecutor(config);
+        }
         E.checkArgument(HugeGraphWsAndHttpChannelizer.class.getName().equals(settings.channelizer),
                         "embedded requires HugeGraphWsAndHttpChannelizer");
         E.checkArgument(settings.authorization == null ||
@@ -89,17 +76,43 @@ public final class GremlinRestExecutorFactory {
         return new EmbeddedGremlinRestExecutor(config, server.getServerGremlinExecutor());
     }
 
-    private static boolean isSameProcessTarget(InetAddress[] targetAddresses,
-                                               InetAddress bindAddress) {
-        if (targetAddresses.length == 0 ||
-            Arrays.stream(targetAddresses).anyMatch(address ->
-                    !address.isLoopbackAddress())) {
+    private static boolean targetsLocalServer(URI target, Settings settings) throws IOException {
+        String scheme = target.getScheme();
+        if (!("http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme)) ||
+            target.getHost() == null || target.getUserInfo() != null || target.getFragment() != null) {
             return false;
         }
-        if (bindAddress.isAnyLocalAddress()) {
-            return true;
+        int port = target.getPort() == -1 ?
+                   ("https".equalsIgnoreCase(scheme) ? 443 : 80) : target.getPort();
+        // A different local port may identify another Gremlin Server process.
+        if (port != settings.port || settings.host == null || settings.host.isEmpty()) {
+            return false;
         }
-        return Arrays.stream(targetAddresses).anyMatch(bindAddress::equals);
+        try {
+            return isSameProcessTarget(InetAddress.getAllByName(target.getHost()),
+                                       InetAddress.getByName(settings.host));
+        } catch (UnknownHostException ignored) {
+            // Keep unresolved forwarding targets on the existing HTTP client path.
+            return false;
+        }
+    }
+
+    private static boolean isSameProcessTarget(InetAddress[] targetAddresses,
+                                               InetAddress bindAddress) throws IOException {
+        if (targetAddresses.length == 0 || !isLocalAddress(bindAddress)) {
+            return false;
+        }
+        for (InetAddress address : targetAddresses) {
+            if (!isLocalAddress(address)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static boolean isLocalAddress(InetAddress address) throws IOException {
+        return address.isAnyLocalAddress() || address.isLoopbackAddress() ||
+               NetworkInterface.getByInetAddress(address) != null;
     }
 
     public static void initialize(GremlinRestExecutor executor, GremlinServer server) {

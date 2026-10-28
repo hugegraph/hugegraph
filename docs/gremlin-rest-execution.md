@@ -1,41 +1,54 @@
-# REST Gremlin execution modes
+# REST Gremlin execution
 
-`gremlinserver.rest_execution_mode` selects the execution path for JSON requests to
-REST `GET /gremlin` and `POST /gremlin`. The default is `forward`.
+JSON requests to REST `GET /gremlin` and `POST /gremlin` automatically execute
+in-process when `gremlinserver.url` identifies the local Gremlin Server started by
+`HugeGraphServer`. Targets on other hosts or ports use HTTP forwarding. There is no
+execution-mode configuration option.
 
 ```text
-forward:  REST -> Jersey HTTP client -> Gremlin HTTP listener -> Gremlin workers
-embedded: REST ---------------------------------------------> Gremlin workers
+local Gremlin target:  REST -------------------------------------> Gremlin workers
+remote Gremlin target: REST -> Jersey HTTP client -> Gremlin HTTP -> Gremlin workers
 ```
 
-Both paths use the same Gremlin executor, graph manager, script engines and configured
-JSON serializer. The Gremlin listener remains available to HTTP/WebSocket clients,
-Driver and Console. Cypher and Gremlin jobs keep their existing execution paths.
+Both paths use the configured graph manager, script engines and JSON serializer.
+For local targets these are the same instances owned by the co-started Gremlin Server.
+The Gremlin listener remains available to HTTP/WebSocket clients, Driver and Console.
+Cypher and Gremlin jobs keep their existing execution paths.
 
-## Configuration
+## Automatic selection
 
-In `conf/rest-server.properties`:
+In `conf/rest-server.properties`, keep the existing Gremlin URL consistent with the
+host and port in `conf/gremlin-server.yaml`:
 
 ```properties
 gremlinserver.url=http://127.0.0.1:8182
-gremlinserver.rest_execution_mode=embedded
 ```
 
-Restart the server to change modes. To revert, set the mode to `forward` and restart.
-There is no automatic forwarding retry after an embedded execution failure: a query
-may already have committed even when the caller receives an error.
+Loopback addresses, local interface addresses, local hostnames and wildcard bind
+addresses identify the same host. All addresses resolved for a hostname must be local.
+The URL's port must match the co-started listener's port, so a URL for another Gremlin
+process on the same machine continues to use forwarding. Omitted HTTP/HTTPS ports are
+interpreted as 80/443. Unresolved hostnames remain on the forwarding path.
+A standalone `RestServer` without a co-started Gremlin Server always forwards.
 
-The initial embedded implementation supports the standard HugeGraph
-`WsAndHttpChannelizer` configuration, adapted internally to
-`HugeGraphWsAndHttpChannelizer`. It requires the URL to identify the same process's
-plain HTTP listener on a loopback address, with matching host/bind address and port.
-Remote targets, TLS Gremlin listeners, custom channelizers and custom authorizers
-continue to use `forward`.
+TLS does not affect the choice: local HTTP and HTTPS targets both use in-process
+execution, including when the Gremlin listener enables TLS. This does not change the
+TLS settings of either listener. TLS handshakes and client certificates on the Gremlin
+listener apply to direct network clients; embedded requests use the REST entry point's
+transport and authentication, without an internal TLS connection.
+
+Restart after changing the target URL. There is no automatic forwarding retry after
+an embedded execution failure: a query may already have committed even when the caller
+receives an error.
+
+Local execution supports the standard HugeGraph `WsAndHttpChannelizer` configuration,
+adapted internally to `HugeGraphWsAndHttpChannelizer`. Custom channelizers and custom
+Gremlin authorizers fail startup for local targets.
 
 Authentication must agree between REST and Gremlin: either both are anonymous, or
 both use `StandardAuthenticator`, with `WsAndHttpBasicAuthHandler` on Gremlin and
 `authentication.config.tokens` resolving to the same REST configuration file.
-Unsupported combinations fail startup; they do not silently select another mode.
+Unsupported local combinations fail startup; they do not silently select another path.
 
 ## Preserved behavior
 
@@ -99,9 +112,9 @@ request identity, context isolation, blocking admission, timeouts, shared serial
 dynamic aliases and graph transaction side effects on Memory and RocksDB. Response stack traces and newly generated
 request IDs require semantic comparison; deterministic responses also use byte comparisons.
 
-Run backend and distribution checks appropriate to the intended deployment before enabling
-embedded. Focused tests do not establish HStore compatibility or production performance.
-Default-mode changes require separate representative performance evidence.
+Run backend and distribution checks appropriate to the intended deployment before
+rolling out automatic local execution. Focused tests do not establish HStore compatibility
+or production performance.
 
 Readiness, overload policy, authentication-cache consistency and global shutdown redesign
 remain separate tasks from this execution-path change.
@@ -119,7 +132,8 @@ and alternates mode order across four rounds. It saves latency samples and envir
 metadata. These measurements include client/REST overhead and exclude real backend I/O;
 100 warmup requests do not establish steady-state JIT behavior.
 
-For a Linux single-node RocksDB comparison, build the distribution and use an eight-CPU
+For a Linux single-node RocksDB comparison, build this distribution and retain a
+pre-automatic-selection distribution whose default path is forwarding. Use an eight-CPU
 host with Java 17. The following runner requires a new output directory and binds both
 listeners to loopback. It generates its own graph and preserves all evidence under that
 directory:
@@ -127,15 +141,19 @@ directory:
 ```bash
 python3 hugegraph-server/hugegraph-test/scripts/gremlin-rest-rocksdb-benchmark.py \
   --distribution /path/to/apache-hugegraph-server-1.8.0 \
+  --forward-distribution /path/to/previous-forward-default-build \
   --java-home /path/to/jdk-17 \
   --output /path/to/new-results-directory
 ```
 
 It checks GET/POST, bindings, JSON values, aliases, rollback, committed write counts and
 restart persistence. The default dataset has 10,000 vertices and 50,000 edges. Four server
-starts use forward/embedded/embedded/forward order, identical JVM settings and persistent
-data. Each workload has a five-second warmup and three-second measurements at concurrency
-1, 8 and 32. Samples use a closed-loop client on the same host; CPU affinity separates
+starts use the baseline/candidate/candidate/baseline builds in forward/embedded/embedded/forward
+order, identical JVM settings and persistent data. The runner records each build's jar hashes.
+This compares builds, so other changes between their revisions may affect results. The
+script-only runner above explicitly constructs both adapters in one JVM and remains
+available for a same-build transport comparison. Each workload has a five-second warmup
+and three-second measurements at concurrency 1, 8 and 32. Samples use a closed-loop client on the same host; CPU affinity separates
 the client and server, while unrelated host workloads can still affect both. The results
 include raw latency samples, response checks, CPU/load snapshots, GC and server logs.
 These short measurements do not establish production saturation or steady-state behavior.

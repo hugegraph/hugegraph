@@ -290,7 +290,8 @@ public final class EmbeddedGremlinRestExecutor implements GremlinRestExecutor {
         // HttpObjectDecoder counts header lines without CRLF. Match the headers
         // produced by the pinned Jersey/Apache connector, not the outer REST headers.
         String host = this.target.getHost();
-        if (this.target.getPort() != 80) {
+        int defaultPort = "https".equalsIgnoreCase(this.target.getScheme()) ? 443 : 80;
+        if (this.target.getPort() != -1 && this.target.getPort() != defaultPort) {
             host += ":" + this.target.getPort();
         }
         int length = ("Accept: application/json" +

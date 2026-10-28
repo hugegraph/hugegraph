@@ -17,7 +17,8 @@
 """Linux standalone RocksDB comparison; owns only the supplied NEW output directory.
 
 Uses Python's standard library. Closed-loop clients validate every response.
-ABBA restarts use the same distribution, persistent dataset and JVM settings.
+ABBA restarts compare a forward-default baseline with the automatic-selection build.
+Both builds share a persistent dataset and JVM settings.
 Server CPU affinity: 0-5; load generator: 6-7. Requires at least eight CPUs.
 """
 
@@ -187,6 +188,8 @@ def measure(port, pid, name, n, concurrency, duration, sequence, warmup=False):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--distribution", type=Path, required=True)
+    parser.add_argument("--forward-distribution", type=Path, required=True,
+                        help="Pre-automatic-selection build whose default REST path is forwarding")
     parser.add_argument("--java-home", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--vertices", type=int, default=10000)
@@ -196,6 +199,8 @@ def main():
     assert args.vertices >= 1000
     assert set(range(8)).issubset(os.sched_getaffinity(0))
     args.distribution = args.distribution.resolve()
+    args.forward_distribution = args.forward_distribution.resolve()
+    assert args.forward_distribution != args.distribution, "Use a separate forward-default baseline build"
     args.java_home = args.java_home.resolve()
     args.output = args.output.resolve()
     args.output.mkdir(parents=True, exist_ok=False)
@@ -205,9 +210,14 @@ def main():
     assert (args.java_home / "conf/security/java.security").is_file(), "Incomplete Java 17 configuration"
     version = subprocess.check_output([java, "-version"], stderr=subprocess.STDOUT, text=True)
     assert 'version "17.' in version, version
-    cp = ":".join(str(p) for p in sorted((dist / "lib").glob("hugegraph*.jar")))
-    cp += ":" + ":".join(str(p) for p in sorted((dist / "lib").glob("*.jar"))
-                         if not p.name.startswith("hugegraph"))
+    distributions = {"forward": args.forward_distribution, "embedded": dist}
+    classpaths = {}
+    for mode, distribution in distributions.items():
+        assert (distribution / "lib").is_dir(), distribution
+        jars = sorted((distribution / "lib").glob("hugegraph*.jar"))
+        jars += sorted(p for p in (distribution / "lib").glob("*.jar")
+                       if not p.name.startswith("hugegraph"))
+        classpaths[mode] = ":".join(str(p) for p in jars)
     (output / "graphs").mkdir()
     (output / "graphs/hugegraph.properties").write_text(
         "gremlin.graph=org.apache.hugegraph.HugeFactory\nbackend=rocksdb\nserializer=binary\n"
@@ -223,14 +233,14 @@ def main():
               f"gremlinserver.url=http://127.0.0.1:{gp}\nrestserver.max_worker_threads=16\n"
               "gremlinserver.max_route=16\ngremlinserver.timeout=30\nmemory_monitor.threshold=1\n")
     for mode in ("forward", "embedded"):
-        (output / f"{mode}.properties").write_text(common + f"gremlinserver.rest_execution_mode={mode}\n")
+        (output / f"{mode}.properties").write_text(common)
     jvm = [java, "-Xms1g", "-Xmx2g", "-XX:ActiveProcessorCount=6",
            "@" + str(dist / "bin/jvm-module.options"),
            "-Dlog4j.configurationFile=" + str(dist / "conf/log4j2.xml")]
     env = {**os.environ, "JAVA_HOME": str(args.java_home)}
     affinity = lambda: os.sched_setaffinity(0, set(range(6)))
     with (output / "init.log").open("w") as log:
-        subprocess.run(jvm + ["-cp", cp, "org.apache.hugegraph.cmd.InitStore",
+        subprocess.run(jvm + ["-cp", classpaths["embedded"], "org.apache.hugegraph.cmd.InitStore",
                               str(output / "forward.properties")], cwd=output, env=env,
                        stdout=log, stderr=subprocess.STDOUT, check=True, timeout=300,
                        preexec_fn=affinity)
@@ -242,9 +252,11 @@ def main():
                               "duration_seconds": args.seconds, "mode_order": ["forward", "embedded",
                                                                                   "embedded", "forward"],
                               "warmup_seconds": args.warmup_seconds,
+                              "comparison": "previous forward-default build vs automatic local execution",
                               "distribution_sha256": {
-                                  p.name: hashlib.sha256(p.read_bytes()).hexdigest()
-                                  for p in (dist / "lib").glob("hugegraph*.jar")}},
+                                  mode: {p.name: hashlib.sha256(p.read_bytes()).hexdigest()
+                                         for p in (distribution / "lib").glob("hugegraph*.jar")}
+                                  for mode, distribution in distributions.items()}},
               "runs": []}
     n, sequence = args.vertices, 0
     for run_id, mode in enumerate(result["environment"]["mode_order"]):
@@ -253,7 +265,7 @@ def main():
         with (run_dir / "server.log").open("w") as log:
             process = subprocess.Popen(
                 jvm + [f"-Xlog:gc*:file={run_dir}/gc.log:time,uptime,level,tags",
-                       "-cp", cp, "org.apache.hugegraph.dist.HugeGraphServer",
+                       "-cp", classpaths[mode], "org.apache.hugegraph.dist.HugeGraphServer",
                        str(output / "gremlin.yaml"), str(output / f"{mode}.properties")],
                 cwd=output, env=env, stdout=log, stderr=subprocess.STDOUT, preexec_fn=affinity)
             run = {"id": run_id, "mode": mode, "checks": {}, "measurements": []}
