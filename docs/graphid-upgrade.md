@@ -241,13 +241,9 @@ no override that silently assigns ambiguous data.
 
 ## Background and compatibility
 
-The issue and original allocation fix are documented in
-[apache/hugegraph#3224](https://github.com/apache/hugegraph/issues/3224),
-[#3095](https://github.com/apache/hugegraph/issues/3095) and
-[#3153](https://github.com/apache/hugegraph/pull/3153). The related preflight and
-upgrade documentation proposals are
-[#3330](https://github.com/apache/hugegraph/pull/3330) and
-[hugegraph-doc#523](https://github.com/apache/hugegraph-doc/pull/523).
+The legacy allocation issue is documented in
+[apache/hugegraph#3224](https://github.com/apache/hugegraph/issues/3224)
+and [#3095](https://github.com/apache/hugegraph/issues/3095).
 
 The issue author's [reference data](https://github.com/SebastianGruza/hugegraph-validation)
 is available with the original report.
