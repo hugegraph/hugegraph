@@ -16,6 +16,7 @@ limitations under the License.
 */}}
 {{ include "hugegraph.resolveValues" . }}
 {{- $hubbleEnabled := .Values.hubble.enabled }}
+{{- $vermeerEnabled := (.Values.vermeer | default dict).enabled | default false }}
 {{ .Release.Name }} installed in namespace {{ .Release.Namespace }} ({{ .Values.mode | default "legacy" }} mode).
 
   PD      {{ .Values.pd.replicas }} replica(s)
@@ -26,6 +27,9 @@ limitations under the License.
 {{- end }}
 {{- if (.Values.seatunnel | default dict).enabled }}
   SeaTunnel  {{ .Values.seatunnel.mode }} mode
+{{- end }}
+{{- if $vermeerEnabled }}
+  Vermeer  {{ .Values.vermeer.mode }} mode (1 Master, {{ if eq .Values.vermeer.mode "standalone" }}1{{ else }}{{ .Values.vermeer.worker.replicas }}{{ end }} Worker{{ if eq .Values.vermeer.mode "cluster" }}(s){{ end }})
 {{- end }}
 {{- $inheritedEntries := list }}
 {{- range $component := list "server" "hubble" }}
@@ -49,6 +53,10 @@ Watch startup (run each command in a separate terminal):
 {{- if .Values.pd.storage.enabled }}{{ $claims = add $claims (int .Values.pd.replicas) }}{{ end }}
 {{- if .Values.store.storage.enabled }}{{ $claims = add $claims (int .Values.store.replicas) }}{{ end }}
 {{- if and $hubbleEnabled .Values.hubble.persistence.enabled }}{{ $claims = add $claims 1 }}{{ end }}
+{{- if $vermeerEnabled }}
+{{- if .Values.vermeer.master.storage.enabled }}{{ $claims = add $claims 1 }}{{ end }}
+{{- if .Values.vermeer.worker.storage.enabled }}{{ $claims = add $claims (ternary 1 (int .Values.vermeer.worker.replicas) (eq .Values.vermeer.mode "standalone")) }}{{ end }}
+{{- end }}
 {{- if gt (int $claims) 0 }}
 
 This configuration needs {{ $claims }} persistent volume claim(s). A dynamic
@@ -59,6 +67,59 @@ Store waits for a PD quorum before startup. If a Pod remains in Init, inspect
 its init-container logs and PD readiness; see helm/hugegraph/docs/operations.md#troubleshooting.
 
 Access:
+{{- if $vermeerEnabled }}
+{{- $vName := include "hugegraph.vermeer.masterName" . }}
+{{- $vService := .Values.vermeer.service | default dict }}
+
+  Vermeer:
+    In-cluster Master HTTP: http://{{ $vName }}.{{ .Release.Namespace }}.svc:{{ .Values.vermeer.master.httpPort }}
+{{- if eq $vService.type "NodePort" }}
+    Native UI/API NodePort:
+      kubectl get svc -n {{ .Release.Namespace }} {{ $vName }} -o jsonpath='{.spec.ports[?(@.name=="http")].nodePort}{"\n"}'
+      kubectl get nodes -o wide
+    Open http://<reachable-node-ip>:{{ $vService.nodePort | default "<nodePort>" }}/
+{{- else if eq $vService.type "LoadBalancer" }}
+    Native UI/API LoadBalancer address:
+      kubectl get svc -n {{ .Release.Namespace }} {{ $vName }} -o wide
+    Once assigned, open http://<load-balancer-address>:{{ .Values.vermeer.master.httpPort }}/
+{{- end }}
+    Port-forward: kubectl port-forward -n {{ .Release.Namespace }} svc/{{ $vName }} {{ .Values.vermeer.master.httpPort }}:{{ .Values.vermeer.master.httpPort }}
+    Local native UI/API: http://127.0.0.1:{{ .Values.vermeer.master.httpPort }}/
+    Generate a separate native UI token on demand (the command prints a credential; keep it private):
+      kubectl exec -n {{ .Release.Namespace }} {{ $vName }}-0 -c master -- /go/bin/vermeer-token -factor-file /var/run/vermeer/auth/token-factor -user admin -space '$DEFAULT' -client browser -i -quiet
+    Use this token in Vermeer's token login. It is separate from the HugeGraph admin password.
+{{- if $hubbleEnabled }}
+    Hubble is connected automatically. Sign in as a HugeGraph super administrator, select a graph,
+    then open batch analysis, load it into Vermeer and run an algorithm. View results in async tasks.
+    Hubble keeps its service token in a private temporary volume; its running container never mounts the signing factor.
+{{- else }}
+    Hubble is disabled. Enable hubble.enabled=true with hubble.mode=pd for the integrated workflow.
+{{- end }}
+    Compute results are queried from Vermeer and are not written back to HugeGraph.
+    Master/Worker restarts can discard in-memory graph copies and result caches; reload and recompute when needed.
+    Internal gRPC ports admit only same-release Vermeer peers when the CNI enforces NetworkPolicy.
+    Deployment and credentials: helm/hugegraph/docs/vermeer.md
+{{- if and .Values.networkPolicy.enabled (has $vService.type (list "NodePort" "LoadBalancer")) }}
+{{- $vRules := get .Values.networkPolicy "vermeer" | default dict }}
+{{- if empty (get $vRules "extraIngress") }}
+    Full NetworkPolicy isolation is enabled; allow native HTTP callers through networkPolicy.vermeer.extraIngress.
+{{- end }}
+{{- end }}
+{{- if .Values.vermeer.auth.existingSecret }}
+
+    After changing the existing signing-factor Secret, restart all consumers so tokens and verification agree:
+      kubectl rollout restart -n {{ .Release.Namespace }} statefulset/{{ $vName }}
+{{- if eq .Values.vermeer.mode "cluster" }}
+      kubectl rollout restart -n {{ .Release.Namespace }} statefulset/{{ include "hugegraph.vermeer.workerName" . }}
+{{- end }}
+      kubectl rollout status -n {{ .Release.Namespace }} statefulset/{{ $vName }} --timeout=5m
+{{- if $hubbleEnabled }}
+      kubectl rollout restart -n {{ .Release.Namespace }} deployment/{{ include "hugegraph.hubble.name" . }}
+      kubectl rollout status -n {{ .Release.Namespace }} deployment/{{ include "hugegraph.hubble.name" . }} --timeout=5m
+{{- end }}
+    Generate a new native UI token after rotation; previously issued native tokens no longer work.
+{{- end }}
+{{- end }}
 {{- if (.Values.seatunnel | default dict).enabled }}
 
   SeaTunnel:
@@ -177,6 +238,9 @@ existing account; see helm/hugegraph/docs/operations.md#credentials for account 
 {{- if and (not $pdAuth.existingSecret) (not $pdAuth.value) }}{{ $generated = append $generated "pd.auth" }}{{ end }}
 {{- if and $srvAuth.enabled (not $srvAuth.admin.existingSecret) (not $srvAuth.admin.password) }}{{ $generated = append $generated "server.auth.admin" }}{{ end }}
 {{- if and $srvAuth.enabled (not $srvAuth.token.existingSecret) (not $srvAuth.token.value) }}{{ $generated = append $generated "server.auth.token" }}{{ end }}
+{{- if $vermeerEnabled }}
+{{- if and (not .Values.vermeer.auth.existingSecret) (not .Values.vermeer.auth.value) }}{{ $generated = append $generated "vermeer.auth" }}{{ end }}
+{{- end }}
 {{- if $generated }}
 
 Chart-generated credentials are in use: {{ join ", " $generated }}.
@@ -211,7 +275,7 @@ Server registers {{ .Values.server.advertiseUrl }} with PD for external discover
 A standalone Hubble also needs a reachable PD endpoint; see helm/hugegraph/docs/operations.md#networking-and-hubble.
 {{- end }}
 
-Verify all Server Gremlin endpoints:
+Verify all Server Gremlin endpoints{{ if $vermeerEnabled }} and Vermeer service-space Worker availability{{ end }}:
 
   helm test {{ .Release.Name }} --namespace {{ .Release.Namespace }} --logs --timeout 5m
 
