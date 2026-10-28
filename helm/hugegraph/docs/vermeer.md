@@ -2,7 +2,9 @@
 
 Vermeer is optional and disabled by default, including with `values-single.yaml`
 and `values-cluster.yaml`. Enabling it deploys the native Master/Worker engine,
-configures Hubble automatically, and exposes the authenticated native UI/API.
+configures Hubble automatically, and keeps its authenticated native UI/API private.
+For normal use, enable Vermeer and sign in to Hubble with the existing HugeGraph
+administrator account. Native administration is optional.
 It needs no Computer Operator, CRD, etcd or external coordination service.
 
 ## Choose a topology
@@ -27,30 +29,14 @@ Server and Store also need the same PD metadata prefix. The shared
 both components consistently. Retain the initialized value on upgrade; see
 [namespace adoption](operations.md#pd-metadata-namespace) for older custom images.
 
-## Image compatibility
-
-Use a Vermeer build that contains `/go/bin/vermeer-token`, versioned HMAC-SHA256
-file-based token-factor configuration, deployment PD/Server credential files,
-and space-aware Worker availability. Hubble needs a build containing its native
-Vermeer adapter and nine algorithm forms. Source support does not establish that
-an existing `latest` image contains these changes.
-
-Select a matching published build, or build the corresponding source revisions
-with their repository Dockerfiles before installation. Record the tested image
-digests. Configure `vermeer.image.repository/tag/digest` and `hubble.image` to use
-those builds; an explicit digest wins over the tag. Images inherit
-`global.imageRegistry` and `imagePullSecrets`. Master, Worker and token
-initialization reuse the same Vermeer image; no runtime package download is needed.
-
 ## Install and enable
 
-Commands run from the HugeGraph repository root. Choose one installation after
-selecting compatible images in `my-images.yaml`:
+Commands run from the HugeGraph repository root. Choose one installation:
 
 ```bash
 # Small HugeGraph topology, plus one Pod with Master and Worker containers
 helm install hugegraph ./helm/hugegraph -n hugegraph --create-namespace \
-  -f helm/hugegraph/values-single.yaml -f my-images.yaml \
+  -f helm/hugegraph/values-single.yaml \
   --set vermeer.enabled=true --set vermeer.mode=standalone \
   --wait --timeout 20m
 ```
@@ -58,7 +44,7 @@ helm install hugegraph ./helm/hugegraph -n hugegraph --create-namespace \
 ```bash
 # Multi-node HugeGraph topology, plus one Master and three Worker Pods
 helm install hugegraph ./helm/hugegraph -n hugegraph --create-namespace \
-  -f helm/hugegraph/values-cluster.yaml -f my-images.yaml \
+  -f helm/hugegraph/values-cluster.yaml \
   --set vermeer.enabled=true --set vermeer.mode=cluster \
   --set vermeer.worker.replicas=3 --wait --timeout 20m
 ```
@@ -76,7 +62,7 @@ them, then pass the file without `--reuse-values`:
 umask 077
 helm get values hugegraph -n hugegraph --all -o yaml > existing-values.yaml
 helm upgrade hugegraph ./helm/hugegraph -n hugegraph \
-  -f existing-values.yaml -f my-images.yaml --set vermeer.enabled=true \
+  -f existing-values.yaml --set vermeer.enabled=true \
   --wait --timeout 20m
 ```
 
@@ -119,48 +105,57 @@ view; the Vermeer service token does not grant them this administrator access.
 Setting `hubble.enabled=false` keeps Vermeer available through its native entry.
 `hubble.mode=direct` cannot be combined with an enabled native Vermeer integration.
 
-## Native UI and API access
+## Optional native administration
 
-The Master HTTP listener defaults to 6688. Easy mode assigns a NodePort; strict
-mode uses ClusterIP. Override `vermeer.service.type/nodePort` when needed. Find
-the assigned entry with:
-
-```bash
-kubectl -n hugegraph get svc hugegraph-vermeer-master
-kubectl get nodes -o wide
-```
-
-Use the NodePort on a reachable node, or forward the Service locally:
+Vermeer HTTP/UI is a private ClusterIP Service in both easy and strict mode.
+Use Hubble for graph computation. When native administration is needed, forward
+its Master HTTP listener to your local machine in a separate terminal:
 
 ```bash
 kubectl -n hugegraph port-forward svc/hugegraph-vermeer-master 6688:6688
 ```
 
-Open <http://127.0.0.1:6688/>. Native Vermeer login uses its own administrator
-token, not the HugeGraph password. Generate the token inside the Master container
-without putting the signing factor in shell arguments:
+Open <http://127.0.0.1:6688/>. Read the separate Vermeer administrator password:
 
 ```bash
-kubectl -n hugegraph exec hugegraph-vermeer-master-0 -c master -- \
-  /go/bin/vermeer-token -factor-file /var/run/vermeer/auth/token-factor \
-  -user admin -space '$DEFAULT' -client helm -i -quiet
+kubectl -n hugegraph get secret hugegraph-vermeer-admin \
+  -o jsonpath='{.data.password}' | base64 --decode
 ```
 
-Paste that token into the native login form. The same native token can authorize
-API requests using `Authorization: Bearer <token>`. Keep it private; it carries
-Vermeer administrator access. Hubble creates its service token automatically and
-does not require this manual step or a separate native browser login.
+Paste it into the **Admin credential** input; no username is required. New installations generate a
+16-character password and keep it across online upgrades; existing credentials
+are reused. Successful login creates a versioned session cookie valid for
+24 hours. This password is separate from the HugeGraph/Hubble login. Hubble's
+service authentication is configured automatically and needs no manual token.
 
-Only Master HTTP is exposed. Master gRPC 6689 and Worker HTTP/gRPC 6788/6789 stay
-inside the release. The chart restricts internal gRPC callers even in easy mode.
-Strict mode also isolates egress and admits the required Hubble, PD, Store,
-Server and Worker traffic automatically. Add native
-`networkPolicy.vermeer.extraIngress/extraEgress` rules for actual external
-clients or data sources. NetworkPolicy enforcement requires a supporting CNI.
+Only Master reads the native administrator password. Set
+`vermeer.auth.admin.password` through controlled values, or reference an external
+Secret using `vermeer.auth.admin.existingSecret/key` (default key `password`).
+With neither source set, `vermeer.auth.admin.autoGenerate=true` creates the kept
+`<release>-vermeer-admin` Secret. External Secret takes priority over the inline
+password and auto-generation. Read the actual Secret/key when overriding them.
+Changing an external administrator Secret requires restarting Master; this
+password rotation does not change Hubble's internal service token.
+
+Authentication stays enabled in both modes. Native Services do not support
+NodePort, LoadBalancer, fixed node ports or external IPs. NetworkPolicy limits
+Master HTTP and internal RPC to the required release callers even in easy mode;
+strict additionally controls egress. These policies need a supporting CNI.
+Additional native ingress uses explicit internal Pod/namespace selectors under
+`networkPolicy.vermeer.extraIngress`; unrestricted and IP-based ingress rules
+are rejected. External data destinations can use `extraEgress` when needed.
 
 ## Deployment credentials and GitOps
 
-Vermeer authentication uses a separate signing factor in the kept
+Both engines retain generated administrator credentials during online upgrades.
+For GitOps, provide stable fixed or external credentials through the matching
+component settings. Vermeer's human password uses `vermeer.auth.admin`; its
+internal service authentication is managed separately.
+
+<details>
+<summary>Advanced: service identities, versioned tokens and GitOps</summary>
+
+Hubble service authentication uses a separate signing factor in the kept
 `<release>-vermeer-auth` Secret, key `token-factor` by default. Online Helm
 upgrades reuse it. Configure `vermeer.auth.existingSecret/key` for an external
 Secret, or a controlled `vermeer.auth.value` for reproducible offline rendering;
@@ -203,14 +198,50 @@ uses that same UID so Hubble can read its private `0600` file. Setting
 For GitOps, pin all credential sources before rendering; offline `helm template`
 cannot reuse live generated Secrets through `lookup`. Preserve the existing
 factor when adopting GitOps. Rotate it deliberately through its source values
-or secret manager, then roll the dependent workloads and Hubble as directed by
-Helm NOTES. An external Secret change alone does not roll Pods or regenerate
-Hubble's token. Server password rotation also needs the existing account/Secret
+or secret manager, then restart Master and Hubble as directed by
+Helm NOTES. Workers do not mount this factor and need no factor-related restart.
+An external Secret change alone does not roll Pods or regenerate Hubble's token. Server password rotation also needs the existing account/Secret
 synchronization procedure in [operations](operations.md#credentials).
 
 Upgrade Master and the token helper together when adopting versioned file-mode
-tokens. Keep the factor Secret, recreate Hubble's token init container, and obtain
-a fresh native UI token; legacy SHA1 tokens and cookies are not accepted by file mode.
+tokens. Keep the factor Secret, recreate Hubble's token init container, and log
+in to the native UI again; legacy SHA1 tokens and cookies are not accepted by
+file mode.
+
+For trusted internal automation that specifically needs a raw service token,
+the native helper can generate one inside Master. This is not required for
+Hubble or the native UI password login:
+
+```bash
+kubectl -n hugegraph exec hugegraph-vermeer-master-0 -c master -- \
+  /go/bin/vermeer-token -factor-file /var/run/vermeer/auth/token-factor \
+  -user admin -space '$DEFAULT' -client helm -i -quiet
+```
+
+Keep this long-lived token private. Use `Authorization: Bearer <token>` only for
+its intended internal API integration.
+
+</details>
+
+<details>
+<summary>Advanced: image compatibility and publishing</summary>
+
+### Image compatibility
+
+Vermeer images are published through the
+[publish latest Vermeer workflow](https://github.com/hugegraph/actions/blob/master/.github/workflows/publish_latest_vermeer_image.yml).
+Use a workflow-produced matching build when pinning an image; record the tested
+tag/digest. Custom builds must include `/go/bin/vermeer-token`, versioned
+HMAC-SHA256 file credentials, the native administrator password login and
+space-aware Worker availability. Hubble needs its native Vermeer adapter and
+nine algorithm forms. A mutable tag alone does not establish these capabilities.
+
+Configure `vermeer.image.repository/tag/digest` and `hubble.image` when pinning
+builds; digest takes priority. Images inherit `global.imageRegistry` and
+`imagePullSecrets`. Master, Worker and token initialization reuse the Vermeer
+image, with no runtime package downloads.
+
+</details>
 
 ## Storage and recovery
 

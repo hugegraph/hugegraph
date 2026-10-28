@@ -98,19 +98,20 @@ Set `seatunnel.enabled=true` to start one long-running hybrid member alongside H
 set `seatunnel.mode=cluster` to use multiple members of the same native StatefulSet
 (two by default). SeaTunnel is disabled by default and its topology is independent
 of the HugeGraph single-/multi-node presets. Both modes include the engine's task UI.
-The HTTP Service inherits NodePort in `easy` mode or ClusterIP in `strict` mode;
-`seatunnel.service` can explicitly override the type and NodePort.
+The native HTTP Service remains ClusterIP in both easy and strict mode.
+Use an authorized port-forward when native administration is needed.
 
-Member/CLI port 5801 is restricted to same-release peers by a SeaTunnel ingress
-NetworkPolicy in every mode, including when the chart-wide policy flag is disabled.
-Easy mode leaves the authenticated HTTP entry open. Actual isolation requires CNI
-support and trusted namespace RBAC; full isolation additionally limits egress.
+HTTP and member/CLI port 5801 are restricted to necessary same-release callers
+in both modes, including when the chart-wide policy flag is disabled. Strict
+additionally limits egress. Actual isolation needs a supporting CNI and trusted
+namespace RBAC.
 
 The chart injects the same-release Server address, GraphSpace and administrator
 Secret references into the mounted Source/Sink examples. Create the target graph
 before submitting them manually; Helm does not create graphs or import data.
-UI and REST submission use a separate native HTTP Basic administrator account,
-whose generated Secret is retained and reused during online upgrades. Container
+UI and REST submission use a separate native HTTP Basic administrator account
+with a newly generated 16-character password; online upgrades reuse the
+existing Secret, including credentials created by older releases. Container
 security and scheduling options follow the other components; see the
 [SeaTunnel deployment guide](docs/seatunnel.md) for configuration and limits.
 
@@ -131,10 +132,11 @@ administrator, select an HStore graph, then load it and run an algorithm. The
 existing flow includes reload, task status/cancellation, paginated results and
 unload; it does not write results back into HugeGraph properties.
 
-The native Vermeer UI/API is also available: easy mode uses NodePort, strict
-mode uses ClusterIP. Its token login is separate from Hubble login. Internal
-gRPC remains private. See the [Vermeer deployment guide](docs/vermeer.md) for
-matching-image requirements, installation, access, credentials and recovery.
+Native Vermeer UI/API stays private behind ClusterIP in both modes. Optional
+administration uses port-forward and a separate generated 16-character password;
+Hubble needs no manual token configuration. Both engines always authenticate
+access, and their native HTTP/RPC policies allow only required internal callers.
+See the [Vermeer deployment guide](docs/vermeer.md) for administration and recovery.
 
 </details>
 
@@ -237,14 +239,17 @@ still need verification with a running Linux cluster. See the
 The independent `vermeer.mode` and `seatunnel.mode` select optional engine
 topologies; none of these presets enables an optional engine automatically.
 
-`mode: easy` is the default. `mode: strict` changes Server/Hubble and enabled
-optional HTTP entries to ClusterIP
-and enables NetworkPolicy; authentication, Hubble and persistence stay enabled.
+`mode: easy` is the default. `mode: strict` changes Server/Hubble to ClusterIP
+and enables full NetworkPolicy isolation; authentication, Hubble and persistence stay enabled.
 Use `--set mode=strict` or `-f helm/hugegraph/values-strict.yaml`.
 
 **Explicit component value > global value > mode default.** An explicit `false`
 is preserved; null component values inherit. The global settings are
-`persistence.enabled` and `global.imageRegistry`. No mode requires HTTPS.
+`persistence.enabled` and `global.imageRegistry`. SeaTunnel and Vermeer native
+Services are always ClusterIP and authenticated;
+their HTTP/RPC ingress stays restricted in both modes. No mode requires HTTPS.
+
+Server/Hubble entry choices:
 
 | Entry | Access | When to use it |
 |---|---|---|
@@ -262,7 +267,7 @@ Omission or `0` allocates automatically. Kubernetes validates the actual cluster
 range; the chart does not force `30000–32767`.
 
 A [hostless HTTP Ingress example](examples/values-http-ingress.yaml) is available.
-With NetworkPolicy enabled, add native rules for actual clients and controllers;
+With base-service NetworkPolicy enabled, add rules for actual clients and controllers;
 empty external rule lists are valid but can block access. Explicit Service and
 policy values override either mode. Legacy exposure acknowledgement fields are
 accepted for compatibility and no longer gate rendering.
@@ -305,7 +310,7 @@ with `-f`; see [values.yaml](values.yaml) for all fields and their comments.
 - `values-single.yaml`: 1 PD + 1 Store + 1 Server, with Hubble and authentication.
 - `values-cluster.yaml`: required PD/Store anti-affinity, resources and controlled
   Store updates. NetworkPolicy inherits mode; the preset is a capacity starting point.
-- All client Services support native `externalTrafficPolicy`, `loadBalancerClass`,
+- Base PD/Server/Hubble client Services support native `externalTrafficPolicy`, `loadBalancerClass`,
   `loadBalancerIP`, `loadBalancerSourceRanges`, `externalIPs` and
   `allocateLoadBalancerNodePorts`, subject to cluster/controller support.
 - Resources, JVM options, scheduling, probes, HPA/PDB, metadata and external

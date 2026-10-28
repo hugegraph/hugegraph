@@ -125,8 +125,11 @@ offline renders cannot look up live generated Secrets and otherwise generate new
 random values. Changing the admin Secret alone does not change an already-created
 account; follow the [account password and Secret synchronization steps](../docs/operations.md#credentials).
 
-Enabled Vermeer also needs a stable `vermeer.auth.value` or
-`vermeer.auth.existingSecret/key` holding its signing factor. Optional external
+For native administrator credentials, enabled Vermeer accepts
+`vermeer.auth.admin.password` or `vermeer.auth.admin.existingSecret/key`;
+new installations otherwise generate a kept 16-character password. Advanced
+GitOps setups also preserve the automatically managed internal service identity
+through `vermeer.auth.value` or `vermeer.auth.existingSecret/key`. Optional external
 Schema credentials use `vermeer.hugegraphCredentials.existingSecret/key`; the
 referenced key contains a username/password JSON object. See
 [Vermeer deployment credentials](../docs/vermeer.md#deployment-credentials-and-gitops)
@@ -158,5 +161,7 @@ access. LoadBalancer needs your infrastructure's controller.
 authenticated API; disable `server.auth.enabled` as well for an unauthenticated
 API. Current Hubble login still needs Server auth. Strict mode defaults to internal
 Services and NetworkPolicy, but explicit parameters override defaults. With
-NetworkPolicy enabled, add native `extraIngress` rules for actual clients; `{}`
-is a valid allow-all rule.
+NetworkPolicy enabled, add ingress rules for actual base-service clients.
+SeaTunnel/Vermeer native Services always remain ClusterIP and authenticated.
+Use authorized port-forwarding for native administration; their extra ingress
+rules require explicit internal Pod/namespace selectors, not allow-all rules.

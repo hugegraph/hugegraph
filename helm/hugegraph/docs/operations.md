@@ -31,8 +31,10 @@ These constraints match the current image's authentication/property encoding.
 
 Optional SeaTunnel and Vermeer are disabled in every HugeGraph preset. When
 enabled, they add independent entry credentials: SeaTunnel's native HTTP Basic
-account and Vermeer's token-signing factor. These do not replace Server or PD
-credentials. Their Secret reuse, external-source and rotation procedures are in
+account and Vermeer's separate native administrator password. New human
+passwords are 16 characters; upgrades retain existing Secrets. Internal Vermeer
+service authentication is automatic and separate from these passwords. These
+credentials do not replace Server or PD credentials. Their Secret reuse, external-source and rotation procedures are in
 the [SeaTunnel guide](seatunnel.md#seatunnel-entry-authentication) and
 [Vermeer guide](vermeer.md#deployment-credentials-and-gitops). Account password
 changes must also refresh dependent engines' deployment credentials.
@@ -323,18 +325,25 @@ prefix on Server and Store before changing Schema or retrying data imports.
 
 ## Networking and Hubble
 
-Easy mode leaves NetworkPolicy off; strict enables it. Explicit values win.
-Policies require a network plugin that enforces them. Generated rules allow
-component communication and DNS; admit external clients/controllers with native
-`extraIngress`, and external addresses with appropriate `extraEgress`.
-Selecting strict mode and then overriding a Service to NodePort/LoadBalancer,
-setting `externalIPs`, or enabling Ingress does not automatically admit outside traffic. NOTES names
-exposed components with no external ingress rule and points to the matching
-`networkPolicy.<component>.extraIngress` setting; template rendering remains valid.
-For Hubble PD discovery via an external `server.advertiseUrl`, also configure
-Hubble's `extraEgress` for that destination.
-Empty external rule lists are valid and can block clients; `{}` is a valid
-allow-all rule. Consider NodePort source NAT when choosing source ranges.
+Easy mode leaves full base-service NetworkPolicy isolation off; strict enables
+it. Explicit base-service settings win. SeaTunnel and Vermeer always use private
+ClusterIP Services, authentication and native HTTP/RPC ingress restrictions,
+including with `networkPolicy.enabled=false`. Their extra ingress rules require
+explicit internal Pod/namespace selectors; IP blocks and allow-all forms are
+rejected. Strict additionally restricts engine egress. Actual isolation needs
+a NetworkPolicy-capable CNI.
+
+For base PD/Server/Hubble services, generated full-isolation rules allow component
+traffic and DNS. Admit actual outside clients/controllers with their
+`extraIngress`, and external destinations with `extraEgress`. Selecting strict
+mode and overriding a base Service to NodePort/LoadBalancer, setting `externalIPs`
+or enabling Ingress does not admit callers automatically. NOTES identifies
+exposed base components with no outside ingress rule. Empty outside rule lists
+can block clients; `{}` is an allow-all form for base-service rules only.
+Consider NodePort source NAT when selecting source ranges. For Hubble discovery
+via an external `server.advertiseUrl`, also configure Hubble's `extraEgress`.
+Native engine administration uses authorized port-forwarding and its separate
+16-character administrator password; Hubble service tokens stay automatic.
 
 Client Services accept native Kubernetes traffic and load-balancer fields under
 `pd.service`, `server.service` and `hubble.service`. LoadBalancer-specific fields
