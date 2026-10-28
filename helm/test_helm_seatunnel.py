@@ -333,30 +333,32 @@ class SeaTunnelChartTest(unittest.TestCase):
 
     def test_seatunnel_admin_is_generated_separately_and_kept_out_of_public_configuration(self):
         graph_password = "graph-only-admin-password"
-        documents = self.documents({"auth": {"password": ""}},
-                                   server={"auth": {"admin": {"password": graph_password}}})
-        secret = engine_auth_secret(documents)
-        username = base64.b64decode(secret["data"]["username"]).decode()
-        password = base64.b64decode(secret["data"]["password"]).decode()
-        self.assertEqual("admin", username)
-        self.assertRegex(password, r"^[A-Za-z0-9]{16}$")
-        self.assertNotEqual(graph_password, password)
-        self.assertEqual("keep", secret["metadata"]["annotations"]["helm.sh/resource-policy"])
-        http = yaml.safe_load(engine_config(documents)["seatunnel.yaml"])["seatunnel"]["engine"]["http"]
-        self.assertTrue(http["enable-basic-auth"])
-        self.assertEqual(username, http["basic-auth-username"])
-        self.assertEqual(password, http["basic-auth-password"])
-        for configmap in engine_resources(documents, "ConfigMap"):
-            self.assertNotIn("seatunnel.yaml", configmap["data"])
-            self.assertNotIn(password, yaml.safe_dump(configmap["data"]))
-        workload, = engine_resources(documents, "StatefulSet")
-        self.assertNotIn(password, yaml.safe_dump(pod(workload)))
-        volumes = {volume["name"] for volume in pod(workload)["spec"]["volumes"]
-                   if volume.get("secret", {}).get("secretName") == secret["metadata"]["name"]}
-        container, = pod(workload)["spec"]["containers"]
-        self.assertTrue(any(mount["name"] in volumes
-                            and mount["mountPath"] == "/opt/seatunnel/config/seatunnel.yaml"
-                            for mount in container["volumeMounts"]))
+        for mode, length in (("easy", 6), ("strict", 16)):
+            with self.subTest(mode=mode):
+                documents = self.documents({"auth": {"password": ""}}, mode=mode,
+                                           server={"auth": {"admin": {"password": graph_password}}})
+                secret = engine_auth_secret(documents)
+                username = base64.b64decode(secret["data"]["username"]).decode()
+                password = base64.b64decode(secret["data"]["password"]).decode()
+                self.assertEqual("admin", username)
+                self.assertRegex(password, rf"^[A-Za-z0-9]{{{length}}}$")
+                self.assertNotEqual(graph_password, password)
+                self.assertEqual("keep", secret["metadata"]["annotations"]["helm.sh/resource-policy"])
+                http = yaml.safe_load(engine_config(documents)["seatunnel.yaml"])["seatunnel"]["engine"]["http"]
+                self.assertTrue(http["enable-basic-auth"])
+                self.assertEqual(username, http["basic-auth-username"])
+                self.assertEqual(password, http["basic-auth-password"])
+                for configmap in engine_resources(documents, "ConfigMap"):
+                    self.assertNotIn("seatunnel.yaml", configmap["data"])
+                    self.assertNotIn(password, yaml.safe_dump(configmap["data"]))
+                workload, = engine_resources(documents, "StatefulSet")
+                self.assertNotIn(password, yaml.safe_dump(pod(workload)))
+                volumes = {volume["name"] for volume in pod(workload)["spec"]["volumes"]
+                           if volume.get("secret", {}).get("secretName") == secret["metadata"]["name"]}
+                container, = pod(workload)["spec"]["containers"]
+                self.assertTrue(any(mount["name"] in volumes
+                                    and mount["mountPath"] == "/opt/seatunnel/config/seatunnel.yaml"
+                                    for mount in container["volumeMounts"]))
 
     def test_native_basic_auth_preserves_special_credentials_and_cannot_be_disabled_by_config(self):
         username = "ops'\"\\$"
