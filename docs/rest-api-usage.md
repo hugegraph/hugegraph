@@ -51,7 +51,9 @@ Use the same authentication as for the other Server APIs.
 
 ## Create another graph
 
-List graph spaces with `GET /graphspaces`, and create a graph using
+In PD mode, list graph spaces with `GET /graphspaces`. This listing is not
+supported in standalone mode; skip it and use `GET /graphs` to list configured
+graphs. Create a graph using
 `POST /graphspaces/DEFAULT/graphs/{graph}` with the graph configuration expected
 by the backend. `POST /graphs` is not the graph-creation contract. Creating a
 graph requires the corresponding Server permissions and backend configuration.
