@@ -21,6 +21,9 @@
 # easy: browser/API NodePorts; strict: internal Services and NetworkPolicy.
 # Explicit component parameters always override these mode defaults.
 mode: easy
+# Shared PD metadata namespace used by Server and Store Schema reads.
+# Preserve the existing Server value on upgrades; this is not a migration switch.
+metadataCluster: hg-test
 global:
   imageRegistry: ""
 persistence:
