@@ -29,6 +29,15 @@
 {{- if not (hasKey .Values "vermeer") -}}
 {{- $_ := set .Values "vermeer" (dict "enabled" false "service" dict) -}}
 {{- end -}}
+{{/* --reuse-values can combine an old release with only vermeer.enabled=true.
+Fail before dereferencing missing blocks; keep values.yaml the sole defaults source. */}}
+{{- if .Values.vermeer.enabled -}}
+{{- range $key := list "mode" "image" "auth" "hugegraphCredentials" "master" "worker" "probes" "terminationGracePeriodSeconds" "podLabels" "podAnnotations" -}}
+{{- if not (hasKey $.Values.vermeer $key) -}}
+{{- fail (printf "vermeer is missing new chart defaults (%s): legacy --reuse-values does not import newly added settings. Export and review existing effective values with helm get values --all -o yaml, then upgrade with -f existing-values.yaml --set vermeer.enabled=true without --reuse-values so Helm merges the new defaults" $key) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
 {{- $strict := eq (.Values.mode | default "easy") "strict" -}}
 {{- $serviceType := ternary "ClusterIP" "NodePort" (or $strict $legacy) -}}
 {{- range $comp := list "server" "hubble" "seatunnel" "vermeer" -}}
