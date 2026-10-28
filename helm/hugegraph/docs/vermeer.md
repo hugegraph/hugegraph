@@ -2,7 +2,7 @@
 
 Vermeer is optional and disabled by default, including with `values-single.yaml`
 and `values-cluster.yaml`. Enabling it deploys the native Master/Worker engine,
-configures Hubble automatically, and keeps its authenticated native UI/API private.
+configures Hubble automatically, and provides its authenticated native UI/API.
 For normal use, enable Vermeer and sign in to Hubble with the existing HugeGraph
 administrator account. Native administration is optional.
 It needs no Computer Operator, CRD, etcd or external coordination service.
@@ -107,15 +107,26 @@ Setting `hubble.enabled=false` keeps Vermeer available through its native entry.
 
 ## Optional native administration
 
-Vermeer HTTP/UI is a private ClusterIP Service in both easy and strict mode.
-Use Hubble for graph computation. When native administration is needed, forward
-its Master HTTP listener to your local machine in a separate terminal:
+Use Hubble for graph computation. For native administration, the Master HTTP
+Service defaults to NodePort in easy mode and ClusterIP in strict mode. In easy
+mode, find the assigned HTTP NodePort and a reachable node IP:
+
+```bash
+kubectl -n hugegraph get svc hugegraph-vermeer-master \
+  -o jsonpath='{.spec.ports[?(@.name=="http")].nodePort}{"\n"}'
+kubectl get nodes -o wide
+# Open http://<reachable-node-ip>:<nodePort>/
+```
+
+For strict mode's default ClusterIP entry, or when node access is unavailable,
+forward the Master HTTP listener in a separate terminal:
 
 ```bash
 kubectl -n hugegraph port-forward svc/hugegraph-vermeer-master 6688:6688
 ```
 
-Open <http://127.0.0.1:6688/>. Read the separate Vermeer administrator password:
+With port forwarding active, open <http://127.0.0.1:6688/>. Either entry uses the
+same separate Vermeer administrator password:
 
 ```bash
 kubectl -n hugegraph get secret hugegraph-vermeer-admin \
@@ -137,10 +148,18 @@ password and auto-generation. Read the actual Secret/key when overriding them.
 Changing an external administrator Secret requires restarting Master; this
 password rotation does not change Hubble's internal service token.
 
-Authentication stays enabled in both modes. Native Services do not support
-NodePort, LoadBalancer, fixed node ports or external IPs. NetworkPolicy limits
-Master HTTP and internal RPC to the required release callers even in easy mode;
-strict additionally controls egress. These policies need a supporting CNI.
+Authentication stays enabled in both modes. `vermeer.service.type` accepts
+`ClusterIP` or `NodePort`; null inherits the mode. Existing explicit `ClusterIP`
+values stay private on upgrade. Set the type to null or `NodePort` when choosing
+easy mode's node entry. `vermeer.service.nodePort` fixes the HTTP NodePort;
+omitting it or setting `0` lets Kubernetes allocate one. Native LoadBalancer,
+Ingress and external IP entries are not provided.
+
+NetworkPolicy admits outside callers only to the Master HTTP listener when its
+Service uses NodePort, including an explicit NodePort in strict mode. With
+ClusterIP, HTTP remains limited to required release callers. Internal RPC and
+Worker HTTP stay restricted in both modes; strict additionally controls egress.
+These policies need a supporting CNI.
 Additional native ingress uses explicit internal Pod/namespace selectors under
 `networkPolicy.vermeer.extraIngress`; unrestricted and IP-based ingress rules
 are rejected. External data destinations can use `extraEgress` when needed.

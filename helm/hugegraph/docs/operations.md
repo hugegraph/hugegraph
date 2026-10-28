@@ -326,8 +326,14 @@ prefix on Server and Store before changing Schema or retrying data imports.
 ## Networking and Hubble
 
 Easy mode leaves full base-service NetworkPolicy isolation off; strict enables
-it. Explicit base-service settings win. SeaTunnel and Vermeer always use private
-ClusterIP Services, authentication and native HTTP/RPC ingress restrictions,
+it. Explicit base-service settings win. SeaTunnel and Vermeer HTTP Services
+inherit NodePort in easy mode and ClusterIP in strict mode when their
+`service.type` is null. Existing explicit ClusterIP values remain private on
+upgrade; clear the type to null or choose NodePort to use a node entry.
+Both engines always authenticate HTTP. Their native NetworkPolicies allow
+outside callers to HTTP only when the resolved Service type is NodePort,
+including an explicit NodePort in strict mode. Internal Vermeer RPC/Worker HTTP
+and SeaTunnel member/CLI port 5801 stay restricted to required release callers,
 including with `networkPolicy.enabled=false`. Their extra ingress rules require
 explicit internal Pod/namespace selectors; IP blocks and allow-all forms are
 rejected. Strict additionally restricts engine egress. Actual isolation needs
@@ -342,8 +348,11 @@ exposed base components with no outside ingress rule. Empty outside rule lists
 can block clients; `{}` is an allow-all form for base-service rules only.
 Consider NodePort source NAT when selecting source ranges. For Hubble discovery
 via an external `server.advertiseUrl`, also configure Hubble's `extraEgress`.
-Native engine administration uses authorized port-forwarding and its separate
+Native engine administration uses a reachable node IP and assigned HTTP NodePort,
+or authorized port-forwarding for a ClusterIP entry, with its separate
 administrator password (newly generated: 6 characters in `easy`, 16 in `strict`); Hubble service tokens stay automatic.
+Only ClusterIP and NodePort are supported for native HTTP; the chart does not
+add native LoadBalancer or Ingress entries.
 
 Client Services accept native Kubernetes traffic and load-balancer fields under
 `pd.service`, `server.service` and `hubble.service`. LoadBalancer-specific fields
