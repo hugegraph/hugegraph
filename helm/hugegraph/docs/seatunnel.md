@@ -4,7 +4,7 @@ This chart adapts the [SeaTunnel 3.0.0 native hybrid Kubernetes deployment](http
 for HugeGraph resource names, DNS, images, configuration and replica counts.
 It does not introduce a subchart, operator, CRD or derived SeaTunnel image.
 
-SeaTunnel is disabled by default. When enabled, a persistent hybrid member both
+SeaTunnel is disabled by default. When enabled, a long-running hybrid member both
 schedules and executes jobs. Cluster mode scales the same StatefulSet to multiple
 members; it is not a `local-mode` Pod or Job that exits after one submission.
 
@@ -12,7 +12,7 @@ members; it is not a `local-mode` Pod or Job that exits after one submission.
 |---|---|
 | `values-single.yaml` | HugeGraph 1 PD + 1 Store + 1 Server using HStore |
 | `values-cluster.yaml` | HugeGraph's own multi-replica topology |
-| `seatunnel.mode: standalone` | One persistent hybrid member |
+| `seatunnel.mode: standalone` | One long-running hybrid member |
 | `seatunnel.mode: cluster`, `replicas: 2` | Two hybrid members; at least two are required |
 
 Choose HugeGraph and SeaTunnel topologies independently. Top-level `mode: easy/strict`
@@ -261,7 +261,7 @@ kubectl -n hugegraph exec sts/hugegraph-seatunnel -- \
   --config /opt/seatunnel/config/hugegraph-source.conf
 ```
 
-`--master cluster` submits to the persistent engine, including standalone mode.
+`--master cluster` submits to the long-running engine, including standalone mode.
 On an initially empty graph, expect a finished Sink with ten rows read/written,
 and a Source with ten rows read into the executing member's log. Inspect UI
 status/DAG, all member logs and the actual graph data:

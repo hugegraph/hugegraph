@@ -9,6 +9,8 @@ are not supported.
 Provide a default StorageClass or prepare matching PVs. The default installation
 needs **7 volumes**: 3 × 10 GiB for PD, 3 × 50 GiB for Store, and 1 × 1 GiB
 for Hubble. The chart creates PVCs; it does not create a storage provisioner.
+SeaTunnel and Vermeer are **disabled by default**, including in the single-node
+and cluster presets. Optional components add resources only when enabled.
 
 ## Install a published Chart
 
@@ -81,9 +83,18 @@ helm install hugegraph ./helm/hugegraph -n hugegraph --create-namespace \
 
 Inactive credential values may remain in the values file when auth is disabled.
 
-### Optional SeaTunnel
+### Optional components
 
-Set `seatunnel.enabled=true` to start one persistent hybrid member alongside HugeGraph;
+| Component | Default | Enable when needed |
+|---|---|---|
+| Hubble | Enabled | `hubble.enabled=false` selects API-only deployment |
+| SeaTunnel | Disabled | `seatunnel.enabled=true` adds data import/export and its native UI |
+| Vermeer | Disabled | `vermeer.enabled=true` adds graph computation, Hubble integration and its native UI |
+
+<details>
+<summary>SeaTunnel: optional import, export and migration</summary>
+
+Set `seatunnel.enabled=true` to start one long-running hybrid member alongside HugeGraph;
 set `seatunnel.mode=cluster` to use multiple members of the same native StatefulSet
 (two by default). SeaTunnel is disabled by default and its topology is independent
 of the HugeGraph single-/multi-node presets. Both modes include the engine's task UI.
@@ -103,6 +114,30 @@ whose generated Secret is retained and reused during online upgrades. Container
 security and scheduling options follow the other components; see the
 [SeaTunnel deployment guide](docs/seatunnel.md) for configuration and limits.
 
+</details>
+
+<details>
+<summary>Vermeer: optional graph computation with Hubble</summary>
+
+Enable Vermeer with `--set vermeer.enabled=true`. The default
+`vermeer.mode=standalone` runs one Master and one Worker as two containers in
+one Pod. Set `vermeer.mode=cluster` for one Master Pod and multiple Worker Pods
+(`vermeer.worker.replicas=3` by default). Both HugeGraph presets leave Vermeer
+disabled; choose the compute topology explicitly when enabling it.
+
+With Hubble enabled in its default PD mode, the chart configures the internal
+Master URL and service token automatically. Sign in to Hubble as the HugeGraph
+administrator, select an HStore graph, then load it and run an algorithm. The
+existing flow includes reload, task status/cancellation, paginated results and
+unload; it does not write results back into HugeGraph properties.
+
+The native Vermeer UI/API is also available: easy mode uses NodePort, strict
+mode uses ClusterIP. Its token login is separate from Hubble login. Internal
+gRPC remains private. See the [Vermeer deployment guide](docs/vermeer.md) for
+matching-image requirements, installation, access, credentials and recovery.
+
+</details>
+
 ### Internal image registry
 
 Mirror the four component images (`hugegraph/pd`, `hugegraph/store`,
@@ -118,6 +153,10 @@ prefix. Set `imagePullSecrets` if the registry needs credentials.
 Store's wait init container and Helm test reuse the Store and Server images,
 which already contain `curl`; no separate curl image is needed by default.
 See the [complete registry example](examples/values-internal-registry.yaml).
+When enabled, also mirror `apache/seatunnel` and/or `hugegraph/vermeer` at the
+configured versions. Vermeer token initialization reuses its own image.
+Hubble and Vermeer images must include the corresponding integration features;
+a moving `latest` tag alone does not establish compatibility.
 
 ### Storage
 
@@ -139,6 +178,9 @@ For a **new temporary installation**, add `--set persistence.enabled=false`
 to use `emptyDir`. Component storage flags override that global setting.
 PVC failures never cause an automatic fallback. Do not switch initialized
 PD/Store data between persistent and temporary storage.
+Vermeer adds separate Master and Worker data claims: two in standalone mode,
+or one Master claim plus one per Worker in cluster mode. Its storage flags
+inherit `persistence.enabled`; see [Vermeer storage](docs/vermeer.md#storage-and-recovery).
 
 ### Server service identity
 
@@ -182,7 +224,12 @@ still need verification with a running Linux cluster. See the
 
 ## Modes and entry points
 
-`mode: easy` is the default. `mode: strict` changes Server/Hubble to ClusterIP
+`values-single.yaml` and `values-cluster.yaml` select the HugeGraph topology.
+The independent `vermeer.mode` and `seatunnel.mode` select optional engine
+topologies; none of these presets enables an optional engine automatically.
+
+`mode: easy` is the default. `mode: strict` changes Server/Hubble and enabled
+optional HTTP entries to ClusterIP
 and enables NetworkPolicy; authentication, Hubble and persistence stay enabled.
 Use `--set mode=strict` or `-f helm/hugegraph/values-strict.yaml`.
 
@@ -221,6 +268,9 @@ with `-f`; see [values.yaml](values.yaml) for all fields and their comments.
 | `mode` | Entry and policy defaults | `easy` |
 | `pd.replicas` / `store.replicas` / `server.replicas` | Component replicas | `3` / `3` / `3` |
 | `hubble.enabled` | Install the UI | `true` |
+| `seatunnel.enabled` / `vermeer.enabled` | Install optional data/computation engines | `false` / `false` |
+| `vermeer.mode` | One Pod with two containers, or separate Master/Worker Pods | `standalone` |
+| `vermeer.worker.replicas` | Worker Pods in Vermeer cluster mode | `3` |
 | `server.auth.enabled` | Server authentication | `true` |
 | `server.service.type` / `hubble.service.type` | Explicit entry type; null inherits mode | resolved `NodePort` |
 | `pd.service.type` | PD client entry type | `ClusterIP` |

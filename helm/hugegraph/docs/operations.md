@@ -12,13 +12,13 @@ new version for upgrades. See [version selection](distribution.md#choose-a-versi
 
 ## Credentials
 
-Normal Helm installations generate/reuse three kept Secrets:
+The base installation generates/reuses three kept Secrets:
 
 | Default Secret | Data key | Readers |
 |---|---|---|
-| `<release>-admin` | `password` | Server, Helm test |
+| `<release>-admin` | `password` | Server, Helm test; enabled engines' deployment access |
 | `<release>-auth-token` | `token_secret` | All Server replicas |
-| `<release>-pd-auth` | `secret-key` | PD, Server storage wait, Hubble |
+| `<release>-pd-auth` | `secret-key` | PD, Server storage wait, Hubble; enabled Vermeer |
 
 `existingSecret` takes priority over an inline value, which takes priority over
 auto-generation. Existing Secrets are not managed by the chart. Override their
@@ -28,6 +28,14 @@ The admin password must be printable ASCII without spaces, colons or
 backslashes. The PD REST secret must be printable ASCII without surrounding
 whitespace or backslashes. JWT signing keys must be at least 32 bytes.
 These constraints match the current image's authentication/property encoding.
+
+Optional SeaTunnel and Vermeer are disabled in every HugeGraph preset. When
+enabled, they add independent entry credentials: SeaTunnel's native HTTP Basic
+account and Vermeer's token-signing factor. These do not replace Server or PD
+credentials. Their Secret reuse, external-source and rotation procedures are in
+the [SeaTunnel guide](seatunnel.md#seatunnel-entry-authentication) and
+[Vermeer guide](vermeer.md#deployment-credentials-and-gitops). Account password
+changes must also refresh dependent engines' deployment credentials.
 
 The admin Secret supplies the **initial** password when the account is created.
 To rotate an existing account, first call the Server API with the old credential:
@@ -140,6 +148,11 @@ Export and explicitly pin the existing storage flags before a GitOps sync; a
 successful offline render does not establish a safe migration.
 
 Local PVs bind to nodes and cannot move their files automatically on node loss.
+The seven-volume base example does not allocate optional Vermeer data volumes.
+Vermeer uses separate Master/Worker claims even when both containers share one
+standalone Pod; see [storage and recovery](vermeer.md#storage-and-recovery).
+Its persisted metadata does not provide transparent task or in-memory result
+recovery. SeaTunnel's checkpoint directory is temporary and adds no PVCs.
 See [all seven local PVs](../examples/README.md#storage) for directory, capacity,
 claim binding and scheduling requirements. `Retain` preserves files on claim
 deletion; reclamation/recovery needs explicit inspection.
