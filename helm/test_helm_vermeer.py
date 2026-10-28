@@ -467,6 +467,20 @@ class VermeerChartTest(unittest.TestCase):
                 self.assertIn(probe, container)
                 self.assertNotIn("workers/availability", yaml.safe_dump(container[probe]))
 
+    def test_relative_algorithm_outputs_are_inside_each_roles_writable_data_volume(self):
+        for mode in ("standalone", "cluster"):
+            with self.subTest(mode=mode):
+                documents = self.documents({"mode": mode})
+                for workload in self.workloads(documents):
+                    for container in pod(workload)["spec"]["containers"]:
+                        mount, = [entry for entry in container["volumeMounts"]
+                                  if entry["mountPath"] == "/go/bin/vermeer_data"]
+                        self.assertFalse(mount.get("readOnly", False))
+                        directory = Path(container["workingDir"])
+                        self.assertTrue(directory == Path(mount["mountPath"]) or
+                                        Path(mount["mountPath"]) in directory.parents,
+                                        "Relative Hubble algorithm output must use the role data volume")
+
     def test_seatunnel_can_be_enabled_independently_without_changing_engine_identity(self):
         documents = self.documents({}, seatunnel={"enabled": True, "auth": {"password": "seatunnel-test-password"}})
         self.assertEqual(1, len(resources(documents, "StatefulSet", "seatunnel")))
