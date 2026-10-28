@@ -150,7 +150,7 @@ public abstract class AbstractGrpcClient {
                 ManagedChannel[] currentChannels = channels;
                 HgPair<ManagedChannel, AbstractAsyncStub>[] value =
                         new HgPair[concurrency];
-                IntStream.range(0, concurrency).parallel().forEach(i -> {
+                IntStream.range(0, concurrency).forEach(i -> {
                     ManagedChannel channel = currentChannels[i];
                     AbstractAsyncStub stub = getAsyncStub(channel);
                     value[i] = new HgPair<>(channel, stub);

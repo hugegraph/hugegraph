@@ -20,7 +20,12 @@ package org.apache.hugegraph.unit.core;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.UUID;
+import java.util.concurrent.ForkJoinPool;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import javax.script.ScriptException;
@@ -51,6 +56,50 @@ public class HstoreChannelSecurityTest {
             fixture.engine.put("access", fixture.access);
             fixture.enableSandbox();
             Assert.assertEquals(Boolean.TRUE, fixture.engine.eval("access.getStub() != null"));
+        }
+    }
+
+    @Test
+    public void testColdStreamStubCanBeCreatedAndRecreatedFromGremlin() throws Exception {
+        assumeHstoreAvailable();
+        // Isolate the common pool: idle workers from another test can hide thread creation.
+        Path output = Files.createTempFile("hstore-stream-stub-", ".log");
+        Process child = new ProcessBuilder(
+                Path.of(System.getProperty("java.home"), "bin", "java").toString(),
+                "-Djava.util.concurrent.ForkJoinPool.common.parallelism=2",
+                "-cp", System.getProperty("java.class.path"),
+                ColdStreamStub.class.getName()).redirectErrorStream(true)
+                                         .redirectOutput(output.toFile()).start();
+        try {
+            Assert.assertTrue("Stream stub process timed out", child.waitFor(30, TimeUnit.SECONDS));
+            Assert.assertEquals(Files.readString(output, StandardCharsets.UTF_8), 0, child.exitValue());
+        } finally {
+            if (child.isAlive()) {
+                child.destroyForcibly();
+            }
+            Files.deleteIfExists(output);
+        }
+    }
+
+    public static final class ColdStreamStub {
+
+        public static void main(String[] args) throws Exception {
+            try (Fixture fixture = new Fixture(true)) {
+                Assert.assertEquals("The common pool must start cold", 0,
+                                    ForkJoinPool.commonPool().getPoolSize());
+                fixture.engine.put("access", fixture.access);
+                fixture.enableSandbox();
+                Object first = fixture.engine.eval("access.getStub()");
+                Assert.assertNotNull(first);
+                Assert.assertNotNull(fixture.engine.eval("access.getStub()"));
+                Class.forName(CLIENT).getMethod("closeChannel", String.class)
+                     .invoke(null, fixture.target);
+                Object rebuilt = fixture.engine.eval("access.getStub()");
+                Assert.assertNotNull(rebuilt);
+                Assert.assertNotSame(first, rebuilt);
+                Assert.assertEquals("Stub construction must not start common-pool workers", 0,
+                                    ForkJoinPool.commonPool().getPoolSize());
+            }
         }
     }
 
@@ -123,13 +172,18 @@ public class HstoreChannelSecurityTest {
         private final Access access;
 
         private Fixture() throws Exception {
+            this(false);
+        }
+
+        private Fixture(boolean stream) throws Exception {
             // PD/framework bootstrap initializes the shared gRPC and generated stub classes
             // before Server accepts Gremlin. No Store pool or RPC is created by this setup.
             io.grpc.ManagedChannel bootstrap = io.grpc.ManagedChannelBuilder
                     .forTarget("127.0.0.1:18498").usePlaintext().build();
-            io.grpc.stub.AbstractBlockingStub<?> bootstrapStub = (io.grpc.stub.AbstractBlockingStub<?>)
-                    Class.forName("org.apache.hugegraph.store.grpc.session.HgStoreSessionGrpc")
-                         .getMethod("newBlockingStub", io.grpc.Channel.class).invoke(null, bootstrap);
+            io.grpc.stub.AbstractStub<?> bootstrapStub = (io.grpc.stub.AbstractStub<?>)
+                    Class.forName(stream ? "org.apache.hugegraph.store.grpc.stream.HgStoreStreamGrpc" :
+                                  "org.apache.hugegraph.store.grpc.session.HgStoreSessionGrpc")
+                         .getMethod(stream ? "newStub" : "newBlockingStub", io.grpc.Channel.class).invoke(null, bootstrap);
             bootstrapStub.withDeadlineAfter(1, java.util.concurrent.TimeUnit.SECONDS)
                          .withMaxInboundMessageSize(1024).withMaxOutboundMessageSize(1024);
             bootstrap.shutdownNow();
@@ -143,11 +197,12 @@ public class HstoreChannelSecurityTest {
                     (p, method, args) -> method.getName().equals("getAddress") ? target : null);
             Object session = Proxy.newProxyInstance(sessionType.getClassLoader(), new Class<?>[]{sessionType},
                     (p, method, args) -> method.getName().equals("getStoreNode") ? node : null);
-            Class<?> clientType = Class.forName("org.apache.hugegraph.store.client.grpc.GrpcStoreSessionClient");
+            Class<?> clientType = Class.forName(stream ? "org.apache.hugegraph.store.client.grpc.GrpcStoreStreamClient" :
+                                  "org.apache.hugegraph.store.client.grpc.GrpcStoreSessionClient");
             Constructor<?> constructor = clientType.getDeclaredConstructor();
             constructor.setAccessible(true);
             Object client = constructor.newInstance();
-            Method getStub = clientType.getDeclaredMethod("getBlockingStub", sessionType);
+            Method getStub = clientType.getDeclaredMethod(stream ? "getStub" : "getBlockingStub", sessionType);
             getStub.setAccessible(true);
             this.access = new Access(client, session, getStub);
             org.apache.hugegraph.util.Log.logger(HugeSecurityManager.class);

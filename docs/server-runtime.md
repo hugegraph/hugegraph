@@ -41,8 +41,8 @@ JDK security property `networkaddress.cache.ttl` through `java.security.Security
 Trusted code outside Gremlin can still configure these settings. Sensitive system
 properties such as `user.home` remain unreadable from Gremlin.
 
-HStore constructs each target's lazy channel pool on the calling thread so custom
-channel builders retain the caller's Gremlin security context. The client publishes
+HStore constructs each target's lazy channel and stub pools on the calling thread so
+initialization retains the caller's Gremlin security context. The client publishes
 the pool after all channels are constructed. If construction throws a runtime exception
 or an error, it closes the partial pool and reports the failure; a subsequent request can retry.
 Cleanup failures are retained as suppressed exceptions, and an original error is rethrown
