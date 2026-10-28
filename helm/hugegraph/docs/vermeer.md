@@ -233,8 +233,7 @@ The Chart pins the officially published `hugegraph/vermeer:helm-2678ff91b56a`
 image to OCI index digest
 `sha256:9ef623d93e4feddc345c6ce445109c4039b029be83090d0eca97aedeba981a9e`.
 The index provides Linux `amd64` and `arm64` images built from
-[source commit 2678ff91b56a](https://github.com/hugegraph/hugegraph-computer/commit/2678ff91b56ae9501fbcdb0e1cf937144e508241)
-by the successful [official publishing run](https://github.com/hugegraph/actions/actions/runs/40639306743).
+[source commit 2678ff91b56a](https://github.com/hugegraph/hugegraph-computer/commit/2678ff91b56ae9501fbcdb0e1cf937144e508241).
 No manual image override is needed for ordinary enablement.
 
 Publishing uses the
