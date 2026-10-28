@@ -59,6 +59,8 @@ public final class GraphIdRewriter {
 
     private static final String GRAPH_KEY = "HUGEGRAPH/GRAPH_ID/";
     private static final String SLOT_KEY = "HUGEGRAPH/CID_SLOT/@GRAPH_ID@/";
+    private static final String INTERRUPTED =
+            "Conversion interrupted; discard unpublished output";
     private static final long BATCH_BYTES = 8L * 1024 * 1024;
 
     private GraphIdRewriter() {
@@ -85,6 +87,7 @@ public final class GraphIdRewriter {
         for (var entry : source.families.entrySet()) {
             try (RocksIterator iterator = source.db.newIterator(entry.getValue())) {
                 for (iterator.seekToFirst(); iterator.isValid(); iterator.next()) {
+                    checkInterrupted();
                     byte[] key = iterator.key();
                     if (key.length >= 2) {
                         occupied.add(((key[0] & 255) << 8) | (key[1] & 255));
@@ -133,6 +136,7 @@ public final class GraphIdRewriter {
             try (RocksIterator iterator = source.db.newIterator(entry.getValue())) {
                 for (iterator.seek(new byte[]{-1, -2}); iterator.isValid() &&
                      GraphIdMigrationPlan.isLegacy(iterator.key()); iterator.next()) {
+                    checkInterrupted();
                     plan.rewrite(entry.getKey(), iterator.key());
                 }
                 iterator.status();
@@ -175,9 +179,7 @@ public final class GraphIdRewriter {
                     try (RocksIterator iterator = original.db.newIterator(entry.getValue())) {
                         for (iterator.seek(new byte[]{-1, -2}); iterator.isValid() &&
                              GraphIdMigrationPlan.isLegacy(iterator.key()); iterator.next()) {
-                            if (Thread.currentThread().isInterrupted()) {
-                                throw new InterruptedException("Conversion interrupted; discard unpublished output");
-                            }
+                            checkInterrupted();
                             byte[] key = iterator.key();
                             byte[] value = iterator.value();
                             ColumnFamilyHandle family = target.families.get(entry.getKey());
@@ -190,11 +192,13 @@ public final class GraphIdRewriter {
                                 batch.clear();
                                 bytes = 0;
                                 progress.accept(converted);
+                                checkInterrupted();
                             }
                         }
                         iterator.status();
                     }
                 }
+                checkInterrupted();
                 target.db.write(writes, batch);
                 batch.clear();
                 for (var entry : plan.targets().entrySet()) {
@@ -210,11 +214,14 @@ public final class GraphIdRewriter {
             // Reopen: verify durable bytes, not only the writer's memtables.
             try (Database target = new Database(data, options, true)) {
                 long count = verify(original, target, plan);
+                checkInterrupted();
                 target.db.verifyChecksum();
+                checkInterrupted();
                 String resultDigest = digest(target);
                 if (!digest(original).equals(plan.sourceDigest())) {
                     throw new IOException("Source changed during conversion");
                 }
+                checkInterrupted();
                 Files.writeString(destination.resolve("DB_VERIFIED_NOT_CLUSTER_READY"),
                                   "source=" + plan.sourceDigest() + "\ntarget=" + resultDigest +
                                   "\nconverted=" + converted + "\nrecords=" + count + "\n",
@@ -230,6 +237,7 @@ public final class GraphIdRewriter {
         for (var entry : source.families.entrySet()) {
             try (RocksIterator iterator = source.db.newIterator(entry.getValue())) {
                 for (iterator.seekToFirst(); iterator.isValid(); iterator.next()) {
+                    checkInterrupted();
                     byte[] key = iterator.key();
                     byte[] value = iterator.value();
                     if (entry.getKey().equals("default") && startsWith(key, utf8(GRAPH_KEY))) {
@@ -252,6 +260,7 @@ public final class GraphIdRewriter {
             }
         }
         for (var mapping : plan.targets().entrySet()) {
+            checkInterrupted();
             byte[] key = utf8(GRAPH_KEY + mapping.getKey());
             byte[] value = Int64Value.of(mapping.getValue()).toByteArray();
             if (source.db.get(key) == null) {
@@ -267,6 +276,7 @@ public final class GraphIdRewriter {
         for (ColumnFamilyHandle family : target.families.values()) {
             try (RocksIterator iterator = target.db.newIterator(family)) {
                 for (iterator.seekToFirst(); iterator.isValid(); iterator.next()) {
+                    checkInterrupted();
                     if (GraphIdMigrationPlan.isLegacy(iterator.key())) {
                         throw new IOException("Legacy prefix remains in output");
                     }
@@ -290,12 +300,20 @@ public final class GraphIdRewriter {
                 if (Files.isSymbolicLink(path)) {
                     throw new IOException("Symlinks in database are not supported: " + path);
                 }
-                Path copy = target.resolve(source.relativize(path));
+                Path relative = source.relativize(path);
+                Path copy = target.resolve(relative);
                 if (Files.isDirectory(path, LinkOption.NOFOLLOW_LINKS)) {
                     Files.createDirectory(copy);
                 } else if (Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)) {
-                    // Only immutable SST files may share inodes. Never hard-link manifests/WAL/LOCK.
-                    if (path.getFileName().toString().endsWith(".sst")) {
+                    String fileName = path.getFileName().toString();
+                    // Closing any descriptor for a POSIX-locked file can release this
+                    // process' lock. Never reopen the source LOCK while SourceLock is held.
+                    if (relative.equals(Path.of("LOCK"))) {
+                        Files.createFile(copy);
+                        continue;
+                    }
+                    // Only immutable SST files may share inodes. Never hard-link manifests/WAL.
+                    if (fileName.endsWith(".sst")) {
                         try {
                             Files.createLink(copy, path);
                             continue;
@@ -314,10 +332,12 @@ public final class GraphIdRewriter {
     private static String digest(Database database) throws Exception {
         MessageDigest digest = MessageDigest.getInstance("SHA-256");
         for (var entry : database.families.entrySet()) {
+            checkInterrupted();
             digest.update((byte) 1);
             update(digest, utf8(entry.getKey()));
             try (RocksIterator iterator = database.db.newIterator(entry.getValue())) {
                 for (iterator.seekToFirst(); iterator.isValid(); iterator.next()) {
+                    checkInterrupted();
                     digest.update((byte) 2);
                     update(digest, iterator.key());
                     update(digest, iterator.value());
@@ -327,6 +347,12 @@ public final class GraphIdRewriter {
             digest.update((byte) 0);
         }
         return HexFormat.of().formatHex(digest.digest());
+    }
+
+    private static void checkInterrupted() throws InterruptedException {
+        if (Thread.currentThread().isInterrupted()) {
+            throw new InterruptedException(INTERRUPTED);
+        }
     }
 
     private static void update(MessageDigest digest, byte[] bytes) {

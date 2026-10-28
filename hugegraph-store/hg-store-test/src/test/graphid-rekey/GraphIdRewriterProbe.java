@@ -17,9 +17,12 @@
 package org.apache.hugegraph.store.upgrade;
 
 import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
+import java.nio.channels.FileLock;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -115,6 +118,48 @@ public final class GraphIdRewriterProbe {
         }
     }
 
+    private static void seedExactBatch(Path path, int rows) throws Exception {
+        Files.createDirectory(path);
+        try (Options options = new Options().setCreateIfMissing(true).setNumLevels(8);
+             ColumnFamilyOptions cf = new ColumnFamilyOptions().setNumLevels(8);
+             RocksDB db = RocksDB.open(options, path.toString());
+             ColumnFamilyHandle handle = db.createColumnFamily(
+                     new ColumnFamilyDescriptor("g+v".getBytes(StandardCharsets.UTF_8), cf))) {
+            for (int row = 0; row < rows; row++) {
+                db.put(handle, key(65534, row * 2), value(row));
+            }
+            try (FlushOptions flush = new FlushOptions().setWaitForFlush(true)) {
+                db.flush(flush, handle);
+                db.flush(flush);
+            }
+        }
+    }
+
+    private static boolean canAcquireSourceLock(Path source, Path log) {
+        try {
+            Process contender = new ProcessBuilder(
+                    Path.of(System.getProperty("java.home"), "bin", "java").toString(),
+                    "-cp", System.getProperty("java.class.path"),
+                    GraphIdRewriterProbe.class.getName(), "try-lock", source.toString())
+                    .redirectErrorStream(true).redirectOutput(log.toFile()).start();
+            if (!contender.waitFor(10, TimeUnit.SECONDS)) {
+                contender.destroyForcibly();
+                contender.waitFor(10, TimeUnit.SECONDS);
+                throw new IllegalStateException("Timed out waiting for lock contender");
+            }
+            int exit = contender.exitValue();
+            if (exit == 0) {
+                return true;
+            }
+            if (exit == 2) {
+                return false;
+            }
+            throw new IllegalStateException("Lock contender failed with exit " + exit);
+        } catch (Exception error) {
+            throw new IllegalStateException("Failed to run lock contender", error);
+        }
+    }
+
     private static Map<String, String> physical(Path path) throws Exception {
         Map<String, String> result = new TreeMap<>();
         try (var files = Files.walk(path)) {
@@ -158,6 +203,19 @@ public final class GraphIdRewriterProbe {
 
     public static void main(String[] args) throws Exception {
         RocksDB.loadLibrary();
+        if (args.length > 0 && args[0].equals("try-lock")) {
+            try (FileChannel channel = FileChannel.open(Path.of(args[1]).resolve("LOCK"),
+                                                        StandardOpenOption.WRITE);
+                 FileLock lock = channel.tryLock()) {
+                if (lock == null) {
+                    System.exit(2);
+                }
+                return;
+            } catch (Exception error) {
+                System.err.println(error);
+                System.exit(3);
+            }
+        }
         if (args.length > 0 && args[0].equals("hold")) {
             try (OpenDb db = new OpenDb(Path.of(args[1]), false)) {
                 Files.writeString(Path.of(args[2]), "locked");
@@ -207,6 +265,34 @@ public final class GraphIdRewriterProbe {
             check(Files.exists(root.resolve("interrupted/INCOMPLETE")), "Missing incomplete marker");
             check(!Files.exists(root.resolve("interrupted/DB_VERIFIED_NOT_CLUSTER_READY")), "False certificate");
             check(original.equals(physical(source)), "Interrupted conversion changed original");
+            refused(() -> GraphIdRewriter.convert(source, root.resolve("lock-protected"), cf, plan, n -> {
+                check(!canAcquireSourceLock(source, root.resolve("lock-contender.log")),
+                      "Copying the cold DB released the source lock");
+                throw new IllegalStateException("stop after lock retention check");
+            }), "stop after lock retention check");
+            check(Files.exists(root.resolve("lock-protected/INCOMPLETE")),
+                  "Lock test output lost incomplete marker");
+
+            Path exactSource = root.resolve("exact-batch-source");
+            seedExactBatch(exactSource, 256);
+            List<GraphIdMigrationPlan.Rule> exactRules = List.of(
+                    new GraphIdMigrationPlan.Rule("g+v", "01", BUSINESS));
+            GraphIdMigrationPlan exactPlan = GraphIdRewriter.plan(exactSource, cf, exactRules);
+            try {
+                GraphIdRewriter.convert(exactSource, root.resolve("exact-batch-interrupted"), cf,
+                                        exactPlan, n -> Thread.currentThread().interrupt());
+                throw new AssertionError("Interrupted final batch returned success");
+            } catch (InterruptedException expected) {
+                check(expected.getMessage().contains("Conversion interrupted"), expected.toString());
+            } finally {
+                Thread.interrupted();
+            }
+            check(Files.exists(root.resolve("exact-batch-interrupted/INCOMPLETE")),
+                  "Final-batch interruption lost incomplete marker");
+            check(!Files.exists(root.resolve(
+                          "exact-batch-interrupted/DB_VERIFIED_NOT_CLUSTER_READY")),
+                  "Final-batch interruption published a false certificate");
+
             GraphIdRewriter.convert(source, root.resolve("after-interruption"), cf, plan);
             check(original.equals(physical(source)), "Retry changed original");
             try (OpenDb changed = new OpenDb(source, false)) {
