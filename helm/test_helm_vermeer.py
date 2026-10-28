@@ -515,23 +515,58 @@ class VermeerChartTest(unittest.TestCase):
         self.assertEqual(expected, helper["image"])
         self.assertEqual("Never", helper["imagePullPolicy"])
 
-    def test_strict_network_covers_reverse_rpc_peer_rpc_and_graph_loading(self):
-        documents = self.documents({"mode": "cluster"}, mode="strict", server={"port": 8184})
+    def test_strict_network_covers_reverse_rpc_and_peer_rpc(self):
+        documents = self.documents({"mode": "cluster"}, mode="strict")
         policies = resources(documents, "NetworkPolicy")
         labels = {component: pod(workload)["metadata"]["labels"] for component in
-                  ("pd", "store", "server", "hubble", "vermeer-master", "vermeer-worker")
+                  ("hubble", "vermeer-master", "vermeer-worker")
                   for workload in resources(documents, "StatefulSet") + resources(documents, "Deployment")
                   if workload["metadata"]["labels"].get(COMPONENT) == component}
         paths = [("hubble", "vermeer-master", 6688),
                  ("vermeer-worker", "vermeer-master", 6689),
                  ("vermeer-master", "vermeer-worker", 6789),
-                 ("vermeer-worker", "vermeer-worker", 6789),
-                 ("vermeer-master", "pd", 8686), ("vermeer-worker", "pd", 8686),
-                 ("vermeer-worker", "store", 8500), ("vermeer-worker", "server", 8184)]
+                 ("vermeer-worker", "vermeer-worker", 6789)]
         for source, destination, port in paths:
             with self.subTest(source=source, destination=destination, port=port):
                 self.assertTrue(policy_allows(policies, labels[destination], labels[source], port, "ingress"))
                 self.assertTrue(policy_allows(policies, labels[source], labels[destination], port, "egress"))
+
+    def test_backend_connections_need_no_extra_rules_for_either_worker_pod_layout(self):
+        for topology in ("standalone", "cluster"):
+            for entry_mode, policy_enabled in (("easy", None), ("strict", None),
+                                               ("easy", True), ("strict", False)):
+                for ports in ((8686, 8500, 8080), (18686, 18500, 18080)):
+                    with self.subTest(topology=topology, entry_mode=entry_mode,
+                                      policy_enabled=policy_enabled, ports=ports):
+                        overrides = {"mode": entry_mode, "pd": {"ports": {"grpc": ports[0]}},
+                                     "store": {"ports": {"grpc": ports[1]}}, "server": {"port": ports[2]}}
+                        if policy_enabled is not None:
+                            overrides["networkPolicy"] = {"enabled": policy_enabled}
+                        # No component extraIngress/extraEgress is supplied.
+                        documents = self.documents({"mode": topology}, **overrides)
+                        policies = resources(documents, "NetworkPolicy")
+                        workloads = resources(documents, "StatefulSet") + resources(documents, "Deployment")
+                        labels = {workload["metadata"]["labels"][COMPONENT]: pod(workload)["metadata"]["labels"]
+                                  for workload in workloads}
+                        roles = ("vermeer-master",) if topology == "standalone" else (
+                            "vermeer-master", "vermeer-worker")
+                        isolated = entry_mode == "strict" if policy_enabled is None else policy_enabled
+                        for role in roles:
+                            for destination, port in zip(("pd", "store", "server"), ports):
+                                with self.subTest(role=role, destination=destination, port=port):
+                                    # Standalone Worker shares vermeer-master labels;
+                                    # both ends of a TCP flow must admit that source.
+                                    self.assertTrue(policy_allows(
+                                        policies, labels[role], labels[destination], port, "egress"))
+                                    self.assertTrue(policy_allows(
+                                        policies, labels[destination], labels[role], port, "ingress"))
+                                    if isolated:
+                                        outsider = {**labels[role], INSTANCE: "other-release"}
+                                        other_backend = {**labels[destination], INSTANCE: "other-release"}
+                                        self.assertFalse(policy_allows(
+                                            policies, labels[destination], outsider, port, "ingress"))
+                                        self.assertFalse(policy_allows(
+                                            policies, labels[role], other_backend, port, "egress"))
 
     def test_http_follows_service_while_rpc_stays_release_scoped_without_strict_egress(self):
         for entry_mode in ("easy", "strict"):
