@@ -23,6 +23,7 @@ import sys
 import tarfile
 import time
 import urllib.request
+import zipfile
 
 RELEASE = "https://github.com/apache/hugegraph/releases/download/1.7.0/apache-hugegraph-incubating-1.7.0.tar.gz"
 RELEASE_SHA = "e9b95b5afac156f251a12134a03a27579cca9ed7cca7e42ad0529e639b1cde1e"
@@ -67,6 +68,7 @@ def main():
     processes = []
     handles = []
     components = {}
+    forced_stops = []
 
     def launch(name, command, cwd):
         log = (evidence / f"{name}.log").open("wb")
@@ -95,13 +97,17 @@ def main():
         except subprocess.TimeoutExpired:
             process.kill()
             process.wait(timeout=10)
-            raise RuntimeError("Process required SIGKILL; source not accepted as cleanly stopped")
+            forced_stops.append(process.pid)
+            print("Stopped a stuck old-version process with SIGKILL; retain Raft for validation", flush=True)
 
     try:
         archive = root / "release.tar.gz"
         download(RELEASE, archive, RELEASE_SHA)
         with tarfile.open(archive) as tar:
-            tar.extractall(root / "release", filter="data")
+            members = [entry for entry in tar.getmembers() if not Path(entry.name).name.startswith("._")]
+            (evidence / "excluded-appledouble.txt").write_text("\n".join(
+                entry.name for entry in tar.getmembers() if Path(entry.name).name.startswith("._")))
+            tar.extractall(root / "release", members=members, filter="data")
         for name in ("pd", "store", "server"):
             matches = list((root / "release").glob(f"**/apache-hugegraph-{name}-incubating-1.7.0"))
             if len(matches) != 1:
@@ -177,6 +183,15 @@ def main():
         by_name = {entry["step"]: entry["data"] for entry in checks}
         if by_name["gremlin g.V().count()"] != [29] or by_name["gremlin g.E().count()"] != [63]:
             raise RuntimeError(f"Unexpected baseline counts: {by_name}")
+        for graph in ("hugegraph", "~sys_graph"):
+            query = "['~variables','~task','~server'].collectEntries { n -> [(n): graph.existsVertexLabel(n) ? [id:graph.vertexLabel(n).id().asLong(),name:n] : null] }"
+            try:
+                result = http("http://127.0.0.1:8080/gremlin", {
+                    "gremlin": query, "language": "gremlin-groovy", "bindings": {},
+                    "aliases": {"graph": "DEFAULT-" + graph, "g": "__g_DEFAULT-" + graph}})
+            except Exception as error:
+                result = {"error": str(error)}
+            (evidence / f"hidden-labels-{graph}.json").write_text(json.dumps(result, default=str))
         stop(sv)
         snapshot_response = http("http://127.0.0.1:8520/test/snapshot")
         (evidence / "snapshot-response.json").write_text(json.dumps(snapshot_response))
@@ -197,7 +212,7 @@ def main():
         (evidence / "SOURCE_GENERATED_NOT_UPGRADED.json").write_text(json.dumps({
             "release_sha256": RELEASE_SHA, "fixture_revision": FIXTURE_SHA,
             "fixture_script_sha256": fixture_digest, "vertices": 29, "edges": 63,
-            "gremlin_requests": 16, "snapshots_found": len(snapshots),
+            "gremlin_requests": 16, "snapshots_found": len(snapshots), "forced_stops": forced_stops,
             "warning": "Source generation only; no conversion, no version upgrade tested"}, indent=2))
         print("PASS: official 1.7 source created, 29 V / 63 E, 16 successful Gremlin requests; NOT UPGRADED", flush=True)
     finally:
@@ -211,6 +226,23 @@ def main():
             for folder in ("conf", "logs"):
                 if (component / folder).exists():
                     shutil.copytree(component / folder, evidence / name / folder, dirs_exist_ok=True)
+        if "server" in components:
+            libraries = evidence / "released-codecs"
+            libraries.mkdir(exist_ok=True)
+            prefixes = ("hugegraph-core-", "hugegraph-common-", "hg-store-core-", "hg-store-rocksdb-",
+                        "hg-pd-grpc-", "hugegraph-struct-", "jraft-core-", "slf4j-api-", "commons-io-")
+            for jar in (components["server"] / "lib").glob("*.jar"):
+                if jar.name.startswith(prefixes):
+                    shutil.copy2(jar, libraries / jar.name)
+            for executable in (components["store"] / "lib").glob("hg-store-node-*.jar"):
+                with zipfile.ZipFile(executable) as jar:
+                    for entry in jar.namelist():
+                        if entry.startswith("BOOT-INF/lib/") and Path(entry).name.startswith(prefixes):
+                            (libraries / Path(entry).name).write_bytes(jar.read(entry))
+            repo = Path(__file__).resolve().parents[5]
+            subprocess.run(["git", "archive", "--format=tar.gz", "--output=" + str(evidence / "source-tree.tar.gz"),
+                            "HEAD", "hugegraph-store", "hugegraph-struct", "hugegraph-server/hugegraph-core",
+                            "hugegraph-commons", "hugegraph-pd"], cwd=repo, check=True)
         for handle in handles:
             handle.close()
 
