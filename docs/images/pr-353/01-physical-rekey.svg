@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1500" height="880" viewBox="0 0 1500 880">
+<title>HugeGraph PR 353：隔离副本中的物理 GraphID 转换</title>
+<rect width="1500" height="880" fill="#f7f9fc"/>
+<g font-family="Noto Sans CJK SC,Microsoft YaHei,sans-serif" fill="#183049">
+<text x="60" y="60" font-size="18" fill="#357d82">APACHE HUGEGRAPH  /  PR #353  /  01</text>
+<text x="60" y="125" font-size="40" font-weight="700">不是导出重导，而是在隔离副本中转换 GraphID</text>
+<text x="60" y="170" font-size="23" fill="#576b80">只改受影响 Key 的前两字节；其余 Key 与 Value 保持原字节。</text>
+<rect x="60" y="220" width="640" height="350" rx="18" fill="white" stroke="#d5dfe9"/>
+<rect x="800" y="220" width="640" height="350" rx="18" fill="white" stroke="#b4d8d3"/>
+<text x="90" y="265" font-size="28" font-weight="700">转换前 · 源分区 DB</text>
+<text x="830" y="265" font-size="28" font-weight="700">转换后 · 隔离副本 DB</text>
+<text x="90" y="306" font-size="20" fill="#687a8d">源库只读保留，不在原库上逐批修改</text>
+<text x="830" y="306" font-size="20" fill="#687a8d">示例新 ID；实际分配会避开占用项</text>
+<rect x="90" y="340" width="125" height="58" rx="8" fill="#fff0d9"/>
+<rect x="225" y="340" width="280" height="58" rx="8" fill="#eef2f7"/>
+<rect x="515" y="340" width="150" height="58" rx="8" fill="#eef2f7"/>
+<rect x="90" y="418" width="125" height="58" rx="8" fill="#fff0d9"/>
+<rect x="225" y="418" width="280" height="58" rx="8" fill="#eef2f7"/>
+<rect x="515" y="418" width="150" height="58" rx="8" fill="#eef2f7"/>
+<rect x="830" y="340" width="125" height="58" rx="8" fill="#dff2ee"/>
+<rect x="965" y="340" width="280" height="58" rx="8" fill="#eef2f7"/>
+<rect x="1255" y="340" width="150" height="58" rx="8" fill="#eef2f7"/>
+<rect x="830" y="418" width="125" height="58" rx="8" fill="#dff2ee"/>
+<rect x="965" y="418" width="280" height="58" rx="8" fill="#eef2f7"/>
+<rect x="1255" y="418" width="150" height="58" rx="8" fill="#eef2f7"/>
+<g font-size="23" text-anchor="middle">
+<text x="152" y="378">0xFFFE</text><text x="365" y="378">图 A 的 logical key</text><text x="590" y="378">code</text>
+<text x="152" y="456">0xFFFE</text><text x="365" y="456">图 B 的 logical key</text><text x="590" y="456">code</text>
+<text x="892" y="378">0x0000</text><text x="1105" y="378">图 A 的 logical key</text><text x="1330" y="378">code</text>
+<text x="892" y="456">0x0001</text><text x="1105" y="456">图 B 的 logical key</text><text x="1330" y="456">code</text>
+</g>
+<text x="90" y="530" font-size="22">Value：原始属性、编码、时间戳等字节</text>
+<text x="830" y="530" font-size="22" fill="#247c70">Value：逐条比对，保持字节一致</text>
+<path d="M716 395 H777 M760 378 L777 395 L760 412" fill="none" stroke="#357d82" stroke-width="4"/>
+<rect x="60" y="605" width="1380" height="125" rx="16" fill="#eaf2f6"/>
+<text x="90" y="649" font-size="25" font-weight="700">批内：PUT 新 Key + DELETE 旧 Key　→　最后写 graph → ID 映射与 allocator slot</text>
+<text x="90" y="693" font-size="22">SST 可共享不可变文件；仍有扫描和写放大，但不经 Server API 重建全部顶点、边和索引。</text>
+<text x="60" y="778" font-size="21" fill="#98652b">前提：归属必须有独立证据。这里的图 A / 图 B 仅是示意，不代表工具已经自动识别真实归属。</text>
+<text x="60" y="832" font-size="18" fill="#687a8d">基线 5fea589 · 当前是 DB 级原型，不表示集群升级已完成。</text>
+</g></svg>
