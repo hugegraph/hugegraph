@@ -63,6 +63,18 @@ multiple Vermeer Workers. To enable Vermeer on an existing release, preserve its
 complete reviewed values and use `helm upgrade` with the same `vermeer` settings.
 Neither installation creates a sample graph, loads data or runs an algorithm.
 
+For a release created before Vermeer was added, `--reuse-values` cannot import
+the new component defaults. Export its effective values to a private file, review
+them, then pass the file without `--reuse-values`:
+
+```bash
+umask 077
+helm get values hugegraph -n hugegraph --all -o yaml > existing-values.yaml
+helm upgrade hugegraph ./helm/hugegraph -n hugegraph \
+  -f existing-values.yaml -f my-images.yaml --set vermeer.enabled=true \
+  --wait --timeout 20m
+```
+
 Resource names honor `fullnameOverride`. With the default release name, the
 Master StatefulSet and HTTP Service are `hugegraph-vermeer-master`; its Pod is
 `hugegraph-vermeer-master-0`. Cluster Workers use StatefulSet

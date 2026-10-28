@@ -53,7 +53,7 @@ runs:
 
   - name: Vermeer integration regression
     shell: 'bash -e {0}'
-    run: python3 -m unittest discover -s helm -p 'test_helm_vermeer.py' -v
+    run: python3 -m unittest discover -s helm -p 'test_helm_vermeer*.py' -v
 
   - name: helm unittest
     shell: 'bash -e {0}'
