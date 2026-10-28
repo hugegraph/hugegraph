@@ -33,6 +33,11 @@ spec:
     - Egress
     {{- end }}
   ingress:
+    {{- if eq .Values.seatunnel.service.type "NodePort" }}
+    # Only the authenticated HTTP entry is public; member/CLI traffic stays private.
+    - ports:
+        {{- include "hugegraph.netpol.ports" (list 8080) | nindent 8 }}
+    {{- end }}
     - from:
         {{- include "hugegraph.netpol.seatunnelPeer" . | nindent 8 }}
       ports:

@@ -557,9 +557,9 @@ seatunnel:
     tag: "3.0.0"
     pullPolicy: IfNotPresent
   service:
-    # Internal in both easy and strict modes; use Hubble or port-forward.
-    type: ClusterIP
-    # Reserved compatibility field; native engines cannot use a NodePort.
+    # Unset inherits easy: NodePort / strict: ClusterIP; explicit ClusterIP stays private.
+    type:
+    # Unset or 0 allocates a port; nonzero requires type NodePort.
     nodePort:
     annotations: {}
   auth:
@@ -631,8 +631,9 @@ vermeer:
     existingSecret: ""
     key: credentials.json
   service:
-    # Internal in both easy and strict modes; use Hubble or port-forward.
-    type: ClusterIP
+    # Unset inherits easy: NodePort / strict: ClusterIP; explicit ClusterIP stays private.
+    type:
+    # Unset or 0 allocates a port; nonzero requires type NodePort.
     nodePort:
     annotations: {}
   master:
@@ -685,14 +686,14 @@ vermeer:
       timeoutSeconds: 3
 
 # Kubernetes NetworkPolicy: mode default plus explicit per-component rules.
-# easy exposes only Server/Hubble; strict additionally isolates release egress.
-# Native engine HTTP and RPC ports always require explicit internal callers.
+# easy exposes enabled browser/API entries; strict additionally isolates release egress.
+# Native HTTP follows Service exposure; RPC/member ports remain private.
 # Enforced only when the network plugin implements NetworkPolicy (kind v0.25+,
 # k3s, Calico, Cilium); elsewhere the objects are accepted and do nothing.
-# Nothing outside the release is admitted unless it is listed in
+# For core components, nothing outside the release is admitted unless listed in
 # <component>.extraIngress as standard NetworkPolicy ingress rules: apps in
 # other namespaces, Prometheus, Vermeer, and the Ingress controller. Exposing
-# a component does not automatically add callers: configure extraIngress
+# a core component does not automatically add callers: configure extraIngress
 # and extraEgress using native Kubernetes NetworkPolicy rules.
 networkPolicy:
   # Unset inherits mode (easy: false, strict: true).

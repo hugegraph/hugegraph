@@ -170,6 +170,7 @@ authenticated API; disable `server.auth.enabled` as well for an unauthenticated
 API. Current Hubble login still needs Server auth. Strict mode defaults to internal
 Services and NetworkPolicy, but explicit parameters override defaults. With
 NetworkPolicy enabled, add ingress rules for actual base-service clients.
-SeaTunnel/Vermeer native Services always remain ClusterIP and authenticated.
-Use authorized port-forwarding for native administration; their extra ingress
-rules require explicit internal Pod/namespace selectors, not allow-all rules.
+SeaTunnel/Vermeer HTTP defaults to NodePort in easy mode and ClusterIP in strict
+mode; login stays required and peer channels stay internal. Entry commands and
+overrides are in the [SeaTunnel](../docs/seatunnel.md) and
+[Vermeer](../docs/vermeer.md#optional-native-administration) guides.

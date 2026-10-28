@@ -221,35 +221,43 @@ class SeaTunnelChartTest(unittest.TestCase):
         self.assertIn(discovery["service-dns"] + ":5801", client["network"]["cluster-members"])
         self.assertFalse(any(doc["kind"] in ("Role", "RoleBinding") for doc in engine_resources(documents)))
 
-    def test_http_entry_remains_internal_and_preserves_annotations(self):
+    def test_only_http_entry_follows_mode_and_preserves_annotations(self):
         for mode in ("easy", "strict"):
             with self.subTest(mode=mode):
                 documents = self.documents({}, mode=mode)
                 for service in engine_resources(documents, "Service"):
-                    self.assertEqual("ClusterIP", service["spec"].get("type", "ClusterIP"))
+                    entry = service["spec"].get("clusterIP") != "None"
+                    expected = "NodePort" if entry and mode == "easy" else "ClusterIP"
+                    self.assertEqual(expected, service["spec"].get("type", "ClusterIP"))
                     self.assertNotIn("externalIPs", service["spec"])
                     self.assertFalse(any("nodePort" in port for port in service["spec"]["ports"]))
-        for mode in ("easy", "strict"):
-            service = {"type": "ClusterIP", "annotations": {"internal.example.com/owner": "imports"}}
+        for mode, service_type, node_port in (("easy", "ClusterIP", None), ("strict", "NodePort", 8808)):
+            service = {"type": service_type, "nodePort": node_port,
+                       "annotations": {"internal.example.com/owner": "imports"}}
             with self.subTest(mode=mode):
                 documents = self.documents({"service": service}, mode=mode)
                 headless, = [doc for doc in engine_resources(documents, "Service")
                              if doc["spec"].get("clusterIP") == "None"]
                 api, = [doc for doc in engine_resources(documents, "Service") if doc is not headless]
-                self.assertEqual("ClusterIP", api["spec"]["type"])
+                self.assertEqual(service_type, api["spec"]["type"])
                 self.assertEqual("imports", api["metadata"]["annotations"]["internal.example.com/owner"])
-                self.assertNotIn("nodePort", api["spec"]["ports"][0])
+                self.assertEqual(node_port, api["spec"]["ports"][0].get("nodePort"))
                 self.assertNotIn("nodePort", headless["spec"]["ports"][0])
-        for service in ({"type": "NodePort"}, {"type": "LoadBalancer"}, {"nodePort": 0},
+                policy, = engine_resources(documents, "NetworkPolicy")
+                self.assertEqual(service_type == "NodePort", ingress_allows(policy["spec"], {}, 8080))
+        for service in ({"type": "ExternalName"}, {"type": "LoadBalancer"}, {"nodePort": -1},
+                        {"nodePort": 65536},
                         {"type": "ClusterIP", "nodePort": 31081}, {"externalIPs": ["192.0.2.10"]}):
             with self.subTest(service=service):
                 self.assertNotEqual(0, self.render({"service": service}).returncode)
 
-    def test_legacy_null_service_fields_keep_the_native_entry_internal(self):
-        documents = self.documents({"service": {"type": None, "nodePort": None}})
-        for service in engine_resources(documents, "Service"):
-            self.assertEqual("ClusterIP", service["spec"].get("type", "ClusterIP"))
-            self.assertFalse(any("nodePort" in port for port in service["spec"]["ports"]))
+    def test_null_service_fields_inherit_easy_with_automatic_nodeport(self):
+        for node_port in (None, 0):
+            documents = self.documents({"service": {"type": None, "nodePort": node_port}})
+            for service in engine_resources(documents, "Service"):
+                self.assertEqual("ClusterIP" if service["spec"].get("clusterIP") == "None" else "NodePort",
+                                 service["spec"].get("type", "ClusterIP"))
+                self.assertFalse(any("nodePort" in port for port in service["spec"]["ports"]))
 
     def test_local_graph_defaults_follow_rendered_server_and_admin_secret(self):
         documents = self.documents({}, namespace="graphs", release="fixture-" + "r" * 40,
@@ -439,7 +447,7 @@ class SeaTunnelChartTest(unittest.TestCase):
         dns = [port for rule in engine["egress"] if not rule.get("to") for port in rule["ports"]]
         self.assertTrue({("UDP", 53), ("TCP", 53)} <= {(p["protocol"], p["port"]) for p in dns})
 
-    def test_http_and_member_ingress_remain_isolated_without_full_network_policy(self):
+    def test_http_follows_service_while_member_ingress_stays_isolated(self):
         for mode in ("easy", "strict"):
             with self.subTest(mode=mode):
                 documents = self.documents({}, mode=mode, networkPolicy={"enabled": False})
@@ -459,8 +467,8 @@ class SeaTunnelChartTest(unittest.TestCase):
                 self.assertFalse(matches(selector, {**labels, "app.kubernetes.io/component": "server"}))
                 self.assertFalse(matches(selector, {**labels, "app.kubernetes.io/instance": "other"}))
                 open_rules = [rule for rule in spec["ingress"] if not rule.get("from")]
-                self.assertEqual([], open_rules)
-                self.assertFalse(any("ipBlock" in peer for rule in spec["ingress"] for peer in rule["from"]))
+                self.assertEqual([{"ports": [{"protocol": "TCP", "port": 8080}]}] if mode == "easy" else [], open_rules)
+                self.assertFalse(any("ipBlock" in peer for rule in spec["ingress"] for peer in rule.get("from", [])))
                 for component in ("seatunnel", "hubble", "test"):
                     peer = {**labels, "app.kubernetes.io/component": component}
                     self.assertTrue(ingress_allows(spec, peer, 8080))
@@ -468,7 +476,7 @@ class SeaTunnelChartTest(unittest.TestCase):
                 for peer in ({**labels, "app.kubernetes.io/component": "server"},
                              {**labels, "app.kubernetes.io/instance": "other"}):
                     for port in (8080, 5801):
-                        self.assertFalse(ingress_allows(spec, peer, port))
+                        self.assertEqual(mode == "easy" and port == 8080, ingress_allows(spec, peer, port))
 
     def test_native_ingress_extensions_require_explicit_internal_pod_selectors(self):
         for rule in ({}, {"ports": [{"port": 8080}]}, {"from": []}, {"from": [{}]},

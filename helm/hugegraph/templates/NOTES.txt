@@ -31,6 +31,10 @@ limitations under the License.
 {{- if $vermeerEnabled }}
   Vermeer  {{ .Values.vermeer.mode }} mode (1 Master, {{ if eq .Values.vermeer.mode "standalone" }}1{{ else }}{{ .Values.vermeer.worker.replicas }}{{ end }} Worker{{ if eq .Values.vermeer.mode "cluster" }}(s){{ end }})
 {{- end }}
+{{- if or $vermeerEnabled (.Values.seatunnel | default dict).enabled }}
+Service type controls access; standalone/cluster controls engine topology.
+Node addresses: kubectl get nodes -o wide
+{{- end }}
 {{- $inheritedEntries := list }}
 {{- range $component := list "server" "hubble" }}
 {{- $cfg := get $.Values $component }}
@@ -72,8 +76,10 @@ Access:
 
   Vermeer:
     In-cluster Master HTTP: http://{{ $vName }}.{{ .Release.Namespace }}.svc:{{ .Values.vermeer.master.httpPort }}
-    The authenticated UI/API stays on an internal ClusterIP Service in every mode.
-    Open a local connection only when needed:
+{{- if eq .Values.vermeer.service.type "NodePort" }}
+    NodePort: kubectl get svc -n {{ .Release.Namespace }} {{ $vName }} -o jsonpath='{.spec.ports[?(@.name=="http")].nodePort}{"\n"}'
+    Native UI/API: http://<reachable-node-ip>:<nodePort>/
+{{- end }}
     Port-forward: kubectl port-forward -n {{ .Release.Namespace }} svc/{{ $vName }} {{ .Values.vermeer.master.httpPort }}:{{ .Values.vermeer.master.httpPort }}
     Local native UI/API: http://127.0.0.1:{{ .Values.vermeer.master.httpPort }}/
     Read the native management password into a local variable:
@@ -115,8 +121,10 @@ Access:
   SeaTunnel:
 {{- $stName := include "hugegraph.seatunnel.name" . }}
     In-cluster API: http://{{ $stName }}.{{ .Release.Namespace }}.svc:8080
-    The authenticated UI/API stays on an internal ClusterIP Service in every mode.
-    Open a local connection only when needed:
+{{- if eq .Values.seatunnel.service.type "NodePort" }}
+    NodePort: kubectl get svc -n {{ .Release.Namespace }} {{ $stName }} -o jsonpath='{.spec.ports[?(@.name=="http")].nodePort}{"\n"}'
+    Native UI: http://<reachable-node-ip>:<nodePort>/#/overview
+{{- end }}
       kubectl port-forward -n {{ .Release.Namespace }} svc/{{ $stName }} 8081:8080
     Local UI: http://127.0.0.1:8081/#/overview
     Local API: http://127.0.0.1:8081

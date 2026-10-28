@@ -98,13 +98,11 @@ Set `seatunnel.enabled=true` to start one long-running hybrid member alongside H
 set `seatunnel.mode=cluster` to use multiple members of the same native StatefulSet
 (two by default). SeaTunnel is disabled by default and its topology is independent
 of the HugeGraph single-/multi-node presets. Both modes include the engine's task UI.
-The native HTTP Service remains ClusterIP in both easy and strict mode.
-Use an authorized port-forward when native administration is needed.
+Native HTTP defaults to NodePort in easy mode and ClusterIP in strict mode.
 
-HTTP and member/CLI port 5801 are restricted to necessary same-release callers
-in both modes, including when the chart-wide policy flag is disabled. Strict
-additionally limits egress. Actual isolation needs a supporting CNI and trusted
-namespace RBAC.
+Only authenticated HTTP is exposed through NodePort; member/CLI port 5801 stays
+restricted to same-release callers in both modes. Strict additionally limits
+egress. Actual isolation needs a supporting CNI and trusted namespace RBAC.
 
 The chart injects the same-release Server address, GraphSpace and administrator
 Secret references into the mounted Source/Sink examples. Create the target graph
@@ -132,10 +130,9 @@ administrator, select an HStore graph, then load it and run an algorithm. The
 existing flow includes reload, task status/cancellation, paginated results and
 unload; it does not write results back into HugeGraph properties.
 
-Native Vermeer UI/API stays private behind ClusterIP in both modes. Optional
-administration uses port-forward and a separate generated password: 6 characters in `easy`, 16 in `strict`;
-Hubble needs no manual token configuration. Both engines always authenticate
-access, and their native HTTP/RPC policies allow only required internal callers.
+Native Vermeer UI/API uses NodePort in easy mode and ClusterIP in strict mode,
+with a separate generated password: 6 characters in `easy`, 16 in `strict`.
+Hubble needs no manual token configuration. Internal RPC stays private.
 See the [Vermeer deployment guide](docs/vermeer.md) for administration and recovery.
 
 </details>
@@ -240,15 +237,14 @@ still need verification with a running Linux cluster. See the
 The independent `vermeer.mode` and `seatunnel.mode` select optional engine
 topologies; none of these presets enables an optional engine automatically.
 
-`mode: easy` is the default. `mode: strict` changes Server/Hubble to ClusterIP
+`mode: easy` defaults HTTP entries to NodePort. `mode: strict` defaults them to ClusterIP
 and enables full NetworkPolicy isolation; authentication, Hubble and persistence stay enabled.
 Use `--set mode=strict` or `-f helm/hugegraph/values-strict.yaml`.
 
 **Explicit component value > global value > mode default.** An explicit `false`
 is preserved; null component values inherit. The global settings are
-`persistence.enabled` and `global.imageRegistry`. SeaTunnel and Vermeer native
-Services are always ClusterIP and authenticated;
-their HTTP/RPC ingress stays restricted in both modes. No mode requires HTTPS.
+`persistence.enabled` and `global.imageRegistry`. SeaTunnel/Vermeer HTTP stays
+authenticated and peer channels remain internal. No mode requires HTTPS.
 
 Server/Hubble entry choices:
 
@@ -263,7 +259,16 @@ ClusterIP is an internal virtual service address, not a node IP. An ordinary
 laptop usually cannot reach it directly. With default `externalTrafficPolicy:
 Cluster`, NodePort can forward through a node that does not host the target Pod.
 
-To fix a NodePort, set `server.service.nodePort` or `hubble.service.nodePort`.
+Native HTTP supports only ClusterIP/NodePort. A null `service.type` inherits the
+mode; existing explicit ClusterIP values stay private. The ClusterIP fallback
+applies only when the effective merged values lack `mode`. An upgrade using new
+chart defaults can instead inherit `mode: easy` and NodePort. To keep native HTTP
+private during upgrades, explicitly set `seatunnel.service.type` and
+`vermeer.service.type` to `ClusterIP`. Entry commands are in the
+[SeaTunnel](docs/seatunnel.md) and
+[Vermeer](docs/vermeer.md#optional-native-administration) guides.
+
+To fix a NodePort, set the component's `service.nodePort`.
 Omission or `0` allocates automatically. Kubernetes validates the actual cluster
 range; the chart does not force `30000–32767`.
 
@@ -288,8 +293,9 @@ with `-f`; see [values.yaml](values.yaml) for all fields and their comments.
 | `vermeer.worker.replicas` | Worker Pods in Vermeer cluster mode | `3` |
 | `server.auth.enabled` | Server authentication | `true` |
 | `server.service.type` / `hubble.service.type` | Explicit entry type; null inherits mode | resolved `NodePort` |
+| `seatunnel.service.type` / `vermeer.service.type` | Optional native HTTP entry; null inherits mode | resolved `NodePort` when enabled |
 | `pd.service.type` | PD client entry type | `ClusterIP` |
-| `*.service.nodePort` | Fixed Server/Hubble port; omitted/0 allocates automatically | unset |
+| `*.service.nodePort` | Fixed component HTTP NodePort; omitted/0 allocates automatically | unset |
 | `global.imageRegistry` | Prefix image repositories without an explicit registry | `""` |
 | `*.image.repository` / `tag` / `digest` | Component image; digest takes priority | see values |
 | `persistence.enabled` | Global persistent storage | `true` |

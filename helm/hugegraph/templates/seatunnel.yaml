@@ -122,11 +122,14 @@ metadata:
     {{- toYaml . | nindent 4 }}
   {{- end }}
 spec:
-  type: ClusterIP
+  type: {{ $svc.type }}
   ports:
     - name: http
       port: 8080
       targetPort: http
+      {{- with $svc.nodePort }}
+      nodePort: {{ . }}
+      {{- end }}
   selector:
     {{- include "hugegraph.selectorLabels" . | nindent 4 }}
     app.kubernetes.io/component: seatunnel

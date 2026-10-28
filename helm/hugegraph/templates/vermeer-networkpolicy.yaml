@@ -42,6 +42,11 @@ spec:
     - Egress
     {{- end }}
   ingress:
+    {{- if and (eq $role "master") (eq $v.service.type "NodePort") }}
+    # Only the authenticated Master HTTP entry is public, including standalone Pods.
+    - ports:
+        {{- include "hugegraph.netpol.ports" (list $v.master.httpPort) | nindent 8 }}
+    {{- end }}
     # Internal gRPC and Worker HTTP are never admitted from arbitrary Pods.
     - from:
         {{- include "hugegraph.netpol.peer" (dict "root" $ "component" "vermeer-master") | nindent 8 }}
