@@ -226,6 +226,90 @@ Server replicas can be changed routinely; CPU-utilization HPA requires positive
 CPU requests. Store growth still needs volume and shard planning. Use chart
 updates for Store scale changes so Hubble's endpoint list is updated too.
 
+## Stable bootstrap topology
+
+This feature is disabled by default. Enable it with `bootstrap.enabled=true`. It separates
+initial PD peers, initial Store allowlist and startup Store threshold from
+current `pd.replicas` and `store.replicas`. It does not perform database member
+changes, approve Pending Stores or prove that a Store is safe to delete.
+
+Before using it for node operations, deploy a PD image that treats
+`pd.initial-store-count` as an admission threshold while no shard groups exist
+and checks existing groups against their known Store voting majorities. Older PD images can still apply the
+initial count during normal operation even when a runtime quorum is healthy.
+Pin the compatible PD image version or digest; this chart cannot infer that
+capability from an image tag. See the [PD configuration guide](../../../hugegraph-pd/docs/configuration.md).
+
+On a fresh install, empty `bootstrap.pdReplicas`, `bootstrap.storeReplicas` and
+`bootstrap.initialStoreCount` inherit the requested PD count, Store count and
+Store count, respectively. A fresh five-PD installation therefore starts with
+five initial voters, not three. The chart records these counts in a kept,
+immutable `<fullname>-bootstrap` ConfigMap (with a hash for long names). PD startup inputs, client PD
+seeds, Store startup seed wait, and an unspecified initial shard count use the
+recorded topology. PDB validation still uses the current desired PD majority.
+Hubble's Store REST allowlist can change with Store count as before.
+PD changes between three and five replicas preserve these Pod startup inputs.
+Crossing the one-PD boundary can still change the inherited liveness path;
+use a compatible PD image and explicitly pin `pd.livenessPath` before such a
+controlled operation when the existing Pod template must remain unchanged.
+
+For an existing release without this record, the first online upgrade imports
+the live PD's `HG_PD_RAFT_PEERS_LIST`, `HG_PD_INITIAL_STORE_LIST` and
+`HG_PD_INITIAL_STORE_COUNT`. It does not infer history from live replica counts,
+which a controlled operation may already have changed. Import supports the
+chart's contiguous ordinal endpoints; customized endpoint lists require a
+separate reviewed migration. Import preserves a Store allowlist of four and a
+startup threshold of three as distinct inputs. No bootstrap checksum is added
+to Pod templates, so enabling the feature does not itself request a rollout.
+An incomplete live environment is rejected even when all value pins are given;
+pins cannot reconstruct unknown online history.
+Existing Store and Server seed inputs must agree with that original PD peer
+count; a known inconsistent consumer is rejected instead of silently changing
+its Pod template during import.
+
+Recorded bootstrap counts are initialization inputs, not the current voting
+configuration or a list of all admitted Stores. A new Store outside the
+recorded allowlist remains Pending until a controlled management action admits
+it after identity, disk and capacity checks. Plan migration and verify actual
+Raft members before changing Pod counts. Existing live guards still reject PD
+growth/shrink and Store shrink until the documented database operation and
+resource steps are complete. Matching live replicas alone remains insufficient
+proof of completion.
+
+Keep the feature enabled once a record exists. An online render rejects pins
+that conflict with the record, or disabling it while the record remains.
+Bootstrap records are kept on uninstall like data PVCs. An install that finds
+an existing record or live PD is rejected rather than misrepresenting recovery
+as a fresh cluster. Recovery with kept data requires a separate review of the
+actual membership, original bootstrap inputs and volume identities; this
+feature does not add an automatic restore mode.
+A controlled rollback must retain the same bootstrap record and use a chart
+version that understands it. Rolling back to a chart or release configuration
+that predates stable bootstrap can rederive Pod startup inputs from replica
+counts; it is not a supported automatic rollback procedure.
+
+Offline upgrades cannot discover this history. Render them with `--is-upgrade`
+and pin all three counts from the retained record, for example:
+
+```bash
+helm template hugegraph ./helm/hugegraph -n hugegraph --is-upgrade \
+  --set bootstrap.enabled=true \
+  --set bootstrap.pdReplicas=3 --set bootstrap.storeReplicas=3 \
+  --set bootstrap.initialStoreCount=3
+```
+
+An offline upgrade without all three pins fails. A renderer that always uses
+install semantics cannot safely infer an existing topology during replica
+changes; unattended GitOps topology reconciliation is not supported by this feature.
+Suspend competing reconciliation during controlled resource steps. Static
+bootstrap seed majority checks are conservative and are not a replacement for
+an authenticated read of current PD membership and quorum health. For example,
+after an original five-PD cluster shrinks to three, Store startup still requires
+three of the five recorded seeds. If one of the remaining PDs then fails,
+current PD quorum may be healthy while a newly created Store remains blocked
+by this static startup check. Dynamic membership-aware startup is a separate
+follow-up; unchanged Pod templates do not prove every combined failure case.
+
 ## Rolling Store updates and recovery
 
 Use `store.updateStrategy.type=OnDelete` for a controlled rollout. Replace one
