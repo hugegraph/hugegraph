@@ -157,8 +157,9 @@ which already contain `curl`; no separate curl image is needed by default.
 See the [complete registry example](examples/values-internal-registry.yaml).
 When enabled, also mirror `apache/seatunnel` and/or `hugegraph/vermeer` at the
 configured versions. Vermeer token initialization reuses its own image.
-Hubble and Vermeer images must include the corresponding integration features;
-a moving `latest` tag alone does not establish compatibility.
+The optional Vermeer image is pinned to the officially published Linux
+amd64/arm64 index. See [verified image and custom overrides](docs/vermeer.md#image-compatibility)
+for its tag, digest, source and publishing run. Normal enablement needs no image override.
 
 ### Storage
 

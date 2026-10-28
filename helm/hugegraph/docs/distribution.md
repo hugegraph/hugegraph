@@ -142,8 +142,11 @@ CPU architecture.
 SeaTunnel and Vermeer are disabled by default in every HugeGraph preset. When
 enabling either, also transfer its configured `apache/seatunnel` or
 `hugegraph/vermeer` image. Vermeer Master, Worker and token initialization use
-the same Vermeer image. Hubble needs a matching build with native Vermeer support;
-the Vermeer build must include the chart's file-based credentials and token helper.
-Use the image compatibility requirements in the [Vermeer guide](vermeer.md#image-compatibility)
-and pin the verified references. Do not assume a published Chart or a mutable
-`latest` image already contains a source-only feature.
+the same Vermeer image. Its default is the officially published
+`hugegraph/vermeer:helm-2678ff91b56a`, pinned by a Linux amd64/arm64 OCI index
+digest. Preserve that index and the required platforms when mirroring it.
+The [Vermeer image reference](vermeer.md#image-compatibility) records the full
+digest, source commit, successful official publishing run and custom-tag override
+command. A tag override must also clear `vermeer.image.digest`, or set a different
+verified digest; the default digest otherwise continues to win. Hubble needs its
+native Vermeer adapter when selecting a custom build.

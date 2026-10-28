@@ -229,18 +229,36 @@ its intended internal API integration.
 
 ### Image compatibility
 
-Vermeer images are published through the
-[publish latest Vermeer workflow](https://github.com/hugegraph/actions/blob/master/.github/workflows/publish_latest_vermeer_image.yml).
-Use a workflow-produced matching build when pinning an image; record the tested
-tag/digest. Custom builds must include `/go/bin/vermeer-token`, versioned
-HMAC-SHA256 file credentials, the native administrator password login and
-space-aware Worker availability. Hubble needs its native Vermeer adapter and
-nine algorithm forms. A mutable tag alone does not establish these capabilities.
+The Chart pins the officially published `hugegraph/vermeer:helm-2678ff91b56a`
+image to OCI index digest
+`sha256:9ef623d93e4feddc345c6ce445109c4039b029be83090d0eca97aedeba981a9e`.
+The index provides Linux `amd64` and `arm64` images built from
+[source commit 2678ff91b56a](https://github.com/hugegraph/hugegraph-computer/commit/2678ff91b56ae9501fbcdb0e1cf937144e508241)
+by the successful [official publishing run](https://github.com/hugegraph/actions/actions/runs/40639306743).
+No manual image override is needed for ordinary enablement.
 
-Configure `vermeer.image.repository/tag/digest` and `hubble.image` when pinning
-builds; digest takes priority. Images inherit `global.imageRegistry` and
-`imagePullSecrets`. Master, Worker and token initialization reuse the Vermeer
-image, with no runtime package downloads.
+Publishing uses the
+[publish latest Vermeer workflow](https://github.com/hugegraph/actions/blob/master/.github/workflows/publish_latest_vermeer_image.yml).
+Custom builds must include `/go/bin/vermeer-token`, versioned HMAC-SHA256 file
+credentials, native administrator password login and space-aware Worker
+availability. Hubble needs its native Vermeer adapter and nine algorithm forms.
+A different tag alone does not establish these capabilities.
+
+`vermeer.image.digest` takes priority over the tag; a repository override also
+retains that digest. To select another reviewed tag, clear it explicitly:
+
+```bash
+helm upgrade hugegraph ./helm/hugegraph -n hugegraph -f my-values.yaml \
+  --set-string vermeer.image.tag='<reviewed-tag>' \
+  --set-string vermeer.image.digest= --wait --timeout 20m
+```
+
+Retain the release's reviewed credentials, storage and metadata namespace in
+`my-values.yaml`. A custom immutable build can instead set its own verified
+`vermeer.image.digest`. Images inherit `global.imageRegistry` and
+`imagePullSecrets`; registry mirrors must preserve the selected index and
+required architectures. Master, Worker and token initialization reuse the
+Vermeer image, with no runtime package downloads.
 
 </details>
 
