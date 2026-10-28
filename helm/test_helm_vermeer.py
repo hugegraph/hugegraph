@@ -608,6 +608,17 @@ class VermeerChartTest(unittest.TestCase):
         self.assertTrue(all(secret["metadata"]["name"] != "fixture-vermeer-auth"
                             for secret in resources(documents, "Secret", "seatunnel")))
 
+    def test_signing_factor_matches_the_native_file_length_boundary(self):
+        for length in (4, 15):
+            with self.subTest(length=length):
+                result = self.render({"auth": {"value": "x" * length}})
+                self.assertNotEqual(0, result.returncode)
+                self.assertRegex(result.stderr, r"vermeer[./]auth[./]value")
+        documents = self.documents({"auth": {"value": "x" * 16,
+                                              "admin": {"password": "Ab12xY"}}})
+        secret, = [item for item in resources(documents, "Secret") if "token-factor" in item["data"]]
+        self.assertEqual("x" * 16, base64.b64decode(secret["data"]["token-factor"]).decode())
+
     def test_invalid_enabled_values_fail_before_install(self):
         cases = ({"mode": "unknown"}, {"mode": "cluster", "worker": {"replicas": 0}},
                  {"master": {"httpPort": 0}}, {"worker": {"grpcPort": 65536}},

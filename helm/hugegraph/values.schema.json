@@ -1719,7 +1719,7 @@
           "properties": {
             "value": {
               "type": "string",
-              "pattern": "^$|^[!-~]{4,}$"
+              "pattern": "^$|^[!-~]{16,}$"
             },
             "existingSecret": {
               "type": "string"

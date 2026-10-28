@@ -160,6 +160,8 @@ Hubble service authentication uses a separate signing factor in the kept
 upgrades reuse it. Configure `vermeer.auth.existingSecret/key` for an external
 Secret, or a controlled `vermeer.auth.value` for reproducible offline rendering;
 external Secret takes priority over the fixed value and auto-generation.
+Signing factors, including those in external Secrets, require at least 16
+characters; prefer a randomly generated value of 32 characters or more.
 Never place a real factor in a public values file.
 
 Master reads the factor from its mounted file. Hubble's init container reads the

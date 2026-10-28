@@ -613,6 +613,7 @@ vermeer:
     pullPolicy: IfNotPresent
   auth:
     # Token signing factor. existingSecret > value > a stable generated Secret.
+    # File-backed signing keys require at least 16 characters; prefer 32 random characters.
     value: ""
     existingSecret: ""
     key: token-factor
