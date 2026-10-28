@@ -53,16 +53,17 @@ public class StoreActiveLeaseStateTest {
         stores.put(3L, store(3L, Metapb.StoreState.Tombstone));
 
         StoreInfoMeta meta = Mockito.mock(StoreInfoMeta.class, Mockito.CALLS_REAL_METHODS);
-        Mockito.when(meta.getListWithTTL(Mockito.any(byte[].class))).thenReturn(List.of(
-                stores.get(1L).toByteArray(),
-                stalePendingLease.toByteArray(),
-                staleTombstoneLease.toByteArray(),
-                stores.get(4L).toByteArray(),
-                stores.get(5L).toByteArray(),
-                stores.get(6L).toByteArray()));
-        Mockito.when(meta.getStore(Mockito.anyLong())).thenAnswer(call ->
-                stores.get(call.<Long>getArgument(0)));
-        Mockito.when(meta.getShardGroups()).thenReturn(List.of(group(0, 1, 2, 3)));
+        Mockito.doReturn(List.of(
+                       stores.get(1L).toByteArray(),
+                       stalePendingLease.toByteArray(),
+                       staleTombstoneLease.toByteArray(),
+                       stores.get(4L).toByteArray(),
+                       stores.get(5L).toByteArray(),
+                       stores.get(6L).toByteArray()))
+               .when(meta).getListWithTTL(Mockito.any(byte[].class));
+        Mockito.doAnswer(call -> stores.get(call.<Long>getArgument(0)))
+               .when(meta).getStore(Mockito.anyLong());
+        Mockito.doReturn(List.of(group(0, 1, 2, 3))).when(meta).getShardGroups();
 
         StoreNodeService service =
                 Mockito.mock(StoreNodeService.class, Mockito.CALLS_REAL_METHODS);
