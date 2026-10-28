@@ -20,10 +20,12 @@ Do not add a permanent legacy read path or guess ownership of shared FFFE keys.
 | Rewrite an isolated copy, validate, then switch while stopped | Original state remains available; bounded batches need no in-place rollback protocol | Needs additional disk, ownership proof, and a coordinated Raft/snapshot cutover | Preferred baseline; kernel implemented here |
 
 Only immutable SST files may be hard-linked on the same filesystem. CURRENT,
-MANIFEST, OPTIONS, WAL and LOCK are copied. Cross-filesystem staging falls back
+MANIFEST, OPTIONS and WAL files are copied. The destination `LOCK` is created as
+a fresh file: reopening the source `LOCK` while its process-wide POSIX lock is
+held can release that lock on some systems. Cross-filesystem staging falls back
 to copying SSTs. No file in the original database is opened for writing by the
-kernel. Native tests must validate this, rather than assuming read-only open
-alone is sufficient.
+kernel. Native tests validate the source lock throughout copying, rather than
+assuming read-only open alone is sufficient.
 
 ## Implemented kernel
 
@@ -118,7 +120,9 @@ The native probe is designed to cover five data column families, two explicitly
 known owners, existing legal data, opaque value preservation, ID/slot publication,
 close/reopen verification, deterministic fresh-output retry, injected failure
 after a durable batch, stale plans, mixed prefixes and a separate-process native
-lock. A mapping-only counterexample is also exercised against an actual DB.
+lock. It additionally checks that cold-copying does not release the held source
+lock and that interruption at an exact final batch cannot publish a success
+certificate. A mapping-only counterexample is also exercised against an actual DB.
 
 These probes are not official 1.7 Server data, actual TTL expiration, Raft replay,
 snapshot installation, a throughput benchmark, or a three-Store upgrade test.
