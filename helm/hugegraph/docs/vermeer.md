@@ -182,8 +182,9 @@ synchronization procedure in [operations](operations.md#credentials).
 Master and Worker use separate writable data directories, including when they
 share one Pod. Each role mounts its own `/go/bin/vermeer_data` directory;
 logs use `/go/bin/vermeer_data/vermeer.log`. Never share a Pebble directory
-between process roles. Hubble's local output files under `./data/hubble` remain
-in the container filesystem and are not covered by these claims.
+between process roles. Each process also works from that directory, so relative
+local output files under `./data/hubble` use its corresponding data volume.
+Keeping those files does not recreate the in-memory result-query cache.
 
 | Setting | Default |
 |---|---|
