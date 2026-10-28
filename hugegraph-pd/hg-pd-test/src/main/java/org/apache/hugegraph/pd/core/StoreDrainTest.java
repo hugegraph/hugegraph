@@ -422,4 +422,3 @@ public class StoreDrainTest {
         }
     }
 }
-
