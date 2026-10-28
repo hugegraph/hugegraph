@@ -33,6 +33,7 @@ icon: https://hugegraph.apache.org/img/logo.svg
 sources:
   - https://github.com/apache/hugegraph
   - https://github.com/apache/seatunnel
+  - https://github.com/apache/hugegraph-computer/tree/master/vermeer
 maintainers:
   - name: HugeGraph Community
     url: https://hugegraph.apache.org/

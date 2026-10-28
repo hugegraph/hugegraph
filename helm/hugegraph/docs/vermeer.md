@@ -96,7 +96,18 @@ required in Hubble. Select a graph and open batch analysis:
 2. Choose one of Hubble's nine supported algorithms and submit it.
 3. Inspect asynchronous task status, cancel an unfinished task when needed,
    and open its paginated vertex results.
-4. Unload the Vermeer copy when it is no longer needed.
+4. When needed, unload the compute copy through Hubble's existing administrator
+   API. The current page provides Load/Reload controls, not a separate Unload button.
+
+For example, an authenticated Hubble session can send
+`DELETE /api/v1.3/vermeer/DEFAULT-vermeer_demo` with this JSON body:
+
+```json
+{"graphspace":"DEFAULT","graph":"vermeer_demo"}
+```
+
+This removes the Vermeer copy and retains the HugeGraph source graph. Refresh the
+analysis page to see its unloaded state before loading it again.
 
 Results remain queryable through the native task API while their cache exists;
 they are not written into HugeGraph vertex properties. A successful historical
@@ -162,8 +173,8 @@ private temporary volume; the Hubble application mounts the token, not the facto
 The native CLI's `-factor-file` mode creates the matching versioned token. Do not
 replace it with the legacy `-factor` option: inline configuration retains the
 older signing protocol and its tokens are rejected by file-backed deployments.
-Worker group `$` provides the common
-pool, so newly created graph spaces do not require manual Worker allocation.
+Worker group `$` provides the common pool, so newly created graph spaces do not
+require manual Worker allocation.
 
 The chart also wires both process roles to the release's PD peers and shared
 PD credential file. Worker Schema reads default to the existing deployment
@@ -196,6 +207,10 @@ or secret manager, then roll the dependent workloads and Hubble as directed by
 Helm NOTES. An external Secret change alone does not roll Pods or regenerate
 Hubble's token. Server password rotation also needs the existing account/Secret
 synchronization procedure in [operations](operations.md#credentials).
+
+Upgrade Master and the token helper together when adopting versioned file-mode
+tokens. Keep the factor Secret, recreate Hubble's token init container, and obtain
+a fresh native UI token; legacy SHA1 tokens and cookies are not accepted by file mode.
 
 ## Storage and recovery
 
