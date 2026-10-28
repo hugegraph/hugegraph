@@ -78,9 +78,8 @@ complete and that the affected rows belong to the intended graph. A current
 single-graph configuration alone does not establish historical ownership.
 
 For a graph in the `DEFAULT` graph space, migrate to an empty graph in a fresh
-1.8 target. Use a HugeGraph-Tools build containing the
-[backup data-page failure fix](https://github.com/hugegraph/hugegraph-toolchain/pull/96),
-so a failed export stops migration before target restore:
+1.8 target. Use a HugeGraph-Tools build that stops migration when exporting any
+data page fails, before target restore begins:
 
 ```bash
 bin/hugegraph --url http://old-1.7:8080 --graph hugegraph \
