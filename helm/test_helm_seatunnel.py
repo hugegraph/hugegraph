@@ -38,6 +38,28 @@ def matches(selector, labels):
     return all(labels.get(key) == value for key, value in selector.items())
 
 
+def ingress_allows(policy, peer, port):
+    for rule in policy["ingress"]:
+        if rule.get("ports") and not any(entry["port"] == port and
+                                        entry.get("protocol", "TCP") == "TCP"
+                                        for entry in rule["ports"]):
+            continue
+        if not rule.get("from"):
+            return True
+        for candidate in rule["from"]:
+            if "ipBlock" in candidate:
+                continue
+            selector = candidate.get("podSelector", {})
+            if not matches(selector.get("matchLabels", {}), peer):
+                continue
+            expressions_match = all(
+                expression["operator"] == "In" and peer.get(expression["key"]) in expression["values"]
+                for expression in selector.get("matchExpressions", []))
+            if expressions_match:
+                return True
+    return False
+
+
 def engine_resources(documents, kind=None):
     return [doc for doc in documents if (kind is None or doc["kind"] == kind)
             and doc["metadata"].get("labels", {}).get("app.kubernetes.io/component") == "seatunnel"]
@@ -199,27 +221,35 @@ class SeaTunnelChartTest(unittest.TestCase):
         self.assertIn(discovery["service-dns"] + ":5801", client["network"]["cluster-members"])
         self.assertFalse(any(doc["kind"] in ("Role", "RoleBinding") for doc in engine_resources(documents)))
 
-    def test_http_entry_inherits_mode_and_preserves_explicit_service_settings(self):
-        for mode, service_type in (("easy", "NodePort"), ("strict", "ClusterIP")):
+    def test_http_entry_remains_internal_and_preserves_annotations(self):
+        for mode in ("easy", "strict"):
             with self.subTest(mode=mode):
                 documents = self.documents({}, mode=mode)
-                api, = [doc for doc in engine_resources(documents, "Service")
-                        if doc["spec"].get("clusterIP") != "None"]
-                self.assertEqual(service_type, api["spec"]["type"])
-                self.assertNotIn("nodePort", api["spec"]["ports"][0])
-        for mode, service in (("easy", {"type": "ClusterIP"}),
-                              ("strict", {"type": "NodePort", "nodePort": 31081})):
-            with self.subTest(mode=mode, service=service):
+                for service in engine_resources(documents, "Service"):
+                    self.assertEqual("ClusterIP", service["spec"].get("type", "ClusterIP"))
+                    self.assertNotIn("externalIPs", service["spec"])
+                    self.assertFalse(any("nodePort" in port for port in service["spec"]["ports"]))
+        for mode in ("easy", "strict"):
+            service = {"type": "ClusterIP", "annotations": {"internal.example.com/owner": "imports"}}
+            with self.subTest(mode=mode):
                 documents = self.documents({"service": service}, mode=mode)
                 headless, = [doc for doc in engine_resources(documents, "Service")
                              if doc["spec"].get("clusterIP") == "None"]
                 api, = [doc for doc in engine_resources(documents, "Service") if doc is not headless]
-                self.assertEqual(service["type"], api["spec"]["type"])
-                if "nodePort" in service:
-                    self.assertEqual(service["nodePort"], api["spec"]["ports"][0]["nodePort"])
+                self.assertEqual("ClusterIP", api["spec"]["type"])
+                self.assertEqual("imports", api["metadata"]["annotations"]["internal.example.com/owner"])
+                self.assertNotIn("nodePort", api["spec"]["ports"][0])
                 self.assertNotIn("nodePort", headless["spec"]["ports"][0])
-        result = self.render({"service": {"type": "ClusterIP", "nodePort": 31081}})
-        self.assertNotEqual(0, result.returncode)
+        for service in ({"type": "NodePort"}, {"type": "LoadBalancer"}, {"nodePort": 0},
+                        {"type": "ClusterIP", "nodePort": 31081}, {"externalIPs": ["192.0.2.10"]}):
+            with self.subTest(service=service):
+                self.assertNotEqual(0, self.render({"service": service}).returncode)
+
+    def test_legacy_null_service_fields_keep_the_native_entry_internal(self):
+        documents = self.documents({"service": {"type": None, "nodePort": None}})
+        for service in engine_resources(documents, "Service"):
+            self.assertEqual("ClusterIP", service["spec"].get("type", "ClusterIP"))
+            self.assertFalse(any("nodePort" in port for port in service["spec"]["ports"]))
 
     def test_local_graph_defaults_follow_rendered_server_and_admin_secret(self):
         documents = self.documents({}, namespace="graphs", release="fixture-" + "r" * 40,
@@ -303,29 +333,32 @@ class SeaTunnelChartTest(unittest.TestCase):
 
     def test_seatunnel_admin_is_generated_separately_and_kept_out_of_public_configuration(self):
         graph_password = "graph-only-admin-password"
-        documents = self.documents({"auth": {"password": ""}},
-                                   server={"auth": {"admin": {"password": graph_password}}})
-        secret = engine_auth_secret(documents)
-        username = base64.b64decode(secret["data"]["username"]).decode()
-        password = base64.b64decode(secret["data"]["password"]).decode()
-        self.assertEqual("admin", username)
-        self.assertGreaterEqual(len(password), 32)
-        self.assertNotEqual(graph_password, password)
-        http = yaml.safe_load(engine_config(documents)["seatunnel.yaml"])["seatunnel"]["engine"]["http"]
-        self.assertTrue(http["enable-basic-auth"])
-        self.assertEqual(username, http["basic-auth-username"])
-        self.assertEqual(password, http["basic-auth-password"])
-        for configmap in engine_resources(documents, "ConfigMap"):
-            self.assertNotIn("seatunnel.yaml", configmap["data"])
-            self.assertNotIn(password, yaml.safe_dump(configmap["data"]))
-        workload, = engine_resources(documents, "StatefulSet")
-        self.assertNotIn(password, yaml.safe_dump(pod(workload)))
-        volumes = {volume["name"] for volume in pod(workload)["spec"]["volumes"]
-                   if volume.get("secret", {}).get("secretName") == secret["metadata"]["name"]}
-        container, = pod(workload)["spec"]["containers"]
-        self.assertTrue(any(mount["name"] in volumes
-                            and mount["mountPath"] == "/opt/seatunnel/config/seatunnel.yaml"
-                            for mount in container["volumeMounts"]))
+        for mode, length in (("easy", 6), ("strict", 16)):
+            with self.subTest(mode=mode):
+                documents = self.documents({"auth": {"password": ""}}, mode=mode,
+                                           server={"auth": {"admin": {"password": graph_password}}})
+                secret = engine_auth_secret(documents)
+                username = base64.b64decode(secret["data"]["username"]).decode()
+                password = base64.b64decode(secret["data"]["password"]).decode()
+                self.assertEqual("admin", username)
+                self.assertRegex(password, rf"^[A-Za-z0-9]{{{length}}}$")
+                self.assertNotEqual(graph_password, password)
+                self.assertEqual("keep", secret["metadata"]["annotations"]["helm.sh/resource-policy"])
+                http = yaml.safe_load(engine_config(documents)["seatunnel.yaml"])["seatunnel"]["engine"]["http"]
+                self.assertTrue(http["enable-basic-auth"])
+                self.assertEqual(username, http["basic-auth-username"])
+                self.assertEqual(password, http["basic-auth-password"])
+                for configmap in engine_resources(documents, "ConfigMap"):
+                    self.assertNotIn("seatunnel.yaml", configmap["data"])
+                    self.assertNotIn(password, yaml.safe_dump(configmap["data"]))
+                workload, = engine_resources(documents, "StatefulSet")
+                self.assertNotIn(password, yaml.safe_dump(pod(workload)))
+                volumes = {volume["name"] for volume in pod(workload)["spec"]["volumes"]
+                           if volume.get("secret", {}).get("secretName") == secret["metadata"]["name"]}
+                container, = pod(workload)["spec"]["containers"]
+                self.assertTrue(any(mount["name"] in volumes
+                                    and mount["mountPath"] == "/opt/seatunnel/config/seatunnel.yaml"
+                                    for mount in container["volumeMounts"]))
 
     def test_native_basic_auth_preserves_special_credentials_and_cannot_be_disabled_by_config(self):
         username = "ops'\"\\$"
@@ -378,7 +411,9 @@ class SeaTunnelChartTest(unittest.TestCase):
                 self.assertNotEqual(0, self.render(values).returncode)
 
     def test_strict_policies_allow_engine_server_dns_and_native_extensions(self):
-        extra_in = {"from": [{"ipBlock": {"cidr": "10.10.0.0/16"}}], "ports": [{"port": 8080}]}
+        extra_in = {"from": [{"namespaceSelector": {"matchLabels": {"team": "imports"}},
+                              "podSelector": {"matchLabels": {"app": "import-client"}}}],
+                    "ports": [{"port": 8080}]}
         extra_out = {"to": [{"ipBlock": {"cidr": "10.20.0.0/16"}}], "ports": [{"port": 9099}]}
         documents = self.documents({"mode": "cluster"}, mode="strict", server={"port": 8182},
                                    networkPolicy={"seatunnel": {"extraIngress": [extra_in], "extraEgress": [extra_out]}})
@@ -404,7 +439,7 @@ class SeaTunnelChartTest(unittest.TestCase):
         dns = [port for rule in engine["egress"] if not rule.get("to") for port in rule["ports"]]
         self.assertTrue({("UDP", 53), ("TCP", 53)} <= {(p["protocol"], p["port"]) for p in dns})
 
-    def test_member_ingress_is_isolated_when_full_network_policy_is_disabled(self):
+    def test_http_and_member_ingress_remain_isolated_without_full_network_policy(self):
         for mode in ("easy", "strict"):
             with self.subTest(mode=mode):
                 documents = self.documents({}, mode=mode, networkPolicy={"enabled": False})
@@ -424,7 +459,24 @@ class SeaTunnelChartTest(unittest.TestCase):
                 self.assertFalse(matches(selector, {**labels, "app.kubernetes.io/component": "server"}))
                 self.assertFalse(matches(selector, {**labels, "app.kubernetes.io/instance": "other"}))
                 open_rules = [rule for rule in spec["ingress"] if not rule.get("from")]
-                self.assertEqual([{"ports": [{"protocol": "TCP", "port": 8080}]}], open_rules)
+                self.assertEqual([], open_rules)
+                self.assertFalse(any("ipBlock" in peer for rule in spec["ingress"] for peer in rule["from"]))
+                for component in ("seatunnel", "hubble", "test"):
+                    peer = {**labels, "app.kubernetes.io/component": component}
+                    self.assertTrue(ingress_allows(spec, peer, 8080))
+                    self.assertEqual(component == "seatunnel", ingress_allows(spec, peer, 5801))
+                for peer in ({**labels, "app.kubernetes.io/component": "server"},
+                             {**labels, "app.kubernetes.io/instance": "other"}):
+                    for port in (8080, 5801):
+                        self.assertFalse(ingress_allows(spec, peer, port))
+
+    def test_native_ingress_extensions_require_explicit_internal_pod_selectors(self):
+        for rule in ({}, {"ports": [{"port": 8080}]}, {"from": []}, {"from": [{}]},
+                     {"from": [{"ipBlock": {"cidr": "0.0.0.0/0"}}]},
+                     {"from": [{"ipBlock": {"cidr": "10.0.0.0/8"}}]}):
+            with self.subTest(rule=rule):
+                result = self.render({}, networkPolicy={"seatunnel": {"extraIngress": [rule]}})
+                self.assertNotEqual(0, result.returncode)
 
     def test_engine_security_defaults_and_native_scheduling_overrides(self):
         workload, = engine_resources(self.documents({}), "StatefulSet")

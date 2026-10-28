@@ -122,24 +122,11 @@ metadata:
     {{- toYaml . | nindent 4 }}
   {{- end }}
 spec:
-  type: {{ $svc.type }}
-  {{- range $field := list "externalTrafficPolicy" "loadBalancerClass" "loadBalancerIP" "loadBalancerSourceRanges" "externalIPs" }}
-  {{- with get $svc $field }}
-  {{ $field }}: {{ toYaml . | nindent 4 }}
-  {{- end }}
-  {{- end }}
-  {{- if hasKey $svc "allocateLoadBalancerNodePorts" }}
-  {{- if ne (get $svc "allocateLoadBalancerNodePorts") nil }}
-  allocateLoadBalancerNodePorts: {{ $svc.allocateLoadBalancerNodePorts }}
-  {{- end }}
-  {{- end }}
+  type: ClusterIP
   ports:
     - name: http
       port: 8080
       targetPort: http
-      {{- with $svc.nodePort }}
-      nodePort: {{ . }}
-      {{- end }}
   selector:
     {{- include "hugegraph.selectorLabels" . | nindent 4 }}
     app.kubernetes.io/component: seatunnel

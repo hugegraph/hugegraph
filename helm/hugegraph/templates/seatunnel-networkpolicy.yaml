@@ -37,11 +37,13 @@ spec:
         {{- include "hugegraph.netpol.seatunnelPeer" . | nindent 8 }}
       ports:
         {{- include "hugegraph.netpol.ports" (list 5801 8080) | nindent 8 }}
-    {{- if not .Values.networkPolicy.enabled }}
-    # Easy mode keeps the authenticated HTTP entry open, never the member port.
-    - ports:
+    - from:
+        {{- if .Values.hubble.enabled }}
+        {{- include "hugegraph.netpol.peer" (dict "root" . "component" "hubble") | nindent 8 }}
+        {{- end }}
+        {{- include "hugegraph.netpol.peer" (dict "root" . "component" "test") | nindent 8 }}
+      ports:
         {{- include "hugegraph.netpol.ports" (list 8080) | nindent 8 }}
-    {{- end }}
     {{- with get $rules "extraIngress" }}
     {{- toYaml . | nindent 4 }}
     {{- end }}
