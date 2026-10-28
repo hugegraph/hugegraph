@@ -952,7 +952,7 @@ that field. Responses retain the raw zero marker so editing clients can preserve
 The bootstrapped `DEFAULT` space keeps explicit compute limits of 128 cores / 128 GB;
 existing positive compute limits are not converted to inheritance.
 Upgrade the Java client together with the Server before sending partial space
-updates (paired [Toolchain change](https://github.com/apache/hugegraph-toolchain/pull/834)).
+updates. The client must preserve the distinction between omitted fields and explicit zeros.
 Older clients send zero for omitted compute fields; the new Server interprets an
 explicit zero as restoring inheritance and cannot distinguish that from an omitted
 SDK property. Until clients are upgraded, use read-modify-write and explicitly send
