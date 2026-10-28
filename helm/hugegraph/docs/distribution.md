@@ -143,7 +143,7 @@ SeaTunnel and Vermeer are disabled by default in every HugeGraph preset. When
 enabling either, also transfer its configured `apache/seatunnel` or
 `hugegraph/vermeer` image. Vermeer Master, Worker and token initialization use
 the same Vermeer image. Its default is the officially published
-`hugegraph/vermeer:helm-2678ff91b56a`, pinned by a Linux amd64/arm64 OCI index
+`hugegraph/vermeer:helm-30b67d93e7d0`, pinned by a Linux amd64/arm64 OCI index
 digest. Preserve that index and the required platforms when mirroring it.
 The [Vermeer image reference](vermeer.md#image-compatibility) records the full
 digest, source commit, successful official publishing run and custom-tag override

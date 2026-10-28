@@ -90,7 +90,7 @@ A repository such as `other-registry.example.com/team/pd` overrides that prefix.
 Registry credentials remain `imagePullSecrets`.
 
 When Vermeer is enabled, mirror its additional published image
-`hugegraph/vermeer:helm-2678ff91b56a` at the Chart's pinned Linux amd64/arm64
+`hugegraph/vermeer:helm-30b67d93e7d0` at the Chart's pinned Linux amd64/arm64
 index digest. It is not part of the four-image default installation above.
 See the [verified image reference](../docs/vermeer.md#image-compatibility) for
 its source and publishing run. Changing only `vermeer.image.tag` leaves the

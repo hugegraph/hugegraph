@@ -229,11 +229,11 @@ its intended internal API integration.
 
 ### Image compatibility
 
-The Chart pins the officially published `hugegraph/vermeer:helm-2678ff91b56a`
+The Chart pins the officially published `hugegraph/vermeer:helm-30b67d93e7d0`
 image to OCI index digest
-`sha256:9ef623d93e4feddc345c6ce445109c4039b029be83090d0eca97aedeba981a9e`.
+`sha256:f9b69ef134069b432de1c9964374d7fdbfa53245d1fe7dcbce1e75b82b69dc9e`.
 The index provides Linux `amd64` and `arm64` images built from
-[source commit 2678ff91b56a](https://github.com/hugegraph/hugegraph-computer/commit/2678ff91b56ae9501fbcdb0e1cf937144e508241).
+[source commit 30b67d93e7d0](https://github.com/hugegraph/hugegraph-computer/commit/30b67d93e7d097374341cf46ee6a0703421512b1).
 No manual image override is needed for ordinary enablement.
 
 Publishing uses the
