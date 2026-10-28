@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1500" height="880" viewBox="0 0 1500 880">
+<title>HugeGraph PR 353：从 DB 转换内核到完整集群升级</title>
+<rect width="1500" height="880" fill="#f7f9fc"/>
+<g font-family="Noto Sans CJK SC,Microsoft YaHei,sans-serif" fill="#183049">
+<text x="60" y="60" font-size="18" fill="#357d82">APACHE HUGEGRAPH  /  PR #353  /  03</text>
+<text x="60" y="125" font-size="40" font-weight="700">DB 验证通过 ≠ 集群升级完成</text>
+<text x="60" y="170" font-size="23" fill="#576b80">下图是完整升级需要补齐的路线；不是当前 PR 已经可执行的集群工具。</text>
+<rect x="60" y="215" width="1380" height="106" rx="16" fill="#eaf2f6"/>
+<text x="90" y="257" font-size="26" font-weight="700">旧版停写与恢复追平 → 每个分区确认已提交 index / term → 固定共同转换计划</text>
+<text x="90" y="296" font-size="21">核实业务图与系统图归属；协调各副本目标 ID；优先限定“无未应用 Raft tail”的首版范围。</text>
+<path d="M750 321 V351 H280 V375 M750 351 V375 M750 351 H1220 V375" fill="none" stroke="#8195a9" stroke-width="3"/>
+<g fill="white" stroke="#d5dfe9">
+<rect x="60" y="375" width="440" height="225" rx="16"/><rect x="530" y="375" width="440" height="225" rx="16"/>
+<rect x="1000" y="375" width="440" height="225" rx="16"/></g>
+<g font-size="28" font-weight="700"><text x="90" y="422">副本 A</text><text x="560" y="422">副本 B</text><text x="1030" y="422">副本 C</text></g>
+<g font-size="23">
+<text x="90" y="470">隔离 DB 转换 + 当前快照转换</text><text x="90" y="512">更新快照文件清单 / 校验信息</text><text x="90" y="558" fill="#357d82">对照共同计划与摘要验证</text>
+<text x="560" y="470">隔离 DB 转换 + 当前快照转换</text><text x="560" y="512">更新快照文件清单 / 校验信息</text><text x="560" y="558" fill="#357d82">对照共同计划与摘要验证</text>
+<text x="1030" y="470">隔离 DB 转换 + 当前快照转换</text><text x="1030" y="512">更新快照文件清单 / 校验信息</text><text x="1030" y="558" fill="#357d82">对照共同计划与摘要验证</text></g>
+<path d="M280 600 V630 H1220 V600 M750 630 V655" fill="none" stroke="#8195a9" stroke-width="3"/>
+<rect x="60" y="655" width="1380" height="106" rx="16" fill="#fff3df" stroke="#ead4ac"/>
+<text x="90" y="698" font-size="26" font-weight="700">全部必要副本准备完毕，才允许停服统一切换；部分完成必须拒绝启动。</text>
+<text x="90" y="738" font-size="21">随后验证：原查询与完整数据、新写入 / 删除、冷重启、Leader 切换、落后副本真实快照追赶。</text>
+<text x="60" y="804" font-size="22" fill="#98652b">不能只改 Leader　·　不能删 Raft 日志绕过恢复　·　不能只比较计数　·　有新写入后不能直接退旧库</text>
+<text x="60" y="852" font-size="18" fill="#687a8d">基线 5fea589 · 当前只有 DB 转换内核；真实归属、Raft / Snapshot 协调、CLI、激活与集群验收尚待完成。</text>
+</g></svg>
