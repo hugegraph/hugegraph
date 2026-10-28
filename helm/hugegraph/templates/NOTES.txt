@@ -79,7 +79,7 @@ Access:
     Read the native management password into a local variable:
       VERMEER_ADMIN_PASSWORD="$(kubectl get secret -n {{ .Release.Namespace }} {{ include "hugegraph.vermeer.adminSecretName" . }} -o jsonpath='{.data.{{ include "hugegraph.vermeer.adminSecretKey" . | replace "." "\\." }}}' | base64 --decode)"
     Use this password in the native UI's Admin credential field. Login creates a 24-hour session.
-    New chart-generated management passwords have 16 characters; upgrades keep existing credentials.
+    New chart-generated management passwords have {{ ternary 16 6 (eq .Values.mode "strict") }} characters; upgrades keep existing credentials.
     This management password is separate from the HugeGraph administrator password and Hubble's service token.
 {{- if $hubbleEnabled }}
     Hubble is connected automatically. Sign in as a HugeGraph super administrator, select a graph,
@@ -129,7 +129,7 @@ Access:
     Use this account for the browser Basic login; with port forwarding active, check REST with:
       curl --user "${ST_USERNAME}:${ST_PASSWORD}" http://127.0.0.1:8081/overview
     These entry credentials are separate from HugeGraph connector credentials, even when HugeGraph auth is disabled.
-    New chart-generated entry passwords have 16 characters; upgrades keep existing credentials.
+    New chart-generated entry passwords have {{ ternary 16 6 (eq .Values.mode "strict") }} characters; upgrades keep existing credentials.
     Internal CLI/5801 has no HTTP Basic authentication. External submissions must use the protected REST API.
     Online Helm upgrades retain the default credentials; rotate using seatunnel.auth.password in controlled values.
     Pin a password for GitOps/template-only rendering. The auth Secret is retained after disabling or uninstalling.
