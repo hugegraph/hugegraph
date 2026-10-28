@@ -23,7 +23,7 @@ limitations under the License.
 - name: {{ $role }}
   image: {{ include "hugegraph.image" (dict "image" $v.image "appVersion" $root.Chart.AppVersion) | quote }}
   imagePullPolicy: {{ $v.image.pullPolicy }}
-  workingDir: /go/bin
+  workingDir: /go/bin/vermeer_data
   command: ["/go/bin/app"]
   args:
     - -env=/var/run/vermeer/config/{{ $role }}.ini
