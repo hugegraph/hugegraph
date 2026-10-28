@@ -32,7 +32,7 @@ These constraints match the current image's authentication/property encoding.
 Optional SeaTunnel and Vermeer are disabled in every HugeGraph preset. When
 enabled, they add independent entry credentials: SeaTunnel's native HTTP Basic
 account and Vermeer's separate native administrator password. New human
-passwords are 6 random alphanumeric characters in `easy`, 16 in `strict`; upgrades and mode changes retain existing Secrets. Internal Vermeer
+passwords are 16 characters; upgrades retain existing Secrets. Internal Vermeer
 service authentication is automatic and separate from these passwords. These
 credentials do not replace Server or PD credentials. Their Secret reuse, external-source and rotation procedures are in
 the [SeaTunnel guide](seatunnel.md#seatunnel-entry-authentication) and
@@ -343,7 +343,7 @@ can block clients; `{}` is an allow-all form for base-service rules only.
 Consider NodePort source NAT when selecting source ranges. For Hubble discovery
 via an external `server.advertiseUrl`, also configure Hubble's `extraEgress`.
 Native engine administration uses authorized port-forwarding and its separate
-administrator password (newly generated: 6 characters in `easy`, 16 in `strict`); Hubble service tokens stay automatic.
+16-character administrator password; Hubble service tokens stay automatic.
 
 Client Services accept native Kubernetes traffic and load-balancer fields under
 `pd.service`, `server.service` and `hubble.service`. LoadBalancer-specific fields

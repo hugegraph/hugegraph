@@ -15,7 +15,7 @@ It needs no Computer Operator, CRD, etcd or external coordination service.
 | `values-cluster.yaml` | HugeGraph: 3 PD + 3 Store + 3 Server, plus Hubble |
 | `vermeer.mode: standalone` | One Pod containing separate Master and Worker containers |
 | `vermeer.mode: cluster` | One Master Pod plus `vermeer.worker.replicas` Worker Pods; default 3 |
-| `mode: easy` / `strict` | HTTP entry, network policies and generated-password defaults; independent of both topologies |
+| `mode: easy` / `strict` | HTTP entry and network-isolation defaults; independent of both topologies |
 
 Both Vermeer modes run the same two native process roles. Standalone co-locates
 them for a smaller deployment; cluster mode distributes the Workers. A cluster
@@ -123,8 +123,8 @@ kubectl -n hugegraph get secret hugegraph-vermeer-admin \
 ```
 
 Paste it into the **Admin credential** input; no username is required. New installations generate a
-6-character random alphanumeric password in `easy` or 16 characters in `strict`.
-Existing credentials are reused across online upgrades and mode changes. Successful login creates a versioned session cookie valid for
+16-character password and keep it across online upgrades; existing credentials
+are reused. Successful login creates a versioned session cookie valid for
 24 hours. This password is separate from the HugeGraph/Hubble login. Hubble's
 service authentication is configured automatically and needs no manual token.
 

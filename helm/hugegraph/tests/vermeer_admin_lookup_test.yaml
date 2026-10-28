@@ -44,26 +44,7 @@ kubernetesProvider:
         resourceVersion: "17"
       data:
         ui-password: b3BlcmF0b3ItbG9naW4=
-    - apiVersion: v1
-      kind: Secret
-      metadata:
-        name: six-vermeer-admin
-        namespace: NAMESPACE
-      data:
-        password: QWIxMnhZ
 tests:
-  - it: preserves an existing easy password when switching to strict
-    template: vermeer-admin-secret.yaml
-    release:
-      name: six
-    set:
-      mode: strict
-    asserts:
-      - equal:
-          path: data.password
-          decodeBase64: true
-          value: Ab12xY
-
   - it: reuses the installed native login password
     template: vermeer-admin-secret.yaml
     asserts:
@@ -120,22 +101,10 @@ tests:
           path: spec.template.metadata.annotations["checksum/vermeer-admin"]
           value: 384c79eb04541fb1216e49b3739cfa3ac87bf7a3ae3c84891eabda9421351b4b
 
-  - it: generates a 6 character independent login for a fresh easy release
+  - it: generates a short independent login for a fresh release
     template: vermeer-admin-secret.yaml
     release:
       name: fresh
-    asserts:
-      - matchRegex:
-          path: data.password
-          decodeBase64: true
-          pattern: '^[A-Za-z0-9]{6}$'
-
-  - it: generates a 16 character independent login for a fresh strict release
-    template: vermeer-admin-secret.yaml
-    release:
-      name: fresh
-    set:
-      mode: strict
     asserts:
       - matchRegex:
           path: data.password

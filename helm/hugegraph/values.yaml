@@ -566,7 +566,7 @@ seatunnel:
     # Native HTTP Basic authentication for the Web UI and all REST endpoints.
     # Independent of the HugeGraph credential used by source/sink connectors.
     username: admin
-    # Empty generates 6 characters in easy / 16 in strict; upgrades reuse the kept Secret.
+    # Empty generates a kept Secret; upgrades reuse the existing password.
     password: ""
   # Replaces the image's jvm_options; reserve memory outside the heap under 2Gi.
   javaOpts: >-
@@ -617,8 +617,7 @@ vermeer:
     existingSecret: ""
     key: token-factor
     autoGenerate: true
-    # Separate native UI login: 6 characters in easy / 16 in strict for new passwords.
-    # Hubble continues to use the internal service token; upgrades reuse the kept Secret.
+    # Separate native UI login; Hubble continues to use the internal service token.
     admin:
       password: ""
       existingSecret: ""

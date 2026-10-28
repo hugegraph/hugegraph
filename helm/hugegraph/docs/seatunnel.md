@@ -90,9 +90,9 @@ reused after re-enabling or reinstalling.
 
 The UI, static resources and REST submission endpoints use native HTTP Basic
 authentication. There is no added proxy or login service. `seatunnel.auth.username`
-defaults to `admin`. An empty password creates a random alphanumeric password: 6 characters in `easy`, 16 in `strict`, stored in
+defaults to `admin`. An empty password creates a 16-character password in
 `<SeaTunnel-resource-name>-auth` for a new installation. Online upgrades reuse
-the existing password, including on mode changes and for longer credentials from older releases.
+the existing password, including longer credentials from older releases.
 Authentication stays enabled in both easy and strict mode.
 
 Use a controlled values file to set or rotate `seatunnel.auth.username/password`.

@@ -296,15 +296,13 @@ class VermeerChartTest(unittest.TestCase):
         self.assertEqual(checksum, pod(master)["metadata"]["annotations"]["checksum/vermeer-auth"])
 
     def test_native_admin_password_is_short_separate_and_mounted_only_by_master(self):
-        cases = (("standalone", "easy", 6), ("cluster", "easy", 6),
-                 ("standalone", "strict", 16), ("cluster", "strict", 16))
-        for mode, entry_mode, length in cases:
-            with self.subTest(mode=mode, entry_mode=entry_mode):
-                documents = self.documents({"mode": mode, "auth": {"admin": {"password": ""}}}, mode=entry_mode)
+        for mode in ("standalone", "cluster"):
+            with self.subTest(mode=mode):
+                documents = self.documents({"mode": mode, "auth": {"admin": {"password": ""}}})
                 secret, = [secret for secret in vermeer_resources(documents, "Secret")
                            if secret["metadata"]["name"] == "fixture-vermeer-admin"]
                 password = base64.b64decode(secret["data"]["password"]).decode()
-                self.assertRegex(password, rf"^[A-Za-z0-9]{{{length}}}$")
+                self.assertRegex(password, r"^[A-Za-z0-9]{16}$")
                 self.assertNotIn(password, (FACTOR, "graph-test-admin-password", "pd-test-service-password"))
                 self.assertEqual("keep", secret["metadata"]["annotations"]["helm.sh/resource-policy"])
                 self.assert_master_only_admin_mount(documents, secret["metadata"]["name"], "password")

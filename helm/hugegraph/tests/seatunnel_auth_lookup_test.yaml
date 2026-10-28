@@ -36,13 +36,6 @@ kubernetesProvider:
         namespace: NAMESPACE
       data:
         password: bGVnYWN5LWFkbWluLTAxMjM0NTY3ODlhYmNkZWZnaGk=
-    - apiVersion: v1
-      kind: Secret
-      metadata:
-        name: six-hugegraph-seatunnel-auth
-        namespace: NAMESPACE
-      data:
-        password: QWIxMnhZ
 tests:
   - it: retains a legacy 32 character password during a no-change upgrade
     template: seatunnel-auth-secret.yaml
@@ -73,40 +66,12 @@ tests:
           decodeBase64: true
           pattern: 'basic-auth-password: NextAdmin0123456'
 
-  - it: generates a 6 character alphanumeric password for a new easy release
+  - it: generates a 16 character alphanumeric password for a new release
     template: seatunnel-auth-secret.yaml
     release:
       name: fresh
-    asserts:
-      - matchRegex:
-          path: data.password
-          decodeBase64: true
-          pattern: '^[A-Za-z0-9]{6}$'
-
-  - it: generates a 16 character alphanumeric password for a new strict release
-    template: seatunnel-auth-secret.yaml
-    release:
-      name: fresh
-    set:
-      mode: strict
     asserts:
       - matchRegex:
           path: data.password
           decodeBase64: true
           pattern: '^[A-Za-z0-9]{16}$'
-
-  - it: preserves an existing easy password when switching to strict
-    template: seatunnel-auth-secret.yaml
-    release:
-      name: six
-    set:
-      mode: strict
-    asserts:
-      - equal:
-          path: data.password
-          decodeBase64: true
-          value: Ab12xY
-      - matchRegex:
-          path: data["seatunnel.yaml"]
-          decodeBase64: true
-          pattern: 'basic-auth-password: Ab12xY'

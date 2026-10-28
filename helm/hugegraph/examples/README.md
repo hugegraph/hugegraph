@@ -135,7 +135,7 @@ account; follow the [account password and Secret synchronization steps](../docs/
 
 For native administrator credentials, enabled Vermeer accepts
 `vermeer.auth.admin.password` or `vermeer.auth.admin.existingSecret/key`;
-new installations otherwise generate a kept random alphanumeric password: 6 characters in `easy`, 16 in `strict`. Advanced
+new installations otherwise generate a kept 16-character password. Advanced
 GitOps setups also preserve the automatically managed internal service identity
 through `vermeer.auth.value` or `vermeer.auth.existingSecret/key`. Optional external
 Schema credentials use `vermeer.hugegraphCredentials.existingSecret/key`; the

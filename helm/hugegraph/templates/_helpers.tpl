@@ -1392,8 +1392,7 @@ over tag; otherwise fall back to tag, then to the chart appVersion. Takes a dict
 {{- if and $secret (hasKey $secret "data") (hasKey (get $secret "data") $key) -}}
 {{- get (get $secret "data") $key -}}
 {{- else -}}
-{{- $length := ternary 16 6 (eq (.Values.mode | default "easy") "strict") -}}
-{{- include "hugegraph.generatedCredential" (dict "root" . "name" "vermeer-admin" "length" $length) | b64enc -}}
+{{- include "hugegraph.generatedCredential" (dict "root" . "name" "vermeer-admin" "length" 16) | b64enc -}}
 {{- end -}}
 {{- end -}}
 {{- end }}

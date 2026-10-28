@@ -110,7 +110,7 @@ The chart injects the same-release Server address, GraphSpace and administrator
 Secret references into the mounted Source/Sink examples. Create the target graph
 before submitting them manually; Helm does not create graphs or import data.
 UI and REST submission use a separate native HTTP Basic administrator account
-with a newly generated 6-character password in `easy` or 16 characters in `strict`; online upgrades reuse the
+with a newly generated 16-character password; online upgrades reuse the
 existing Secret, including credentials created by older releases. Container
 security and scheduling options follow the other components; see the
 [SeaTunnel deployment guide](docs/seatunnel.md) for configuration and limits.
@@ -133,7 +133,7 @@ existing flow includes reload, task status/cancellation, paginated results and
 unload; it does not write results back into HugeGraph properties.
 
 Native Vermeer UI/API stays private behind ClusterIP in both modes. Optional
-administration uses port-forward and a separate generated password: 6 characters in `easy`, 16 in `strict`;
+administration uses port-forward and a separate generated 16-character password;
 Hubble needs no manual token configuration. Both engines always authenticate
 access, and their native HTTP/RPC policies allow only required internal callers.
 See the [Vermeer deployment guide](docs/vermeer.md) for administration and recovery.
