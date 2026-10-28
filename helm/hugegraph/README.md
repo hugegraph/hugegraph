@@ -260,9 +260,13 @@ laptop usually cannot reach it directly. With default `externalTrafficPolicy:
 Cluster`, NodePort can forward through a node that does not host the target Pod.
 
 Native HTTP supports only ClusterIP/NodePort. A null `service.type` inherits the
-mode; existing explicit ClusterIP values stay private. Legacy releases without
-`mode` retain ClusterIP. Entry commands are in the [SeaTunnel](docs/seatunnel.md)
-and [Vermeer](docs/vermeer.md#optional-native-administration) guides.
+mode; existing explicit ClusterIP values stay private. The ClusterIP fallback
+applies only when the effective merged values lack `mode`. An upgrade using new
+chart defaults can instead inherit `mode: easy` and NodePort. To keep native HTTP
+private during upgrades, explicitly set `seatunnel.service.type` and
+`vermeer.service.type` to `ClusterIP`. Entry commands are in the
+[SeaTunnel](docs/seatunnel.md) and
+[Vermeer](docs/vermeer.md#optional-native-administration) guides.
 
 To fix a NodePort, set the component's `service.nodePort`.
 Omission or `0` allocates automatically. Kubernetes validates the actual cluster
