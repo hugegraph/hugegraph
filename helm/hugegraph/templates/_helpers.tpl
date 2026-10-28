@@ -1228,7 +1228,7 @@ over tag; otherwise fall back to tag, then to the chart appVersion. Takes a dict
 {{- if and (not $v.image.tag) (not $v.image.digest) -}}
 {{- fail "vermeer.image needs a tag or digest matching the file-credential and token-helper interface" -}}
 {{- end -}}
-{{- $ports := list $v.master.httpPort $v.master.grpcPort $v.worker.httpPort $v.worker.grpcPort -}}
+{{- $ports := list (int $v.master.httpPort) (int $v.master.grpcPort) (int $v.worker.httpPort) (int $v.worker.grpcPort) -}}
 {{- if ne (len (uniq $ports)) 4 -}}
 {{- fail "vermeer master and worker HTTP/gRPC ports must be distinct" -}}
 {{- end -}}
