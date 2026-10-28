@@ -46,7 +46,10 @@ never from StatefulSet replicas that a controlled operation may already change.
 {{- fail "bootstrap history already exists on an install; use a reviewed recovery procedure rather than treating kept data as a fresh cluster" -}}
 {{- end -}}
 {{- $owner := dig "metadata" "labels" "app.kubernetes.io/instance" "" $record -}}
-{{- if and $owner (ne $owner .Release.Name) -}}
+{{- if not $owner -}}
+{{- fail "bootstrap ConfigMap is missing the app.kubernetes.io/instance owner label; inspect the retained initialization topology before continuing" -}}
+{{- end -}}
+{{- if ne $owner .Release.Name -}}
 {{- fail "bootstrap ConfigMap belongs to another release; inspect the retained initialization topology" -}}
 {{- end -}}
 {{- $data := get $record "data" | default dict -}}

@@ -52,6 +52,8 @@ kubernetesProvider:
     metadata:
       name: cluster-bootstrap
       namespace: NAMESPACE
+      labels:
+        app.kubernetes.io/instance: RELEASE-NAME
     data:
       schemaVersion: '2'
       pdReplicas: '3'
