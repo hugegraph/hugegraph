@@ -100,7 +100,7 @@ class MetadataClusterChartTest(unittest.TestCase):
         selected = "production-graph_42"
         documents = self.documents({"metadataCluster": selected})
         container = self.container(self.workload(documents, "server"), "server")
-        environment = dict(os.environ)
+        environment = {"PATH": os.environ["PATH"], "LC_ALL": "C"}
         for entry in container["env"]:
             environment[entry["name"]] = str(entry.get("value", "fixture-secret-" + "x" * 32))
         with tempfile.TemporaryDirectory(prefix="metadata-cluster-wrapper-") as directory:
@@ -125,7 +125,11 @@ class MetadataClusterChartTest(unittest.TestCase):
             for name in ("enable-auth.sh", "wait-storage.sh", "init-store.sh",
                          "start-hugegraph.sh", "wait-partition.sh"):
                 executable = root / "bin" / name
-                executable.write_text("#!/bin/sh\nexit 0\n")
+                # The entrypoint pipes PASSWORD into init-store. Consume the
+                # stream before returning so scheduler order cannot give its
+                # printf producer SIGPIPE under the real pipefail setting.
+                executable.write_text("#!/bin/sh\ncat >/dev/null\n" if name == "init-store.sh"
+                                      else "#!/bin/sh\nexit 0\n")
                 executable.chmod(0o755)
             result = subprocess.run(["bash", "-c", container["args"][0]], cwd=root,
                                     env=environment, capture_output=True, text=True, timeout=15)
