@@ -364,6 +364,9 @@ jobs:
         run: |
           mvn editorconfig:check -pl hugegraph-store/hg-store-test -am -ntp
 
+      - name: Check Store GraphID checker launcher
+        run: bash hugegraph-store/hg-store-dist/src/assembly/travis/test-store-check-launcher.sh
+
       - name: Check startup test prerequisites (Store)
         id: store-preflight
         run: |
