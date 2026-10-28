@@ -351,6 +351,9 @@ class VermeerChartTest(unittest.TestCase):
                 environment = dict(os.environ)
                 for entry in container.get("env", []):
                     environment[entry["name"]] = str(entry.get("value", "fixture-secret"))
+                if not enabled:
+                    environment["HG_HUBBLE_VERMEER_URL"] = "http://stale-runtime-default"
+                    environment["HG_HUBBLE_VERMEER_TOKEN_FILE"] = "/stale-runtime-token"
                 with tempfile.TemporaryDirectory(prefix="vermeer-hubble-wrapper-") as directory:
                     root = Path(directory)
                     (root / "conf").mkdir()
@@ -484,6 +487,14 @@ class VermeerChartTest(unittest.TestCase):
         result = self.render({}, hubble={"mode": "direct"})
         self.assertNotEqual(0, result.returncode)
         self.assertIn("pd", result.stderr.lower())
+        # --set yields integer types distinct from values.yaml's numbers;
+        # collision validation must compare their numeric values.
+        result = subprocess.run(["helm", "template", "fixture", str(CHART),
+                                 "--set", "vermeer.enabled=true", "--set",
+                                 "vermeer.master.httpPort=6788"],
+                                capture_output=True, text=True, timeout=120)
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("distinct", result.stderr)
 
 
 if __name__ == "__main__":

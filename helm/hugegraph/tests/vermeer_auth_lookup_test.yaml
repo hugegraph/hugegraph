@@ -47,7 +47,7 @@ kubernetesProvider:
           app.kubernetes.io/instance: other
           app.kubernetes.io/component: pd
       spec:
-        replicas: 1
+        replicas: "1"
     - apiVersion: v1
       kind: Secret
       metadata:

@@ -81,7 +81,7 @@ class HelmPackageTest(unittest.TestCase):
                     "docs/operations.md", "docs/distribution.md", "docs/vermeer.md", "examples/README.md")
         for name in required:
             with self.subTest(file=name):
-                self.assertIn(name, self.files)
+                self.assertIn(name, self.files.keys())
                 # Helm normalizes Chart.yaml and values.yaml while packaging.
                 if name not in ("Chart.yaml", "values.yaml"):
                     self.assertEqual((CHART / name).read_bytes(), self.files[name])
