@@ -25,6 +25,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Random;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.apache.commons.lang3.StringUtils;
@@ -273,11 +274,11 @@ public class StoreNodeService {
      * Update the store information, detect the change of store status, and notify Hugestore
      */
     public Metapb.Store updateStore(Metapb.Store store) throws PDException {
-        return updateStore(store, Collections.emptyList());
+        return updateStore(store, Collections.emptySet());
     }
 
     public Metapb.Store updateStore(Metapb.Store store,
-                                    List<Integer> submittedGroups) throws PDException {
+                                    Set<Integer> submittedGroups) throws PDException {
         Metapb.Store lastStore;
         boolean stateChanged;
         synchronized (this) {
@@ -360,11 +361,11 @@ public class StoreNodeService {
      * @throws PDException
      */
     public synchronized void storeTurnoff(Metapb.Store store) throws PDException {
-        storeTurnoff(store, Collections.emptyList());
+        storeTurnoff(store, Collections.emptySet());
     }
 
     public synchronized void storeTurnoff(Metapb.Store store,
-                                          List<Integer> submittedGroups)
+                                          Set<Integer> submittedGroups)
             throws PDException {
         // Traverse ShardGroup,redistribution
         for (Metapb.ShardGroup group : getShardGroupsByStore(store.getId())) {

@@ -511,7 +511,7 @@ public class PDService extends PDGrpc.PDImplBase implements RaftStateListener {
                 }
             }
             Metapb.Store store = request.getStore();
-            List<Integer> submittedGroups = new ArrayList<>();
+            Set<Integer> submittedGroups = new HashSet<>();
             // Before going offline, check whether the number of active machines is greater than
             // the minimum threshold
             if (state.equals(Metapb.StoreState.Tombstone)) {

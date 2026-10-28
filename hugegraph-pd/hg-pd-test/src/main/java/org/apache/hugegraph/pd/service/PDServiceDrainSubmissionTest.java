@@ -21,6 +21,7 @@ import java.lang.reflect.Field;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import org.apache.hugegraph.pd.LogService;
 import org.apache.hugegraph.pd.StoreNodeService;
@@ -72,7 +73,8 @@ public class PDServiceDrainSubmissionTest {
 
         Metapb.Store exiting = source.toBuilder()
                                       .setState(Metapb.StoreState.Exiting).build();
-        Mockito.when(stores.updateStore(Mockito.any(), Mockito.anyList()))
+        Mockito.when(stores.updateStore(Mockito.any())).thenReturn(exiting);
+        Mockito.when(stores.updateStore(Mockito.any(), Mockito.anySet()))
                .thenReturn(exiting);
         StreamObserver<Pdpb.SetStoreResponse> observer = Mockito.mock(StreamObserver.class);
         Pdpb.SetStoreRequest request = Pdpb.SetStoreRequest.newBuilder()
@@ -85,11 +87,11 @@ public class PDServiceDrainSubmissionTest {
 
         ArgumentCaptor<Metapb.Store> storeCaptor =
                 ArgumentCaptor.forClass(Metapb.Store.class);
-        ArgumentCaptor<List<Integer>> groupsCaptor =
-                ArgumentCaptor.forClass((Class) List.class);
+        ArgumentCaptor<Set<Integer>> groupsCaptor =
+                ArgumentCaptor.forClass((Class) Set.class);
         Mockito.verify(stores).updateStore(storeCaptor.capture(), groupsCaptor.capture());
         Assert.assertEquals(Metapb.StoreState.Exiting, storeCaptor.getValue().getState());
-        Assert.assertEquals(List.of(7), groupsCaptor.getValue());
+        Assert.assertEquals(Set.of(7), groupsCaptor.getValue());
         Mockito.verify(tasks).movePartitions(plan);
         Mockito.verify(observer).onNext(Mockito.argThat(response ->
                 response.getHeader().getError().getType() == Pdpb.ErrorType.OK));
