@@ -654,6 +654,17 @@ curl http://192.168.1.10:8620/v1/partitionsAndStatus
 
 5. **Verify**: Wait for even distribution (may take hours)
 
+Replica migration can leave learners in a Raft group while they receive a snapshot or catch up.
+If the same membership change is retried after a catch-up timeout, Store resumes those learners
+and promotes them to voting members after catch-up; it does not need to create them again.
+Each catch-up check waits up to 600 seconds before returning `TASK_CONTINUE`. This is a
+per-attempt wait, not an overall migration deadline; a peer that cannot catch up can keep
+the operation pending across retries. Inspect its replication progress and errors before
+continuing a node operation. This retry correction does not add durable task admission
+or recovery of a migration task across a Leader change.
+Verify the actual voter and learner lists before treating migration as complete: a target count
+that includes learners is not proof of voting membership.
+
 ### Restoring Store Membership after a Restart
 
 For a persisted partition, startup verifies the shard group directly with PD and refreshes
