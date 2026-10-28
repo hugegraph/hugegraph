@@ -1,0 +1,490 @@
+#!/usr/bin/env python3
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements. See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License. You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Validate optional native Vermeer deployment and its integration boundaries."""
+
+import base64
+import configparser
+import copy
+import hashlib
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import tempfile
+import unittest
+
+import yaml
+
+
+CHART = Path(__file__).resolve().parent / "hugegraph"
+COMPONENT = "app.kubernetes.io/component"
+INSTANCE = "app.kubernetes.io/instance"
+FACTOR = "vermeer-test-factor-0123456789abcdef0123456789abcdef"
+
+
+def resources(documents, kind=None, component=None):
+    return [doc for doc in documents if (kind is None or doc["kind"] == kind)
+            and (component is None or
+                 doc["metadata"].get("labels", {}).get(COMPONENT) == component)]
+
+
+def vermeer_resources(documents, kind=None):
+    return [doc for doc in resources(documents, kind)
+            if doc["metadata"].get("labels", {}).get(COMPONENT, "").startswith("vermeer")]
+
+
+def pod(workload):
+    return workload["spec"]["template"]
+
+
+def env(container):
+    return {entry["name"]: entry for entry in container.get("env", [])}
+
+
+def merged(left, right):
+    result = copy.deepcopy(left)
+    for key, value in right.items():
+        if isinstance(value, dict) and isinstance(result.get(key), dict):
+            result[key] = merged(result[key], value)
+        else:
+            result[key] = copy.deepcopy(value)
+    return result
+
+
+def selector_matches(selector, labels):
+    if any(labels.get(key) != value for key, value in selector.get("matchLabels", {}).items()):
+        return False
+    for expression in selector.get("matchExpressions", []):
+        key, operator = expression["key"], expression["operator"]
+        values = expression.get("values", [])
+        if operator == "In" and labels.get(key) not in values:
+            return False
+        if operator == "NotIn" and labels.get(key) in values:
+            return False
+        if operator == "Exists" and key not in labels:
+            return False
+        if operator == "DoesNotExist" and key in labels:
+            return False
+    return True
+
+
+def policy_allows(policies, target, peer, port, direction):
+    policy_type, peer_key = ("Ingress", "from") if direction == "ingress" else ("Egress", "to")
+    selected = [policy["spec"] for policy in policies
+                if policy_type in policy["spec"].get("policyTypes", ["Ingress"])
+                and selector_matches(policy["spec"]["podSelector"], target)]
+    if not selected:
+        return True
+    for policy in selected:
+        for rule in policy.get(direction, []):
+            if rule.get("ports") and not any(entry["port"] == port and
+                                             entry.get("protocol", "TCP") == "TCP"
+                                             for entry in rule["ports"]):
+                continue
+            if not rule.get(peer_key):
+                return True
+            if any("ipBlock" not in candidate and
+                   selector_matches(candidate.get("podSelector", {}), peer)
+                   for candidate in rule[peer_key]):
+                return True
+    return False
+
+
+class VermeerChartTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        if shutil.which("helm") is None:
+            raise RuntimeError("Helm is required for the Vermeer deployment regression")
+
+    def render(self, vermeer=None, chart=CHART, preset=None, release="fixture", namespace="graphs",
+               upgrade=False, deterministic_auth=True, **overrides):
+        values = {"pd": {"auth": {"value": "pd-test-service-password"}},
+                  "server": {"auth": {"admin": {"password": "graph-test-admin-password"},
+                                      "token": {"value": "0123456789abcdef0123456789abcdef"}}}}
+        if not deterministic_auth:
+            values = {}
+        if vermeer is not None:
+            values["vermeer"] = merged({"enabled": True, "auth": {"value": FACTOR}}, vermeer)
+        values = merged(values, overrides)
+        with tempfile.TemporaryDirectory(prefix="vermeer-values-") as directory:
+            configuration = Path(directory) / "values.yaml"
+            configuration.write_text(yaml.safe_dump(values))
+            command = ["helm", "template", release, str(chart), "--namespace", namespace]
+            if preset:
+                command.extend(["--values", str(CHART / preset)])
+            command.extend(["--values", str(configuration)])
+            if upgrade:
+                command.append("--is-upgrade")
+            return subprocess.run(command, capture_output=True, text=True, timeout=120)
+
+    def documents(self, vermeer=None, **values):
+        result = self.render(vermeer, **values)
+        self.assertEqual(0, result.returncode, result.stderr)
+        return [doc for doc in yaml.safe_load_all(result.stdout) if doc]
+
+    def workloads(self, documents):
+        return vermeer_resources(documents, "StatefulSet")
+
+    def role_container(self, documents, role):
+        return next(container for workload in self.workloads(documents)
+                    for container in pod(workload)["spec"]["containers"]
+                    if container["name"] == role)
+
+    def test_optional_components_stay_disabled_in_every_default_preset(self):
+        defaults = yaml.safe_load((CHART / "values.yaml").read_text())
+        self.assertFalse(defaults["vermeer"]["enabled"])
+        self.assertFalse(defaults["seatunnel"]["enabled"])
+        for preset in (None, "values-single.yaml", "values-cluster.yaml", "values-strict.yaml"):
+            with self.subTest(preset=preset):
+                documents = self.documents(preset=preset)
+                self.assertEqual([], vermeer_resources(documents))
+                self.assertEqual([], resources(documents, component="seatunnel"))
+
+    def test_legacy_values_without_vermeer_render_install_upgrade_and_registry(self):
+        with tempfile.TemporaryDirectory(prefix="vermeer-legacy-") as directory:
+            chart = Path(directory) / "chart"
+            shutil.copytree(CHART, chart)
+            (chart / "values.yaml").write_bytes((CHART / "testdata/values-pre-hardening.yaml").read_bytes())
+            for upgrade, registry in ((False, ""), (True, ""), (True, "registry.example.com")):
+                with self.subTest(upgrade=upgrade, registry=registry):
+                    documents = self.documents(chart=chart, upgrade=upgrade, deterministic_auth=False,
+                                               **{"global": {"imageRegistry": registry}})
+                    self.assertEqual([], vermeer_resources(documents))
+
+    def test_standalone_shares_one_pod_with_two_native_processes(self):
+        documents = self.documents({})
+        workload, = self.workloads(documents)
+        self.assertEqual(1, workload["spec"]["replicas"])
+        self.assertEqual("vermeer-master", workload["metadata"]["labels"][COMPONENT])
+        self.assertEqual({"master", "worker"},
+                         {container["name"] for container in pod(workload)["spec"]["containers"]})
+        self.assertFalse(pod(workload)["spec"].get("automountServiceAccountToken", True))
+        self.assertEqual([], vermeer_resources(documents, "Deployment"))
+        self.assertEqual([], vermeer_resources(documents, "Job"))
+
+    def test_cluster_has_one_master_and_configurable_workers(self):
+        for replicas in (3, 5):
+            with self.subTest(replicas=replicas):
+                documents = self.documents({"mode": "cluster", "worker": {"replicas": replicas}})
+                workloads = {workload["metadata"]["labels"][COMPONENT]: workload
+                             for workload in self.workloads(documents)}
+                self.assertEqual({"vermeer-master", "vermeer-worker"}, set(workloads))
+                self.assertEqual(1, workloads["vermeer-master"]["spec"]["replicas"])
+                self.assertEqual(replicas, workloads["vermeer-worker"]["spec"]["replicas"])
+                for component, role in (("vermeer-master", "master"), ("vermeer-worker", "worker")):
+                    self.assertEqual([role], [container["name"] for container in
+                                             pod(workloads[component])["spec"]["containers"]])
+
+    def test_native_config_uses_common_pool_and_internal_master(self):
+        for mode in ("standalone", "cluster"):
+            with self.subTest(mode=mode):
+                documents = self.documents({"mode": mode}, fullnameOverride="analysis")
+                configmap, = vermeer_resources(documents, "ConfigMap")
+                data = configmap["data"]
+                master, worker = configparser.ConfigParser(), configparser.ConfigParser()
+                master.read_string(data["master.ini"])
+                worker.read_string(data["worker.ini"])
+                self.assertEqual("master", master["default"]["run_mode"])
+                self.assertEqual("worker", worker["default"]["run_mode"])
+                self.assertEqual("token", master["default"]["auth"])
+                self.assertEqual("$", worker["default"]["worker_group"])
+                self.assertIn("127.0.0.1" if mode == "standalone" else "analysis-vermeer-master",
+                              worker["default"]["master_peer"])
+                container = self.role_container(documents, "worker")
+                self.assertTrue(any(entry.get("valueFrom", {}).get("fieldRef", {}).get("fieldPath") ==
+                                    "status.podIP" for entry in container.get("env", [])))
+                launch = " ".join(container.get("command", []) + container.get("args", []))
+                self.assertIn("-grpc_peer", launch)
+
+    def test_only_master_http_inherits_public_entry_defaults(self):
+        for mode, service_type in (("easy", "NodePort"), ("strict", "ClusterIP")):
+            with self.subTest(mode=mode):
+                documents = self.documents({}, mode=mode)
+                services = vermeer_resources(documents, "Service")
+                public = [service for service in services if service["spec"].get("type") == "NodePort"]
+                self.assertEqual(1 if mode == "easy" else 0, len(public))
+                for service in public:
+                    self.assertEqual([6688], [port["port"] for port in service["spec"]["ports"]])
+                http = [service for service in services if service["spec"].get("clusterIP") != "None"
+                        and [port["port"] for port in service["spec"]["ports"]] == [6688]]
+                self.assertEqual(1, len(http))
+                self.assertEqual(service_type, http[0]["spec"]["type"])
+
+    def test_explicit_entry_and_custom_ports_follow_the_rendered_release(self):
+        settings = {"mode": "cluster", "master": {"httpPort": 7688, "grpcPort": 7689},
+                    "worker": {"httpPort": 7788, "grpcPort": 7789},
+                    "service": {"type": "NodePort", "nodePort": 31688}}
+        documents = self.documents(settings, mode="strict", fullnameOverride="analytics")
+        client, = [service for service in vermeer_resources(documents, "Service")
+                   if service["spec"].get("type") == "NodePort"]
+        self.assertEqual([7688], [port["port"] for port in client["spec"]["ports"]])
+        self.assertEqual(31688, client["spec"]["ports"][0]["nodePort"])
+        self.assertTrue(all(workload["metadata"]["name"].startswith("analytics-vermeer-")
+                            for workload in self.workloads(documents)))
+        hubble, = resources(documents, "Deployment", "hubble")
+        self.assertEqual("http://analytics-vermeer-master:7688",
+                         env(pod(hubble)["spec"]["containers"][0])["HG_HUBBLE_VERMEER_URL"]["value"])
+
+    def test_credentials_are_secret_references_and_not_configmap_or_process_arguments(self):
+        documents = self.documents({})
+        secret, = vermeer_resources(documents, "Secret")
+        self.assertEqual(FACTOR, base64.b64decode(secret["data"]["token-factor"]).decode())
+        self.assertEqual("keep", secret["metadata"]["annotations"]["helm.sh/resource-policy"])
+        for document in documents:
+            if document["kind"] != "Secret":
+                serialized = yaml.safe_dump(document)
+                for value in (FACTOR, "graph-test-admin-password", "pd-test-service-password"):
+                    self.assertNotIn(value, serialized)
+        for container in (self.role_container(documents, "master"), self.role_container(documents, "worker")):
+            self.assertIn("VERMEER_PD_PASSWORD_FILE", env(container))
+            self.assertIn("VERMEER_PD_PEERS", env(container))
+
+    def test_external_credential_secret_names_and_keys_are_preserved(self):
+        documents = self.documents({"auth": {"existingSecret": "native-auth", "key": "signing-key"}},
+                                   pd={"auth": {"existingSecret": "metadata-auth", "key": "service-key"}},
+                                   server={"auth": {"admin": {"existingSecret": "graph-admin", "key": "admin-key"}}})
+        self.assertEqual([], vermeer_resources(documents, "Secret"))
+        master = next(workload for workload in self.workloads(documents)
+                      if workload["metadata"]["labels"][COMPONENT] == "vermeer-master")
+        secrets = {volume["secret"]["secretName"]: volume["secret"]
+                   for volume in pod(master)["spec"].get("volumes", []) if "secret" in volume}
+        self.assertEqual({"native-auth", "metadata-auth", "graph-admin"}, set(secrets))
+        for name, key in (("native-auth", "signing-key"), ("metadata-auth", "service-key"),
+                          ("graph-admin", "admin-key")):
+            self.assertIn(key, [entry["key"] for entry in secrets[name]["items"]])
+
+    def test_generated_factor_and_pod_checksum_use_the_same_random_value(self):
+        documents = self.documents({"auth": {"value": ""}})
+        secret, = vermeer_resources(documents, "Secret")
+        factor = base64.b64decode(secret["data"]["token-factor"]).decode()
+        self.assertGreaterEqual(len(factor), 32)
+        self.assertNotIn(factor, ("pd-test-service-password", "graph-test-admin-password"))
+        digest = lambda value: hashlib.sha256(value.encode()).hexdigest()
+        checksum = digest(secret["metadata"]["name"] + "|token-factor|" + digest(factor))
+        master, = resources(documents, "StatefulSet", "vermeer-master")
+        self.assertEqual(checksum, pod(master)["metadata"]["annotations"]["checksum/vermeer-auth"])
+
+    def test_schema_reader_override_replaces_the_server_admin_reference(self):
+        documents = self.documents({"hugegraphCredentials": {"existingSecret": "schema-reader",
+                                                              "key": "graph-credentials"}})
+        worker = self.role_container(documents, "worker")
+        self.assertIn("VERMEER_HUGEGRAPH_CREDENTIALS_FILE", env(worker))
+        self.assertNotIn("VERMEER_HUGEGRAPH_PASSWORD_FILE", env(worker))
+        workload, = self.workloads(documents)
+        secret_volumes = [volume["secret"] for volume in pod(workload)["spec"]["volumes"]
+                          if "secret" in volume]
+        self.assertFalse(any(volume["secretName"] == "fixture-admin" for volume in secret_volumes))
+        schema, = [volume for volume in secret_volumes if volume["secretName"] == "schema-reader"]
+        self.assertEqual([{"key": "graph-credentials", "path": "credentials.json"}], schema["items"])
+
+    def test_auth_rotation_changes_only_relevant_vermeer_and_hubble_checksums(self):
+        first, second = self.documents({}), self.documents({"auth": {"value": FACTOR + "rotated"}})
+        for component, kind in (("vermeer-master", "StatefulSet"), ("hubble", "Deployment")):
+            before, = resources(first, kind, component)
+            after, = resources(second, kind, component)
+            self.assertNotEqual(pod(before)["metadata"]["annotations"]["checksum/vermeer-auth"],
+                                pod(after)["metadata"]["annotations"]["checksum/vermeer-auth"])
+        for component, kind in (("pd", "StatefulSet"), ("store", "StatefulSet"), ("server", "Deployment")):
+            before, = resources(first, kind, component)
+            after, = resources(second, kind, component)
+            self.assertEqual(pod(before), pod(after))
+
+    def test_hubble_uses_native_helper_and_keeps_signing_factor_out_of_app_container(self):
+        documents = self.documents({})
+        hubble, = resources(documents, "Deployment", "hubble")
+        spec = pod(hubble)["spec"]
+        app, = spec["containers"]
+        token, = [container for container in spec["initContainers"] if container["name"] == "vermeer-token"]
+        self.assertEqual(self.role_container(documents, "master")["image"], token["image"])
+        self.assertEqual(["/go/bin/vermeer-token"], token["command"])
+        self.assertIn("-quiet", token["args"])
+        self.assertIn("-i", token["args"])
+        self.assertEqual("$DEFAULT", token["args"][token["args"].index("-space") + 1])
+        factor_volumes = {volume["name"] for volume in spec["volumes"] if
+                          volume.get("secret", {}).get("secretName") == "fixture-vermeer-auth"}
+        self.assertTrue(factor_volumes)
+        self.assertFalse(any(mount["name"] in factor_volumes for mount in app["volumeMounts"]))
+        token_path = env(app)["HG_HUBBLE_VERMEER_TOKEN_FILE"]["value"]
+        self.assertTrue(any(mount.get("readOnly") and token_path.startswith(mount["mountPath"])
+                            for mount in app["volumeMounts"]))
+
+    def test_hubble_disabled_leaves_native_engine_operational(self):
+        documents = self.documents({}, hubble={"enabled": False})
+        self.assertEqual([], resources(documents, component="hubble"))
+        self.assertEqual(1, len(self.workloads(documents)))
+        self.assertEqual({"master", "worker"}, {container["name"] for workload in self.workloads(documents)
+                                                 for container in pod(workload)["spec"]["containers"]})
+
+    def test_disabled_integration_clears_image_defaults_and_does_not_mount_token(self):
+        documents = self.documents()
+        hubble, = resources(documents, "Deployment", "hubble")
+        spec = pod(hubble)["spec"]
+        app, = spec["containers"]
+        self.assertEqual("", env(app)["HG_HUBBLE_VERMEER_URL"]["value"])
+        self.assertEqual("", env(app)["HG_HUBBLE_VERMEER_TOKEN_FILE"]["value"])
+        self.assertFalse(any(container["name"] == "vermeer-token" for container in spec.get("initContainers", [])))
+        script = "\n".join(app.get("args", []))
+        self.assertIn("vermeer.url", script)
+        self.assertIn("vermeer.token_file", script)
+        self.assertNotIn("fixture-vermeer-master", script)
+
+    def test_hubble_wrapper_replaces_stale_and_duplicate_vermeer_properties(self):
+        for enabled in (False, True):
+            with self.subTest(enabled=enabled):
+                documents = self.documents({} if enabled else None)
+                hubble, = resources(documents, "Deployment", "hubble")
+                container, = pod(hubble)["spec"]["containers"]
+                environment = dict(os.environ)
+                for entry in container.get("env", []):
+                    environment[entry["name"]] = str(entry.get("value", "fixture-secret"))
+                with tempfile.TemporaryDirectory(prefix="vermeer-hubble-wrapper-") as directory:
+                    root = Path(directory)
+                    (root / "conf").mkdir()
+                    (root / "bin").mkdir()
+                    properties = root / "conf/hugegraph-hubble.properties"
+                    properties.write_text("unrelated.setting=preserved\n"
+                                          "vermeer.url=http://stale-image-default\n"
+                                          "vermeer.token_file=/stale-token\n"
+                                          "vermeer.url=http://duplicate-default\n")
+                    start = root / "bin/start-hubble.sh"
+                    start.write_text("#!/bin/sh\nexit 0\n")
+                    start.chmod(0o755)
+                    result = subprocess.run(container["command"] + container["args"],
+                                            cwd=root, env=environment, capture_output=True,
+                                            text=True, timeout=15)
+                    self.assertEqual(0, result.returncode, result.stderr)
+                    final = properties.read_text().splitlines()
+                self.assertIn("unrelated.setting=preserved", final)
+                expected_url = environment["HG_HUBBLE_VERMEER_URL"] if enabled else ""
+                expected_token = environment["HG_HUBBLE_VERMEER_TOKEN_FILE"] if enabled else ""
+                self.assertEqual(["vermeer.url=" + expected_url],
+                                 [line for line in final if line.startswith("vermeer.url=")])
+                self.assertEqual(["vermeer.token_file=" + expected_token],
+                                 [line for line in final if line.startswith("vermeer.token_file=")])
+
+    def test_persistence_inheritance_and_explicit_temporary_storage(self):
+        for mode in ("standalone", "cluster"):
+            for persistent in (False, True):
+                with self.subTest(mode=mode, persistent=persistent):
+                    documents = self.documents({"mode": mode}, persistence={"enabled": persistent})
+                    claims = [claim for workload in self.workloads(documents)
+                              for claim in workload["spec"].get("volumeClaimTemplates", [])]
+                    claims += vermeer_resources(documents, "PersistentVolumeClaim")
+                    self.assertEqual(2 if persistent else 0, len(claims))
+                    for workload in self.workloads(documents):
+                        for container in pod(workload)["spec"]["containers"]:
+                            self.assertTrue(any(mount["mountPath"] == "/go/bin/vermeer_data"
+                                                for mount in container["volumeMounts"]))
+        documents = self.documents({"master": {"storage": {"enabled": False}},
+                                    "worker": {"storage": {"enabled": True, "size": "7Gi"}}},
+                                   persistence={"enabled": False})
+        workload, = self.workloads(documents)
+        self.assertEqual([], workload["spec"].get("volumeClaimTemplates", []))
+        claim, = vermeer_resources(documents, "PersistentVolumeClaim")
+        self.assertEqual("7Gi", claim["spec"]["resources"]["requests"]["storage"])
+
+    def test_registry_digest_and_pull_secrets_cover_both_processes_and_token_helper(self):
+        digest = "sha256:" + "a" * 64
+        documents = self.documents({"image": {"repository": "team/vermeer", "tag": "ignored", "digest": digest,
+                                               "pullPolicy": "Never"}},
+                                   **{"global": {"imageRegistry": "registry.internal.example.com/project"},
+                                      "imagePullSecrets": [{"name": "private-registry"}]})
+        expected = "registry.internal.example.com/project/team/vermeer@" + digest
+        for workload in self.workloads(documents):
+            self.assertEqual([{"name": "private-registry"}], pod(workload)["spec"]["imagePullSecrets"])
+            for container in pod(workload)["spec"]["containers"]:
+                self.assertEqual(expected, container["image"])
+                self.assertEqual("Never", container["imagePullPolicy"])
+        hubble, = resources(documents, "Deployment", "hubble")
+        helper = next(container for container in pod(hubble)["spec"]["initContainers"]
+                      if container["name"] == "vermeer-token")
+        self.assertEqual(expected, helper["image"])
+        self.assertEqual("Never", helper["imagePullPolicy"])
+
+    def test_strict_network_covers_reverse_rpc_peer_rpc_and_graph_loading(self):
+        documents = self.documents({"mode": "cluster"}, mode="strict", server={"port": 8184})
+        policies = resources(documents, "NetworkPolicy")
+        labels = {component: pod(workload)["metadata"]["labels"] for component in
+                  ("pd", "store", "server", "hubble", "vermeer-master", "vermeer-worker")
+                  for workload in resources(documents, "StatefulSet") + resources(documents, "Deployment")
+                  if workload["metadata"]["labels"].get(COMPONENT) == component}
+        paths = [("hubble", "vermeer-master", 6688),
+                 ("vermeer-worker", "vermeer-master", 6689),
+                 ("vermeer-master", "vermeer-worker", 6789),
+                 ("vermeer-worker", "vermeer-worker", 6789),
+                 ("vermeer-master", "pd", 8686), ("vermeer-worker", "pd", 8686),
+                 ("vermeer-worker", "store", 8500), ("vermeer-worker", "server", 8184)]
+        for source, destination, port in paths:
+            with self.subTest(source=source, destination=destination, port=port):
+                self.assertTrue(policy_allows(policies, labels[destination], labels[source], port, "ingress"))
+                self.assertTrue(policy_allows(policies, labels[source], labels[destination], port, "egress"))
+
+    def test_internal_rpc_remains_release_scoped_without_strict_egress(self):
+        for mode in ("standalone", "cluster"):
+            with self.subTest(mode=mode):
+                documents = self.documents({"mode": mode}, networkPolicy={"enabled": False})
+                policies = resources(documents, "NetworkPolicy")
+                self.assertTrue(vermeer_resources(documents, "NetworkPolicy"))
+                master = next(workload for workload in self.workloads(documents)
+                              if workload["metadata"]["labels"][COMPONENT] == "vermeer-master")
+                labels = pod(master)["metadata"]["labels"]
+                other_release = {**labels, INSTANCE: "other-release"}
+                other_component = {**labels, COMPONENT: "server"}
+                self.assertFalse(policy_allows(policies, labels, other_release, 6689, "ingress"))
+                self.assertFalse(policy_allows(policies, labels, other_component, 6689, "ingress"))
+                self.assertTrue(policy_allows(policies, labels, other_release, 6688, "ingress"))
+
+    def test_native_network_extensions_are_preserved(self):
+        ingress = {"from": [{"ipBlock": {"cidr": "10.15.0.0/16"}}], "ports": [{"port": 6688}]}
+        egress = {"to": [{"ipBlock": {"cidr": "10.16.0.0/16"}}], "ports": [{"port": 9443}]}
+        documents = self.documents({"mode": "cluster"}, mode="strict", networkPolicy={
+            "vermeer": {"extraIngress": [ingress], "extraEgress": [egress]}})
+        for policy in vermeer_resources(documents, "NetworkPolicy"):
+            self.assertIn(ingress, policy["spec"]["ingress"])
+            self.assertIn(egress, policy["spec"]["egress"])
+
+    def test_process_probes_do_not_depend_on_space_worker_availability(self):
+        for container in (self.role_container(self.documents({}), "master"),
+                          self.role_container(self.documents({}), "worker")):
+            for probe in ("startupProbe", "livenessProbe", "readinessProbe"):
+                self.assertIn(probe, container)
+                self.assertNotIn("workers/availability", yaml.safe_dump(container[probe]))
+
+    def test_seatunnel_can_be_enabled_independently_without_changing_engine_identity(self):
+        documents = self.documents({}, seatunnel={"enabled": True, "auth": {"password": "seatunnel-test-password"}})
+        self.assertEqual(1, len(resources(documents, "StatefulSet", "seatunnel")))
+        self.assertEqual(1, len(self.workloads(documents)))
+        self.assertTrue(all(secret["metadata"]["name"] != "fixture-vermeer-auth"
+                            for secret in resources(documents, "Secret", "seatunnel")))
+
+    def test_invalid_enabled_values_fail_before_install(self):
+        cases = ({"mode": "unknown"}, {"mode": "cluster", "worker": {"replicas": 0}},
+                 {"master": {"httpPort": 0}}, {"worker": {"grpcPort": 65536}},
+                 {"service": {"type": "ClusterIP", "nodePort": 31688}},
+                 {"auth": {"value": "", "autoGenerate": False}},
+                 {"master": {"extraEnv": [{"name": "VERMEER_AUTH_TOKEN_FACTOR_FILE", "value": "/wrong"}]}},
+                 {"worker": {"extraEnv": [{"name": "POD_IP", "value": "0.0.0.0"}]}})
+        for settings in cases:
+            with self.subTest(settings=settings):
+                self.assertNotEqual(0, self.render(settings).returncode)
+        result = self.render({}, hubble={"mode": "direct"})
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("pd", result.stderr.lower())
+
+
+if __name__ == "__main__":
+    unittest.main()

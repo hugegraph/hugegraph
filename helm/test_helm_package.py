@@ -78,7 +78,7 @@ class HelmPackageTest(unittest.TestCase):
     def test_required_configuration_is_preserved(self):
         required = ("Chart.yaml", "README.md", "values.yaml", "values.schema.json",
                     "values-single.yaml", "values-cluster.yaml", "values-strict.yaml",
-                    "docs/operations.md", "docs/distribution.md", "examples/README.md")
+                    "docs/operations.md", "docs/distribution.md", "docs/vermeer.md", "examples/README.md")
         for name in required:
             with self.subTest(file=name):
                 self.assertIn(name, self.files)
@@ -127,6 +127,21 @@ class HelmPackageTest(unittest.TestCase):
                                 "Packaged chart did not render a StatefulSet")
                 self.assertTrue(b"kind: Deployment" in rendered.stdout,
                                 "Packaged chart did not render a Deployment")
+
+    def test_packaged_optional_vermeer_images_include_native_token_helper(self):
+        registry = "registry.internal.example.com"
+        for mode in ("standalone", "cluster"):
+            with self.subTest(mode=mode):
+                rendered = subprocess.run(
+                    ["helm", "template", "package-check", str(self.package),
+                     "--set", "vermeer.enabled=true", "--set", f"vermeer.mode={mode}",
+                     "--set", f"global.imageRegistry={registry}"],
+                    check=True, capture_output=True, text=True).stdout
+                selected = set(re.findall(r'^\s+image:\s*["\']?([^"\'\s]+)', rendered, re.MULTILINE))
+                self.assertEqual(5, len(selected),
+                                 "Optional Vermeer must reuse its native image for token helpers")
+                self.assertTrue(all(image.startswith(registry + "/") for image in selected))
+                self.assertIn("/go/bin/vermeer-token", rendered)
 
 
 if __name__ == "__main__":
