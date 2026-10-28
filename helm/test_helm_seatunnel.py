@@ -231,17 +231,20 @@ class SeaTunnelChartTest(unittest.TestCase):
                     self.assertEqual(expected, service["spec"].get("type", "ClusterIP"))
                     self.assertNotIn("externalIPs", service["spec"])
                     self.assertFalse(any("nodePort" in port for port in service["spec"]["ports"]))
-        for mode in ("easy", "strict"):
-            service = {"type": "ClusterIP", "annotations": {"internal.example.com/owner": "imports"}}
+        for mode, service_type, node_port in (("easy", "ClusterIP", None), ("strict", "NodePort", 8808)):
+            service = {"type": service_type, "nodePort": node_port,
+                       "annotations": {"internal.example.com/owner": "imports"}}
             with self.subTest(mode=mode):
                 documents = self.documents({"service": service}, mode=mode)
                 headless, = [doc for doc in engine_resources(documents, "Service")
                              if doc["spec"].get("clusterIP") == "None"]
                 api, = [doc for doc in engine_resources(documents, "Service") if doc is not headless]
-                self.assertEqual("ClusterIP", api["spec"]["type"])
+                self.assertEqual(service_type, api["spec"]["type"])
                 self.assertEqual("imports", api["metadata"]["annotations"]["internal.example.com/owner"])
-                self.assertNotIn("nodePort", api["spec"]["ports"][0])
+                self.assertEqual(node_port, api["spec"]["ports"][0].get("nodePort"))
                 self.assertNotIn("nodePort", headless["spec"]["ports"][0])
+                policy, = engine_resources(documents, "NetworkPolicy")
+                self.assertEqual(service_type == "NodePort", ingress_allows(policy["spec"], {}, 8080))
         for service in ({"type": "ExternalName"}, {"type": "LoadBalancer"}, {"nodePort": -1},
                         {"nodePort": 65536},
                         {"type": "ClusterIP", "nodePort": 31081}, {"externalIPs": ["192.0.2.10"]}):
@@ -249,11 +252,12 @@ class SeaTunnelChartTest(unittest.TestCase):
                 self.assertNotEqual(0, self.render({"service": service}).returncode)
 
     def test_null_service_fields_inherit_easy_with_automatic_nodeport(self):
-        documents = self.documents({"service": {"type": None, "nodePort": None}})
-        for service in engine_resources(documents, "Service"):
-            self.assertEqual("ClusterIP" if service["spec"].get("clusterIP") == "None" else "NodePort",
-                             service["spec"].get("type", "ClusterIP"))
-            self.assertFalse(any("nodePort" in port for port in service["spec"]["ports"]))
+        for node_port in (None, 0):
+            documents = self.documents({"service": {"type": None, "nodePort": node_port}})
+            for service in engine_resources(documents, "Service"):
+                self.assertEqual("ClusterIP" if service["spec"].get("clusterIP") == "None" else "NodePort",
+                                 service["spec"].get("type", "ClusterIP"))
+                self.assertFalse(any("nodePort" in port for port in service["spec"]["ports"]))
 
     def test_local_graph_defaults_follow_rendered_server_and_admin_secret(self):
         documents = self.documents({}, namespace="graphs", release="fixture-" + "r" * 40,

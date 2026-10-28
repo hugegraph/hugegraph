@@ -92,17 +92,24 @@ class VermeerRolloutContractTest(unittest.TestCase):
     def test_worker_only_values_do_not_roll_the_single_master(self):
         baseline = self.render()
         master = self.workload(baseline, "vermeer-master")["spec"]["template"]
+        templates = {doc["metadata"]["name"]: doc["spec"]["template"] for doc in baseline
+                     if doc["kind"] in ("StatefulSet", "Deployment")}
         cases = (
             {"worker": {"replicas": 5}},
             {"worker": {"resources": {"requests": {"cpu": "750m", "memory": "1Gi"}}}},
             {"worker": {"storage": {"size": "7Gi"}}},
-            {"service": {"annotations": {"internal.example.com/owner": "analytics"}}},
+            {"service": {"type": "ClusterIP", "annotations": {"internal.example.com/owner": "analytics"}}},
+            {"service": {"type": "NodePort", "nodePort": 8802}},
         )
         for override in cases:
             with self.subTest(override=override):
                 rendered = self.render(override)
                 current = self.workload(rendered, "vermeer-master")["spec"]["template"]
                 self.assertEqual(master, current)
+                if "service" in override:
+                    self.assertEqual(templates, {
+                        doc["metadata"]["name"]: doc["spec"]["template"] for doc in rendered
+                        if doc["kind"] in ("StatefulSet", "Deployment")})
 
     def test_config_checksum_tracks_only_the_role_inputs_that_are_read(self):
         baseline = self.render()
