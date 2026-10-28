@@ -1,0 +1,211 @@
+name: Apply PR 343 drain fix
+
+on:
+  push:
+    branches:
+      - codex/pd-store-drain-state-20261027
+    paths:
+      - .github/workflows/fix-pr343-duplicate-drain.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-test:
+    if: github.event.head_commit.message == 'chore(ci): apply PR 343 drain fix'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v4
+        with:
+          ref: codex/pd-store-drain-state-20261027
+          fetch-depth: 0
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      - name: Apply focused fix and regression
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              file = Path(path)
+              text = file.read_text()
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"Expected one match in {path}, found {count}: {old[:80]!r}")
+              file.write_text(text.replace(old, new, 1))
+
+          store = "hugegraph-pd/hg-pd-core/src/main/java/org/apache/hugegraph/pd/StoreNodeService.java"
+          replace_once(
+              store,
+              "    public Metapb.Store updateStore(Metapb.Store store) throws PDException {\n",
+              "    public Metapb.Store updateStore(Metapb.Store store) throws PDException {\n"
+              "        return updateStore(store, Collections.emptyList());\n"
+              "    }\n\n"
+              "    public Metapb.Store updateStore(Metapb.Store store,\n"
+              "                                    List<Integer> submittedGroups) throws PDException {\n",
+          )
+          replace_once(
+              store,
+              "                storeTurnoff(store);\n"
+              "            } else if (stateChanged) {\n",
+              "                storeTurnoff(store, submittedGroups);\n"
+              "            } else if (stateChanged) {\n",
+          )
+          replace_once(
+              store,
+              "    public synchronized void storeTurnoff(Metapb.Store store) throws PDException {\n"
+              "        // Traverse ShardGroup,redistribution\n"
+              "        for (Metapb.ShardGroup group : getShardGroupsByStore(store.getId())) {\n"
+              "            Metapb.ShardGroup.Builder builder = Metapb.ShardGroup.newBuilder(group);\n"
+              "            builder.clearShards();\n"
+              "            group.getShardsList().forEach(shard -> {\n"
+              "                if (shard.getStoreId() != store.getId()) {\n"
+              "                    builder.addShards(shard);\n"
+              "                }\n"
+              "            });\n"
+              "            reallocShards(builder.build());\n"
+              "        }\n"
+              "    }\n",
+              "    public synchronized void storeTurnoff(Metapb.Store store) throws PDException {\n"
+              "        storeTurnoff(store, Collections.emptyList());\n"
+              "    }\n\n"
+              "    public synchronized void storeTurnoff(Metapb.Store store,\n"
+              "                                          List<Integer> submittedGroups)\n"
+              "            throws PDException {\n"
+              "        // Traverse ShardGroup,redistribution\n"
+              "        for (Metapb.ShardGroup group : getShardGroupsByStore(store.getId())) {\n"
+              "            // PDService can submit a capacity-aware migration before persisting\n"
+              "            // Exiting. Keep that accepted destination authoritative instead of\n"
+              "            // immediately issuing a second, independently planned change.\n"
+              "            if (submittedGroups.contains(group.getId())) {\n"
+              "                log.info(\"Skip duplicate drain submission for shard group {}\",\n"
+              "                         group.getId());\n"
+              "                continue;\n"
+              "            }\n"
+              "            Metapb.ShardGroup.Builder builder = Metapb.ShardGroup.newBuilder(group);\n"
+              "            builder.clearShards();\n"
+              "            group.getShardsList().forEach(shard -> {\n"
+              "                if (shard.getStoreId() != store.getId()) {\n"
+              "                    builder.addShards(shard);\n"
+              "                }\n"
+              "            });\n"
+              "            reallocShards(builder.build());\n"
+              "        }\n"
+              "    }\n",
+          )
+
+          service = "hugegraph-pd/hg-pd-service/src/main/java/org/apache/hugegraph/pd/service/PDService.java"
+          replace_once(
+              service,
+              "            Metapb.Store store = request.getStore();\n"
+              "            // Before going offline, check whether the number of active machines is greater than\n",
+              "            Metapb.Store store = request.getStore();\n"
+              "            List<Integer> submittedGroups = new ArrayList<>();\n"
+              "            // Before going offline, check whether the number of active machines is greater than\n",
+          )
+          replace_once(
+              service,
+              "                        // Perform partition migration operations\n"
+              "                        taskService.movePartitions((Map<Integer, KVPair<Long, Long>>) resultMap.get(\n"
+              "                                \"movedPartitions\"));\n",
+              "                        // Perform partition migration operations. Preserve the groups whose\n"
+              "                        // final placement was accepted so updateStore does not immediately\n"
+              "                        // submit a second independently planned membership change.\n"
+              "                        Map<Integer, KVPair<Long, Long>> submitted =\n"
+              "                                taskService.movePartitions(\n"
+              "                                        (Map<Integer, KVPair<Long, Long>>) resultMap.get(\n"
+              "                                                \"movedPartitions\"));\n"
+              "                        if (submitted != null) {\n"
+              "                            submittedGroups.addAll(submitted.keySet());\n"
+              "                        }\n",
+          )
+          replace_once(
+              service,
+              "            // Replace license using grpc\n"
+              "            store = storeNodeService.updateStore(store);\n",
+              "            // Replace license using grpc\n"
+              "            store = storeNodeService.updateStore(store, submittedGroups);\n",
+          )
+
+          test = "hugegraph-pd/hg-pd-test/src/main/java/org/apache/hugegraph/pd/core/StoreDrainTest.java"
+          marker = (
+              "    @Test\n"
+              "    public void testInitialAllocationExcludesExitingStoreWithStaleUpLease() throws Exception {\n"
+          )
+          regression = (
+              "    @Test\n"
+              "    public void testPreSubmittedDrainGroupIsNotDispatchedAgain() throws Exception {\n"
+              "        Fixture fixture = new Fixture();\n"
+              "        for (long id = 1; id <= 4; id++) {\n"
+              "            fixture.addStore(id, Metapb.StoreState.Up);\n"
+              "        }\n"
+              "        Metapb.Store source = fixture.stores.get(4L);\n"
+              "        Mockito.when(fixture.meta.getActiveStores())\n"
+              "               .thenAnswer(call -> new ArrayList<>(fixture.stores.values()));\n"
+              "        Metapb.ShardGroup submitted = group(0, 1, 2, 4);\n"
+              "        fixture.groups.put(0, submitted);\n"
+              "        fixture.groups.put(1, group(1, 1, 2, 4));\n"
+              "        Metapb.Partition fallback = Metapb.Partition.newBuilder()\n"
+              "                                                   .setId(1)\n"
+              "                                                   .setGraphName(\"graph\").build();\n"
+              "        Mockito.when(fixture.partitions.getPartitionById(1))\n"
+              "               .thenReturn(List.of(fallback));\n"
+              "        Metapb.Store drain = source.toBuilder()\n"
+              "                                    .setState(Metapb.StoreState.Exiting).build();\n\n"
+              "        fixture.service.updateStore(drain, List.of(0));\n\n"
+              "        Assert.assertEquals(submitted, fixture.groups.get(0));\n"
+              "        Assert.assertTrue(fixture.groups.get(1).getShardsList().stream()\n"
+              "                                 .noneMatch(shard -> shard.getStoreId() == 4));\n"
+              "        List<Invocation> changes = changeShardInvocations(fixture.partitions);\n"
+              "        Assert.assertEquals(1, changes.size());\n"
+              "        Assert.assertEquals(fallback, changes.get(0).getArgument(0));\n"
+              "    }\n\n"
+          )
+          replace_once(test, marker, regression + marker)
+          PY
+
+      - name: Format and validate the focused change
+        shell: bash
+        run: |
+          mvn editorconfig:format -ntp
+          git diff --check
+          changed="$(git diff --name-only | sort)"
+          expected="$(printf '%s\n' \
+            hugegraph-pd/hg-pd-core/src/main/java/org/apache/hugegraph/pd/StoreNodeService.java \
+            hugegraph-pd/hg-pd-service/src/main/java/org/apache/hugegraph/pd/service/PDService.java \
+            hugegraph-pd/hg-pd-test/src/main/java/org/apache/hugegraph/pd/core/StoreDrainTest.java | sort)"
+          test "$changed" = "$expected" || {
+            printf 'Unexpected changed files:\n%s\n' "$changed" >&2
+            exit 1
+          }
+
+      - name: Run focused PD drain tests
+        shell: bash
+        run: |
+          mvn test -ntp \
+            -pl hugegraph-pd/hg-pd-test -am \
+            -Dtest=StoreDrainTest,StorePlacementSubmissionTest \
+            -Dsurefire.failIfNoSpecifiedTests=false
+
+      - name: Commit fix and remove one-off workflow
+        shell: bash
+        run: |
+          git config user.name 'chatgpt-codex-connector[bot]'
+          git config user.email 'chatgpt-codex-connector[bot]@users.noreply.github.com'
+          git add \
+            hugegraph-pd/hg-pd-core/src/main/java/org/apache/hugegraph/pd/StoreNodeService.java \
+            hugegraph-pd/hg-pd-service/src/main/java/org/apache/hugegraph/pd/service/PDService.java \
+            hugegraph-pd/hg-pd-test/src/main/java/org/apache/hugegraph/pd/core/StoreDrainTest.java
+          git rm .github/workflows/fix-pr343-duplicate-drain.yml
+          git diff --cached --check
+          git commit -m 'fix(pd): avoid duplicate drain migration submission'
+          git push origin HEAD:codex/pd-store-drain-state-20261027
