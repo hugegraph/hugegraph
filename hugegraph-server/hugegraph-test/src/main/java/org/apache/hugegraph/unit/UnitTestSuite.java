@@ -39,6 +39,9 @@ import org.apache.hugegraph.backend.tx.GraphTransactionTest;
 import org.apache.hugegraph.core.memory.MemoryManageTest;
 import org.apache.hugegraph.job.EphemeralJobBuilderTest;
 import org.apache.hugegraph.job.algorithm.AlgorithmConsumerLifecycleTest;
+import org.apache.hugegraph.job.algorithm.AlgorithmExecutionTest;
+import org.apache.hugegraph.job.algorithm.AlgorithmJsonMapTest;
+import org.apache.hugegraph.job.algorithm.CountAlgorithmTest;
 import org.apache.hugegraph.job.system.DeleteExpiredJobTest;
 import org.apache.hugegraph.meta.EtcdMetaDriverTest;
 import org.apache.hugegraph.meta.MetaManagerSchemaCacheClearEventTest;
@@ -104,6 +107,7 @@ import org.apache.hugegraph.unit.core.RolePermissionTest;
 import org.apache.hugegraph.unit.core.RowLockTest;
 import org.apache.hugegraph.unit.core.SchemaElementTest;
 import org.apache.hugegraph.unit.core.SchemaTaskSecurityTest;
+import org.apache.hugegraph.unit.core.HstoreChannelSecurityTest;
 import org.apache.hugegraph.unit.core.SecurityManagerTest;
 import org.apache.hugegraph.unit.core.SerialEnumTest;
 import org.apache.hugegraph.unit.core.ServerInfoManagerTest;
@@ -234,6 +238,7 @@ import org.junit.runners.Suite;
         QueryListTest.class,
         RangeTest.class,
         SecurityManagerTest.class,
+        HstoreChannelSecurityTest.class,
         SchemaTaskSecurityTest.class,
         OrderedScanSecurityTest.class,
         RolePermissionTest.class,
@@ -299,6 +304,9 @@ import org.junit.runners.Suite;
         ConsumersTest.class,
         AlgorithmConsumersTest.class,
         AlgorithmConsumerLifecycleTest.class,
+        AlgorithmExecutionTest.class,
+        AlgorithmJsonMapTest.class,
+        CountAlgorithmTest.class,
         VersionTest.class,
         JsonUtilTest.class,
         StringEncodingTest.class,

@@ -176,8 +176,8 @@ public class ConsumersTest {
                     Thread.currentThread().interrupt();
                     throw new AssertionError(e);
                 }
-                if (terminalFailure instanceof Error) {
-                    throw (Error) terminalFailure;
+                if (terminalFailure instanceof Error matchedError) {
+                    throw matchedError;
                 } else if (terminalFailure != null) {
                     throw (RuntimeException) terminalFailure;
                 }
