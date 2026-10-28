@@ -1730,6 +1730,26 @@
             },
             "autoGenerate": {
               "type": "boolean"
+            },
+            "admin": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "password": {
+                  "type": "string",
+                  "pattern": "^[^\\r\\n]*$"
+                },
+                "existingSecret": {
+                  "type": "string"
+                },
+                "key": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "autoGenerate": {
+                  "type": "boolean"
+                }
+              }
             }
           }
         },

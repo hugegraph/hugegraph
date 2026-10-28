@@ -47,6 +47,8 @@ limitations under the License.
     {{- if eq $role "master" }}
     - name: VERMEER_AUTH_TOKEN_FACTOR_FILE
       value: /var/run/vermeer/auth/token-factor
+    - name: VERMEER_ADMIN_PASSWORD_FILE
+      value: /var/run/vermeer/admin/password
     {{- else if $v.hugegraphCredentials.existingSecret }}
     - name: VERMEER_HUGEGRAPH_CREDENTIALS_FILE
       value: /var/run/vermeer/hugegraph/credentials.json
@@ -76,6 +78,9 @@ limitations under the License.
     {{- if eq $role "master" }}
     - name: vermeer-auth
       mountPath: /var/run/vermeer/auth
+      readOnly: true
+    - name: vermeer-admin
+      mountPath: /var/run/vermeer/admin
       readOnly: true
     {{- else if or $v.hugegraphCredentials.existingSecret $root.Values.server.auth.enabled }}
     - name: hugegraph-auth
@@ -114,6 +119,12 @@ limitations under the License.
       - key: {{ include "hugegraph.pd.authSecretKey" $root | quote }}
         path: password
 {{- if $master }}
+- name: vermeer-admin
+  secret:
+    secretName: {{ include "hugegraph.vermeer.adminSecretName" $root }}
+    items:
+      - key: {{ include "hugegraph.vermeer.adminSecretKey" $root | quote }}
+        path: password
 - name: vermeer-auth
   secret:
     secretName: {{ include "hugegraph.vermeer.authSecretName" $root }}

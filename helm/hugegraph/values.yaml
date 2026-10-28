@@ -616,6 +616,12 @@ vermeer:
     existingSecret: ""
     key: token-factor
     autoGenerate: true
+    # Separate native UI login; Hubble continues to use the internal service token.
+    admin:
+      password: ""
+      existingSecret: ""
+      key: password
+      autoGenerate: true
   # Optional JSON {"username":"...","password":"..."} for Schema reads.
   # Empty reuses the deployment's Server administrator Secret as a password file.
   hugegraphCredentials:

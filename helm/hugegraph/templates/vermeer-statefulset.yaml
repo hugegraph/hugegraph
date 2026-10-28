@@ -61,6 +61,7 @@ spec:
         checksum/pd-auth: {{ include "hugegraph.pd.authChecksum" $ | quote }}
         {{- if $master }}
         checksum/vermeer-auth: {{ include "hugegraph.vermeer.authChecksum" $ | quote }}
+        checksum/vermeer-admin: {{ include "hugegraph.vermeer.adminChecksum" $ | quote }}
         {{- end }}
         {{- if $worker }}
         {{- if $v.hugegraphCredentials.existingSecret }}

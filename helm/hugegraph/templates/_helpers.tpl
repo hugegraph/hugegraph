@@ -42,6 +42,9 @@ Fail before dereferencing missing blocks; keep values.yaml the sole defaults sou
 {{- end -}}
 {{- end -}}
 {{- end -}}
+{{- if and .Values.vermeer.enabled (not (hasKey .Values.vermeer.auth "admin")) -}}
+{{- fail "vermeer.auth.admin is missing new chart defaults: export and review existing effective values, then upgrade with -f existing-values.yaml without --reuse-values so Helm imports the admin login defaults" -}}
+{{- end -}}
 {{- $strict := eq (.Values.mode | default "easy") "strict" -}}
 {{- $serviceType := ternary "ClusterIP" "NodePort" (or $strict $legacy) -}}
 {{- range $comp := list "server" "hubble" -}}
@@ -1233,6 +1236,13 @@ over tag; otherwise fall back to tag, then to the chart appVersion. Takes a dict
 {{- define "hugegraph.vermeer.validate" -}}
 {{- if (.Values.vermeer | default dict).enabled -}}
 {{- $v := .Values.vermeer -}}
+{{- $admin := $v.auth.admin -}}
+{{- if and (not $admin.existingSecret) (not $admin.password) (not $admin.autoGenerate) -}}
+{{- fail "vermeer.auth.admin requires existingSecret, password, or autoGenerate=true" -}}
+{{- end -}}
+{{- if and $admin.password (or (eq (trim $admin.password) "") (contains "\n" $admin.password) (contains "\r" $admin.password)) -}}
+{{- fail "vermeer.auth.admin.password must be one nonblank UTF-8 line; whitespace is preserved" -}}
+{{- end -}}
 {{- if and .Values.hubble.enabled (ne (.Values.hubble.mode | default "pd") "pd") -}}
 {{- fail "vermeer.enabled with Hubble requires hubble.mode=pd for graph-space discovery; disable Hubble to use Vermeer independently" -}}
 {{- end -}}
@@ -1271,7 +1281,7 @@ over tag; otherwise fall back to tag, then to the chart appVersion. Takes a dict
 {{- end -}}
 {{- range $role := list "master" "worker" -}}
 {{- range $entry := (get $v $role).extraEnv -}}
-{{- if has $entry.name (list "POD_IP" "VERMEER_AUTH_TOKEN_FACTOR_FILE" "VERMEER_PD_PASSWORD_FILE" "VERMEER_PD_PEERS" "VERMEER_HUGEGRAPH_USERNAME" "VERMEER_HUGEGRAPH_PASSWORD_FILE" "VERMEER_HUGEGRAPH_CREDENTIALS_FILE") -}}
+{{- if has $entry.name (list "POD_IP" "VERMEER_AUTH_TOKEN_FACTOR_FILE" "VERMEER_ADMIN_PASSWORD_FILE" "VERMEER_PD_PASSWORD_FILE" "VERMEER_PD_PEERS" "VERMEER_HUGEGRAPH_USERNAME" "VERMEER_HUGEGRAPH_PASSWORD_FILE" "VERMEER_HUGEGRAPH_CREDENTIALS_FILE") -}}
 {{- fail (printf "vermeer.%s.extraEnv must not set chart-managed variable %s" $role $entry.name) -}}
 {{- end -}}
 {{- end -}}
@@ -1357,4 +1367,45 @@ over tag; otherwise fall back to tag, then to the chart appVersion. Takes a dict
 {{- end -}}
 {{- end -}}
 {{- end -}}
+{{- end }}
+
+{{/* Native UI password is distinct from the internal HMAC signing factor. */}}
+{{- define "hugegraph.vermeer.adminSecretName" -}}
+{{- $admin := .Values.vermeer.auth.admin -}}
+{{- if $admin.existingSecret -}}{{- $admin.existingSecret -}}
+{{- else -}}{{- printf "%s-vermeer-admin" (.Release.Name | trunc 49 | trimSuffix "-") -}}{{- end -}}
+{{- end }}
+{{- define "hugegraph.vermeer.adminSecretKey" -}}
+{{- .Values.vermeer.auth.admin.key | default "password" -}}
+{{- end }}
+{{- define "hugegraph.vermeer.adminSecretValue" -}}
+{{- $admin := .Values.vermeer.auth.admin -}}
+{{- $name := include "hugegraph.vermeer.adminSecretName" . -}}
+{{- $key := include "hugegraph.vermeer.adminSecretKey" . -}}
+{{- if $admin.existingSecret -}}
+{{- $secret := lookup "v1" "Secret" .Release.Namespace $name -}}
+{{- if and $secret (hasKey $secret "data") (hasKey (get $secret "data") $key) -}}{{- get (get $secret "data") $key -}}{{- end -}}
+{{- else if $admin.password -}}
+{{- $admin.password | b64enc -}}
+{{- else -}}
+{{- $secret := lookup "v1" "Secret" .Release.Namespace $name -}}
+{{- if and $secret (hasKey $secret "data") (hasKey (get $secret "data") $key) -}}
+{{- get (get $secret "data") $key -}}
+{{- else -}}
+{{- include "hugegraph.generatedCredential" (dict "root" . "name" "vermeer-admin" "length" 16) | b64enc -}}
+{{- end -}}
+{{- end -}}
+{{- end }}
+{{- define "hugegraph.vermeer.adminChecksum" -}}
+{{- $admin := .Values.vermeer.auth.admin -}}
+{{- $parts := list (include "hugegraph.vermeer.adminSecretName" .) (include "hugegraph.vermeer.adminSecretKey" .) -}}
+{{- if $admin.existingSecret -}}
+{{- $secret := lookup "v1" "Secret" .Release.Namespace $admin.existingSecret -}}
+{{- if $secret -}}{{- $parts = append $parts (dig "metadata" "resourceVersion" "" $secret) -}}{{- end -}}
+{{- else if $admin.password -}}
+{{- $parts = append $parts (sha256sum $admin.password) -}}
+{{- else -}}
+{{- $parts = append $parts (include "hugegraph.vermeer.adminSecretValue" . | b64dec | sha256sum) -}}
+{{- end -}}
+{{- join "|" $parts | sha256sum -}}
 {{- end }}
