@@ -20,6 +20,7 @@ package org.apache.hugegraph.security;
 import java.io.FileDescriptor;
 import java.net.InetAddress;
 import java.security.Permission;
+import java.security.SecurityPermission;
 import java.util.Map;
 import java.util.PropertyPermission;
 import java.util.Set;
@@ -134,6 +135,11 @@ public class HugeSecurityManager extends SecurityManager {
             perm.getActions().contains("write") && callFromGremlin()) {
             throw newSecurityException("Not allowed to modify system property(%s) via Gremlin",
                                        perm.getName());
+        }
+        if (perm instanceof SecurityPermission &&
+            "setProperty.networkaddress.cache.ttl".equals(perm.getName()) && callFromGremlin()) {
+            throw newSecurityException("Not allowed to modify security property(%s) via Gremlin",
+                                       "networkaddress.cache.ttl");
         }
         if (DENIED_PERMISSIONS.contains(perm.getName()) && callFromGremlin()) {
             // TODO: consider ban the Reflection/Runtime/SerializablePermission after
