@@ -36,6 +36,7 @@ import java.util.function.Consumer;
 import org.apache.hugegraph.pd.common.PDException;
 import org.apache.hugegraph.pd.grpc.MetaTask;
 import org.apache.hugegraph.pd.grpc.Metapb;
+import org.apache.hugegraph.pd.grpc.Pdpb;
 import org.apache.hugegraph.store.HgStoreEngine;
 import org.apache.hugegraph.store.business.BusinessHandlerImpl;
 import org.apache.hugegraph.store.cmd.HgCmdClient;
@@ -263,6 +264,7 @@ public class PartitionManager extends GlobalMetaStore {
         }
 
         Set<Integer> normalPartitions = new HashSet<>();
+        Set<Integer> retainedPartitions = new HashSet<>();
 
         // Once according to the partition read
         for (int partId : partIds) {
@@ -287,20 +289,41 @@ public class PartitionManager extends GlobalMetaStore {
                           partId, storeId, shards2Peers(shards));
                 throw new InvalidShardException();
             }
+            List<Metapb.Partition> recoverableParts = new ArrayList<>();
             for (var metaPart : metaParts) {
                 var graph = metaPart.getGraphName();
+                if (metaPart.getId() != partId || graph.isEmpty()) {
+                    throw new InvalidShardException("Invalid persisted partition " + graph +
+                                                    "-" + partId, null);
+                }
                 Partition pdPartition;
                 try {
-                    pdPartition = pdProvider.getPartitionByID(graph, metaPart.getId());
+                    pdPartition = pdProvider.getPartitionByIDForRecovery(graph, metaPart.getId());
+                } catch (PDException e) {
+                    if (e.getErrorCode() == Pdpb.ErrorType.NOT_FOUND_VALUE) {
+                        // A graph can be dropped while this Store is offline. Do not serve it or
+                        // infer permission to delete its data, Store path or Raft metadata.
+                        retainedPartitions.add(partId);
+                        log.warn("PD no longer has partition {}-{}; skipping recovery and " +
+                                 "retaining local data", graph, partId);
+                        continue;
+                    }
+                    throw new InvalidShardException("Cannot read persisted partition " + graph +
+                                                    "-" + partId + " from PD", e);
                 } catch (RuntimeException e) {
                     throw new InvalidShardException("Cannot read persisted partition " + graph +
                                                     "-" + partId + " from PD", e);
                 }
-                if (metaPart.getId() != partId || graph.isEmpty() || pdPartition == null ||
-                    pdPartition.getId() != partId || !graph.equals(pdPartition.getGraphName())) {
+                if (pdPartition == null || pdPartition.getId() != partId ||
+                    !graph.equals(pdPartition.getGraphName())) {
                     throw new InvalidShardException("Cannot verify persisted partition " + graph +
                                                     "-" + partId + " with PD", null);
                 }
+                recoverableParts.add(metaPart);
+            }
+            if (recoverableParts.isEmpty()) {
+                wrapper.close(partId);
+                continue;
             }
 
             // Only refresh startup metadata, once per group even when several graphs share it.
@@ -308,7 +331,7 @@ public class PartitionManager extends GlobalMetaStore {
             if (HgStoreEngine.getInstance().getPartitionEngine(partId) == null) {
                 updateShardGroup(ShardGroup.from(pdGroup));
             }
-            for (var metaPart : metaParts) {
+            for (var metaPart : recoverableParts) {
                 var graph = metaPart.getGraphName();
                 partitions.computeIfAbsent(graph, g -> new ConcurrentHashMap<>());
                 Partition partition = new Partition(metaPart);
@@ -322,7 +345,8 @@ public class PartitionManager extends GlobalMetaStore {
 
         // Remove redundant partition storage paths, partitions that have been migrated away may migrate back
         for (var location : storeMetadata.getPartitionStores()) {
-            if (!normalPartitions.contains(location.getPartitionId())) {
+            if (!normalPartitions.contains(location.getPartitionId()) &&
+                !retainedPartitions.contains(location.getPartitionId())) {
                 storeMetadata.removePartitionStore(location.getPartitionId());
             }
         }

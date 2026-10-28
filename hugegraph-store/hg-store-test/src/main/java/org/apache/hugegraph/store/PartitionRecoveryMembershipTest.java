@@ -28,7 +28,10 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.CALLS_REAL_METHODS;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -43,9 +46,15 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
+import org.apache.hugegraph.pd.client.PDClient;
+import org.apache.hugegraph.pd.common.KVPair;
+import org.apache.hugegraph.pd.common.PDException;
 import org.apache.hugegraph.pd.grpc.Metapb;
+import org.apache.hugegraph.pd.grpc.Pdpb;
 import org.apache.hugegraph.store.business.BusinessHandler;
 import org.apache.hugegraph.store.meta.GraphManager;
 import org.apache.hugegraph.store.meta.MetadataKeyHelper;
@@ -55,6 +64,7 @@ import org.apache.hugegraph.store.meta.ShardGroup;
 import org.apache.hugegraph.store.meta.Store;
 import org.apache.hugegraph.store.meta.StoreMetadata;
 import org.apache.hugegraph.store.options.HgStoreEngineOptions;
+import org.apache.hugegraph.store.pd.DefaultPdProvider;
 import org.apache.hugegraph.store.pd.PdProvider;
 import org.apache.hugegraph.store.util.PartitionMetaStoreWrapper;
 import org.junit.After;
@@ -64,7 +74,9 @@ import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
 import com.alipay.sofa.jraft.JRaftUtils;
+import com.alipay.sofa.jraft.conf.Configuration;
 import com.alipay.sofa.jraft.conf.ConfigurationManager;
+import com.alipay.sofa.jraft.core.NodeImpl;
 import com.alipay.sofa.jraft.entity.EnumOutter.EntryType;
 import com.alipay.sofa.jraft.entity.LogEntry;
 import com.alipay.sofa.jraft.entity.LogId;
@@ -97,6 +109,8 @@ public class PartitionRecoveryMembershipTest {
     private Metapb.ShardGroup directGroup;
     private Path data;
     private Map<Integer, PartitionEngine> engines;
+    private HeartbeatService heartbeat;
+    private CountDownLatch leaderPublication;
 
     @Before
     @SuppressWarnings("unchecked")
@@ -142,7 +156,17 @@ public class PartitionRecoveryMembershipTest {
         }).when(wrapper).put(eq(GROUP), any(byte[].class), any(byte[].class));
         when(pd.getShardGroupDirect(GROUP)).thenAnswer(call -> directGroup);
         when(pd.getShardGroup(GROUP)).thenAnswer(call -> directGroup);
-        when(pd.getPartitionByID(anyString(), eq(GROUP)))
+        leaderPublication = new CountDownLatch(1);
+        doAnswer(call -> {
+            for (StackTraceElement frame : Thread.currentThread().getStackTrace()) {
+                if (frame.getClassName().equals(PartitionEngine.class.getName()) &&
+                    frame.getMethodName().equals("onLeaderStart")) {
+                    leaderPublication.countDown();
+                }
+            }
+            return null;
+        }).when(pd).updateShardGroup(any(Metapb.ShardGroup.class));
+        when(pd.getPartitionByIDForRecovery(anyString(), eq(GROUP)))
                 .thenAnswer(call -> new Partition(partition(call.getArgument(0))));
         when(pd.getPartitionsByStore(SELF)).thenAnswer(call -> {
             List<Partition> parts = new ArrayList<>();
@@ -161,7 +185,8 @@ public class PartitionRecoveryMembershipTest {
         replaceEngineField("options", options);
         replaceEngineField("pdProvider", pd);
         replaceEngineField("businessHandler", mock(BusinessHandler.class));
-        replaceEngineField("heartbeatService", mock(HeartbeatService.class));
+        heartbeat = mock(HeartbeatService.class);
+        replaceEngineField("heartbeatService", heartbeat);
         RpcServer rpc = mock(RpcServer.class);
         when(rpc.boundPort()).thenReturn(18539);
         replaceEngineField("rpcServer", rpc);
@@ -186,20 +211,7 @@ public class PartitionRecoveryMembershipTest {
     @Test
     public void testRestoresStaleDerivedGroupWithoutReplacingDurableRaftConfiguration()
             throws Exception {
-        LogStorage storage = new RocksDBLogStorage(data.resolve("raft/00000/log").toString(), new RaftOptions());
-        LogStorageOptions logOptions = new LogStorageOptions();
-        logOptions.setGroupId("hg_0");
-        logOptions.setConfigurationManager(new ConfigurationManager());
-        logOptions.setLogEntryCodecFactory(LogEntryV2CodecFactory.getInstance());
-        assertTrue(storage.init(logOptions));
-        try {
-            LogEntry conf = new LogEntry(EntryType.ENTRY_TYPE_CONFIGURATION);
-            conf.setId(new LogId(1, 1));
-            conf.setPeers(List.of(JRaftUtils.getPeerId(SELF_ADDRESS)));
-            assertTrue(storage.appendEntry(conf));
-        } finally {
-            storage.shutdown();
-        }
+        writeDurableSelfConfiguration();
 
         manager.loadPartition();
         assertTrue(localGroup.get().getShardsList().stream().anyMatch(s -> s.getStoreId() == SELF));
@@ -208,6 +220,7 @@ public class PartitionRecoveryMembershipTest {
         PartitionEngine restored = engine.getPartitionEngine(GROUP);
         assertNotNull("Stale metadata must not filter out the persisted group", restored);
         assertNotNull(restored.waitForLeader(5000));
+        awaitLeaderPublication();
         // PD's bootstrap includes another peer; JRaft must retain its durable one-voter config.
         assertEquals(List.of(JRaftUtils.getPeerId(SELF_ADDRESS)), restored.getRaftNode().listPeers());
         assertTrue(manager.hasPartition("graph", GROUP));
@@ -254,16 +267,16 @@ public class PartitionRecoveryMembershipTest {
     }
 
     @Test
-    public void testMissingOrMismatchedPdPartitionPreservesMetadata() {
-        when(pd.getPartitionByID("graph", GROUP)).thenReturn(null);
+    public void testMissingOrMismatchedPdPartitionPreservesMetadata() throws Exception {
+        when(pd.getPartitionByIDForRecovery("graph", GROUP)).thenReturn(null);
         assertRecoveryBlocked();
-        when(pd.getPartitionByID("graph", GROUP)).thenReturn(new Partition(partition("wrong")));
+        when(pd.getPartitionByIDForRecovery("graph", GROUP)).thenReturn(new Partition(partition("wrong")));
         assertRecoveryBlocked();
     }
 
     @Test
-    public void testPdPartitionFailurePreservesMetadata() {
-        when(pd.getPartitionByID("graph", GROUP)).thenThrow(new IllegalStateException("PD unavailable"));
+    public void testPdPartitionFailurePreservesMetadata() throws Exception {
+        when(pd.getPartitionByIDForRecovery("graph", GROUP)).thenThrow(new IllegalStateException("PD unavailable"));
         assertRecoveryBlocked();
     }
 
@@ -312,6 +325,116 @@ public class PartitionRecoveryMembershipTest {
         assertTrue(initial.parse(String.join(",", peers)));
         assertTrue(initial.listPeers().isEmpty());
         assertEquals(SELF_ADDRESS, initial.listLearners().get(0).getEndpoint().toString());
+    }
+
+    @Test
+    public void testDefaultProviderPreservesRecoveryLookupErrors() throws Exception {
+        PDClient client = mock(PDClient.class);
+        DefaultPdProvider provider = mock(DefaultPdProvider.class, CALLS_REAL_METHODS);
+        Field clientField = DefaultPdProvider.class.getDeclaredField("pdClient");
+        clientField.setAccessible(true);
+        clientField.set(provider, client);
+        PDException missing = new PDException(Pdpb.ErrorType.NOT_FOUND_VALUE, "Graph was dropped");
+        when(client.getPartitionByIdDirect("graph", GROUP)).thenThrow(missing);
+        assertSame(missing, assertThrows(PDException.class,
+                                        () -> provider.getPartitionByIDForRecovery("graph", GROUP)));
+        PDException failed = new PDException(Pdpb.ErrorType.PD_UNREACHABLE_VALUE, "RPC failed");
+        doThrow(failed).when(client).getPartitionByIdDirect("graph", GROUP);
+        assertSame(failed, assertThrows(PDException.class,
+                                       () -> provider.getPartitionByIDForRecovery("graph", GROUP)));
+        doReturn(new KVPair<>(partition("graph"), Metapb.Shard.getDefaultInstance()))
+                .when(client).getPartitionByIdDirect("graph", GROUP);
+        assertEquals("graph", provider.getPartitionByIDForRecovery("graph", GROUP).getGraphName());
+    }
+
+    @Test
+    public void testDroppedGraphDoesNotBlockOtherGraphRecovery() throws Exception {
+        persisted.add(partition("other-graph"));
+        when(pd.getPartitionByIDForRecovery("graph", GROUP)).thenThrow(
+                new PDException(Pdpb.ErrorType.NOT_FOUND_VALUE, "Graph was dropped"));
+        when(pd.getPartitionsByStore(SELF)).thenReturn(List.of(new Partition(partition("other-graph"))));
+        writeDurableSelfConfiguration();
+        engine.stateChanged(metadata.getStore(), Metapb.StoreState.Offline, Metapb.StoreState.Up);
+        assertNotNull(engine.getPartitionEngine(GROUP));
+        assertNotNull(engine.getPartitionEngine(GROUP).waitForLeader(5000));
+        awaitLeaderPublication();
+        verify(heartbeat, never()).requestExit(anyInt());
+        assertFalse(manager.hasPartition("graph", GROUP));
+        assertTrue(manager.hasPartition("other-graph", GROUP));
+        assertEquals(List.of(JRaftUtils.getPeerId(SELF_ADDRESS)),
+                     engine.getPartitionEngine(GROUP).getRaftNode().listPeers());
+        assertEquals(SELF, localGroup.get().getShards(0).getStoreId());
+        assertEquals(1, localGroup.get().getShardsCount());
+        assertEquals(2, persisted.size());
+        verify(wrapper, never()).delete(anyInt(), any(byte[].class));
+        verify(metadata, never()).removePartitionStore(anyInt());
+    }
+
+    @Test
+    public void testAllDroppedGraphsKeepPathsWithoutStartingEngineOrExitingStore() throws Exception {
+        when(pd.getPartitionByIDForRecovery("graph", GROUP)).thenThrow(
+                new PDException(Pdpb.ErrorType.NOT_FOUND_VALUE, "Graph was dropped"));
+        when(pd.getPartitionsByStore(SELF)).thenReturn(List.of());
+        Metapb.ShardGroup original = localGroup.get();
+        engine.stateChanged(metadata.getStore(), Metapb.StoreState.Offline, Metapb.StoreState.Up);
+        assertFalse(manager.hasPartition("graph", GROUP));
+        assertTrue(engines.isEmpty());
+        assertSame(original, localGroup.get());
+        assertEquals(1, persisted.size());
+        verify(heartbeat, never()).requestExit(anyInt());
+        verify(wrapper, never()).put(anyInt(), any(byte[].class), any(byte[].class));
+        verify(wrapper, never()).delete(anyInt(), any(byte[].class));
+        verify(metadata, never()).removePartitionStore(anyInt());
+        assertTrue(Files.isDirectory(data.resolve("raft/00000/log")));
+    }
+
+    @Test
+    public void testFailedPdLookupDoesNotBecomeDroppedGraph() throws Exception {
+        when(pd.getPartitionByIDForRecovery("graph", GROUP)).thenThrow(
+                new PDException(Pdpb.ErrorType.PD_UNREACHABLE_VALUE, "RPC failed"));
+        assertRecoveryBlocked();
+    }
+
+    @Test
+    public void testEmptyRaftLogPreservesLearnerRoleWhenStartingNode() throws Exception {
+        directGroup = group(1L, SELF).toBuilder().setShards(1, Metapb.Shard.newBuilder()
+                .setStoreId(SELF).setRole(Metapb.ShardRole.Learner)).build();
+        try (var logs = Files.list(data.resolve("raft/00000/log"))) {
+            assertEquals(0L, logs.count());
+        }
+        manager.loadPartition();
+        engine.restoreLocalPartitionEngine();
+        PartitionEngine restored = engine.getPartitionEngine(GROUP);
+        assertNotNull("A persisted learner must use the normal recovery startup path", restored);
+        Configuration observed = ((NodeImpl) restored.getRaftNode()).getCurrentConf();
+        assertFalse(observed.getPeers().contains(JRaftUtils.getPeerId(SELF_ADDRESS)));
+        assertEquals(List.of(JRaftUtils.getPeerId(OTHER_ADDRESS)), observed.listPeers());
+        assertEquals(List.of(JRaftUtils.getPeerId(SELF_ADDRESS)), observed.listLearners());
+        assertFalse(restored.getRaftNode().isLeader());
+    }
+
+    private void awaitLeaderPublication() throws InterruptedException {
+        // waitForLeader can return before the asynchronously dispatched onLeaderStart callback.
+        // Let its configuration publication pass the last Node access before tearing down the node.
+        assertTrue("Leader callback must publish its configuration before shutdown",
+                   leaderPublication.await(5, TimeUnit.SECONDS));
+    }
+
+    private void writeDurableSelfConfiguration() throws Exception {
+        LogStorage storage = new RocksDBLogStorage(data.resolve("raft/00000/log").toString(), new RaftOptions());
+        LogStorageOptions logOptions = new LogStorageOptions();
+        logOptions.setGroupId("hg_0");
+        logOptions.setConfigurationManager(new ConfigurationManager());
+        logOptions.setLogEntryCodecFactory(LogEntryV2CodecFactory.getInstance());
+        assertTrue(storage.init(logOptions));
+        try {
+            LogEntry conf = new LogEntry(EntryType.ENTRY_TYPE_CONFIGURATION);
+            conf.setId(new LogId(1, 1));
+            conf.setPeers(List.of(JRaftUtils.getPeerId(SELF_ADDRESS)));
+            assertTrue(storage.appendEntry(conf));
+        } finally {
+            storage.shutdown();
+        }
     }
 
     private void assertRecoveryBlocked() {
