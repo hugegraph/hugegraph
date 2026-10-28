@@ -47,21 +47,13 @@ Fail before dereferencing missing blocks; keep values.yaml the sole defaults sou
 {{- end -}}
 {{- $strict := eq (.Values.mode | default "easy") "strict" -}}
 {{- $serviceType := ternary "ClusterIP" "NodePort" (or $strict $legacy) -}}
-{{- range $comp := list "server" "hubble" -}}
+{{- range $comp := list "server" "hubble" "seatunnel" "vermeer" -}}
 {{- $component := get $.Values $comp -}}
 {{- $svc := get $component "service" | default dict -}}
 {{- $_ := set $component "service" $svc -}}
 {{- $typeInherited := or (not (hasKey $svc "type")) (eq (get $svc "type" | toString) "<nil>") -}}
 {{- $_ := set $component "__serviceTypeInherited" $typeInherited -}}
 {{- if $typeInherited -}}{{- $_ := set $svc "type" $serviceType -}}{{- end -}}
-{{- end -}}
-{{- range $comp := list "seatunnel" "vermeer" -}}
-{{- $component := get $.Values $comp -}}
-{{- $svc := get $component "service" | default dict -}}
-{{- $_ := set $component "service" $svc -}}
-{{- if or (not (hasKey $svc "type")) (eq (get $svc "type" | toString) "<nil>") -}}
-{{- $_ := set $svc "type" "ClusterIP" -}}
-{{- end -}}
 {{- end -}}
 {{- $np := .Values.networkPolicy | default dict -}}
 {{- $_ := set .Values "networkPolicy" $np -}}
@@ -1348,21 +1340,21 @@ over tag; otherwise fall back to tag, then to the chart appVersion. Takes a dict
 {{- end -}}
 {{- end }}
 
-{{/* Native engines have no public Service entry, regardless of easy/strict mode. */}}
+{{/* Native HTTP entries share mode defaults; internal RPC Services stay private. */}}
 {{- define "hugegraph.nativeServices.validate" -}}
 {{- range $component := list "seatunnel" "vermeer" -}}
 {{- $values := get $.Values $component | default dict -}}
 {{- if get $values "enabled" -}}
 {{- $svc := get $values "service" | default dict -}}
-{{- if ne (get $svc "type") "ClusterIP" -}}
-{{- fail (printf "%s.service must remain ClusterIP; native engines are accessed through authenticated internal callers or port-forward" $component) -}}
+{{- if not (has (get $svc "type") (list "ClusterIP" "NodePort")) -}}
+{{- fail (printf "%s.service.type must be ClusterIP or NodePort" $component) -}}
 {{- end -}}
-{{- if and (hasKey $svc "nodePort") (ne (get $svc "nodePort") nil) -}}
-{{- fail (printf "%s.service.nodePort is not supported for internal native engines" $component) -}}
+{{- if and (get $svc "nodePort") (ne (get $svc "type") "NodePort") -}}
+{{- fail (printf "%s.service.nodePort requires %s.service.type=NodePort" $component $component) -}}
 {{- end -}}
 {{- range $field := list "externalIPs" "externalTrafficPolicy" "loadBalancerClass" "loadBalancerIP" "loadBalancerSourceRanges" "allocateLoadBalancerNodePorts" -}}
 {{- if hasKey $svc $field -}}
-{{- fail (printf "%s.service.%s is not supported for internal native engines" $component $field) -}}
+{{- fail (printf "%s.service.%s is not supported; native HTTP entries support ClusterIP or NodePort" $component $field) -}}
 {{- end -}}
 {{- end -}}
 {{- end -}}

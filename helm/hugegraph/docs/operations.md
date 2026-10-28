@@ -326,9 +326,11 @@ prefix on Server and Store before changing Schema or retrying data imports.
 ## Networking and Hubble
 
 Easy mode leaves full base-service NetworkPolicy isolation off; strict enables
-it. Explicit base-service settings win. SeaTunnel and Vermeer always use private
-ClusterIP Services, authentication and native HTTP/RPC ingress restrictions,
-including with `networkPolicy.enabled=false`. Their extra ingress rules require
+it. Explicit base-service settings win. SeaTunnel/Vermeer HTTP inherits NodePort
+in easy mode and ClusterIP in strict mode; explicit types are preserved and
+authentication stays enabled. Only NodePort HTTP admits outside callers; native
+RPC/Worker HTTP and member/CLI port 5801 remain internal, including with
+`networkPolicy.enabled=false`. Their extra ingress rules require
 explicit internal Pod/namespace selectors; IP blocks and allow-all forms are
 rejected. Strict additionally restricts engine egress. Actual isolation needs
 a NetworkPolicy-capable CNI.
@@ -342,8 +344,8 @@ exposed base components with no outside ingress rule. Empty outside rule lists
 can block clients; `{}` is an allow-all form for base-service rules only.
 Consider NodePort source NAT when selecting source ranges. For Hubble discovery
 via an external `server.advertiseUrl`, also configure Hubble's `extraEgress`.
-Native engine administration uses authorized port-forwarding and its separate
-administrator password (newly generated: 6 characters in `easy`, 16 in `strict`); Hubble service tokens stay automatic.
+Native entry and login steps are in the [SeaTunnel](seatunnel.md) and
+[Vermeer](vermeer.md#optional-native-administration) guides; Hubble service tokens stay automatic.
 
 Client Services accept native Kubernetes traffic and load-balancer fields under
 `pd.service`, `server.service` and `hubble.service`. LoadBalancer-specific fields

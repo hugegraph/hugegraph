@@ -1838,6 +1838,7 @@
           ],
           "enum": [
             "ClusterIP",
+            "NodePort",
             null
           ]
         },
@@ -1845,8 +1846,13 @@
           "type": "object"
         },
         "nodePort": {
-          "type": "null",
-          "description": "Compatibility placeholder only; native engines cannot expose NodePorts."
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 65535,
+          "description": "Unset or 0 requests automatic allocation; nonzero values require NodePort and must fit the cluster's configured range."
         }
       }
     },
