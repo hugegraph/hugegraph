@@ -99,6 +99,12 @@ management state or a successful state-update response alone is not a complete m
 Replica allocation still enforces the configured minimum Store count using eligible destinations.
 If the remaining eligible Stores do not satisfy that minimum, draining remains blocked; expiry of
 the source lease must not be used to force retirement or reduce the configured replica policy.
+If a drain request fails this capacity check, add enough eligible capacity and repeat the same
+`Exiting` management request to resume planning for groups that still reference the source in PD.
+The persisted intent stays `Exiting`; there is no need to toggle it to `Up`. This retry does not
+establish that an already dispatched migration has completed or recover a lost Store-side task.
+`Tombstone` is permanent for that Store identity: management updates cannot return it to an active
+state, just as registration and heartbeat already reject a retired identity.
 Heartbeats, registration and management state changes serialize their Store-state updates.
 Re-registering an `Exiting` Store preserves that state even when its address is in the initial
 Store list. This preserves the drain intent, but does not replace checking restored engines and

@@ -32,6 +32,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import org.apache.hugegraph.pd.ConfigService;
 import org.apache.hugegraph.pd.PartitionService;
 import org.apache.hugegraph.pd.StoreNodeService;
+import org.apache.hugegraph.pd.StoreStatusListener;
 import org.apache.hugegraph.pd.TaskScheduleService;
 import org.apache.hugegraph.pd.common.PDException;
 import org.apache.hugegraph.pd.config.PDConfig;
@@ -164,6 +165,85 @@ public class StoreDrainTest {
         Assert.assertEquals(original, fixture.groups.get(0));
         Assert.assertEquals(3, fixture.service.getActiveStores().size());
         Assert.assertEquals(2, fixture.service.getPlacementStores().size());
+    }
+
+    @Test
+    public void testRepeatedDrainResumesAfterCapacityIsRestored() throws Exception {
+        Fixture fixture = new Fixture();
+        StoreStatusListener listener = Mockito.mock(StoreStatusListener.class);
+        setField(fixture.service, "statusListeners", List.of(listener));
+        fixture.addStore(1, Metapb.StoreState.Up);
+        fixture.addStore(2, Metapb.StoreState.Up);
+        Metapb.Store source = fixture.addStore(3, Metapb.StoreState.Up);
+        Mockito.when(fixture.meta.getActiveStores())
+               .thenAnswer(call -> new ArrayList<>(fixture.stores.values()));
+        Metapb.ShardGroup original = group(0, 1, 2, 3);
+        fixture.groups.put(0, original);
+        Metapb.Partition partition = Metapb.Partition.newBuilder()
+                                                   .setId(0).setGraphName("graph").build();
+        Mockito.when(fixture.partitions.getPartitionById(0)).thenReturn(List.of(partition));
+        Metapb.Store drain = source.toBuilder().setState(Metapb.StoreState.Exiting).build();
+
+        PDException error = Assert.assertThrows(PDException.class,
+                                                () -> fixture.service.updateStore(drain));
+        Assert.assertEquals(Pdpb.ErrorType.LESS_ACTIVE_STORE_VALUE, error.getErrorCode());
+        Assert.assertEquals(Metapb.StoreState.Exiting, fixture.stores.get(3L).getState());
+        Assert.assertEquals(original, fixture.groups.get(0));
+        Assert.assertTrue(changeShardInvocations(fixture.partitions).isEmpty());
+
+        // A partial metadata update is not an explicit retry of the drain intent.
+        fixture.service.updateStore(Metapb.Store.newBuilder().setId(3)
+                                               .setVersion("metadata-only").build());
+        Assert.assertEquals(original, fixture.groups.get(0));
+
+        fixture.addStore(4, Metapb.StoreState.Up);
+        fixture.service.updateStore(drain);
+
+        List<Metapb.Shard> expected = fixture.groups.get(0).getShardsList();
+        Assert.assertEquals(3, expected.size());
+        Assert.assertTrue(expected.stream().noneMatch(shard -> shard.getStoreId() == 3));
+        Assert.assertTrue(expected.stream().anyMatch(shard -> shard.getStoreId() == 4));
+        Assert.assertEquals(Metapb.StoreState.Exiting, fixture.stores.get(3L).getState());
+        List<Invocation> changes = changeShardInvocations(fixture.partitions);
+        Assert.assertEquals(1, changes.size());
+        Assert.assertEquals(partition, changes.get(0).getArgument(0));
+        Assert.assertEquals(expected, changes.get(0).getArgument(1));
+        Assert.assertEquals(ConfChangeType.CONF_CHANGE_TYPE_ADJUST, changes.get(0).getArgument(2));
+
+        // Planning removed the source from the PD group; another identical request must
+        // not resubmit that group or repeat a Store-state notification. This is not a
+        // barrier proving that the actual Raft membership has committed the target.
+        fixture.service.updateStore(drain);
+        Assert.assertEquals(1, changeShardInvocations(fixture.partitions).size());
+        Mockito.verifyNoInteractions(listener);
+    }
+
+    @Test
+    public void testManagementCannotReviveTombstoneButAllowsPartialMetadataUpdate() throws Exception {
+        Fixture fixture = new Fixture();
+        Metapb.Store retired = fixture.addStore(3, Metapb.StoreState.Tombstone);
+        for (Metapb.StoreState state : List.of(Metapb.StoreState.Up,
+                                               Metapb.StoreState.Exiting,
+                                               Metapb.StoreState.Offline,
+                                               Metapb.StoreState.Pending)) {
+            PDException error = Assert.assertThrows(PDException.class, () ->
+                    fixture.service.updateStore(retired.toBuilder().setState(state).build()));
+            Assert.assertEquals(Pdpb.ErrorType.STORE_HAS_BEEN_REMOVED_VALUE, error.getErrorCode());
+            Assert.assertEquals(retired, fixture.stores.get(3L));
+        }
+        Metapb.Store partial = Metapb.Store.newBuilder().setId(3)
+                                         .setState(Metapb.StoreState.Unknown)
+                                         .setVersion("updated").build();
+        Metapb.Store updated = fixture.service.updateStore(partial);
+        Assert.assertEquals(Metapb.StoreState.Tombstone, updated.getState());
+        Assert.assertEquals("updated", updated.getVersion());
+        Assert.assertEquals(updated, fixture.service.updateStore(updated));
+    }
+
+    private static List<Invocation> changeShardInvocations(PartitionService partitions) {
+        return Mockito.mockingDetails(partitions).getInvocations().stream()
+                      .filter(invocation -> invocation.getMethod().getName().equals("fireChangeShard"))
+                      .toList();
     }
 
     @Test
