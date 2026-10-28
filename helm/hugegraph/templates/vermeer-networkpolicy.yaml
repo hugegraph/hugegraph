@@ -47,9 +47,8 @@ spec:
         {{- include "hugegraph.netpol.peer" (dict "root" $ "component" "vermeer-master") | nindent 8 }}
         {{- include "hugegraph.netpol.peer" (dict "root" $ "component" "vermeer-worker") | nindent 8 }}
       ports:
-        {{- include "hugegraph.netpol.ports" (list $v.master.grpcPort $v.worker.grpcPort $v.worker.httpPort) | nindent 8 }}
+        {{- include "hugegraph.netpol.ports" (list $v.master.httpPort $v.master.grpcPort $v.worker.grpcPort $v.worker.httpPort) | nindent 8 }}
     {{- if eq $role "master" }}
-    {{- if $.Values.networkPolicy.enabled }}
     - from:
         {{- if $.Values.hubble.enabled }}
         {{- include "hugegraph.netpol.peer" (dict "root" $ "component" "hubble") | nindent 8 }}
@@ -57,10 +56,6 @@ spec:
         {{- include "hugegraph.netpol.peer" (dict "root" $ "component" "test") | nindent 8 }}
       ports:
         {{- include "hugegraph.netpol.ports" (list $v.master.httpPort) | nindent 8 }}
-    {{- else }}
-    - ports:
-        {{- include "hugegraph.netpol.ports" (list $v.master.httpPort) | nindent 8 }}
-    {{- end }}
     {{- end }}
     {{- with get $rules "extraIngress" }}
     {{- toYaml . | nindent 4 }}
@@ -71,7 +66,7 @@ spec:
         {{- include "hugegraph.netpol.peer" (dict "root" $ "component" "vermeer-master") | nindent 8 }}
         {{- include "hugegraph.netpol.peer" (dict "root" $ "component" "vermeer-worker") | nindent 8 }}
       ports:
-        {{- include "hugegraph.netpol.ports" (list $v.master.grpcPort $v.worker.grpcPort $v.worker.httpPort) | nindent 8 }}
+        {{- include "hugegraph.netpol.ports" (list $v.master.httpPort $v.master.grpcPort $v.worker.grpcPort $v.worker.httpPort) | nindent 8 }}
     - to:
         {{- include "hugegraph.netpol.peer" (dict "root" $ "component" "pd") | nindent 8 }}
       ports:

@@ -44,13 +44,21 @@ Fail before dereferencing missing blocks; keep values.yaml the sole defaults sou
 {{- end -}}
 {{- $strict := eq (.Values.mode | default "easy") "strict" -}}
 {{- $serviceType := ternary "ClusterIP" "NodePort" (or $strict $legacy) -}}
-{{- range $comp := list "server" "hubble" "seatunnel" "vermeer" -}}
+{{- range $comp := list "server" "hubble" -}}
 {{- $component := get $.Values $comp -}}
 {{- $svc := get $component "service" | default dict -}}
 {{- $_ := set $component "service" $svc -}}
 {{- $typeInherited := or (not (hasKey $svc "type")) (eq (get $svc "type" | toString) "<nil>") -}}
 {{- $_ := set $component "__serviceTypeInherited" $typeInherited -}}
 {{- if $typeInherited -}}{{- $_ := set $svc "type" $serviceType -}}{{- end -}}
+{{- end -}}
+{{- range $comp := list "seatunnel" "vermeer" -}}
+{{- $component := get $.Values $comp -}}
+{{- $svc := get $component "service" | default dict -}}
+{{- $_ := set $component "service" $svc -}}
+{{- if or (not (hasKey $svc "type")) (eq (get $svc "type" | toString) "<nil>") -}}
+{{- $_ := set $svc "type" "ClusterIP" -}}
+{{- end -}}
 {{- end -}}
 {{- $np := .Values.networkPolicy | default dict -}}
 {{- $_ := set .Values "networkPolicy" $np -}}
@@ -260,7 +268,7 @@ next render finds the Secret through lookup instead).
 {{- define "hugegraph.generatedCredential" -}}
 {{- if not (hasKey .root.Values "__generatedCredentials") -}}{{- $_ := set .root.Values "__generatedCredentials" dict -}}{{- end -}}
 {{- $memo := get .root.Values "__generatedCredentials" -}}
-{{- if not (hasKey $memo .name) -}}{{- $_ := set $memo .name (randAlphaNum 32) -}}{{- end -}}
+{{- if not (hasKey $memo .name) -}}{{- $_ := set $memo .name (randAlphaNum (int (get . "length" | default 32))) -}}{{- end -}}
 {{- get $memo .name -}}
 {{- end }}
 
@@ -777,6 +785,7 @@ Cross-field validation that JSON Schema draft-07 cannot express.
 */}}
 {{- define "hugegraph.validateValues" -}}
 {{- include "hugegraph.resolveValues" . -}}
+{{- include "hugegraph.nativeServices.validate" . -}}
 {{- include "hugegraph.metadataCluster.validate" . -}}
 {{- include "hugegraph.vermeer.validate" . -}}
 {{- if (.Values.seatunnel | default dict).enabled -}}
@@ -791,9 +800,6 @@ Cross-field validation that JSON Schema draft-07 cannot express.
 {{- include "hugegraph.resolveValues" . -}}
 {{- if (.Values.seatunnel | default dict).enabled -}}
 {{- $svc := .Values.seatunnel.service -}}
-{{- if and (get $svc "nodePort") (not (has $svc.type (list "NodePort" "LoadBalancer"))) -}}
-{{- fail "seatunnel.service.nodePort requires seatunnel.service.type to be NodePort or LoadBalancer" -}}
-{{- end -}}
 {{- range $key := list "username" "password" -}}
 {{- $value := get ($.Values.seatunnel.auth | default dict) $key | default "" -}}
 {{- if or (ne $value (trim $value)) (contains "${" $value) -}}
@@ -1245,9 +1251,6 @@ over tag; otherwise fall back to tag, then to the chart appVersion. Takes a dict
 {{- if ne .Values.server.backend "hstore" -}}
 {{- fail "vermeer.enabled requires server.backend=hstore" -}}
 {{- end -}}
-{{- if and (get $v.service "nodePort") (not (has $v.service.type (list "NodePort" "LoadBalancer"))) -}}
-{{- fail "vermeer.service.nodePort requires vermeer.service.type to be NodePort or LoadBalancer" -}}
-{{- end -}}
 {{- if and (not $v.auth.existingSecret) (not $v.auth.value) (not $v.auth.autoGenerate) -}}
 {{- fail "vermeer.auth requires existingSecret, value, or autoGenerate=true" -}}
 {{- end -}}
@@ -1330,6 +1333,27 @@ over tag; otherwise fall back to tag, then to the chart appVersion. Takes a dict
 {{- end -}}
 {{- if and (not $record) (or (get $observed "unknown") (and (not (get $observed "explicit")) (ne $desired "hg-test"))) -}}
 {{- fail "metadataCluster adoption cannot verify the legacy Server namespace. First inspect the existing Server logs/configuration and record that same verified value in its hugegraph.apache.org/metadata-cluster Deployment annotation; then retain it as metadataCluster. This records existing metadata and does not migrate PD keys" -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end }}
+
+{{/* Native engines have no public Service entry, regardless of easy/strict mode. */}}
+{{- define "hugegraph.nativeServices.validate" -}}
+{{- range $component := list "seatunnel" "vermeer" -}}
+{{- $values := get $.Values $component | default dict -}}
+{{- if get $values "enabled" -}}
+{{- $svc := get $values "service" | default dict -}}
+{{- if ne (get $svc "type") "ClusterIP" -}}
+{{- fail (printf "%s.service must remain ClusterIP; native engines are accessed through authenticated internal callers or port-forward" $component) -}}
+{{- end -}}
+{{- if and (hasKey $svc "nodePort") (ne (get $svc "nodePort") nil) -}}
+{{- fail (printf "%s.service.nodePort is not supported for internal native engines" $component) -}}
+{{- end -}}
+{{- range $field := list "externalIPs" "externalTrafficPolicy" "loadBalancerClass" "loadBalancerIP" "loadBalancerSourceRanges" "allocateLoadBalancerNodePorts" -}}
+{{- if hasKey $svc $field -}}
+{{- fail (printf "%s.service.%s is not supported for internal native engines" $component $field) -}}
+{{- end -}}
 {{- end -}}
 {{- end -}}
 {{- end -}}

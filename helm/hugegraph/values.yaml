@@ -557,9 +557,9 @@ seatunnel:
     tag: "3.0.0"
     pullPolicy: IfNotPresent
   service:
-    # Unset inherits mode (easy: NodePort, strict: ClusterIP).
-    type:
-    # Omitted/0 allocates automatically; only the HTTP/UI port is exposed.
+    # Internal in both easy and strict modes; use Hubble or port-forward.
+    type: ClusterIP
+    # Reserved compatibility field; native engines cannot use a NodePort.
     nodePort:
     annotations: {}
   auth:
@@ -622,8 +622,8 @@ vermeer:
     existingSecret: ""
     key: credentials.json
   service:
-    # Only the authenticated Master HTTP/UI entry is exposed.
-    type:
+    # Internal in both easy and strict modes; use Hubble or port-forward.
+    type: ClusterIP
     nodePort:
     annotations: {}
   master:
@@ -676,8 +676,8 @@ vermeer:
       timeoutSeconds: 3
 
 # Kubernetes NetworkPolicy: mode default plus explicit per-component rules.
-# easy keeps HTTP clients open; strict isolates release traffic and DNS.
-# Enabled SeaTunnel always restricts member port 5801 to its release peers.
+# easy exposes only Server/Hubble; strict additionally isolates release egress.
+# Native engine HTTP and RPC ports always require explicit internal callers.
 # Enforced only when the network plugin implements NetworkPolicy (kind v0.25+,
 # k3s, Calico, Cilium); elsewhere the objects are accepted and do nothing.
 # Nothing outside the release is admitted unless it is listed in
@@ -700,9 +700,11 @@ networkPolicy:
     # through extraEnv). PD, Store and Server reach only the release and DNS.
     extraEgress: []
   vermeer:
+    # Extra callers must use Pod/namespace selectors; no ipBlock or open rules.
     extraIngress: []
     extraEgress: []
   seatunnel:
+    # Extra callers must use Pod/namespace selectors; no ipBlock or open rules.
     # Member port 5801 is restricted even when networkPolicy.enabled is false.
     # With full isolation, peers, DNS and the Server API are allowed by default.
     # Add trusted submitters/monitoring using native NetworkPolicy rules.

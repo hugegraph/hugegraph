@@ -30,17 +30,7 @@ metadata:
     {{- toYaml . | nindent 4 }}
   {{- end }}
 spec:
-  type: {{ $v.service.type }}
-  {{- range $field := list "externalTrafficPolicy" "loadBalancerClass" "loadBalancerIP" "loadBalancerSourceRanges" "externalIPs" }}
-  {{- with get $v.service $field }}
-  {{ $field }}: {{ toYaml . | nindent 4 }}
-  {{- end }}
-  {{- end }}
-  {{- if hasKey $v.service "allocateLoadBalancerNodePorts" }}
-  {{- if ne $v.service.allocateLoadBalancerNodePorts nil }}
-  allocateLoadBalancerNodePorts: {{ $v.service.allocateLoadBalancerNodePorts }}
-  {{- end }}
-  {{- end }}
+  type: ClusterIP
   selector:
     {{- include "hugegraph.selectorLabels" . | nindent 4 }}
     app.kubernetes.io/component: vermeer-master
@@ -48,9 +38,6 @@ spec:
     - name: http
       port: {{ $v.master.httpPort }}
       targetPort: master-http
-      {{- with $v.service.nodePort }}
-      nodePort: {{ . }}
-      {{- end }}
 ---
 apiVersion: v1
 kind: Service

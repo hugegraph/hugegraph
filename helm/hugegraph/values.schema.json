@@ -78,7 +78,7 @@
           "minimum": 1
         },
         "service": {
-          "$ref": "#/definitions/service"
+          "$ref": "#/definitions/nativeEngineService"
         },
         "auth": {
           "type": "object",
@@ -189,27 +189,10 @@
           }
         },
         "seatunnel": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "extraIngress": {
-              "$ref": "#/definitions/networkPolicyIngressRules"
-            },
-            "extraEgress": {
-              "$ref": "#/definitions/networkPolicyEgressRules"
-            }
-          }
+          "$ref": "#/definitions/nativeEngineNetworkPolicy"
         },
         "vermeer": {
-          "type": "object",
-          "properties": {
-            "extraIngress": {
-              "$ref": "#/definitions/networkPolicyIngressRules"
-            },
-            "extraEgress": {
-              "$ref": "#/definitions/networkPolicyEgressRules"
-            }
-          }
+          "$ref": "#/definitions/nativeEngineNetworkPolicy"
         }
       }
     },
@@ -1729,7 +1712,7 @@
           "$ref": "#/definitions/image"
         },
         "service": {
-          "$ref": "#/definitions/service"
+          "$ref": "#/definitions/nativeEngineService"
         },
         "auth": {
           "type": "object",
@@ -1821,6 +1804,87 @@
           "additionalProperties": {
             "type": "string"
           }
+        }
+      }
+    },
+    "nativeEngineService": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "ClusterIP",
+            null
+          ]
+        },
+        "annotations": {
+          "type": "object"
+        },
+        "nodePort": {
+          "type": "null",
+          "description": "Compatibility placeholder only; native engines cannot expose NodePorts."
+        }
+      }
+    },
+    "nativeEngineIngressRules": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "from"
+        ],
+        "properties": {
+          "from": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "podSelector": {
+                  "type": "object"
+                },
+                "namespaceSelector": {
+                  "type": "object"
+                }
+              },
+              "anyOf": [
+                {
+                  "required": [
+                    "podSelector"
+                  ]
+                },
+                {
+                  "required": [
+                    "namespaceSelector"
+                  ]
+                }
+              ]
+            }
+          },
+          "ports": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        }
+      }
+    },
+    "nativeEngineNetworkPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "extraIngress": {
+          "$ref": "#/definitions/nativeEngineIngressRules"
+        },
+        "extraEgress": {
+          "$ref": "#/definitions/networkPolicyEgressRules"
         }
       }
     }
