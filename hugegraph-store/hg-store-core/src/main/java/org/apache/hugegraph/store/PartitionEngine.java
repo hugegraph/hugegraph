@@ -301,23 +301,26 @@ public class PartitionEngine implements Lifecycle<PartitionEngineOptions>, RaftS
      * @return true means completed, false means not completed
      */
     public Status changePeers(List<String> peers, final Closure done) {
-        if (ListUtils.isEqualList(peers, RaftUtils.getPeerEndpoints(raftNode))) {
+        Configuration oldConf = getCurrentConf();
+        List<String> oldVoters = RaftUtils.getPeerEndpoints(oldConf);
+        if (ListUtils.isEqualList(peers, oldVoters) && oldConf.listLearners().isEmpty()) {
             return Status.OK();
         }
 
         Status result = HgRaftError.TASK_CONTINUE.toStatus();
-        List<String> oldPeers = RaftUtils.getAllEndpoints(raftNode);
+        List<String> oldPeers = RaftUtils.getAllEndpoints(oldConf);
         log.info("Raft {} changePeers start, old peer is {}, new peer is {}",
                  getGroupId(), oldPeers, peers);
         // Check the peer that needs to be added.
         List<String> addPeers = ListUtils.removeAll(peers, oldPeers);
+        // A retry must still promote target peers that already exist as learners.
+        List<String> pendingPromotions = ListUtils.removeAll(peers, oldVoters);
         // learner to be deleted. Possible peer change.
         List<String> removedPeers = ListUtils.removeAll(oldPeers, peers);
 
         HgCmdClient rpcClient = storeEngine.getHgCmdClient();
         // Generate a new Configuration object
 
-        Configuration oldConf = getCurrentConf();
         Configuration conf = oldConf.copy();
 
         FutureClosure closure;
@@ -347,9 +350,11 @@ public class PartitionEngine implements Lifecycle<PartitionEngineOptions>, RaftS
                          status.getErrorMsg());
                 return status;
             }
+        }
 
-            // 2.2 Waiting learner to synchronize snapshot (check added learner)
-            if (!waitForReplicate(addPeers)) {
+        if (!pendingPromotions.isEmpty()) {
+            // 2.2 Wait for both newly added and previously created target learners.
+            if (!waitForReplicate(pendingPromotions)) {
                 return HgRaftError.TASK_CONTINUE.toStatus();
             }
 
@@ -357,13 +362,16 @@ public class PartitionEngine implements Lifecycle<PartitionEngineOptions>, RaftS
 
             closure = new FutureClosure();
             // 2.3 change learner to follower (first remove, then add follower)
-            raftNode.removeLearners(conf.listLearners(), closure);
-            if (!closure.get().isOk()) {
+            List<PeerId> promoting = new ArrayList<>();
+            pendingPromotions.forEach(peer -> promoting.add(JRaftUtils.getPeerId(peer)));
+            raftNode.removeLearners(promoting, closure);
+            var status = closure.get();
+            if (!status.isOk()) {
                 log.error("Raft {} remove learner error, result:{}", getGroupId(), status);
                 return HgRaftError.TASK_ERROR.toStatus();
             }
 
-            addPeers.forEach(peer -> {
+            pendingPromotions.forEach(peer -> {
                 conf.removeLearner(JRaftUtils.getPeerId(peer));
                 conf.addPeer(JRaftUtils.getPeerId(peer));
             });
@@ -371,7 +379,8 @@ public class PartitionEngine implements Lifecycle<PartitionEngineOptions>, RaftS
             // add follower
             closure = new FutureClosure();
             raftNode.changePeers(conf, closure);
-            if (!closure.get().isOk()) {
+            status = closure.get();
+            if (!status.isOk()) {
                 log.error("Raft {} changePeers error, result:{}", getGroupId(), status);
                 return HgRaftError.TASK_ERROR.toStatus();
             }
@@ -425,7 +434,7 @@ public class PartitionEngine implements Lifecycle<PartitionEngineOptions>, RaftS
      *
      * @return false if the peers did not catch up within 600s
      */
-    private boolean waitForReplicate(List<String> peers) {
+    boolean waitForReplicate(List<String> peers) {
         //todo Each learner will wait for 1s, if another one is not sync.Consider using
         // countdownLatch
         boolean allLearnerSnapshotOk = false;
