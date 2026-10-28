@@ -30,6 +30,30 @@ component files. CI checks positive-test and startup logs for Java module-access
 errors and unsupported JVM options, including errors printed without failing the
 operation.
 
+### Gremlin and HStore transport reconnection
+
+The Gremlin security manager permits reads of the gRPC shaded Netty boolean property
+`io.grpc.netty.shaded.io.grpc.netty.useCustomAllocator` and the DNS cache setting
+`networkaddress.cache.ttl`. gRPC reads these settings when it builds a DNS resolver or
+rebuilds a transport, including after a PD or Store restart during a Gremlin request.
+Gremlin cannot set or clear these system properties. It also cannot change the separate
+JDK security property `networkaddress.cache.ttl` through `java.security.Security.setProperty`.
+Trusted code outside Gremlin can still configure these settings. Sensitive system
+properties such as `user.home` remain unreadable from Gremlin.
+
+HStore constructs each target's lazy channel and stub pools on the calling thread so
+initialization retains the caller's Gremlin security context. The client publishes
+the pool after all channels are constructed. If construction throws a runtime exception
+or an error, it closes the partial pool and reports the failure; a subsequent request can retry.
+Cleanup failures are retained as suppressed exceptions, and an original error is rethrown
+unchanged. RPC transport work remains asynchronous. This change does not grant Gremlin permission to create
+threads or thread groups.
+
+The shared gRPC framework and provider discovery initialize during normal PD/framework
+bootstrap before Server accepts Gremlin requests. This does not initialize the pools
+for every future Store target. Unit checks that obtain a stub verify lazy pool
+construction; a successful RPC and its readback are separate runtime checks.
+
 ### Launcher GC options
 
 Use `bin/start-hugegraph.sh -g g1` (or `-g G1`) to select G1 explicitly.
