@@ -352,8 +352,20 @@ explicit 64 MiB value now takes effect. For a small development cluster,
 when it is unset, the existing `-Djraft.log_storage.segment.max.size.bytes`
 system property remains a fallback, followed by 1 GiB if neither is set. The
 distribution's default placeholder preserves this fallback too.
-Existing segment files retain their original size and remain readable after this setting
-changes, so a restart does not immediately shrink previously allocated files.
+Existing segments containing logs retain their original size and remain readable after
+this setting changes. On restart, an incompatible **blank preallocated** segment is
+atomically renamed to `<sequence>.s.blank-<old-size>-<unique-id>` before JRaft loads its
+allocation pool. JRaft then allocates blank segments at the configured size. This also
+avoids a write failure after increasing the size when an entry fits the new limit but
+does not fit an old blank segment. No nonempty segment is renamed or resized.
+
+Blank detection follows JRaft 1.3.x's segment header format and runs after RocksDB has
+acquired the log directory lock, before segment mapping and background allocation.
+Unknown or incomplete headers are retained and fail startup with a diagnostic when
+their size differs; the code does not guess that sparse or zero-filled files are empty.
+Recheck this compatibility handling when upgrading JRaft. Renamed files are retained
+for diagnosis and are outside JRaft's normal log retention. Renaming does not reclaim
+their allocated blocks; review them during offline maintenance before deleting them.
 Keep the configured size larger than the largest encoded Raft entry, including
 entries that a newly added Store must receive. Reading an existing large segment
 does not make a smaller segment large enough for new writes or replica catch-up.

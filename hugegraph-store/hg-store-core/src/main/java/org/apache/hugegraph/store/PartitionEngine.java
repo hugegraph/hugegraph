@@ -64,6 +64,7 @@ import org.apache.hugegraph.store.raft.DefaultRaftClosure;
 import org.apache.hugegraph.store.raft.PartitionStateMachine;
 import org.apache.hugegraph.store.raft.RaftClosure;
 import org.apache.hugegraph.store.raft.RaftOperation;
+import org.apache.hugegraph.store.raft.RaftSegmentLogStorage;
 import org.apache.hugegraph.store.raft.RaftStateListener;
 import org.apache.hugegraph.store.raft.RaftTaskHandler;
 import org.apache.hugegraph.store.raft.util.RaftUtils;
@@ -266,9 +267,8 @@ public class PartitionEngine implements Lifecycle<PartitionEngineOptions>, RaftS
     static LogStorage createLogStorage(String uri, RaftOptions raftOptions,
                                        HgStoreEngineOptions.RaftOptions storeRaftOptions) {
         if (storeRaftOptions.isUseRocksDBSegmentLogStorage()) {
-            return RocksDBSegmentLogStorage.builder(uri, raftOptions)
-                                          .setMaxSegmentFileSize(storeRaftOptions.getMaxSegmentFileSize())
-                                          .build();
+            return new RaftSegmentLogStorage(RocksDBSegmentLogStorage.builder(uri, raftOptions)
+                    .setMaxSegmentFileSize(storeRaftOptions.getMaxSegmentFileSize()));
         }
         return new RocksDBLogStorage(uri, raftOptions);
     }
