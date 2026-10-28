@@ -606,10 +606,11 @@ vermeer:
   mode: standalone
   image:
     repository: hugegraph/vermeer
-    # Select a build containing file credentials and /go/bin/vermeer-token.
-    tag: latest
-    digest: ""
-    pullPolicy: Always
+    # Official matching build with file credentials, native admin login and token helper.
+    # Pin the multi-platform manifest; clear digest when selecting a different tag.
+    tag: helm-2678ff91b56a
+    digest: sha256:9ef623d93e4feddc345c6ce445109c4039b029be83090d0eca97aedeba981a9e
+    pullPolicy: IfNotPresent
   auth:
     # Token signing factor. existingSecret > value > a stable generated Secret.
     value: ""
