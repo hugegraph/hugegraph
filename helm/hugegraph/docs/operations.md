@@ -260,12 +260,14 @@ which a controlled operation may already have changed. Import supports the
 chart's contiguous ordinal endpoints; customized endpoint lists require a
 separate reviewed migration. Import preserves a Store allowlist of four and a
 startup threshold of three as distinct inputs. No bootstrap checksum is added
-to Pod templates, so enabling the feature does not itself request a rollout.
+to Pod templates; adopting an unchanged chart-managed topology preserves these inputs.
 An incomplete live environment is rejected even when all value pins are given;
 pins cannot reconstruct unknown online history.
-Existing Store and Server seed inputs must agree with that original PD peer
-count; a known inconsistent consumer is rejected instead of silently changing
-its Pod template during import.
+Existing Store and Server gRPC seed inputs must be literal values matching the
+original PD peer list. Import does not validate Hubble, Vermeer, Server's REST
+endpoint or Store's init script against their live templates. Review the full
+Pod-template diff before adoption: pre-existing drift in these consumers can
+cause a rollout, including a Hubble restart under its `Recreate` strategy.
 
 Recorded bootstrap counts are initialization inputs, not the current voting
 configuration or a list of all admitted Stores. A new Store outside the
@@ -276,13 +278,17 @@ growth/shrink and Store shrink until the documented database operation and
 resource steps are complete. Matching live replicas alone remains insufficient
 proof of completion.
 
-Keep the feature enabled once a record exists. An online render rejects pins
-that conflict with the record, or disabling it while the record remains.
-Bootstrap records are kept on uninstall like data PVCs. An install that finds
-an existing record or live PD is rejected rather than misrepresenting recovery
-as a fresh cluster. Recovery with kept data requires a separate review of the
-actual membership, original bootstrap inputs and volume identities; this
-feature does not add an automatic restore mode.
+Keep the feature enabled once a record exists. With bootstrap enabled, online
+renders reject pins that conflict with the record, and installs reject an
+existing record or live PD. Online upgrades also reject disabling bootstrap
+while the live PD StatefulSet carries the retained-bootstrap marker.
+Bootstrap records are kept on uninstall like data PVCs. With bootstrap disabled,
+the chart does not read ConfigMaps, preserving the default deployment's RBAC
+requirements. After uninstall removes the PD StatefulSet, a disabled reinstall
+cannot detect an orphaned bootstrap record and derives startup inputs from the
+requested replicas. Do not use that path with retained data PVCs. Recovery
+requires reviewing actual membership, original bootstrap inputs and volume
+identities; this feature does not add an automatic restore mode.
 A controlled rollback must retain the same bootstrap record and use a chart
 version that understands it. Rolling back to a chart or release configuration
 that predates stable bootstrap can rederive Pod startup inputs from replica
@@ -303,7 +309,10 @@ install semantics cannot safely infer an existing topology during replica
 changes; unattended GitOps topology reconciliation is not supported by this feature.
 Suspend competing reconciliation during controlled resource steps. Static
 bootstrap seed majority checks are conservative and are not a replacement for
-an authenticated read of current PD membership and quorum health. For example,
+an authenticated read of current PD membership and quorum health. Shrinking
+below the recorded seed majority is unsupported: with three recorded PDs and
+one remaining PD, every restarted Store still waits for two seeds and times out.
+Even when the remaining PD count meets that threshold, for example,
 after an original five-PD cluster shrinks to three, Store startup still requires
 three of the five recorded seeds. If one of the remaining PDs then fails,
 current PD quorum may be healthy while a newly created Store remains blocked

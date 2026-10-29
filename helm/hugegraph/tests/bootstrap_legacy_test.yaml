@@ -101,6 +101,9 @@ kubernetesProvider:
         spec:
           containers:
           - name: store
+            env:
+            - name: HG_STORE_PD_ADDRESS
+              value: cluster-pd-0.cluster-pd.NAMESPACE.svc:8686,cluster-pd-1.cluster-pd.NAMESPACE.svc:8686,cluster-pd-2.cluster-pd.NAMESPACE.svc:8686
             ports:
             - name: grpc
               containerPort: '8500'

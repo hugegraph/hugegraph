@@ -91,7 +91,7 @@ tests:
       path: data.storeReplicas
       value: '3'
   - equal:
-      path: initialStoreCount
+      path: data.initialStoreCount
       value: '3'
   - equal:
       path: immutable
@@ -196,6 +196,7 @@ tests:
     store.replicas: 3
     store.pdb.minAvailable: 2
     bootstrap.storeReplicas: 1
+    bootstrap.initialStoreCount: 1
   asserts:
   - failedTemplate:
       errorPattern: bootstrap.storeReplicas must equal store.replicas on a fresh install

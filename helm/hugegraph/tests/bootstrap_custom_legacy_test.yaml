@@ -78,7 +78,7 @@ kubernetesProvider:
             - name: HG_PD_RAFT_PEERS_LIST
               value: cluster-pd-0.cluster-pd.NAMESPACE.svc:8610,cluster-pd-1.cluster-pd.NAMESPACE.svc:8610,cluster-pd-2.cluster-pd.NAMESPACE.svc:8610
             - name: HG_PD_INITIAL_STORE_LIST
-              value: custom-store:8500
+              value: custom-store-0:8500,custom-store-1:8500,custom-store-2:8500
             - name: HG_PD_INITIAL_STORE_COUNT
               value: '3'
   - apiVersion: apps/v1
@@ -113,4 +113,4 @@ tests:
   template: store-statefulset.yaml
   asserts:
   - failedTemplate:
-      errorPattern: bootstrap import only supports the chart
+      errorPattern: bootstrap only supports the chart
