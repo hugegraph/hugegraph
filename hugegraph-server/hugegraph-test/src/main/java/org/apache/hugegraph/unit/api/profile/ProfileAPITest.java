@@ -32,6 +32,7 @@ import org.apache.hugegraph.util.JsonUtil;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.Mockito;
 
 import jakarta.ws.rs.DefaultValue;
 import jakarta.ws.rs.GET;
@@ -39,6 +40,7 @@ import jakarta.ws.rs.POST;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.core.Application;
+import jakarta.ws.rs.core.UriInfo;
 
 public class ProfileAPITest {
 
@@ -47,7 +49,7 @@ public class ProfileAPITest {
     public void clearCachedProfile() throws Exception {
         java.lang.reflect.Field field = ProfileAPI.class.getDeclaredField("API_PROFILES");
         field.setAccessible(true);
-        field.set(null, null);
+        ((Map<?, ?>) field.get(null)).clear();
     }
 
     @Test
@@ -84,6 +86,34 @@ public class ProfileAPITest {
     }
 
     @Test
+    public void testIndexPreservesNonRootApplicationPath() {
+        Set<Class<?>> classes = Set.of(ProfileAPI.class, GremlinAPI.class, VersionAPI.class,
+                                       GraphSpaceAPI.class, ExampleAPI.class);
+        Assert.assertTrue(profiles(classes).stream()
+                          .anyMatch(p -> "/gremlin".equals(p.get("url"))));
+
+        List<Map<String, Object>> prefixed = profiles(
+                classes, URI.create("http://localhost:8080/hg/"));
+        List<String> paths = new ArrayList<>();
+        for (Map<String, Object> profile : prefixed) {
+            String path = (String) profile.get("url");
+            Assert.assertTrue(path.startsWith("/hg/"));
+            Assert.assertFalse(path.contains("//"));
+            paths.add(path);
+        }
+        for (String path : List.of("/hg/", "/hg/apis", "/hg/gremlin",
+                                   "/hg/versions", "/hg/graphspaces", "/hg/example/items")) {
+            Assert.assertTrue(paths.contains(path));
+        }
+        Assert.assertEquals(prefixed, profiles(classes, URI.create("http://localhost:8080/hg")));
+        for (String index : List.of("http://localhost:8080/hg/apis",
+                                    "http://localhost:8080/hg/apis/")) {
+            Assert.assertEquals("/hg/gremlin",
+                                URI.create(index).resolve("/hg/gremlin").getPath());
+        }
+    }
+
+    @Test
     public void testChildMethodsAndParametersRemainAvailable() {
         List<Map<String, Object>> profiles = profiles(Set.of(ExampleAPI.class));
         Assert.assertEquals(2, profiles.size());
@@ -105,16 +135,22 @@ public class ProfileAPITest {
         Assert.assertTrue(profiles(Set.of(String.class)).isEmpty());
     }
 
-    @SuppressWarnings("unchecked")
     private static List<Map<String, Object>> profiles(Set<Class<?>> classes) {
+        return profiles(classes, URI.create("http://localhost:8080/"));
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<Map<String, Object>> profiles(Set<Class<?>> classes, URI baseUri) {
         Application application = new Application() {
             @Override
             public Set<Class<?>> getClasses() {
                 return classes;
             }
         };
+        UriInfo uriInfo = Mockito.mock(UriInfo.class);
+        Mockito.when(uriInfo.getBaseUri()).thenReturn(baseUri);
         Map<String, Object> parsed = JsonUtil.fromJson(
-                new ProfileAPI().showAllAPIs(application), Map.class);
+                new ProfileAPI().showAllAPIs(application, uriInfo), Map.class);
         Map<String, Map<String, List<Map<String, Object>>>> categories =
                 (Map<String, Map<String, List<Map<String, Object>>>>) parsed.get("apis");
         List<Map<String, Object>> result = new ArrayList<>();

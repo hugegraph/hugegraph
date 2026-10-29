@@ -113,6 +113,7 @@ public class RebuildAPI extends API {
         return rebuildResult(g.schema().indexLabel(name).rebuild(),
                              "index label", name);
     }
+
     private static Map<String, Id> rebuildResult(Id taskId, String type, String name) {
         // Builders intentionally return null when their label no longer exists.
         if (taskId == null) {

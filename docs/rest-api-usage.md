@@ -1,10 +1,11 @@
 # REST paths and Gremlin requests
 
 The REST listener uses paths such as `/versions`, `/graphspaces` and `/gremlin`.
-`GET /apis` lists the available resource paths and methods. Each `url` starts
-with `/` and is relative to the Server origin. For example, use
-`http://localhost:8080/gremlin`, without adding `/apis` before the listed path.
-When using a gateway with an external path prefix, retain that gateway prefix.
+`GET /apis` lists resource paths and methods. Each `url` starts with `/`
+and includes the application path configured in `restserver.url`: a root
+installation lists `/gremlin`, while `http://localhost:8080/hg` lists
+`/hg/gremlin`. Call the listed path on the Server origin, without prepending
+`/apis`. A gateway's additional external prefix may still need to be retained.
 
 ## Select a graph for synchronous Gremlin
 

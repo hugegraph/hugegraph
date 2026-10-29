@@ -23,6 +23,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
+import java.util.concurrent.ConcurrentHashMap;
 
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hugegraph.config.HugeConfig;
@@ -47,6 +48,7 @@ import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.Application;
 import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
+import jakarta.ws.rs.core.UriInfo;
 
 @Path("/")
 @Singleton
@@ -59,7 +61,7 @@ public class ProfileAPI {
     private static final String SWAGGER_UI = "/swagger-ui/index.html";
 
     private static String SERVER_PROFILES = null;
-    private static String API_PROFILES = null;
+    private static final Map<String, String> API_PROFILES = new ConcurrentHashMap<>();
 
     @GET
     @Timed
@@ -94,11 +96,14 @@ public class ProfileAPI {
     @Path("apis")
     @Timed
     @Produces(MediaType.APPLICATION_JSON)
-    public String showAllAPIs(@Context Application application) {
-        if (API_PROFILES != null) {
-            return API_PROFILES;
-        }
+    public String showAllAPIs(@Context Application application,
+                              @Context UriInfo uriInfo) {
+        String basePath = "/" + StringUtils.strip(uriInfo.getBaseUri().getPath(), "/");
+        return API_PROFILES.computeIfAbsent(basePath,
+                                            path -> buildAPIProfiles(application, path));
+    }
 
+    private static String buildAPIProfiles(Application application, String basePath) {
         APIProfiles apiProfiles = new APIProfiles();
         for (Class<?> clazz : application.getClasses()) {
             if (!isAnnotatedPathClass(clazz)) {
@@ -108,8 +113,9 @@ public class ProfileAPI {
             Resource resource = Resource.from(clazz);
             APICategory apiCategory = APICategory.parse(resource.getName());
 
-            // Return origin-relative paths, not paths relative to /apis/.
-            String url = "/" + StringUtils.strip(resource.getPath(), "/");
+            // Include the REST application path, which may not be the origin root.
+            String url = StringUtils.stripEnd(basePath, "/") + "/" +
+                         StringUtils.strip(resource.getPath(), "/");
             // List all methods of this resource
             for (ResourceMethod rm : resource.getResourceMethods()) {
                 APIProfile profile = APIProfile.parse(url, rm);
@@ -125,8 +131,7 @@ public class ProfileAPI {
                 }
             }
         }
-        API_PROFILES = JsonUtil.toJson(apiProfiles);
-        return API_PROFILES;
+        return JsonUtil.toJson(apiProfiles);
     }
 
     private static boolean isAnnotatedPathClass(Class<?> clazz) {
