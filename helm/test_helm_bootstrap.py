@@ -51,7 +51,18 @@ class BootstrapLifecycleTest(unittest.TestCase):
             command.append("--is-upgrade")
         for key, value in values.items():
             command.extend(["--set", f"{key}={value}"])
-        result = subprocess.run(command, check=True, capture_output=True, text=True)
+        try:
+            result = subprocess.run(
+                command,
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=300,
+            )
+        except subprocess.CalledProcessError as error:
+            self.fail(f"helm template failed (exit {error.returncode}):\n{error.stderr}")
+        except subprocess.TimeoutExpired as error:
+            self.fail(f"helm template timed out after {error.timeout}s")
         documents = {}
         for document in result.stdout.split("---\n"):
             source = re.search(r"^# Source: [^\n]+/templates/([^\n]+)$", document, re.M)

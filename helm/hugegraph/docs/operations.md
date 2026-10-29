@@ -258,8 +258,10 @@ the live PD's `HG_PD_RAFT_PEERS_LIST`, `HG_PD_INITIAL_STORE_LIST` and
 `HG_PD_INITIAL_STORE_COUNT`. It does not infer history from live replica counts,
 which a controlled operation may already have changed. Import supports the
 chart's contiguous ordinal endpoints; customized endpoint lists require a
-separate reviewed migration. Import preserves a Store allowlist of four and a
-startup threshold of three as distinct inputs. No bootstrap checksum is added
+separate reviewed migration. Import preserves the actual Store allowlist length from
+`HG_PD_INITIAL_STORE_LIST` and the startup threshold from
+`HG_PD_INITIAL_STORE_COUNT` as separate inputs; neither is inferred from
+current replica counts. No bootstrap checksum is added
 to Pod templates; adopting an unchanged chart-managed topology preserves these inputs.
 An incomplete live environment is rejected even when all value pins are given;
 pins cannot reconstruct unknown online history.
