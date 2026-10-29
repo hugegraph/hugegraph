@@ -95,9 +95,12 @@ public class HgStoreMetricsControllerTest {
     }
 
     @Test
-    public void testDetailedEndpointPreservesItsContract() {
+    public void testDetailedEndpointPreservesItsContract() throws Exception {
         Map<String, NodeMetrics> groups = Map.of("partition-1", new NodeMetrics(true));
         when(this.service.getNodeMetrics()).thenReturn(groups);
-        assertEquals(groups, this.controller.getRaftMetrics());
+        this.mvc.perform(get("/metrics/raft"))
+                .andExpect(status().isOk())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.content()
+                        .json(new ObjectMapper().writeValueAsString(groups)));
     }
 }
