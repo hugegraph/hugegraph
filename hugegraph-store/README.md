@@ -85,6 +85,9 @@ For detailed architecture, Raft consensus mechanisms, and partition management, 
 
 ---
 
+For lightweight Raft dashboard counters and the detailed metrics contract, see
+[Store monitoring metrics](docs/monitoring.md).
+
 ## Quick Start
 
 ### Prerequisites
