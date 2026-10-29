@@ -64,7 +64,7 @@ never from StatefulSet replicas that a controlled operation may already change.
 {{- $_ := set $history $key (get $data $key | default "") -}}
 {{- end -}}
 {{- else -}}
-{{- $live := lookup "apps/v1" "StatefulSet" .Release.Namespace (includ "hugegraph.pd.name" .) -}}
+{{- $live := lookup "apps/v1" "StatefulSet" .Release.Namespace (include "hugegraph.pd.name" .) -}}
 {{- if $live -}}
 {{- if not .Release.IsUpgrade -}}
 {{- fail "bootstrap import requires an upgrade of the existing release; inspect live PD and retained data before recovery" -}}
@@ -72,10 +72,10 @@ never from StatefulSet replicas that a controlled operation may already change.
 {{- $owner := dig "metadata" "labels" "app.kubernetes.io/instance" "" $live -}}
 {{- if not $owner -}}
 {{- fail "bootstrap import requires the existing PD StatefulSet to carry the app.kubernetes.io/instance owner label" -}}
-{{- end -}
+{{- end -}}
 {{- if ne $owner .Release.Name -}}
 {{- fail "bootstrap import found a PD StatefulSet owned by another release" -}}
-{{- end -}
+{{- end -}}
 {{- $env := dict -}}
 {{- range $container := dig "spec" "template" "spec" "containers" list $live -}}
 {{- if eq (get $container "name" | default "") "pd" -}}
@@ -96,7 +96,7 @@ never from StatefulSet replicas that a controlled operation may already change.
 {{- $legacyEnv = $env -}}
 {{- else if .Release.IsUpgrade -}}
 {{- range $key := list "pdReplicas" "storeReplicas" "initialStoreCount" -}}
-{{- if eq (includ "hugegraph.optionalScalar" (get $config $key)) "" -}}
+{{- if eq (include "hugegraph.optionalScalar" (get $config $key)) "" -}}
 {{- fail "bootstrap.pdReplicas, bootstrap.storeReplicas and bootstrap.initialStoreCount must all be pinned for an upgrade without a live bootstrap record" -}}
 {{- end -}}
 {{- end -}}
@@ -123,10 +123,10 @@ never from StatefulSet replicas that a controlled operation may already change.
 {{- fail (printf "bootstrap.%s must be an integer between 1 and 99" $key) -}}
 {{- end -}}
 {{- $_ := set $resolved $key (int $value) -}}
-{{- end -}
+{{- end -}}
 {{- if gt (int $resolved.initialStoreCount) (int $resolved.storeReplicas) -}}
 {{- fail "bootstrap.initialStoreCount cannot exceed bootstrap.storeReplicas: the initial allowlist could not satisfy startup" -}}
-{{- end -}
+{{- end -}}
 {{- if and (not .Release.IsUpgrade) (empty $history) -}}
 {{- if ne (int $resolved.pdReplicas) (int .Values.pd.replicas) -}}
 {{- fail "bootstrap.pdReplicas must equal pd.replicas on a fresh install; use --is-upgrade with pinned history for offline upgrades" -}}
@@ -138,7 +138,7 @@ never from StatefulSet replicas that a controlled operation may already change.
 {{- $_ := set .Values "__hugegraphBootstrap" $resolved -}}
 {{- if not (empty $legacyEnv) -}}
 {{- if or (ne (get $legacyEnv "HG_PD_RAFT_PEERS_LIST") (include "hugegraph.pd.raftPeersList" .)) (ne (get $legacyEnv "HG_PD_INITIAL_STORE_LIST") (include "hugegraph.store.initialStoreList" .)) -}}
-{{- fail "bootstrap import only supports the chart's contiguous ordinal endpoint lists; inspect customized live endpoints before migration" -}}
+{{- fail "bootstrap only supports the chart's contiguous ordinal endpoint lists; inspect customized live endpoints before migration" -}}
 {{- end -}}
 {{- $seed := include "hugegraph.pd.grpcPeersList" . -}}
 {{- range $component := list "store" "server" -}}
@@ -154,15 +154,15 @@ never from StatefulSet replicas that a controlled operation may already change.
 {{- if eq (get $item "name" | default "") $key -}}
 {{- $found = true -}}
 {{- if ne (get $item "value" | default "") $seed -}}
-{{- fail (printf "bootstrap import found %s seeds that differ from the PD initial peers; reconcile the existing template before migration" $component) -}}
-{{- end -}
+{{- fail (printf "bootstrap import found %s seeds that differ from the PD initial peers; reconcile the existing templates before migration" $component) -}}
+{{- end -}}
 {{- end -}}
 {{- end -}}
 {{- end -}}
 {{- end -}}
 {{- if not $found -}}
 {{- fail (printf "bootstrap import requires the existing %s template to expose %s as a literal value" $component $key) -}}
-{{- end -}
+{{- end -}}
 {{- end -}}
 {{- end -}}
 {{- end -}}
