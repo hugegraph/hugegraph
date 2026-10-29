@@ -60,6 +60,8 @@ import org.apache.hugegraph.unit.api.filter.LoadDetectFilterTest;
 import org.apache.hugegraph.unit.api.filter.PathFilterTest;
 import org.apache.hugegraph.unit.api.filter.VertexAuthorizationTest;
 import org.apache.hugegraph.unit.api.gremlin.GremlinQueryAPITest;
+import org.apache.hugegraph.unit.api.job.RebuildAPITest;
+import org.apache.hugegraph.unit.api.profile.ProfileAPITest;
 import org.apache.hugegraph.unit.api.space.GraphSpaceAPITest;
 import org.apache.hugegraph.unit.api.space.SchemaTemplateAPITest;
 import org.apache.hugegraph.unit.auth.HugeGraphAuthProxyTest;
@@ -157,6 +159,8 @@ import org.junit.runners.Suite;
 
 @RunWith(Suite.class)
 @Suite.SuiteClasses({
+        RebuildAPITest.class,
+        ProfileAPITest.class,
         /* api filter */
         AccessLogFilterTest.class,
         CompressInterceptorTest.class,
