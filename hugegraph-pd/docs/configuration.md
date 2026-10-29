@@ -181,7 +181,7 @@ Controls PD-specific behavior.
 pd:
   data-path: ./pd_data              # Metadata storage path
   patrol-interval: 1800             # Partition rebalancing interval (seconds)
-  initial-store-count: 3            # Bootstrap gate while no shard groups exist
+  initial-store-count: 1            # Bootstrap gate while no shard groups exist
   min-store-count: 0                # First-bootstrap seed for the persisted placement floor
   initial-store-list: 127.0.0.1:8500  # Auto-activated stores
 ```
@@ -190,7 +190,7 @@ pd:
 |-----------|------|---------|-------------|
 | `pd.data-path` | String | `./pd_data` | Directory for RocksDB metadata storage and Raft logs. Ensure sufficient disk space and fast I/O (SSD recommended). |
 | `pd.patrol-interval` | Integer | `1800` | Interval (in seconds) for partition health patrol and automatic rebalancing. Lower values = more frequent checks. |
-| `pd.initial-store-count` | Integer | `1` in the shipped config, `3` if omitted | Required live Store count while no shard groups exist. It does not disable existing voting majorities after bootstrap. |
+| `pd.initial-store-count` | Integer | `1` | Required live Store count while no shard groups exist. It does not disable existing voting majorities after bootstrap. |
 | `pd.min-store-count` | Integer | `0` | First-bootstrap seed for persisted `PDConfig.min_store_count`, an extra eligible-Store floor for new placement and drain preflight. Existing persisted configuration takes precedence. Zero means no extra floor beyond the desired replica count. |
 | `pd.initial-store-list` | String | `127.0.0.1:8500` | Comma-separated list of Store gRPC addresses to auto-activate on startup. Useful for bootstrapping. |
 
@@ -205,6 +205,12 @@ pd:
 - `pd.initial-store-count`: Set to expected initial store count (e.g., `3` for 3 stores)
 
 #### Store bootstrap, placement and runtime quorum
+
+The PD distribution and Java fallback default to one initial Store and one shard replica
+(`partition.default-shard-count: 1`). Helm explicitly selects three shard replicas
+when `store.replicas >= 3`, otherwise one. `pd.initial-store-count` controls the
+initial number of Stores, not the replica count; set both independently for other
+multi-Store deployments.
 
 Bootstrap admission is separate from the metadata health hint used for existing data.
 Before any group exists, readiness requires enough eligible `Up` Stores for the initial count,

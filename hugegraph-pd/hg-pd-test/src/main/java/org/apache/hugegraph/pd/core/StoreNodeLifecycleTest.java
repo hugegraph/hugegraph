@@ -42,6 +42,19 @@ import org.mockito.Mockito;
 public class StoreNodeLifecycleTest {
 
     @Test
+    public void testSingleStoreBootstrapAndPlacement() throws Exception {
+        Fixture fixture = new Fixture();
+        fixture.config.setInitialStoreCount(1);
+        fixture.config.getPartition().setShardCount(1);
+        fixture.addUp(1);
+        fixture.live(1);
+
+        fixture.assertHealth(Metapb.ClusterState.Cluster_OK);
+        Assert.assertEquals(1, fixture.allocate(0).size());
+        fixture.assertHealth(Metapb.ClusterState.Cluster_OK);
+    }
+
+    @Test
     public void testBootstrapWaitsForInitialCountOnlyWithoutGroups() throws Exception {
         Fixture fixture = new Fixture();
         fixture.addUp(1, 2);
