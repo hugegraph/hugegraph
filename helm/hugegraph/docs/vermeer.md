@@ -105,6 +105,49 @@ view; the Vermeer service token does not grant them this administrator access.
 Setting `hubble.enabled=false` keeps Vermeer available through its native entry.
 `hubble.mode=direct` cannot be combined with an enabled native Vermeer integration.
 
+### Cluster health in Hubble
+
+The Hubble **System & Operations → Cluster Overview** keeps Server, PD and Store
+as the main topology. Vermeer appears as a compact compute-cluster summary;
+select it to switch to the Master-above-Worker view, then use **Return to main
+cluster** to restore the primary topology. This view describes the deployment,
+not the graph selected elsewhere in Hubble. Both Vermeer deployment modes use
+the same view, including standalone's one Master and one Worker.
+
+With `vermeer.enabled=true`, the chart also writes these Hubble properties:
+
+| Property | Chart-managed value |
+|---|---|
+| `operations.vermeer.enabled` | `true` |
+| `operations.vermeer.address` | The release's internal Master HTTP Service origin |
+| `operations.vermeer.token_file` | `/var/run/hugegraph/vermeer/token` |
+
+Operations and batch analysis reuse the same generated service token. Hubble
+mounts that token read-only; its main container never mounts the signing factor.
+No extra password, externally exposed Worker port or Kubernetes API permission
+is needed. The existing network policies allow Hubble to reach only the Master
+HTTP entry. Disabling Vermeer explicitly clears both integrations' endpoint and
+token-file properties and sets `operations.vermeer.enabled=false`, including
+when the image contains old defaults.
+
+Cluster health requires a paired Hubble and Vermeer build that supports the
+authenticated `GET /api/v1/admin/cluster` snapshot (`schema_version: 1`). The
+published Vermeer pin documented below predates that endpoint; retain its
+immutable digest until a reviewed replacement has been published, then select
+the paired images using `hubble.image` and `vermeer.image` (clear or replace the
+old `vermeer.image.digest` when selecting another tag). Do not infer capability
+from a tag alone. An older image that returns 404 is shown as unsupported, not
+healthy. A failed or unauthorized snapshot is reported as unavailable and does
+not turn the main graph cluster into a database outage.
+
+Worker counts are **ready / registered**, not ready / desired Helm replicas.
+Registration alone does not establish readiness: the Master checks its reverse
+connection and all three task streams. Process CPU is expressed in cores and
+memory as RSS bytes; these are not Pod utilization percentages. Missing resource
+measurements do not imply zero usage or make an otherwise ready Worker offline.
+This deployment-wide snapshot is separate from the space-aware allocation
+check at `/api/v1/workers/availability`.
+
 ## Optional native administration
 
 Master HTTP defaults to NodePort in easy mode and ClusterIP in strict mode.

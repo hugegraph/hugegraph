@@ -168,8 +168,11 @@ spec:
               {{- end }}
               while IFS= read -r LINE || [[ -n "${LINE}" ]]; do
                 case "${LINE}" in
-                  vermeer.url=*|vermeer.token_file=*)
-                    # Written once below, including explicit blanks when disabled.
+                  vermeer.url=*|vermeer.token_file=*|\
+                  operations.vermeer.enabled=*|operations.vermeer.address=*|operations.vermeer.token_file=*)
+                    # Native analysis and operations share the same internal
+                    # service identity. Write every key once below, clearing
+                    # stale image defaults when the component is disabled.
                     ;;
                   pd.enabled=*)
                     printf 'pd.enabled={{ $pdMode }}\n' >>"${TMP}"
@@ -225,8 +228,11 @@ spec:
               {{- if $vermeerEnabled }}
               printf 'vermeer.url=%s\nvermeer.token_file=%s\n' \
                 "${HG_HUBBLE_VERMEER_URL}" "${HG_HUBBLE_VERMEER_TOKEN_FILE}" >>"${TMP}"
+              printf 'operations.vermeer.enabled=true\noperations.vermeer.address=%s\noperations.vermeer.token_file=%s\n' \
+                "${HG_HUBBLE_VERMEER_URL}" "${HG_HUBBLE_VERMEER_TOKEN_FILE}" >>"${TMP}"
               {{- else }}
               printf 'vermeer.url=\nvermeer.token_file=\n' >>"${TMP}"
+              printf 'operations.vermeer.enabled=false\noperations.vermeer.address=\noperations.vermeer.token_file=\n' >>"${TMP}"
               {{- end }}
               if [[ "${FOUND_PD_ENABLED}" == false ]]; then
                 printf 'pd.enabled={{ $pdMode }}\n' >>"${TMP}"
