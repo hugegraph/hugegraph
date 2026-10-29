@@ -91,7 +91,7 @@ tests:
       path: data.storeReplicas
       value: '3'
   - equal:
-      path: data.initialStoreCount
+      path: initialStoreCount
       value: '3'
   - equal:
       path: immutable
@@ -181,14 +181,38 @@ tests:
   asserts:
   - failedTemplate:
       errorPattern: bootstrap.pdReplicas must equal pd.replicas on a fresh install
+- it: rejects fresh Store1 with a three-Store bootstrap
+  template: store-statefulset.yaml
+  set:
+    store.replicas: 1
+    store.pdb.minAvailable: 1
+    bootstrap.storeReplicas: 3
+  asserts:
+  - failedTemplate:
+      errorPattern: bootstrap.storeReplicas must equal store.replicas on a fresh install
+- it: rejects fresh Store3 with a one-Store bootstrap
+  template: store-statefulset.yaml
+  set:
+    store.replicas: 3
+    store.pdb.minAvailable: 2
+    bootstrap.storeReplicas: 1
+  asserts:
+  - failedTemplate:
+      errorPattern: bootstrap.storeReplicas must equal store.replicas on a fresh install
 - it: rejects unreachable startup Store threshold
   template: store-statefulset.yaml
   set:
     bootstrap.initialStoreCount: 4
   asserts:
   - failedTemplate:
-      errorPattern: bootstrap.initialStoreCount exceeds the Stores started by a fresh
-        install
+      errorPattern: bootstrap.initialStoreCount cannot exceed bootstrap.storeReplicas
+- it: rejects bootstrap counts above the chart replica limit
+  template: store-statefulset.yaml
+  set:
+    bootstrap.pdReplicas: 100
+  asserts:
+  - failedTemplate:
+      errorPattern: bootstrap.pdReplicas must be an integer between 1 and 99
 - it: requires offline upgrades to pin all history
   release:
     upgrade: true
@@ -196,6 +220,17 @@ tests:
   asserts:
   - failedTemplate:
       errorPattern: must all be pinned for an upgrade without a live bootstrap record
+- it: rejects internally inconsistent offline history
+  release:
+    upgrade: true
+  template: store-statefulset.yaml
+  set:
+    bootstrap.pdReplicas: 3
+    bootstrap.storeReplicas: 3
+    bootstrap.initialStoreCount: 4
+  asserts:
+  - failedTemplate:
+      errorPattern: bootstrap.initialStoreCount cannot exceed bootstrap.storeReplicas
 - it: allows an offline upgrade with explicitly pinned history
   release:
     upgrade: true

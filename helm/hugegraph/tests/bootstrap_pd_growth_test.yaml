@@ -64,6 +64,8 @@ kubernetesProvider:
     metadata:
       name: cluster-pd
       namespace: NAMESPACE
+      annotations:
+        hugegraph.apache.org/bootstrap-retained: 'true'
       labels: &id001
         app.kubernetes.io/name: hugegraph
         app.kubernetes.io/instance: RELEASE-NAME

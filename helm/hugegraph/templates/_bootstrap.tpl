@@ -32,15 +32,19 @@ never from StatefulSet replicas that a controlled operation may already change.
 {{- define "hugegraph.bootstrap.resolve" -}}
 {{- $config := get .Values "bootstrap" | default dict -}}
 {{- $enabled := get $config "enabled" | default false -}}
+{{- if not $enabled -}}
+{{- $resolved := dict "pdReplicas" (int .Values.pd.replicas) "storeReplicas" (int .Values.store.replicas) "initialStoreCount" (int .Values.store.replicas) -}}
+{{- $_ := set .Values "__hugegraphBootstrap" $resolved -}}
+{{- if .Release.IsUpgrade -}}
+{{- $live := lookup "apps/v1" "StatefulSet" .Release.Namespace (include "hugegraph.pd.name" .) -}}
+{{- if and $live (eq (dig "metadata" "annotations" "hugegraph.apache.org/bootstrap-retained" "" $live) "true") -}}
+{{- fail "bootstrap.enabled cannot be disabled while the live PD StatefulSet records retained bootstrap topology" -}}
+{{- end -}}
+{{- end -}}
+{{- else -}}
 {{- $record := lookup "v1" "ConfigMap" .Release.Namespace (include "hugegraph.bootstrap.name" .) -}}
 {{- $history := dict -}}
 {{- $legacyEnv := dict -}}
-{{- if not $enabled -}}
-{{- if $record -}}
-{{- fail "bootstrap.enabled cannot be disabled while the retained bootstrap ConfigMap exists; keep initialization topology pinned" -}}
-{{- end -}}
-{{- $_ := set .Values "__hugegraphBootstrap" (dict "pdReplicas" (int .Values.pd.replicas) "storeReplicas" (int .Values.store.replicas) "initialStoreCount" (int .Values.store.replicas)) -}}
-{{- else -}}
 {{- if $record -}}
 {{- if not .Release.IsUpgrade -}}
 {{- fail "bootstrap history already exists on an install; use a reviewed recovery procedure rather than treating kept data as a fresh cluster" -}}
@@ -60,11 +64,18 @@ never from StatefulSet replicas that a controlled operation may already change.
 {{- $_ := set $history $key (get $data $key | default "") -}}
 {{- end -}}
 {{- else -}}
-{{- $live := lookup "apps/v1" "StatefulSet" .Release.Namespace (include "hugegraph.pd.name" .) -}}
+{{- $live := lookup "apps/v1" "StatefulSet" .Release.Namespace (includ "hugegraph.pd.name" .) -}}
 {{- if $live -}}
 {{- if not .Release.IsUpgrade -}}
 {{- fail "bootstrap import requires an upgrade of the existing release; inspect live PD and retained data before recovery" -}}
 {{- end -}}
+{{- $owner := dig "metadata" "labels" "app.kubernetes.io/instance" "" $live -}}
+{{- if not $owner -}}
+{{- fail "bootstrap import requires the existing PD StatefulSet to carry the app.kubernetes.io/instance owner label" -}}
+{{- end -}
+{{- if ne $owner .Release.Name -}}
+{{- fail "bootstrap import found a PD StatefulSet owned by another release" -}}
+{{- end -}
 {{- $env := dict -}}
 {{- range $container := dig "spec" "template" "spec" "containers" list $live -}}
 {{- if eq (get $container "name" | default "") "pd" -}}
@@ -85,7 +96,7 @@ never from StatefulSet replicas that a controlled operation may already change.
 {{- $legacyEnv = $env -}}
 {{- else if .Release.IsUpgrade -}}
 {{- range $key := list "pdReplicas" "storeReplicas" "initialStoreCount" -}}
-{{- if eq (include "hugegraph.optionalScalar" (get $config $key)) "" -}}
+{{- if eq (includ "hugegraph.optionalScalar" (get $config $key)) "" -}}
 {{- fail "bootstrap.pdReplicas, bootstrap.storeReplicas and bootstrap.initialStoreCount must all be pinned for an upgrade without a live bootstrap record" -}}
 {{- end -}}
 {{- end -}}
@@ -93,8 +104,8 @@ never from StatefulSet replicas that a controlled operation may already change.
 {{- end -}}
 {{- if not (empty $history) -}}
 {{- range $key := list "pdReplicas" "storeReplicas" "initialStoreCount" -}}
-{{- if not (regexMatch "^[1-9][0-9]*$" (get $history $key | toString)) -}}
-{{- fail (printf "bootstrap record is missing a valid %s; inspect it before continuing" $key) -}}
+{{- if not (regexMatch "^[1-9][0-9]?$" (get $history $key | toString)) -}}
+{{- fail (printf "bootstrap record is missing a valid %s between 1 and 99; inspect it before continuing" $key) -}}
 {{- end -}}
 {{- end -}}
 {{- end -}}
@@ -108,20 +119,20 @@ never from StatefulSet replicas that a controlled operation may already change.
 {{- end -}}
 {{- $value := ternary $pin $old (ne $pin "") -}}
 {{- if eq $value "" -}}{{- $value = get $defaults $key | toString -}}{{- end -}}
-{{- if or (not (regexMatch "^[1-9][0-9]*$" $value)) (lt (int $value) 1) -}}
-{{- fail (printf "bootstrap.%s must be a positive integer in the retained bootstrap record" $key) -}}
+{{- if not (regexMatch "^[1-9][0-9]?$" $value) -}}
+{{- fail (printf "bootstrap.%s must be an integer between 1 and 99" $key) -}}
 {{- end -}}
 {{- $_ := set $resolved $key (int $value) -}}
-{{- end -}}
+{{- end -}
+{{- if gt (int $resolved.initialStoreCount) (int $resolved.storeReplicas) -}}
+{{- fail "bootstrap.initialStoreCount cannot exceed bootstrap.storeReplicas: the initial allowlist could not satisfy startup" -}}
+{{- end -}
 {{- if and (not .Release.IsUpgrade) (empty $history) -}}
 {{- if ne (int $resolved.pdReplicas) (int .Values.pd.replicas) -}}
 {{- fail "bootstrap.pdReplicas must equal pd.replicas on a fresh install; use --is-upgrade with pinned history for offline upgrades" -}}
 {{- end -}}
-{{- if gt (int $resolved.initialStoreCount) (int .Values.store.replicas) -}}
-{{- fail "bootstrap.initialStoreCount exceeds the Stores started by a fresh install" -}}
-{{- end -}}
-{{- if gt (int $resolved.initialStoreCount) (int $resolved.storeReplicas) -}}
-{{- fail "bootstrap.initialStoreCount cannot exceed bootstrap.storeReplicas on a fresh install: the initial allowlist could not satisfy startup" -}}
+{{- if ne (int $resolved.storeReplicas) (int .Values.store.replicas) -}}
+{{- fail "bootstrap.storeReplicas must equal store.replicas on a fresh install; use --is-upgrade with pinned history for offline upgrades" -}}
 {{- end -}}
 {{- end -}}
 {{- $_ := set .Values "__hugegraphBootstrap" $resolved -}}
@@ -136,15 +147,22 @@ never from StatefulSet replicas that a controlled operation may already change.
 {{- $consumer := lookup "apps/v1" $kind $.Release.Namespace $name -}}
 {{- $key := ternary "HG_STORE_PD_ADDRESS" "HG_SERVER_PD_PEERS" (eq $component "store") -}}
 {{- if $consumer -}}
+{{- $found := false -}}
 {{- range $container := dig "spec" "template" "spec" "containers" list $consumer -}}
 {{- if eq (get $container "name" | default "") $component -}}
 {{- range $item := get $container "env" | default list -}}
-{{- if and (eq (get $item "name" | default "") $key) (ne (get $item "value" | default "") $seed) -}}
-{{- fail (printf "bootstrap import found %s seeds that differ from the PD initial peers; reconcile the existing templates before migration" $component) -}}
+{{- if eq (get $item "name" | default "") $key -}}
+{{- $found = true -}}
+{{- if ne (get $item "value" | default "") $seed -}}
+{{- fail (printf "bootstrap import found %s seeds that differ from the PD initial peers; reconcile the existing template before migration" $component) -}}
+{{- end -}
 {{- end -}}
 {{- end -}}
 {{- end -}}
 {{- end -}}
+{{- if not $found -}}
+{{- fail (printf "bootstrap import requires the existing %s template to expose %s as a literal value" $component $key) -}}
+{{- end -}
 {{- end -}}
 {{- end -}}
 {{- end -}}
