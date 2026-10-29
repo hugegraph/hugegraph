@@ -24,6 +24,7 @@ import java.net.InetSocketAddress;
 import java.net.NetworkInterface;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.net.SocketException;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -89,6 +90,7 @@ import org.glassfish.jersey.grizzly2.httpserver.GrizzlyHttpServerFactory;
 import org.glassfish.jersey.server.ResourceConfig;
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
+import org.junit.Assume;
 import org.junit.Test;
 import org.mockito.Mockito;
 
@@ -243,27 +245,53 @@ public class EmbeddedGremlinRestExecutorTest {
     @Test
     public void testFactorySelectsLocalExecutorAutomatically() throws Exception {
         assertEmbedded(config);
-        assertEmbedded(new HugeConfig(Map.of(
-                "gremlinserver.url", "http://localhost:" + settings.port)));
-        String previousHost = settings.host;
+    }
+
+    @Test
+    public void testFactorySelectsWildcardListenerForLocalIpv4() throws Exception {
+        Settings wildcard = new Settings();
+        wildcard.host = "0.0.0.0";
+        wildcard.port = 0;
+        wildcard.gremlinPool = 1;
+        wildcard.threadPoolBoss = 1;
+        wildcard.threadPoolWorker = 1;
+        wildcard.channelizer = WsAndHttpChannelizer.class.getName();
+        wildcard.serializers = settings.serializers;
+        ContextGremlinServer local = new ContextGremlinServer(
+                wildcard, new EventHub("embedded-wildcard-test", 1));
         try {
-            settings.host = "0.0.0.0";
-            assertEmbedded(config);
+            local.start().get(30, TimeUnit.SECONDS);
+            Channel socket = Whitebox.getInternalState(local, "serverSocketChannel");
+            wildcard.port = ((InetSocketAddress) socket.localAddress()).getPort();
             for (NetworkInterface network : Collections.list(NetworkInterface.getNetworkInterfaces())) {
                 for (InetAddress address : Collections.list(network.getInetAddresses())) {
-                    String host = address.getHostAddress();
-                    URI url = new URI("http", null, host, settings.port, null, null, null);
-                    assertEmbedded(new HugeConfig(Map.of("gremlinserver.url", url.toString())));
+                    if (address.getAddress().length != 4) {
+                        continue;
+                    }
+                    URI url = new URI("http", null, address.getHostAddress(), wildcard.port, null, null, null);
+                    HugeConfig target = new HugeConfig(Map.of("gremlinserver.url", url.toString()));
+                    try (GremlinRestExecutor executor = GremlinRestExecutorFactory.create(target, local, "")) {
+                        Assert.assertTrue(executor instanceof EmbeddedGremlinRestExecutor);
+                        GremlinRestExecutorFactory.initialize(executor, local);
+                        try (Response response = executor.post(null, body("1+2"), "test")) {
+                            Assert.assertEquals(200, response.getStatus());
+                            Assert.assertEquals(Collections.singletonList(3),
+                                                ((Map<?, ?>) json(response).get("result")).get("data"));
+                        }
+                    }
                 }
             }
         } finally {
-            settings.host = previousHost;
+            local.stop().get(30, TimeUnit.SECONDS);
+            HugeGraphAuthProxy.resetContext();
         }
     }
 
     @Test
     public void testFactoryForwardsOtherHostsPortsAndStandaloneRest() throws Exception {
         for (String url : Arrays.asList("http://192.0.2.1:" + settings.port,
+                                       "http://127.0.0.2:" + settings.port,
+                                       "http://[::1]:" + settings.port,
                                        "http://127.0.0.1:1",
                                        "http://gremlin.invalid:" + settings.port)) {
             try (GremlinRestExecutor executor = GremlinRestExecutorFactory.create(
@@ -284,11 +312,11 @@ public class EmbeddedGremlinRestExecutorTest {
             settings.ssl = new Settings.SslSettings();
             settings.ssl.enabled = true;
             assertEmbedded(new HugeConfig(Map.of(
-                    "gremlinserver.url", "https://localhost:" + settings.port)));
+                    "gremlinserver.url", "https://127.0.0.1:" + settings.port)));
             settings.port = 443;
-            assertEmbedded(new HugeConfig(Map.of("gremlinserver.url", "https://localhost")));
+            assertEmbedded(new HugeConfig(Map.of("gremlinserver.url", "https://127.0.0.1")));
             settings.port = 80;
-            assertEmbedded(new HugeConfig(Map.of("gremlinserver.url", "http://localhost")));
+            assertEmbedded(new HugeConfig(Map.of("gremlinserver.url", "http://127.0.0.1")));
         } finally {
             settings.ssl = previousSsl;
             settings.port = previousPort;
@@ -327,7 +355,7 @@ public class EmbeddedGremlinRestExecutorTest {
             secured.start().get(30, TimeUnit.SECONDS);
             Channel socket = Whitebox.getInternalState(secured, "serverSocketChannel");
             tls.port = ((InetSocketAddress) socket.localAddress()).getPort();
-            String url = "https://localhost:" + tls.port;
+            String url = "https://127.0.0.1:" + tls.port;
             HugeConfig local = new HugeConfig(Map.of("gremlinserver.url", url));
             TrustManagerFactory trust = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
             trust.init(KeyStore.getInstance(store.toFile(), "changeit".toCharArray()));
@@ -371,12 +399,152 @@ public class EmbeddedGremlinRestExecutorTest {
     }
 
     @Test
-    public void testFactoryRejectsMismatchedAuthentication() {
-        HugeConfig auth = new HugeConfig(Map.of(
-                "gremlinserver.url", config.get(ServerOptions.GREMLIN_SERVER_URL),
-                "auth.authenticator", StandardAuthenticator.class.getName()));
-        Assert.assertThrows(IllegalArgumentException.class,
-                            () -> GremlinRestExecutorFactory.create(auth, server, ""));
+    public void testFactoryForwardsToDifferentListenerAtSamePort() throws Exception {
+        try (ServerSocket listener = new ServerSocket()) {
+            try {
+                listener.bind(new InetSocketAddress(InetAddress.getByName("::1"), settings.port));
+            } catch (SocketException e) {
+                Assume.assumeNoException("IPv6 loopback is unavailable", e);
+            }
+            CompletableFuture<Void> served = CompletableFuture.runAsync(() -> {
+                try (Socket connection = listener.accept()) {
+                    connection.setSoTimeout(5000);
+                    BufferedReader reader = new BufferedReader(new InputStreamReader(
+                            connection.getInputStream(), StandardCharsets.US_ASCII));
+                    String line;
+                    while ((line = reader.readLine()) != null && !line.isEmpty()) {
+                        // Read the HTTP headers before replying from this distinct listener.
+                    }
+                    byte[] entity = "{\"listener\":\"ipv6\"}".getBytes(StandardCharsets.UTF_8);
+                    connection.getOutputStream().write(("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n" +
+                            "Content-Length: " + entity.length + "\r\nConnection: close\r\n\r\n")
+                            .getBytes(StandardCharsets.US_ASCII));
+                    connection.getOutputStream().write(entity);
+                } catch (Exception e) {
+                    throw new RuntimeException(e);
+                }
+            });
+            HugeConfig target = new HugeConfig(Map.of(
+                    "gremlinserver.url", "http://[::1]:" + settings.port));
+            try (GremlinRestExecutor executor = GremlinRestExecutorFactory.create(target, server, "")) {
+                Assert.assertTrue(executor instanceof ForwardGremlinRestExecutor);
+                try (Response response = executor.post(null, body("1+2"), "test")) {
+                    Assert.assertEquals(200, response.getStatus());
+                    Assert.assertEquals(Map.of("listener", "ipv6"), json(response));
+                }
+            }
+            served.get(5, TimeUnit.SECONDS);
+        }
+    }
+
+    public static class CustomHttpChannelizer extends WsAndHttpChannelizer {
+    }
+
+    @Test
+    public void testCustomHttpChannelizerKeepsWorkingThroughForwarding() throws Exception {
+        Settings custom = new Settings();
+        custom.host = "127.0.0.1";
+        custom.port = 0;
+        custom.gremlinPool = 1;
+        custom.threadPoolBoss = 1;
+        custom.threadPoolWorker = 1;
+        custom.channelizer = CustomHttpChannelizer.class.getName();
+        custom.serializers = settings.serializers;
+        ContextGremlinServer local = new ContextGremlinServer(
+                custom, new EventHub("forward-custom-channelizer-test", 1));
+        HugeConfig target = new HugeConfig(Map.of("gremlinserver.url", "http://127.0.0.1:0"));
+        try (GremlinRestExecutor executor = GremlinRestExecutorFactory.create(target, local, "")) {
+            Assert.assertTrue(executor instanceof ForwardGremlinRestExecutor);
+            local.start().get(30, TimeUnit.SECONDS);
+            Channel socket = Whitebox.getInternalState(local, "serverSocketChannel");
+            target.setProperty("gremlinserver.url", "http://127.0.0.1:" +
+                               ((InetSocketAddress) socket.localAddress()).getPort());
+            GremlinRestExecutorFactory.initialize(executor, local);
+            try (Response response = executor.post(null, body("1+2"), "test")) {
+                Assert.assertEquals(200, response.getStatus());
+                Assert.assertEquals(Collections.singletonList(3),
+                                    ((Map<?, ?>) json(response).get("result")).get("data"));
+            }
+        } finally {
+            local.stop().get(30, TimeUnit.SECONDS);
+            HugeGraphAuthProxy.resetContext();
+        }
+    }
+
+    @Test
+    public void testFactoryForwardsUnsupportedLocalConfigurations() throws Exception {
+        String previousChannelizer = settings.channelizer;
+        Settings.AuthorizationSettings previousAuthorization = settings.authorization;
+        Settings.AuthenticationSettings previousAuthentication = settings.authentication;
+        try {
+            settings.channelizer = "example.CustomChannelizer";
+            assertForward(config, "");
+            settings.channelizer = previousChannelizer;
+            settings.authorization = new Settings.AuthorizationSettings();
+            settings.authorization.authorizer = "example.CustomAuthorizer";
+            assertForward(config, "");
+            settings.authorization = previousAuthorization;
+            HugeConfig auth = new HugeConfig(Map.of(
+                    "gremlinserver.url", config.get(ServerOptions.GREMLIN_SERVER_URL),
+                    "auth.authenticator", StandardAuthenticator.class.getName()));
+            assertForward(auth, "");
+            settings.authentication = new Settings.AuthenticationSettings();
+            settings.authentication.authenticator = ProtocolAuthenticator.class.getName();
+            assertForward(config, "");
+            HugeConfig custom = new HugeConfig(Map.of(
+                    "gremlinserver.url", config.get(ServerOptions.GREMLIN_SERVER_URL),
+                    "auth.authenticator", ProtocolAuthenticator.class.getName()));
+            assertForward(custom, "");
+            settings.authentication.authenticator = StandardAuthenticator.class.getName();
+            settings.authentication.authenticationHandler = "example.CustomAuthHandler";
+            assertForward(auth, "");
+        } finally {
+            settings.channelizer = previousChannelizer;
+            settings.authorization = previousAuthorization;
+            settings.authentication = previousAuthentication;
+        }
+    }
+
+    @Test
+    public void testFactoryForwardsDifferentOrUnresolvableAuthenticationFiles() throws Exception {
+        Path directory = Files.createTempDirectory("embedded-auth-config");
+        Path rest = Files.createFile(directory.resolve("rest.properties"));
+        Path other = Files.createFile(directory.resolve("other.properties"));
+        Settings.AuthenticationSettings previousAuthentication = settings.authentication;
+        try {
+            settings.authentication = new Settings.AuthenticationSettings();
+            settings.authentication.authenticator = StandardAuthenticator.class.getName();
+            settings.authentication.authenticationHandler = WsAndHttpBasicAuthHandler.class.getName();
+            HugeConfig auth = new HugeConfig(Map.of(
+                    "gremlinserver.url", config.get(ServerOptions.GREMLIN_SERVER_URL),
+                    "auth.authenticator", StandardAuthenticator.class.getName()));
+            for (Object tokens : Arrays.asList(other.toString(), directory.resolve("missing").toString(),
+                                               "invalid\0path", 1)) {
+                settings.authentication.config = Map.of("tokens", tokens);
+                assertForward(auth, rest.toString());
+            }
+            settings.authentication.config = null;
+            assertForward(auth, rest.toString());
+            settings.authentication.config = Map.of("tokens", rest.toString());
+            try (GremlinRestExecutor executor = GremlinRestExecutorFactory.create(
+                    auth, server, directory.resolve("./rest.properties").toString())) {
+                Assert.assertTrue(executor instanceof EmbeddedGremlinRestExecutor);
+            }
+        } finally {
+            settings.authentication = previousAuthentication;
+            org.apache.commons.io.FileUtils.deleteDirectory(directory.toFile());
+        }
+    }
+
+    private static void assertForward(HugeConfig target, String restConfigFile) throws Exception {
+        try (GremlinRestExecutor executor = GremlinRestExecutorFactory.create(target, server, restConfigFile)) {
+            Assert.assertTrue(executor instanceof ForwardGremlinRestExecutor);
+            try (Response response = executor.post(null, body("1+2"), "test")) {
+                Assert.assertEquals(200, response.getStatus());
+                Assert.assertEquals(Collections.singletonList(3),
+                                    ((Map<?, ?>) json(response).get("result")).get("data"));
+            }
+        }
     }
 
     @Test
@@ -496,7 +664,22 @@ public class EmbeddedGremlinRestExecutorTest {
                 Assert.assertEquals(expected.statusCode(), actual.statusCode());
                 Assert.assertEquals(expected.headers().firstValue("content-type"),
                                     actual.headers().firstValue("content-type"));
-                Assert.assertEquals(expected.body(), actual.body());
+                if (expected.statusCode() < 400) {
+                    Assert.assertEquals(expected.body(), actual.body());
+                } else {
+                    Map<?, ?> expectedError = JsonUtil.fromJson(expected.body(), Map.class);
+                    Map<?, ?> actualError = JsonUtil.fromJson(actual.body(), Map.class);
+                    // Groovy call-site caching can change stack frames between identical requests.
+                    Assert.assertEquals(expectedError.containsKey("trace"), actualError.containsKey("trace"));
+                    if (expectedError.containsKey("trace")) {
+                        List<?> expectedTrace = (List<?>) expectedError.remove("trace");
+                        List<?> actualTrace = (List<?>) actualError.remove("trace");
+                        Assert.assertFalse(expectedTrace.isEmpty());
+                        Assert.assertFalse(actualTrace.isEmpty());
+                        Assert.assertEquals(expectedTrace.get(0), actualTrace.get(0));
+                    }
+                    Assert.assertEquals(expectedError, actualError);
+                }
             }
         } finally {
             left.shutdownNow();

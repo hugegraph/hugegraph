@@ -24,11 +24,16 @@ host and port in `conf/gremlin-server.yaml`:
 gremlinserver.url=http://127.0.0.1:8182
 ```
 
-Loopback addresses, local interface addresses, local hostnames and wildcard bind
-addresses identify the same host. All addresses resolved for a hostname must be local.
-The URL's port must match the co-started listener's port, so a URL for another Gremlin
-process on the same machine continues to use forwarding. Omitted HTTP/HTTPS ports are
-interpreted as 80/443. Unresolved hostnames remain on the forwarding path.
+Every address resolved for the target hostname must belong to the co-started listener.
+For a specific bind address, all target addresses must equal that address; another
+loopback or local interface address at the same port can identify a different process.
+For a wildcard bind, all target addresses must be concrete local addresses in the same
+address family. Cross-family wildcard/dual-stack cases conservatively use forwarding.
+Wildcard target URLs also use forwarding, since they do not identify a concrete endpoint.
+
+The URL's port must match the co-started listener's port. Omitted HTTP/HTTPS ports are
+interpreted as 80/443. Unresolved hostnames, mixed or mismatched target addresses, and
+other hosts or ports remain on the forwarding path.
 A standalone `RestServer` without a co-started Gremlin Server always forwards.
 
 TLS does not affect the choice: local HTTP and HTTPS targets both use in-process
@@ -43,12 +48,16 @@ receives an error.
 
 Local execution supports the standard HugeGraph `WsAndHttpChannelizer` configuration,
 adapted internally to `HugeGraphWsAndHttpChannelizer`. Custom channelizers and custom
-Gremlin authorizers fail startup for local targets.
+Gremlin authorizers retain HTTP forwarding, so their listener-side behavior remains in use.
 
-Authentication must agree between REST and Gremlin: either both are anonymous, or
+Embedded execution requires matching REST and Gremlin authentication: either both are anonymous, or
 both use `StandardAuthenticator`, with `WsAndHttpBasicAuthHandler` on Gremlin and
 `authentication.config.tokens` resolving to the same REST configuration file.
-Unsupported local combinations fail startup; they do not silently select another path.
+Custom or mismatched authentication, different config files, and config files that cannot
+be resolved retain HTTP forwarding. Unsupported local combinations log a warning with the
+reason for forwarding. This selection does not add a startup rejection; each listener's
+existing configuration validation remains in place. The choice is made before query
+execution and does not retry a script through another path after execution begins.
 
 ## Preserved behavior
 
@@ -107,7 +116,8 @@ mvn test -pl hugegraph-server/hugegraph-test -am -P unit-test \
 ```
 
 The focused tests compare real forward HTTP responses with embedded execution, exercise
-both REST HTTP endpoints, and cover parsing/encoding, protocol limits, error mapping,
+both REST HTTP endpoints, and cover distinct same-port listeners, wildcard/address-family
+selection, unsupported-configuration forwarding, parsing/encoding, protocol limits, error mapping,
 request identity, context isolation, blocking admission, timeouts, shared serializers,
 dynamic aliases and graph transaction side effects on Memory and RocksDB. Response stack traces and newly generated
 request IDs require semantic comparison; deterministic responses also use byte comparisons.

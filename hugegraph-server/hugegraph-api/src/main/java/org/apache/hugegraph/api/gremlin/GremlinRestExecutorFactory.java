@@ -22,6 +22,7 @@ import java.net.InetAddress;
 import java.net.NetworkInterface;
 import java.net.URI;
 import java.net.UnknownHostException;
+import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 
 import org.apache.hugegraph.auth.StandardAuthenticator;
@@ -29,12 +30,15 @@ import org.apache.hugegraph.auth.WsAndHttpBasicAuthHandler;
 import org.apache.hugegraph.config.HugeConfig;
 import org.apache.hugegraph.config.ServerOptions;
 import org.apache.hugegraph.server.HugeGraphWsAndHttpChannelizer;
-import org.apache.hugegraph.util.E;
+import org.apache.hugegraph.util.Log;
 import org.apache.tinkerpop.gremlin.server.GremlinServer;
 import org.apache.tinkerpop.gremlin.server.Settings;
 import org.apache.tinkerpop.gremlin.server.auth.AllowAllAuthenticator;
+import org.slf4j.Logger;
 
 public final class GremlinRestExecutorFactory {
+
+    private static final Logger LOG = Log.logger(GremlinRestExecutorFactory.class);
 
     private GremlinRestExecutorFactory() {
     }
@@ -50,30 +54,46 @@ public final class GremlinRestExecutorFactory {
         if (!targetsLocalServer(target, settings)) {
             return new ForwardGremlinRestExecutor(config);
         }
-        E.checkArgument(HugeGraphWsAndHttpChannelizer.class.getName().equals(settings.channelizer),
-                        "embedded requires HugeGraphWsAndHttpChannelizer");
-        E.checkArgument(settings.authorization == null ||
-                        settings.authorization.authorizer == null,
-                        "embedded does not support a custom Gremlin authorizer");
+        String unsupported = unsupportedConfiguration(config, settings, restConfigFile);
+        if (unsupported != null) {
+            LOG.warn("REST Gremlin uses HTTP forwarding: {}", unsupported);
+            return new ForwardGremlinRestExecutor(config);
+        }
+        return new EmbeddedGremlinRestExecutor(config, server.getServerGremlinExecutor());
+    }
+
+    private static String unsupportedConfiguration(HugeConfig config, Settings settings,
+                                                    String restConfigFile) {
+        if (!HugeGraphWsAndHttpChannelizer.class.getName().equals(settings.channelizer)) {
+            return "the Gremlin Channelizer does not support embedded execution";
+        }
+        if (settings.authorization != null && settings.authorization.authorizer != null) {
+            return "a custom Gremlin authorizer requires listener-side authorization";
+        }
+        if (settings.authentication == null) {
+            return "the Gremlin authentication configuration is unavailable";
+        }
         String restAuth = config.get(ServerOptions.AUTHENTICATOR);
         String gremlinAuth = settings.authentication.authenticator;
         if (restAuth.isEmpty()) {
-            E.checkArgument(AllowAllAuthenticator.class.getName().equals(gremlinAuth),
-                            "REST and Gremlin authentication must agree for embedded execution");
-        } else {
-            E.checkArgument(StandardAuthenticator.class.getName().equals(restAuth) &&
-                            restAuth.equals(gremlinAuth) &&
-                            WsAndHttpBasicAuthHandler.class.getName().equals(
-                                    settings.authentication.authenticationHandler),
-                            "embedded only supports matching standard HugeGraph authentication");
-            Object tokens = settings.authentication.config == null ? null :
-                            settings.authentication.config.get("tokens");
-            E.checkArgument(tokens instanceof String &&
-                            Path.of(restConfigFile).toRealPath().equals(
-                                    Path.of((String) tokens).toRealPath()),
-                            "embedded requires the same REST and Gremlin authentication config");
+            return AllowAllAuthenticator.class.getName().equals(gremlinAuth) ? null :
+                   "REST and Gremlin authentication do not match";
         }
-        return new EmbeddedGremlinRestExecutor(config, server.getServerGremlinExecutor());
+        if (!StandardAuthenticator.class.getName().equals(restAuth) || !restAuth.equals(gremlinAuth) ||
+            !WsAndHttpBasicAuthHandler.class.getName().equals(settings.authentication.authenticationHandler)) {
+            return "embedded execution requires matching standard HugeGraph authentication";
+        }
+        Object tokens = settings.authentication.config == null ? null :
+                        settings.authentication.config.get("tokens");
+        if (!(tokens instanceof String)) {
+            return "REST and Gremlin must share the same authentication config file";
+        }
+        try {
+            return Path.of(restConfigFile).toRealPath().equals(Path.of((String) tokens).toRealPath()) ?
+                   null : "REST and Gremlin use different authentication config files";
+        } catch (IOException | InvalidPathException e) {
+            return "the shared REST and Gremlin authentication config file cannot be resolved";
+        }
     }
 
     private static boolean targetsLocalServer(URI target, Settings settings) throws IOException {
@@ -103,7 +123,15 @@ public final class GremlinRestExecutorFactory {
             return false;
         }
         for (InetAddress address : targetAddresses) {
-            if (!isLocalAddress(address)) {
+            if (address.isAnyLocalAddress()) {
+                return false;
+            }
+            if (bindAddress.isAnyLocalAddress()) {
+                // Do not assume an IPv6 wildcard listener accepts IPv4 (or vice versa).
+                if (address.getClass() != bindAddress.getClass() || !isLocalAddress(address)) {
+                    return false;
+                }
+            } else if (!bindAddress.equals(address)) {
                 return false;
             }
         }

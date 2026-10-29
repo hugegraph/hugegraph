@@ -73,27 +73,27 @@ public class GremlinQueryAPITest extends BaseUnitTest {
     }
 
     @Test
-    public void testSameProcessTargetMatchesAnyLoopbackAddress() throws Exception {
+    public void testSameProcessTargetRequiresEveryAddressToMatchBind() throws Exception {
         InetAddress ipv4 = InetAddress.getByName("127.0.0.1");
         InetAddress ipv6 = InetAddress.getByName("::1");
+        InetAddress other = InetAddress.getByName("127.0.0.2");
+        InetAddress alias = InetAddress.getByAddress("gremlin.local", ipv4.getAddress());
 
-        Assert.assertTrue(isSameProcessTarget(
-                new InetAddress[]{ipv6, ipv4}, ipv4));
-        Assert.assertTrue(isSameProcessTarget(
-                new InetAddress[]{ipv4, ipv6}, ipv4));
+        Assert.assertTrue(isSameProcessTarget(new InetAddress[]{ipv4, alias}, ipv4));
+        Assert.assertTrue(isSameProcessTarget(new InetAddress[]{ipv6}, ipv6));
+        Assert.assertFalse(isSameProcessTarget(new InetAddress[]{other}, ipv4));
+        Assert.assertFalse(isSameProcessTarget(new InetAddress[]{ipv6}, ipv4));
+        Assert.assertFalse(isSameProcessTarget(new InetAddress[]{ipv4}, ipv6));
+        Assert.assertFalse(isSameProcessTarget(new InetAddress[]{ipv6, ipv4}, ipv4));
+        Assert.assertFalse(isSameProcessTarget(new InetAddress[]{ipv4, ipv6}, ipv4));
     }
 
     @Test
-    public void testSameProcessTargetRejectsMixedOrRemoteAddresses()
-            throws Exception {
+    public void testSameProcessTargetRejectsMixedOrRemoteAddresses() throws Exception {
         InetAddress ipv4 = InetAddress.getByName("127.0.0.1");
-        InetAddress ipv6 = InetAddress.getByName("::1");
         InetAddress remote = InetAddress.getByName("192.0.2.1");
 
-        Assert.assertFalse(isSameProcessTarget(
-                new InetAddress[]{ipv4, remote}, ipv4));
-        Assert.assertTrue(isSameProcessTarget(
-                new InetAddress[]{ipv6}, ipv4));
+        Assert.assertFalse(isSameProcessTarget(new InetAddress[]{ipv4, remote}, ipv4));
         Assert.assertFalse(isSameProcessTarget(new InetAddress[0], ipv4));
         Assert.assertFalse(isSameProcessTarget(new InetAddress[]{ipv4}, remote));
     }
@@ -103,11 +103,16 @@ public class GremlinQueryAPITest extends BaseUnitTest {
         InetAddress ipv4 = InetAddress.getByName("127.0.0.1");
         InetAddress ipv6 = InetAddress.getByName("::1");
         InetAddress remote = InetAddress.getByName("192.0.2.1");
-        InetAddress wildcard = InetAddress.getByName("0.0.0.0");
+        InetAddress wildcard4 = InetAddress.getByName("0.0.0.0");
+        InetAddress wildcard6 = InetAddress.getByName("::");
 
-        Assert.assertTrue(isSameProcessTarget(
-                new InetAddress[]{ipv4, ipv6}, wildcard));
-        Assert.assertFalse(isSameProcessTarget(
-                new InetAddress[]{ipv4, remote}, wildcard));
+        Assert.assertTrue(isSameProcessTarget(new InetAddress[]{ipv4}, wildcard4));
+        Assert.assertTrue(isSameProcessTarget(new InetAddress[]{ipv6}, wildcard6));
+        Assert.assertFalse(isSameProcessTarget(new InetAddress[]{ipv6}, wildcard4));
+        Assert.assertFalse(isSameProcessTarget(new InetAddress[]{ipv4}, wildcard6));
+        Assert.assertFalse(isSameProcessTarget(new InetAddress[]{ipv4, ipv6}, wildcard4));
+        Assert.assertFalse(isSameProcessTarget(new InetAddress[]{ipv4, remote}, wildcard4));
+        Assert.assertFalse(isSameProcessTarget(new InetAddress[]{wildcard4}, wildcard4));
+        Assert.assertFalse(isSameProcessTarget(new InetAddress[]{wildcard6}, wildcard6));
     }
 }
