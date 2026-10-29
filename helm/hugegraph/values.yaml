@@ -62,9 +62,8 @@ pd:
     # Shard replicas per partition, seeding PD at first bootstrap only.
     # Empty derives 3 when store.replicas is at least 3, else 1, so a fresh
     # multi-store install gets store-level HA instead of the image default
-    # of 1. The derivation skips 2 because PD clamps a shard count of 2 to
-    # 1 (two shards cannot elect a leader). An explicit value must be odd
-    # and must not exceed store.replicas.
+    # of 1. The derivation skips 2 because PD rejects even shard counts.
+    # An explicit value must be odd and must not exceed store.replicas.
     defaultShardCount: ""
     # Maximum shards per store, seeding PD at first bootstrap only. Also
     # fixes the initial partition count: store.replicas x this value /
