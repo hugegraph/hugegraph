@@ -34,6 +34,7 @@ import org.apache.hugegraph.util.Log;
 import org.apache.tinkerpop.gremlin.server.GremlinServer;
 import org.apache.tinkerpop.gremlin.server.Settings;
 import org.apache.tinkerpop.gremlin.server.auth.AllowAllAuthenticator;
+import org.apache.tinkerpop.gremlin.util.ser.MessageTextSerializer;
 import org.slf4j.Logger;
 
 public final class GremlinRestExecutorFactory {
@@ -147,7 +148,12 @@ public final class GremlinRestExecutorFactory {
         if (executor instanceof EmbeddedGremlinRestExecutor) {
             HugeGraphWsAndHttpChannelizer channelizer =
                     (HugeGraphWsAndHttpChannelizer) server.getChannelizer();
-            ((EmbeddedGremlinRestExecutor) executor).initialize(channelizer.jsonSerializer());
+            MessageTextSerializer<?> serializer = channelizer.jsonSerializer();
+            if (serializer == null) {
+                LOG.warn("REST Gremlin uses HTTP forwarding: the initialized listener has no " +
+                         "application/json text serializer");
+            }
+            ((EmbeddedGremlinRestExecutor) executor).initialize(serializer);
         }
     }
 }

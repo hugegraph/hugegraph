@@ -75,10 +75,13 @@ import org.apache.hugegraph.testutil.Assert;
 import org.apache.hugegraph.testutil.Whitebox;
 import org.apache.hugegraph.util.Events;
 import org.apache.hugegraph.util.JsonUtil;
+import org.apache.tinkerpop.gremlin.driver.Client;
+import org.apache.tinkerpop.gremlin.driver.Cluster;
 import org.apache.tinkerpop.gremlin.server.Settings;
 import org.apache.tinkerpop.gremlin.server.channel.WsAndHttpChannelizer;
 import org.apache.tinkerpop.gremlin.structure.util.empty.EmptyGraph;
 import org.apache.tinkerpop.gremlin.util.message.ResponseMessage;
+import org.apache.tinkerpop.gremlin.util.ser.GraphBinaryMessageSerializerV1;
 import org.apache.tinkerpop.gremlin.util.ser.GraphSONUntypedMessageSerializerV1;
 import org.apache.tinkerpop.gremlin.util.ser.MessageTextSerializer;
 import org.apache.tinkerpop.gremlin.util.ser.SerializationException;
@@ -240,6 +243,131 @@ public class EmbeddedGremlinRestExecutorTest {
         pending.close();
         pending.close();
         comparePost(body("1"));
+    }
+
+    @Test
+    public void testGraphBinaryOnlyListenerKeepsRestForwarding() throws Exception {
+        checkMissingJsonSerializer(null);
+    }
+
+    @Test
+    public void testFailedGraphSONConfigurationKeepsRestForwarding() throws Exception {
+        checkMissingJsonSerializer(GraphSONUntypedMessageSerializerV1.class.getName());
+    }
+
+    @Test
+    public void testMissingGraphSONClassKeepsRestForwarding() throws Exception {
+        checkMissingJsonSerializer("example.MissingGraphSONSerializer");
+    }
+
+    private static void checkMissingJsonSerializer(String brokenGraphSON) throws Exception {
+        Settings binary = new Settings();
+        binary.host = "127.0.0.1";
+        binary.port = 0;
+        binary.gremlinPool = 1;
+        binary.threadPoolBoss = 1;
+        binary.threadPoolWorker = 1;
+        binary.channelizer = WsAndHttpChannelizer.class.getName();
+        Settings.SerializerSettings serializer = new Settings.SerializerSettings();
+        serializer.className = GraphBinaryMessageSerializerV1.class.getName();
+        binary.serializers = new ArrayList<>(Collections.singletonList(serializer));
+        if (brokenGraphSON != null) {
+            Settings.SerializerSettings broken = new Settings.SerializerSettings();
+            broken.className = brokenGraphSON;
+            broken.config = Map.of("ioRegistries", Collections.singletonList("example.MissingIoRegistry"));
+            binary.serializers.add(broken);
+        }
+        ContextGremlinServer local = new ContextGremlinServer(
+                binary, new EventHub("missing-json-serializer-test", 1));
+        HugeConfig target = new HugeConfig(Map.of("gremlinserver.url", "http://127.0.0.1:0"));
+        AtomicInteger executions = new AtomicInteger();
+        Whitebox.invoke(local.getServerGremlinExecutor().getGremlinExecutor(), "globalBindings",
+                        new Class<?>[]{String.class, Object.class}, "put", "executions", executions);
+        try {
+            try (GremlinRestExecutor automatic = GremlinRestExecutorFactory.create(target, local, "");
+                 GremlinRestExecutor baseline = new ForwardGremlinRestExecutor(target)) {
+                Assert.assertThrows(ServiceUnavailableException.class,
+                                    () -> automatic.post(null, body("1+2"), "test"));
+                // Both REST endpoints retain their injected adapter across Gremlin startup.
+                HttpServer actualRest = rest(automatic);
+                try {
+                    HttpServer expectedRest = rest(baseline);
+                    try {
+                        local.start().get(30, TimeUnit.SECONDS);
+                        Channel socket = Whitebox.getInternalState(local, "serverSocketChannel");
+                        binary.port = ((InetSocketAddress) socket.localAddress()).getPort();
+                        target.setProperty("gremlinserver.url", "http://127.0.0.1:" + binary.port);
+                        Assert.assertNull(((HugeGraphWsAndHttpChannelizer) local.getChannelizer()).jsonSerializer());
+                        GremlinRestExecutorFactory.initialize(automatic, local);
+                        HttpClient client = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).build();
+                        String request = body("executions.incrementAndGet()");
+                        compareHttpRejection(client, post(expectedRest, request), post(actualRest, request));
+                        int expectedPort = expectedRest.getListeners().iterator().next().getPort();
+                        int actualPort = actualRest.getListeners().iterator().next().getPort();
+                        String path = "/gremlin?gremlin=executions.incrementAndGet()";
+                        HttpRequest expectedGet = HttpRequest.newBuilder(URI.create(
+                                "http://127.0.0.1:" + expectedPort + path)).timeout(Duration.ofSeconds(5)).GET().build();
+                        HttpRequest actualGet = HttpRequest.newBuilder(URI.create(
+                                "http://127.0.0.1:" + actualPort + path)).timeout(Duration.ofSeconds(5)).GET().build();
+                        compareHttpRejection(client, expectedGet, actualGet);
+                        Assert.assertEquals(0, executions.get());
+                        Cluster cluster = Cluster.build().addContactPoint("127.0.0.1").port(binary.port)
+                                                 .serializer(new GraphBinaryMessageSerializerV1()).create();
+                        try {
+                            Client binaryClient = cluster.connect();
+                            try {
+                                Assert.assertEquals(3, binaryClient.submit("1+2").all()
+                                                                  .get(10, TimeUnit.SECONDS).get(0).getInt());
+                            } finally {
+                                binaryClient.close();
+                            }
+                        } finally {
+                            cluster.close();
+                        }
+                    } finally {
+                        expectedRest.shutdownNow();
+                    }
+                } finally {
+                    actualRest.shutdownNow();
+                }
+            }
+        } finally {
+            local.stop().get(30, TimeUnit.SECONDS);
+            HugeGraphAuthProxy.resetContext();
+        }
+    }
+
+    private static void compareHttpRejection(HttpClient client, HttpRequest expected, HttpRequest actual)
+            throws Exception {
+        HttpResponse<String> left = client.send(expected, HttpResponse.BodyHandlers.ofString());
+        HttpResponse<String> right = client.send(actual, HttpResponse.BodyHandlers.ofString());
+        Assert.assertEquals(400, left.statusCode());
+        Assert.assertEquals(left.statusCode(), right.statusCode());
+        Assert.assertEquals(left.headers().firstValue("content-type"), right.headers().firstValue("content-type"));
+        Assert.assertEquals(left.body(), right.body());
+    }
+
+    @Test
+    public void testForwardingSelectionIsOneTimeAndClosesItsClient() {
+        EmbeddedGremlinRestExecutor pending = new EmbeddedGremlinRestExecutor(
+                config, server.getServerGremlinExecutor());
+        try {
+            pending.initialize(null);
+            Assert.assertThrows(IllegalStateException.class, () -> pending.initialize(null));
+            Assert.assertThrows(IllegalStateException.class, () -> pending.initialize(
+                    ((HugeGraphWsAndHttpChannelizer) server.getChannelizer()).jsonSerializer()));
+            try (Response response = pending.post(null, body("1+2"), "test")) {
+                Assert.assertEquals(200, response.getStatus());
+                Assert.assertEquals(Collections.singletonList(3),
+                                    ((Map<?, ?>) json(response).get("result")).get("data"));
+            }
+        } finally {
+            pending.close();
+        }
+        pending.close();
+        Assert.assertThrows(ServiceUnavailableException.class, () -> pending.post(null, body("1+2"), "test"));
+        Assert.assertThrows(IllegalStateException.class, () -> pending.initialize(null));
+        comparePost(body("1+2"));
     }
 
     @Test

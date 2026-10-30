@@ -59,6 +59,15 @@ reason for forwarding. This selection does not add a startup rejection; each lis
 existing configuration validation remains in place. The choice is made before query
 execution and does not retry a script through another path after execution begins.
 
+The local path is finalized after the Gremlin listener initializes its serializer registry.
+If the registry has no `application/json` text serializer, including when a configured
+GraphSON serializer fails to load or configure, the adapter already injected into REST
+selects HTTP forwarding and logs a warning. It uses the listener's initialized registry;
+no additional serializer is created. JSON REST requests then retain the listener's existing
+rejection behavior, while configured WebSocket serializers such as GraphBinary remain
+available. This startup choice is made once, before queries are executed; an execution
+or serialization failure never triggers a forwarding retry.
+
 ## Preserved behavior
 
 - The REST endpoint remains JSON-only. It does not expose typed GraphSON or GraphBinary
@@ -95,10 +104,13 @@ TinkerPop's existing execution timeout and rollback hooks remain responsible for
 Admission is released when the REST execution wait ends. This preserves the existing
 possibility of work accumulating after client timeouts; it introduces no new hard task limit.
 
-The adapter is unavailable until Gremlin startup has initialized its serializer. During
-normal server shutdown it rejects new submissions before the existing Gremlin stop sequence.
-The Gremlin server continues to own worker shutdown and graph closure. This feature adds no
-new readiness endpoint, deployment probe, global drain deadline or stronger termination guarantee.
+The local adapter is unavailable until Gremlin startup has initialized its serializer registry
+and selected embedded execution or forwarding. During normal server shutdown, embedded
+execution rejects new submissions before the existing Gremlin stop sequence. An adapter
+that selected forwarding retains the existing HTTP lifecycle and closes its client when
+REST shuts down. The Gremlin server continues to own worker shutdown and graph closure.
+This feature adds no new readiness endpoint, deployment probe, global drain deadline or
+stronger termination guarantee.
 
 Protocol limits are checked against the internal request shape. This does not provide an
 additional early limit before Jersey reads the outer REST request body. Existing transport
@@ -117,7 +129,8 @@ mvn test -pl hugegraph-server/hugegraph-test -am -P unit-test \
 
 The focused tests compare real forward HTTP responses with embedded execution, exercise
 both REST HTTP endpoints, and cover distinct same-port listeners, wildcard/address-family
-selection, unsupported-configuration forwarding, parsing/encoding, protocol limits, error mapping,
+selection, unsupported-configuration and missing-JSON-serializer forwarding, parsing/encoding,
+protocol limits, error mapping,
 request identity, context isolation, blocking admission, timeouts, shared serializers,
 dynamic aliases and graph transaction side effects on Memory and RocksDB. Response stack traces and newly generated
 request IDs require semantic comparison; deterministic responses also use byte comparisons.

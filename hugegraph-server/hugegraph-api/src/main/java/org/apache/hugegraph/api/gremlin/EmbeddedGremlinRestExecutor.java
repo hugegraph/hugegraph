@@ -99,6 +99,7 @@ public final class EmbeddedGremlinRestExecutor implements GremlinRestExecutor {
 
     private static final String USER_AGENT = userAgent();
 
+    private final HugeConfig config;
     private final Settings settings;
     private final GraphManager graphs;
     private final GremlinExecutor executor;
@@ -106,9 +107,11 @@ public final class EmbeddedGremlinRestExecutor implements GremlinRestExecutor {
     private final long waitMillis;
     private final URI target;
     private volatile MessageTextSerializer<?> serializer;
+    private volatile ForwardGremlinRestExecutor forwarding;
     private volatile boolean stopping;
 
     public EmbeddedGremlinRestExecutor(HugeConfig config, ServerGremlinExecutor server) {
+        this.config = config;
         this.settings = server.getSettings();
         this.graphs = server.getGraphManager();
         this.executor = server.getGremlinExecutor();
@@ -117,16 +120,25 @@ public final class EmbeddedGremlinRestExecutor implements GremlinRestExecutor {
         this.target = URI.create(config.get(ServerOptions.GREMLIN_SERVER_URL));
     }
 
-    public void initialize(MessageTextSerializer<?> serializer) {
-        E.checkNotNull(serializer, "application/json serializer");
-        E.checkState(this.serializer == null && !this.stopping,
+    /** Select the execution path once, after the listener has initialized its serializers. */
+    public synchronized void initialize(MessageTextSerializer<?> serializer) {
+        E.checkState(this.serializer == null && this.forwarding == null && !this.stopping,
                      "Gremlin REST executor is already initialized or stopping");
-        this.serializer = serializer;
+        if (serializer == null) {
+            // Keep the adapter already injected into REST, and preserve the listener's HTTP behavior.
+            this.forwarding = new ForwardGremlinRestExecutor(this.config);
+        } else {
+            this.serializer = serializer;
+        }
     }
 
     @Override
     public Response get(String authorization, MultivaluedMap<String, String> parameters,
                         String remoteAddress) {
+        ForwardGremlinRestExecutor forward = this.forwarding;
+        if (forward != null) {
+            return forward.get(authorization, parameters, remoteAddress);
+        }
         UriBuilder builder = UriBuilder.fromUri(this.target);
         for (Map.Entry<String, List<String>> entry : parameters.entrySet()) {
             E.checkArgument(entry.getValue().size() == 1,
@@ -158,6 +170,10 @@ public final class EmbeddedGremlinRestExecutor implements GremlinRestExecutor {
 
     @Override
     public Response post(String authorization, String body, String remoteAddress) {
+        ForwardGremlinRestExecutor forward = this.forwarding;
+        if (forward != null) {
+            return forward.post(authorization, body, remoteAddress);
+        }
         String uri = this.path();
         if (this.target.getRawQuery() != null) {
             uri += "?" + this.target.getRawQuery();
@@ -395,13 +411,19 @@ public final class EmbeddedGremlinRestExecutor implements GremlinRestExecutor {
     }
 
     @Override
-    public void beginShutdown() {
+    public synchronized void beginShutdown() {
         this.stopping = true;
+        if (this.forwarding != null) {
+            this.forwarding.beginShutdown();
+        }
     }
 
     @Override
-    public void close() {
+    public synchronized void close() {
         // Shared workers, graphs and serializers are owned by GremlinServer.
         this.beginShutdown();
+        if (this.forwarding != null) {
+            this.forwarding.close();
+        }
     }
 }
