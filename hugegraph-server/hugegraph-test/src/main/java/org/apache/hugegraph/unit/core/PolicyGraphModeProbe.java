@@ -40,7 +40,7 @@ import org.apache.hugegraph.auth.HugeAuthenticator;
 import org.apache.hugegraph.auth.HugeGraphAuthProxy;
 import org.apache.hugegraph.auth.PolicyGremlinScriptEngineManager;
 import org.apache.hugegraph.auth.RolePermission;
-import org.apache.hugegraph.backend.id.IdGenerator;
+import org.apache.hugegraph.id.IdGenerator;
 import org.apache.hugegraph.config.HugeConfig;
 import org.apache.hugegraph.auth.AuthContext;
 import org.apache.hugegraph.core.GraphManager;
@@ -184,7 +184,8 @@ public final class PolicyGraphModeProbe {
                 Assert.assertThrows(ScriptException.class, () -> engine.eval(source, bindings));
                 TaskManager.setContext(new HugeAuthenticator.User("admin", RolePermission.admin()).toJson());
                 Assert.assertEquals(2L, engine.eval(source, bindings));
-                Assert.assertEquals(1L, engine.compilationCount());
+                Assert.assertEquals(0L, engine.compilationCount());
+                Assert.assertEquals(1L, (long) engine.metrics().get("gremlinParseMisses"));
             } finally {
                 TaskManager.resetContext();
                 HugeGraphAuthProxy.resetContext();

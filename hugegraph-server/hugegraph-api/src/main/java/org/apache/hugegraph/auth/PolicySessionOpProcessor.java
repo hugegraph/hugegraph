@@ -55,7 +55,7 @@ public final class PolicySessionOpProcessor extends SessionOpProcessor {
         PolicySession session = this.ensureSession(context, true);
         synchronized (session) {
             ensureRegistered(session, context);
-            super.evalOp(new PolicySessionRequestContext(context));
+            super.evalOp(context);
         }
     }
 
@@ -169,8 +169,7 @@ public final class PolicySessionOpProcessor extends SessionOpProcessor {
                     org.apache.hugegraph.security.script.ScriptExecutionProfile.QUERY);
             session.getBindings().clear();
             session.getBindings().putAll(retained);
-            policy.stageAliases(aliases);
-            policy.publishAliases();
+            policy.replaceAliases(aliases);
             return session.getBindings();
         };
     }

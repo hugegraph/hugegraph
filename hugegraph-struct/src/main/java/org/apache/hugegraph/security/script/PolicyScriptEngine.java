@@ -84,6 +84,7 @@ public final class PolicyScriptEngine extends AbstractScriptEngine
     private final ScriptExecutionProfile profile;
     private final boolean session;
     private final ScriptMethodPolicy methods;
+    private final GremlinQueryFastPath gremlin;
     private final Cache<CompilationKey, CompletableFuture<CompiledUnit>> cache;
     private volatile boolean closed;
     private boolean deferredSession;
@@ -101,6 +102,7 @@ public final class PolicyScriptEngine extends AbstractScriptEngine
         this.session = session;
         this.profile = profile;
         this.methods = new ScriptMethodPolicy(profile, session);
+        this.gremlin = profile == ScriptExecutionProfile.QUERY && !session ? new GremlinQueryFastPath() : null;
         this.cache = Caffeine.newBuilder().maximumSize(256)
                              .expireAfterAccess(30, TimeUnit.MINUTES).executor(Runnable::run).recordStats()
                              .<CompilationKey, CompletableFuture<CompiledUnit>>removalListener(
@@ -123,18 +125,41 @@ public final class PolicyScriptEngine extends AbstractScriptEngine
         PendingSession pending = null;
         boolean returned = false;
         try {
-            Bindings bindings = new SimpleBindings();
             Bindings globals = context.getBindings(ScriptContext.GLOBAL_SCOPE);
-            if (globals != null) {
-                bindings.putAll(globals);
+            Bindings bindings;
+            if (globals == null && !this.session) {
+                bindings = context.getBindings(ScriptContext.ENGINE_SCOPE);
+            } else {
+                // Sessions retain a snapshot for publication. With globals, merge before validation
+                // so that an engine-scope value still shadows the corresponding global binding.
+                bindings = new SimpleBindings();
+                if (globals != null) {
+                    bindings.putAll(globals);
+                }
+                bindings.putAll(context.getBindings(ScriptContext.ENGINE_SCOPE));
             }
-            bindings.putAll(context.getBindings(ScriptContext.ENGINE_SCOPE));
+            // execution() always creates the isolated request copy, even without a merge above.
             Bindings isolated = ScriptBindings.execution(bindings, this.profile);
             if (this.closed) {
                 throw new ScriptException("SCRIPT_ENGINE_CLOSED");
             }
             if (types != null && !types.equals(ScriptBindings.types(isolated))) {
                 throw new ScriptException("SCRIPT_BINDING_TYPE_CHANGED");
+            }
+            if (compiled == null) {
+                checkSource(source);
+            }
+            if (compiled == null && this.gremlin != null) {
+                GremlinQueryFastPath.Plan plan = this.gremlin.plan(source, isolated);
+                if (plan != GremlinQueryFastPath.UNSUPPORTED) {
+                    long deadline = ScriptExecutionBudget.deadline();
+                    Traversal.Admin<?, ?> traversal = this.gremlin.bind(plan, isolated, deadline);
+                    if (traversal != null) {
+                        Object result = this.gremlin.execute(plan, traversal, deadline);
+                        returned = true;
+                        return result;
+                    }
+                }
             }
             CompiledUnit unit = compiled == null ? this.prepare(source, isolated) : compiled;
             Script script = (Script) unit.type.getDeclaredConstructor().newInstance();
@@ -340,7 +365,7 @@ public final class PolicyScriptEngine extends AbstractScriptEngine
             ScriptBindings.validateExecution(this.candidate, profile);
             for (Map.Entry<String, Object> entry : this.candidate.entrySet()) {
                 if ((entry.getValue() instanceof GraphTraversalSource ||
-                     entry.getValue() instanceof org.apache.hugegraph.HugeGraph) &&
+                     ScriptHostTypes.isGraph(entry.getValue())) &&
                     this.original.get(entry.getKey()) != entry.getValue()) {
                     throw new IllegalArgumentException("SCRIPT_SESSION_OBJECT_DENIED");
                 }
@@ -360,15 +385,6 @@ public final class PolicyScriptEngine extends AbstractScriptEngine
     private CompiledUnit prepare(String source, Bindings bindings) throws ScriptException {
         if (this.closed) {
             throw new ScriptException("SCRIPT_ENGINE_CLOSED");
-        }
-        if (source == null || source.length() > ScriptBindings.MAX_SOURCE_BYTES ||
-            source.getBytes(StandardCharsets.UTF_8).length > ScriptBindings.MAX_SOURCE_BYTES) {
-            throw new ScriptException("SCRIPT_SOURCE_LIMIT");
-        }
-        // TinkerPop scans source text (including string literals) for timeout overrides
-        // before evaluating it. Reject every override it recognizes, even inert text.
-        if (GremlinScriptChecker.parse(source).getTimeout().isPresent()) {
-            throw new ScriptException("SCRIPT_TIMEOUT_OVERRIDE_DENIED");
         }
         CompilationKey key = new CompilationKey(source, ScriptBindings.types(bindings));
         CompletableFuture<CompiledUnit> future;
@@ -415,6 +431,21 @@ public final class PolicyScriptEngine extends AbstractScriptEngine
         } catch (ExecutionException e) {
             this.cache.invalidate(key);
             throw new ScriptException(compilationFailure(e.getCause()));
+        }
+    }
+
+    private static void checkSource(String source) throws ScriptException {
+        // UTF-8 uses at most three bytes per UTF-16 code unit (a surrogate pair uses four).
+        // Short sources therefore need no temporary byte array to enforce the same byte limit.
+        if (source == null || source.length() > ScriptBindings.MAX_SOURCE_BYTES ||
+            (source.length() > ScriptBindings.MAX_SOURCE_BYTES / 3 &&
+             source.getBytes(StandardCharsets.UTF_8).length > ScriptBindings.MAX_SOURCE_BYTES)) {
+            throw new ScriptException("SCRIPT_SOURCE_LIMIT");
+        }
+        // TinkerPop scans source text (including string literals) for timeout overrides
+        // before evaluating it. Reject every override it recognizes, even inert text.
+        if (GremlinScriptChecker.parse(source).getTimeout().isPresent()) {
+            throw new ScriptException("SCRIPT_TIMEOUT_OVERRIDE_DENIED");
         }
     }
 
@@ -506,6 +537,7 @@ public final class PolicyScriptEngine extends AbstractScriptEngine
 
     public CompiledScript compile(String source, Bindings prototype) throws ScriptException {
         Bindings bindings = ScriptBindings.execution(prototype, this.profile);
+        checkSource(source);
         CompiledUnit unit = this.prepare(source, bindings);
         Map<String, Class<?>> types = ScriptBindings.types(bindings);
         return new CompiledScript() {
@@ -586,6 +618,9 @@ public final class PolicyScriptEngine extends AbstractScriptEngine
 
     public Map<String, Long> metrics() {
         Map<String, Long> result = new LinkedHashMap<>(this.metrics.snapshot());
+        if (this.gremlin != null) {
+            result.putAll(this.gremlin.metrics());
+        }
         result.put("cacheHits", this.cache.stats().hitCount());
         result.put("cacheMisses", this.cache.stats().missCount());
         result.put("cacheEntries", this.cache.estimatedSize());
@@ -600,6 +635,9 @@ public final class PolicyScriptEngine extends AbstractScriptEngine
     public void close() {
         synchronized (this.lifecycle) {
             this.closed = true;
+            if (this.gremlin != null) {
+                this.gremlin.close();
+            }
             this.cache.asMap().values().forEach(future -> future.completeExceptionally(
                     new IllegalStateException("SCRIPT_ENGINE_CLOSED")));
             this.cache.invalidateAll();

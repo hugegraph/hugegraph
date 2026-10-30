@@ -72,8 +72,26 @@ public final class ScriptPolicyBenchmark {
         }
         Thread.currentThread().setName("gremlin-server-exec-policy-benchmark");
         try {
+            String pure = "g.inject(1,2,3).is(gt(benchmarkValue)).toList()";
+            if (!List.of(3).equals(query.eval(pure, bindings))) {
+                throw new IllegalStateException("Unexpected pure Gremlin result");
+            }
+            measure(variant, "warm-pure-gremlin", () -> query.eval(pure, bindings));
+            if (policy) {
+                CompiledScript groovy = ((PolicyScriptEngine) query).compile(pure, bindings);
+                measure(variant, "warm-pure-groovy-compiled", () -> groovy.eval(bindings));
+                // A leading empty statement preserves the result and selects the Groovy string route.
+                measure(variant, "warm-pure-groovy-cached", () -> query.eval(";" + pure, bindings));
+            }
             measure(variant, "warm-closure-query", () -> query.eval(source, bindings));
             measure(variant, "warm-store-condition", () -> filter.eval(element));
+            long[] coldGremlin = new long[12];
+            for (int i = 0; i < coldGremlin.length; i++) {
+                long begin = System.nanoTime();
+                query.eval(pure + " // cold Gremlin " + i, bindings);
+                coldGremlin[i] = System.nanoTime() - begin;
+            }
+            report(variant, "cold-pure-gremlin", coldGremlin, Arrays.stream(coldGremlin).sum());
             long[] cold = new long[12];
             for (int i = 0; i < cold.length; i++) {
                 long begin = System.nanoTime();

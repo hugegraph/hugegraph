@@ -23,7 +23,7 @@ import java.util.UUID;
 import org.apache.tinkerpop.gremlin.groovy.engine.GremlinExecutor;
 import org.apache.tinkerpop.gremlin.server.GraphManager;
 import org.apache.tinkerpop.gremlin.server.Settings;
-import org.apache.tinkerpop.gremlin.server.handler.HttpGremlinEndpointHandler;
+import org.apache.hugegraph.server.HttpGremlinRequestHandler;
 import org.apache.tinkerpop.gremlin.server.handler.HttpHandlerUtil;
 import org.apache.tinkerpop.gremlin.util.MessageSerializer;
 import org.apache.tinkerpop.gremlin.util.Tokens;
@@ -46,7 +46,7 @@ import io.netty.util.ReferenceCountUtil;
 
 /** Validate HTTP before the standard endpoint consumes the request directly. */
 @ChannelHandler.Sharable
-public final class PolicyHttpGremlinEndpointHandler extends HttpGremlinEndpointHandler {
+public final class PolicyHttpGremlinEndpointHandler extends HttpGremlinRequestHandler {
 
     private final Map<String, MessageSerializer<?>> serializers;
     private final ScriptRequestGuard guard;

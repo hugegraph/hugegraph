@@ -25,10 +25,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.regex.Matcher;
 
-import org.apache.hugegraph.HugeGraph;
-import org.apache.hugegraph.schema.SchemaManager;
-import org.apache.hugegraph.schema.SchemaElement;
-import org.apache.hugegraph.schema.builder.SchemaBuilder;
+import org.apache.hugegraph.struct.schema.SchemaElement;
+import org.apache.hugegraph.struct.schema.builder.SchemaBuilder;
 import org.apache.hugegraph.testutil.Whitebox;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.Path;
@@ -349,8 +347,8 @@ final class ScriptResults {
         if (value instanceof Class || value instanceof ClassLoader ||
             value instanceof Script || value instanceof Closure || value instanceof MetaClass ||
             value instanceof Thread ||
-            value instanceof HugeGraph || value instanceof TraversalSource || value instanceof Transaction ||
-            value instanceof SchemaManager || value instanceof SchemaBuilder || value instanceof ScriptJobContext ||
+            ScriptHostTypes.isGraph(value) || value instanceof TraversalSource || value instanceof Transaction ||
+            ScriptHostTypes.isSchemaManager(value) || value instanceof SchemaBuilder || value instanceof ScriptJobContext ||
             value instanceof Matcher ||
             // Internal traversers remain in the pipeline; only their values reach this boundary.
             // A traverser returned as a value can retain executable objects and traversal state.

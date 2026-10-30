@@ -33,7 +33,6 @@ import javax.script.ScriptException;
 import javax.script.SimpleBindings;
 
 import org.apache.commons.lang.StringUtils;
-import org.apache.hugegraph.HugeGraphSupplier;
 import org.apache.hugegraph.backend.BackendColumn;
 import org.apache.hugegraph.id.Id;
 import org.apache.hugegraph.rocksdb.access.RocksDBSession;
@@ -140,16 +139,6 @@ public class GraphStoreIterator<T> extends AbstractSelectIterator
 
     private BaseElement getElement(RocksDBSession.BackendColumn next) {
         return this.parseEntry(BackendColumn.of(next.name, next.value), isVertex);
-    }
-
-    @Override
-    public BaseElement parseEntry(BackendColumn column, boolean vertex) {
-        if (this.policyEngine == null) {
-            return super.parseEntry(column, vertex);
-        }
-        HugeGraphSupplier graph = BusinessHandlerImpl.getGraphSupplier(this.request.getGraphName());
-        return vertex ? this.serializer.parseVertex(graph, column, null) :
-               this.serializer.parseEdge(graph, column, null, true);
     }
 
     @Override

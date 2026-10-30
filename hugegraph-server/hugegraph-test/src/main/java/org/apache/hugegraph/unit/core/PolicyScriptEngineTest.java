@@ -41,8 +41,10 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import javax.script.Bindings;
 import javax.script.CompiledScript;
+import javax.script.ScriptContext;
 import javax.script.ScriptException;
 import javax.script.SimpleBindings;
+import javax.script.SimpleScriptContext;
 
 import org.apache.hugegraph.security.script.PolicyScriptEngine;
 import org.apache.hugegraph.security.script.ScriptBindings;
@@ -194,6 +196,96 @@ public class PolicyScriptEngineTest {
                                      new Number[]{1})) {
             Assert.assertThrows(IllegalArgumentException.class,
                                 () -> ScriptBindings.client(Map.of("value", denied)));
+        }
+    }
+
+    @Test
+    public void testBindingCopiesPreserveAliasesAndLimits() {
+        java.util.Date date = new java.util.Date(123L);
+        org.apache.hugegraph.util.Blob blob = org.apache.hugegraph.util.Blob.wrap(new byte[]{1, 2});
+        List<Object> shared = new ArrayList<>(List.of(date, blob));
+        Bindings copy = ScriptBindings.client(Map.of("number", 1, "date", date, "blob", blob,
+                                                     "first", shared, "second", shared));
+        Assert.assertSame(copy.get("first"), copy.get("second"));
+        Assert.assertNotSame(shared, copy.get("first"));
+        Assert.assertSame(copy.get("date"), ((List<?>) copy.get("first")).get(0));
+        Assert.assertNotSame(date, copy.get("date"));
+        Assert.assertSame(copy.get("blob"), ((List<?>) copy.get("first")).get(1));
+        Assert.assertNotSame(blob, copy.get("blob"));
+        Assert.assertThrows(IllegalArgumentException.class, () -> ScriptBindings.client(
+                Map.of("first", "x".repeat(20000), "second", "y".repeat(20000))));
+        Assert.assertThrows(IllegalArgumentException.class, () -> ScriptBindings.validateClient(
+                Map.of("first", "x".repeat(20000), "second", "y".repeat(20000))));
+        shared.add(shared);
+        Assert.assertThrows(IllegalArgumentException.class,
+                            () -> ScriptBindings.client(Map.of("scalar", 1, "cycle", shared)));
+        Assert.assertThrows(IllegalArgumentException.class,
+                            () -> ScriptBindings.validateClient(Map.of("scalar", 1, "cycle", shared)));
+    }
+
+    @Test
+    public void testBindingNamesKeepAsciiGrammarAndReservedWords() throws Exception {
+        for (int i = 0; i < 128; i++) {
+            char c = (char) i;
+            boolean letter = c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z' || c == '_';
+            String first = c + "name";
+            String later = "name" + c;
+            if (letter) {
+                Assert.assertEquals(1, ScriptBindings.client(Map.of(first, 1)).get(first));
+            } else {
+                Assert.assertThrows(IllegalArgumentException.class, () -> ScriptBindings.client(Map.of(first, 1)));
+            }
+            if (letter || c >= '0' && c <= '9') {
+                Assert.assertEquals(1, ScriptBindings.client(Map.of(later, 1)).get(later));
+            } else {
+                Assert.assertThrows(IllegalArgumentException.class, () -> ScriptBindings.client(Map.of(later, 1)));
+            }
+        }
+        for (String name : List.of("", "名字", "é", "x\uD83D\uDE00", "x\uD800", "__hgUser", "class",
+                                   "return", "def", "metaClass", "g", "graph", "x".repeat(129))) {
+            Assert.assertThrows(name, IllegalArgumentException.class, () -> ScriptBindings.client(Map.of(name, 1)));
+        }
+        String longest = "x".repeat(128);
+        Assert.assertEquals(1, ScriptBindings.client(Map.of(longest, 1)).get(longest));
+        try (var g = EmptyGraph.instance().traversal()) {
+            Bindings input = new SimpleBindings(Map.of("g", g, "non-java-alias", g));
+            Bindings copied = ScriptBindings.execution(input, ScriptExecutionProfile.QUERY);
+            Assert.assertSame(g, copied.get("g"));
+            Assert.assertFalse(copied.containsKey("non-java-alias"));
+        }
+    }
+
+    @Test
+    public void testSourceByteLimitsPreserveMultibyteBoundaries() throws Exception {
+        try (PolicyScriptEngine engine = new PolicyScriptEngine(ScriptExecutionProfile.QUERY)) {
+            for (String text : List.of("x".repeat(65532), "中".repeat(21844), "\uD83D\uDE00".repeat(16383))) {
+                String source = "1 //" + text;
+                Assert.assertEquals(65536, source.getBytes(java.nio.charset.StandardCharsets.UTF_8).length);
+                Assert.assertEquals(1, engine.eval(source, new SimpleBindings()));
+                ScriptException failure = Assert.assertThrows(ScriptException.class,
+                        () -> engine.eval(source + "x", new SimpleBindings()));
+                Assert.assertEquals("SCRIPT_SOURCE_LIMIT", failure.getMessage());
+            }
+        }
+    }
+
+    @Test
+    public void testBindingIsolationWithAndWithoutGlobalScope() throws Exception {
+        try (PolicyScriptEngine engine = new PolicyScriptEngine(ScriptExecutionProfile.QUERY)) {
+            List<Integer> values = new ArrayList<>(List.of(1));
+            Bindings local = new SimpleBindings(Map.of("items", values, "answer", 2));
+            SimpleScriptContext context = new SimpleScriptContext();
+            context.setBindings(local, ScriptContext.ENGINE_SCOPE);
+            String source = "items.add(3); answer + items.size()";
+            Assert.assertEquals(4, engine.eval(source, context));
+            Assert.assertEquals(List.of(1), values);
+            context.setBindings(new SimpleBindings(new HashMap<>(Map.of("answer", System.class, "globalValue", 1))),
+                                ScriptContext.GLOBAL_SCOPE);
+            Assert.assertEquals(4, engine.eval(source, context));
+            Assert.assertEquals(List.of(1), values);
+            Assert.assertFalse(local.containsKey("globalValue"));
+            context.getBindings(ScriptContext.GLOBAL_SCOPE).put("unshadowed", System.class);
+            Assert.assertThrows(ScriptException.class, () -> engine.eval(source, context));
         }
     }
 

@@ -62,11 +62,15 @@ public final class ScriptMethodPolicy {
             "replace", "split", "substring", "format", "reverse", "combine", "merge",
             "intersect", "difference", "disjunct", "product", "conjoin");
 
+    private final boolean verify;
     private final Set<String> signatures = new HashSet<>();
     private final Map<String, boolean[]> genericParameters = new HashMap<>();
 
     public ScriptMethodPolicy(ScriptExecutionProfile profile) {
+        this(profile, false);
+    }
 
+    private void initialize(ScriptExecutionProfile profile) {
         this.allow("java.lang.String", "length", "isEmpty", "equals", "equalsIgnoreCase",
                    "compareTo", "contains", "startsWith", "endsWith", "substring", "trim",
                    "toLowerCase", "toUpperCase", "charAt", "indexOf", "lastIndexOf", "concat",
@@ -187,7 +191,7 @@ public final class ScriptMethodPolicy {
             this.allow("org.apache.hugegraph.schema.SchemaManager", "propertyKey", "vertexLabel",
                        "edgeLabel", "indexLabel");
             for (String type : new String[]{"PropertyKey", "VertexLabel", "EdgeLabel", "IndexLabel"}) {
-                this.allow("org.apache.hugegraph.schema." + type + "$Builder",
+                this.allow("org.apache.hugegraph.struct.schema." + type + "$Builder",
                            "asText", "asInt", "asLong", "asDouble", "asFloat", "asBoolean",
                            "asByte", "asDate", "asBlob", "asUUID", "valueSingle", "valueList",
                            "valueSet", "properties", "primaryKeys", "nullableKeys", "id",
@@ -202,7 +206,13 @@ public final class ScriptMethodPolicy {
     }
 
     public ScriptMethodPolicy(ScriptExecutionProfile profile, boolean session) {
-        this(profile);
+        this(profile, session, true);
+    }
+
+    // Package-private for the offline manifest generator; runtime constructors always verify.
+    ScriptMethodPolicy(ScriptExecutionProfile profile, boolean session, boolean verify) {
+        this.verify = verify;
+        this.initialize(profile);
         if (session) {
             if (profile != ScriptExecutionProfile.QUERY) {
                 throw new IllegalArgumentException("Session methods require the query profile");
@@ -214,30 +224,39 @@ public final class ScriptMethodPolicy {
             this.allowExact("org.apache.tinkerpop.gremlin.structure.Transaction", "rollback");
             Set<String> overlay = new HashSet<>(this.signatures);
             overlay.removeAll(baseline);
-            this.verifyManifest("session-methods.txt", overlay);
+            this.verifyManifest(overlay, "session-methods.txt");
         }
     }
 
     private void verifyManifest(ScriptExecutionProfile profile) {
-        this.verifyManifest(profile.name().toLowerCase(Locale.ROOT) + "-methods.txt", this.signatures);
+        // QUERY and SCHEMA share method signatures; their binding permissions remain distinct.
+        String resource = profile == ScriptExecutionProfile.SCHEMA ? "query" :
+                          profile.name().toLowerCase(Locale.ROOT);
+        this.verifyManifest(this.signatures, "common-methods.txt", resource + "-methods.txt");
     }
 
-    private void verifyManifest(String resource, Set<String> actual) {
+    private void verifyManifest(Set<String> actual, String... resources) {
+        if (!this.verify) {
+            return;
+        }
         Set<String> approved = new HashSet<>();
-        try (InputStream stream = ScriptMethodPolicy.class.getResourceAsStream(resource)) {
-            if (stream == null) {
-                throw new IllegalStateException("Missing script policy manifest " + resource);
+        for (String resource : resources) {
+            try (InputStream stream = ScriptMethodPolicy.class.getResourceAsStream(resource)) {
+                if (stream == null) {
+                    throw new IllegalStateException("Missing script policy manifest " + resource);
+                }
+                try (BufferedReader reader = new BufferedReader(
+                        new InputStreamReader(stream, StandardCharsets.UTF_8))) {
+                    reader.lines().map(String::trim).filter(line -> !line.isEmpty() && !line.startsWith("#"))
+                          .forEach(approved::add);
+                }
+            } catch (IOException error) {
+                throw new IllegalStateException("Cannot load script policy manifest", error);
             }
-            try (BufferedReader reader = new BufferedReader(
-                    new InputStreamReader(stream, StandardCharsets.UTF_8))) {
-                reader.lines().map(String::trim).filter(line -> !line.isEmpty() && !line.startsWith("#"))
-                      .forEach(approved::add);
-            }
-        } catch (IOException error) {
-            throw new IllegalStateException("Cannot load script policy manifest", error);
         }
         if (!actual.equals(approved)) {
-            throw new IllegalStateException("Script policy dependency signatures changed for " + resource);
+            throw new IllegalStateException("Script policy dependency signatures changed for " +
+                                            String.join(", ", resources));
         }
     }
 

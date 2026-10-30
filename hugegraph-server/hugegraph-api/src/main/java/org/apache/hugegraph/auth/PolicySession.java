@@ -51,7 +51,6 @@ final class PolicySession extends Session {
     private User owner;
     private PolicyScriptEngine engine;
     private final Map<String, String> aliases = new LinkedHashMap<>();
-    private final ThreadLocal<Map<String, String>> pendingAliases = new ThreadLocal<>();
 
     PolicySession(String id, Context context, ConcurrentHashMap<String, Session> sessions, User owner) {
         super(id, bootstrapFree(context), sessions);
@@ -68,7 +67,6 @@ final class PolicySession extends Session {
             Consumer<Bindings> publish = bindings -> {
                 this.engine.publishSession(bindings);
                 afterSuccess.accept(bindings);
-                this.publishAliases();
             };
             Whitebox.setInternalState(executor, "afterSuccess", publish);
             ExecutorService wrapped = new OwnerExecutor(original);
@@ -111,17 +109,9 @@ final class PolicySession extends Session {
         return this.aliases;
     }
 
-    void stageAliases(Map<String, String> aliases) {
-        this.pendingAliases.set(new LinkedHashMap<>(aliases));
-    }
-
-    void publishAliases() {
-        Map<String, String> candidate = this.pendingAliases.get();
-        if (candidate != null) {
-            this.aliases.clear();
-            this.aliases.putAll(candidate);
-            this.pendingAliases.remove();
-        }
+    void replaceAliases(Map<String, String> aliases) {
+        this.aliases.clear();
+        this.aliases.putAll(aliases);
     }
 
     @Override
@@ -172,7 +162,6 @@ final class PolicySession extends Session {
                     identity.run(command);
                 } finally {
                     engine.abortSession();
-                    pendingAliases.remove();
                     HugeGraphAuthProxy.resetContext();
                     TaskManager.resetContext();
                     worker.setName(previous);

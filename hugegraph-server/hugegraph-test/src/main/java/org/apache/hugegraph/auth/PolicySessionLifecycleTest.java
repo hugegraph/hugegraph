@@ -318,7 +318,6 @@ public class PolicySessionLifecycleTest {
             PolicySession active = session;
             Assert.assertSame(initial, active.getExecutor().submit(() -> {
                 javax.script.Bindings candidate = processor.getBindingMaker(active).apply(first).get();
-                active.publishAliases();
                 return candidate.get("chosen");
             }).get(10, TimeUnit.SECONDS));
             Context following = new Context(RequestMessage.build(Tokens.OPS_EVAL)

@@ -18,7 +18,6 @@
 package org.apache.hugegraph.security.script;
 
 import java.util.Collection;
-import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 
@@ -32,6 +31,23 @@ import org.apache.tinkerpop.gremlin.util.function.Lambda;
 /** Checks native bytecode before the existing traversal processor interprets it. */
 public final class ScriptBytecodePolicy {
 
+    private static final Set<String> PREDICATE_TYPES = Set.of(
+            "org.apache.tinkerpop.gremlin.process.traversal.Compare",
+            "org.apache.tinkerpop.gremlin.process.traversal.Contains",
+            "org.apache.tinkerpop.gremlin.process.traversal.Text");
+    private static final Set<String> ENUM_TYPES = Set.of(
+            "org.apache.tinkerpop.gremlin.structure.T",
+            "org.apache.tinkerpop.gremlin.structure.Direction",
+            "org.apache.tinkerpop.gremlin.structure.VertexProperty$Cardinality",
+            "org.apache.tinkerpop.gremlin.process.traversal.Order",
+            "org.apache.tinkerpop.gremlin.process.traversal.Scope",
+            "org.apache.tinkerpop.gremlin.process.traversal.Pop",
+            "org.apache.tinkerpop.gremlin.structure.Column",
+            "org.apache.tinkerpop.gremlin.process.traversal.Pick",
+            "org.apache.tinkerpop.gremlin.process.traversal.Merge",
+            "org.apache.tinkerpop.gremlin.process.traversal.GType",
+            "org.apache.tinkerpop.gremlin.process.traversal.DT");
+
     private ScriptBytecodePolicy() {
     }
 
@@ -39,7 +55,18 @@ public final class ScriptBytecodePolicy {
         check(bytecode, 0, new int[]{0});
     }
 
+    // A string query builds on a trusted server-side source. Validate every new instruction;
+    // its existing source configuration was already trusted on the Groovy/JavaTranslator routes.
+    // Native client Bytecode always enters through validate(Bytecode) with no trusted prefix.
+    static void validate(Bytecode bytecode, int sourceInstructions) {
+        check(bytecode, 0, new int[]{0}, sourceInstructions);
+    }
+
     private static void check(Object value, int depth, int[] count) {
+        check(value, depth, count, 0);
+    }
+
+    private static void check(Object value, int depth, int[] count, int sourceInstructions) {
         if (++count[0] > 4096 || depth > 16) {
             throw new IllegalArgumentException("SCRIPT_BYTECODE_LIMIT");
         }
@@ -48,7 +75,8 @@ public final class ScriptBytecodePolicy {
         }
         if (value instanceof Bytecode) {
             Bytecode code = (Bytecode) value;
-            for (Bytecode.Instruction instruction : code.getSourceInstructions()) {
+            for (int i = sourceInstructions; i < code.getSourceInstructions().size(); i++) {
+                Bytecode.Instruction instruction = code.getSourceInstructions().get(i);
                 if (++count[0] > 4096) {
                     throw new IllegalArgumentException("SCRIPT_BYTECODE_LIMIT");
                 }
@@ -65,9 +93,7 @@ public final class ScriptBytecodePolicy {
                 }
                 for (Object argument : arguments) {
                     // Source state accepts ordinary values, never suppliers, reducers or strategies.
-                    Map<String, Object> single = new HashMap<>();
-                    single.put("value", argument);
-                    ScriptBindings.client(single);
+                    ScriptBindings.validateData(argument);
                     check(argument, depth + 1, count);
                 }
             }
@@ -98,11 +124,8 @@ public final class ScriptBytecodePolicy {
                 }
             } else {
                 Object predicate = ((P<?>) value).getBiPredicate();
-                boolean ordinaryPredicate = predicate instanceof Enum && Set.of(
-                        "org.apache.tinkerpop.gremlin.process.traversal.Compare",
-                        "org.apache.tinkerpop.gremlin.process.traversal.Contains",
-                        "org.apache.tinkerpop.gremlin.process.traversal.Text")
-                        .contains(((Enum<?>) predicate).getDeclaringClass().getName());
+                boolean ordinaryPredicate = predicate instanceof Enum &&
+                        PREDICATE_TYPES.contains(((Enum<?>) predicate).getDeclaringClass().getName());
                 if (!ordinaryPredicate && predicate.getClass() != Text.RegexPredicate.class) {
                     throw new IllegalArgumentException("SCRIPT_BYTECODE_PREDICATE_DENIED");
                 }
@@ -110,17 +133,7 @@ public final class ScriptBytecodePolicy {
             }
         } else if (value instanceof Enum) {
             String type = ((Enum<?>) value).getDeclaringClass().getName();
-            if (!Set.of("org.apache.tinkerpop.gremlin.structure.T",
-                    "org.apache.tinkerpop.gremlin.structure.Direction",
-                    "org.apache.tinkerpop.gremlin.structure.VertexProperty$Cardinality",
-                    "org.apache.tinkerpop.gremlin.process.traversal.Order",
-                    "org.apache.tinkerpop.gremlin.process.traversal.Scope",
-                    "org.apache.tinkerpop.gremlin.process.traversal.Pop",
-                    "org.apache.tinkerpop.gremlin.structure.Column",
-                    "org.apache.tinkerpop.gremlin.process.traversal.Pick",
-                    "org.apache.tinkerpop.gremlin.process.traversal.Merge",
-                    "org.apache.tinkerpop.gremlin.process.traversal.GType",
-                    "org.apache.tinkerpop.gremlin.process.traversal.DT").contains(type)) {
+            if (!ENUM_TYPES.contains(type)) {
                 throw new IllegalArgumentException("SCRIPT_BYTECODE_ENUM_DENIED");
             }
         } else if (value instanceof Collection) {
@@ -137,9 +150,7 @@ public final class ScriptBytecodePolicy {
                 check(item, depth + 1, count);
             }
         } else {
-            Map<String, Object> single = new HashMap<>();
-            single.put("value", value);
-            ScriptBindings.client(single);
+            ScriptBindings.validateData(value);
         }
     }
 }

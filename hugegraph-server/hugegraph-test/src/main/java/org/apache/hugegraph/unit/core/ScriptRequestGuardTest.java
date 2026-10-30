@@ -18,6 +18,9 @@
 package org.apache.hugegraph.unit.core;
 
 import java.util.Map;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
 
 import org.apache.hugegraph.auth.ScriptRequestGuard;
 import org.apache.hugegraph.security.script.ScriptBytecodePolicy;
@@ -91,6 +94,36 @@ public class ScriptRequestGuardTest {
     }
 
     @Test
+    public void testRejectsInvalidClientDataStructures() {
+        List<Object> cyclic = new ArrayList<>();
+        cyclic.add(cyclic);
+        Object deep = "leaf";
+        for (int i = 0; i < 18; i++) {
+            deep = List.of(deep);
+        }
+        Map<String, Object> many = new HashMap<>();
+        for (int i = 0; i < 257; i++) {
+            many.put("x" + i, i);
+        }
+        EmbeddedChannel channel = new EmbeddedChannel(new ScriptRequestGuard(1000L));
+        try {
+            for (Map<?, ?> bindings : List.of(Map.of(1, "invalid key"), Map.of("graph", 1),
+                    Map.of("this", 1), Map.of("x", cyclic), Map.of("x", deep),
+                    Map.of("x", new byte[4097]), Map.of("x", "a".repeat(32769)),
+                    Map.of("x", new java.util.concurrent.ConcurrentHashMap<>()), many)) {
+                RequestMessage request = RequestMessage.build("eval").addArg("gremlin", "1")
+                        .addArg("bindings", bindings).create();
+                Assert.assertFalse(channel.writeInbound(request));
+                ResponseMessage denied = channel.readOutbound();
+                Assert.assertEquals(ResponseStatusCode.REQUEST_ERROR_INVALID_REQUEST_ARGUMENTS,
+                                    denied.getStatus().getCode());
+            }
+        } finally {
+            channel.finishAndReleaseAll();
+        }
+    }
+
+    @Test
     public void testRoutesSessionsAndPreservesTransactionOperations() {
         EmbeddedChannel channel = new EmbeddedChannel(new ScriptRequestGuard(1000L));
         try {
@@ -129,6 +162,19 @@ public class ScriptRequestGuardTest {
         IllegalArgumentException error = Assert.assertThrows(IllegalArgumentException.class,
                 () -> ScriptBytecodePolicy.validate(bytecode));
         Assert.assertEquals("SCRIPT_BYTECODE_LIMIT", error.getMessage());
+    }
+
+    @Test
+    public void testBytecodeScalarChecksKeepSizeAndTypeLimits() {
+        Bytecode safe = new Bytecode();
+        safe.addStep("inject", "x".repeat(32768), 1, true);
+        ScriptBytecodePolicy.validate(safe);
+        for (Object value : java.util.List.of("x".repeat(32769), P.eq("x".repeat(32769)),
+                                              new java.util.concurrent.atomic.AtomicInteger(1))) {
+            Bytecode denied = new Bytecode();
+            denied.addStep("inject", value);
+            Assert.assertThrows(IllegalArgumentException.class, () -> ScriptBytecodePolicy.validate(denied));
+        }
     }
 
     @Test

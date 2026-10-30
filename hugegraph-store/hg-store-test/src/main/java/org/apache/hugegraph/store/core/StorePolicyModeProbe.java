@@ -54,6 +54,9 @@ public final class StorePolicyModeProbe {
         try {
             Assert.assertTrue(ScriptPolicyRuntime.enabled());
             Assert.assertNull(System.getSecurityManager());
+            Assert.assertThrows(ClassNotFoundException.class,
+                    () -> Class.forName("org.apache.hugegraph.HugeGraph"));
+            BusinessHandlerImpl.setMockGraphSupplier(Mockito.mock(HugeGraphSupplier.class));
             FakeRows rows = new FakeRows();
             Assert.assertThrows(IllegalArgumentException.class,
                     () -> new GraphStoreIterator<>(rows, request("System.getProperty('java.version')")));
@@ -110,8 +113,10 @@ public final class StorePolicyModeProbe {
                 Mockito.when(graph.propertyKey(values.id())).thenReturn(values);
                 BusinessHandlerImpl.setMockGraphSupplier(graph);
                 BinaryElementSerializer serializer = new BinaryElementSerializer();
-                BackendColumn column = serializer.writeVertex(vertex);
-                BaseElement parsed = serializer.parseVertex(graph, column, null);
+                // Server persists schema-based values, without transient type tags.
+                BackendColumn column = BackendColumn.of(serializer.writeVertex(vertex).name,
+                        serializer.formatSchemaVertexValue(vertex));
+                BaseElement parsed = serializer.parseSchemaVertex(graph, column, null);
                 Collection<?> decoded = (Collection<?>) parsed.getProperty(values.id()).value();
                 Assert.assertEquals(cardinality == Cardinality.SET, decoded instanceof Set);
                 int count = cardinality == Cardinality.LIST ? 3 : 2;
@@ -169,9 +174,11 @@ public final class StorePolicyModeProbe {
         Mockito.when(graph.propertyKey(age.id())).thenReturn(age);
         BusinessHandlerImpl.setMockGraphSupplier(graph);
         BinaryElementSerializer serializer = new BinaryElementSerializer();
-        BackendColumn column = serializer.writeVertex(vertex);
-        BaseElement parsed = serializer.parseVertex(null, column, null);
-        Assert.assertEquals("~undefined", parsed.schemaLabel().name());
+        // Server persists schema-based values, without transient type tags.
+        BackendColumn column = BackendColumn.of(serializer.writeVertex(vertex).name,
+                serializer.formatSchemaVertexValue(vertex));
+        BaseElement parsed = serializer.parseSchemaVertex(graph, column, null);
+        Assert.assertEquals("person", parsed.schemaLabel().name());
         Assert.assertEquals("10", parsed.schemaLabel().id().asString());
         Assert.assertEquals("alice", parsed.getProperty(IdGenerator.of(1L)).value());
         Assert.assertEquals(21, parsed.getProperty(IdGenerator.of(2L)).value());
@@ -184,7 +191,7 @@ public final class StorePolicyModeProbe {
         }
         Assert.assertTrue(matched.closed);
 
-        for (String condition : new String[]{"element.property('missing') == null",
+        for (String condition : new String[]{"true", "element.property('missing') == null",
                 "!element.properties().containsKey('missing')",
                 "element.property('age') != null && (int) element.property('age') > 18"}) {
             FakeRows input = new FakeRows(column.name, column.value);
@@ -206,7 +213,8 @@ public final class StorePolicyModeProbe {
         Mockito.when(graph.edgeLabelOrNone(knows.id())).thenReturn(knows);
         BaseEdge edge = BaseEdge.constructEdge(graph, vertex, true, knows, "", IdGenerator.of("v2"));
         edge.addProperty(age, 21);
-        BackendColumn edgeColumn = serializer.writeEdge(edge);
+        BackendColumn edgeColumn = BackendColumn.of(serializer.writeEdge(edge).name,
+                serializer.formatSchemaEdgeValue(edge));
         FakeRows edgeRows = new FakeRows(edgeColumn.name, edgeColumn.value);
         Graphpb.ScanPartitionRequest edgeRequest = request(
                 "element.label().equals('knows') && (int) element.property('age') > 18 && " +
@@ -239,7 +247,7 @@ public final class StorePolicyModeProbe {
 
     private static Graphpb.ScanPartitionRequest request(String source) {
         return Graphpb.ScanPartitionRequest.newBuilder().setScanRequest(
-                Graphpb.ScanPartitionRequest.Request.newBuilder().setCondition(source)
+                Graphpb.ScanPartitionRequest.Request.newBuilder().setGraphName("TEST/policy").setCondition(source)
                         .setScanType(Graphpb.ScanPartitionRequest.ScanType.SCAN_VERTEX)).build();
     }
 

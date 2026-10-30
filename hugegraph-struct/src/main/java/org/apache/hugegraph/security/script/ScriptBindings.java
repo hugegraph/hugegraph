@@ -32,21 +32,35 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.UUID;
-import java.util.regex.Pattern;
 
 import javax.lang.model.SourceVersion;
 import javax.script.Bindings;
 import javax.script.SimpleBindings;
 
-import org.apache.hugegraph.HugeGraph;
 import org.apache.hugegraph.util.Blob;
-import org.apache.hugegraph.schema.SchemaManager;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversalSource;
 
 public final class ScriptBindings {
 
     public static final int MAX_SOURCE_BYTES = 65536;
-    private static final Pattern BINDING_NAME = Pattern.compile("[A-Za-z_][A-Za-z0-9_]*");
+    private static final Set<String> HOST_BINDINGS = Set.of("g", "graph", "schema", "job", "gremlinJob");
+    private static final Set<String> HOST_GRAPHS = Set.of("org.apache.hugegraph.StandardHugeGraph",
+                                                       "org.apache.hugegraph.auth.HugeGraphAuthProxy");
+    private static final Set<String> MAP_TYPES = Set.of(
+            "java.util.HashMap", "java.util.LinkedHashMap", "java.util.TreeMap",
+            "java.util.ImmutableCollections$Map1", "java.util.ImmutableCollections$MapN",
+            "java.util.Collections$EmptyMap", "java.util.Collections$SingletonMap");
+    private static final Set<String> COLLECTION_TYPES = Set.of(
+            "java.util.ArrayList", "java.util.LinkedList", "java.util.Arrays$ArrayList",
+            "java.util.HashSet", "java.util.LinkedHashSet", "java.util.TreeSet",
+            "java.util.ImmutableCollections$List12", "java.util.ImmutableCollections$ListN",
+            "java.util.ImmutableCollections$Set12", "java.util.ImmutableCollections$SetN",
+            "java.util.Collections$EmptyList", "java.util.Collections$SingletonList",
+            "java.util.Collections$EmptySet", "java.util.Collections$SingletonSet");
+    private static final Set<String> VIEW_TYPES = Set.of(
+            "java.util.ArrayList$SubList", "java.util.LinkedHashMap$LinkedKeySet",
+            "java.util.LinkedHashMap$LinkedValues", "java.util.HashMap$KeySet",
+            "java.util.HashMap$Values", "java.util.Collections$UnmodifiableMap");
     private static final Set<String> RESERVED = Set.of(
             "this", "super", "binding", "metaClass", "class", "def", "in", "as",
             "trait", "var", "yield", "record", "permits", "sealed");
@@ -56,11 +70,25 @@ public final class ScriptBindings {
 
     /** Validate client data before graph aliases or trusted objects are merged. */
     public static Bindings client(Map<String, Object> input) {
-        if (input.keySet().stream().anyMatch(name ->
-                Set.of("g", "graph", "schema", "job", "gremlinJob").contains(name))) {
-            throw denied("reserved server binding");
-        }
+        validateClientNames(input);
         return copy(input, false, ScriptExecutionProfile.QUERY);
+    }
+
+    /** Validate client data without allocating an unused execution snapshot. */
+    public static void validateClient(Map<?, ?> input) {
+        validateClientNames(input);
+        process(input, false, ScriptExecutionProfile.QUERY, false);
+    }
+
+    private static void validateClientNames(Map<?, ?> input) {
+        for (Object name : input.keySet()) {
+            if (!(name instanceof String)) {
+                throw denied("invalid binding name");
+            }
+            if (HOST_BINDINGS.contains(name)) {
+                throw denied("reserved server binding");
+            }
+        }
     }
 
     /** Graph objects here must come from server-side alias resolution. */
@@ -79,7 +107,7 @@ public final class ScriptBindings {
         process(input, true, profile, false);
     }
 
-    private static Bindings process(Map<String, Object> input, boolean trustedObjects,
+    private static Bindings process(Map<?, ?> input, boolean trustedObjects,
                                     ScriptExecutionProfile profile, boolean materialize) {
         if (!trustedObjects && input.size() > 256) {
             throw denied("too many bindings");
@@ -87,11 +115,14 @@ public final class ScriptBindings {
         Budget budget = new Budget(false, materialize);
         Bindings result = materialize ? new SimpleBindings() : null;
         int count = 0;
-        for (Map.Entry<String, Object> entry : input.entrySet()) {
-            String name = entry.getKey();
+        for (Map.Entry<?, ?> entry : input.entrySet()) {
+            if (!(entry.getKey() instanceof String)) {
+                throw denied("invalid binding name");
+            }
+            String name = (String) entry.getKey();
             Object value = entry.getValue();
-            if (trustedObjects && (value instanceof HugeGraph || value instanceof GraphTraversalSource) &&
-                name != null && !BINDING_NAME.matcher(name).matches()) {
+            if (trustedObjects && (ScriptHostTypes.isGraph(value) || value instanceof GraphTraversalSource) &&
+                name != null && !isIdentifier(name)) {
                 continue;
             }
             if (++count > 256) {
@@ -99,13 +130,13 @@ public final class ScriptBindings {
             }
             validateName(name);
             if (trustedObjects && (("g".equals(name) && !(value instanceof GraphTraversalSource)) ||
-                    ("graph".equals(name) && !(value instanceof HugeGraph)) ||
-                    ("schema".equals(name) && !(value instanceof SchemaManager)) ||
+                    ("graph".equals(name) && !ScriptHostTypes.isGraph(value)) ||
+                    ("schema".equals(name) && !ScriptHostTypes.isSchemaManager(value)) ||
                     (("job".equals(name) || "gremlinJob".equals(name)) &&
                      !(value instanceof ScriptJobContext)))) {
                 throw denied("reserved server binding");
             }
-            if (trustedObjects && (value instanceof HugeGraph ||
+            if (trustedObjects && (ScriptHostTypes.isGraph(value) ||
                                    value instanceof GraphTraversalSource)) {
                 if (profile == ScriptExecutionProfile.STORE_FILTER) {
                     throw denied("graph in Store filter");
@@ -113,12 +144,12 @@ public final class ScriptBindings {
                 if (value instanceof GraphTraversalSource && value.getClass() != GraphTraversalSource.class &&
                     !(value.getClass().getName().equals(
                             "org.apache.hugegraph.auth.HugeGraphAuthProxy$GraphTraversalSourceProxy") &&
-                      value.getClass().getClassLoader() == HugeGraph.class.getClassLoader())) {
+                      ScriptHostTypes.graph() != null &&
+                      value.getClass().getClassLoader() == ScriptHostTypes.graph().getClassLoader())) {
                     throw denied("custom traversal source");
                 }
-                if (value instanceof HugeGraph && (!Set.of("org.apache.hugegraph.StandardHugeGraph",
-                        "org.apache.hugegraph.auth.HugeGraphAuthProxy").contains(value.getClass().getName()) ||
-                        value.getClass().getClassLoader() != HugeGraph.class.getClassLoader())) {
+                if (ScriptHostTypes.isGraph(value) && (!HOST_GRAPHS.contains(value.getClass().getName()) ||
+                        value.getClass().getClassLoader() != ScriptHostTypes.graph().getClassLoader())) {
                     throw denied("custom graph binding");
                 }
                 if (materialize) {
@@ -129,7 +160,7 @@ public final class ScriptBindings {
                 if (materialize) {
                     result.put(name, value);
                 }
-            } else if (trustedObjects && value instanceof SchemaManager &&
+            } else if (trustedObjects && ScriptHostTypes.isSchemaManager(value) &&
                        profile == ScriptExecutionProfile.SCHEMA) {
                 if (materialize) {
                     result.put(name, value);
@@ -154,6 +185,18 @@ public final class ScriptBindings {
         return new Budget().copy(value, 0);
     }
 
+    static void validateData(Object value) {
+        // A scalar is exactly one node with no recursive structure or aliases to track.
+        if (value == null) {
+            return;
+        }
+        if (isScalar(value.getClass())) {
+            checkSize(scalarLength(value) * 2L);
+            return;
+        }
+        new Budget(false, false).copy(value, 0);
+    }
+
     // Persisted record sizes follow storage limits, not client request quotas.
     static Object storedData(Object value) {
         return new Budget(false, true, false).copy(value, 0);
@@ -167,12 +210,12 @@ public final class ScriptBindings {
                 type = Object.class;
             } else if (value instanceof GraphTraversalSource) {
                 type = GraphTraversalSource.class;
-            } else if (value instanceof HugeGraph) {
-                type = HugeGraph.class;
+            } else if (ScriptHostTypes.isGraph(value)) {
+                type = ScriptHostTypes.graph();
             } else if (value instanceof ScriptJobContext) {
                 type = ScriptJobContext.class;
-            } else if (value instanceof SchemaManager) {
-                type = SchemaManager.class;
+            } else if (ScriptHostTypes.isSchemaManager(value)) {
+                type = ScriptHostTypes.schemaManager();
             } else if (value instanceof List) {
                 type = List.class;
             } else if (value instanceof Map) {
@@ -188,11 +231,26 @@ public final class ScriptBindings {
     }
 
     private static void validateName(String name) {
-        if (name == null || name.length() > 128 || !BINDING_NAME.matcher(name).matches() ||
+        if (name == null || name.length() > 128 || !isIdentifier(name) ||
             name.startsWith("__hg") || RESERVED.contains(name) ||
             SourceVersion.isKeyword(name)) {
             throw denied("invalid or reserved binding name");
         }
+    }
+
+    // The original ASCII grammar [A-Za-z_][A-Za-z0-9_]*, without a Matcher per binding.
+    private static boolean isIdentifier(String name) {
+        if (name.isEmpty()) {
+            return false;
+        }
+        for (int i = 0; i < name.length(); i++) {
+            char c = name.charAt(i);
+            if (c != '_' && !(c >= 'A' && c <= 'Z') && !(c >= 'a' && c <= 'z') &&
+                !(i > 0 && c >= '0' && c <= '9')) {
+                return false;
+            }
+        }
+        return true;
     }
 
     static boolean isJsonMap(Object value) {
@@ -235,6 +293,12 @@ public final class ScriptBindings {
         return value.toString().length();
     }
 
+    private static void checkSize(long size) {
+        if (size > MAX_SOURCE_BYTES) {
+            throw denied("binding size limit");
+        }
+    }
+
     private static final class Budget {
 
         private final boolean views;
@@ -261,17 +325,14 @@ public final class ScriptBindings {
 
         private boolean allowsView(Object value) {
             return this.views && value.getClass().getClassLoader() == null &&
-                   Set.of("java.util.ArrayList$SubList", "java.util.LinkedHashMap$LinkedKeySet",
-                          "java.util.LinkedHashMap$LinkedValues", "java.util.HashMap$KeySet",
-                          "java.util.HashMap$Values", "java.util.Collections$UnmodifiableMap")
-                      .contains(value.getClass().getName());
+                   VIEW_TYPES.contains(value.getClass().getName());
         }
 
 
         private int nodes;
         private long size;
-        private final IdentityHashMap<Object, Boolean> active = new IdentityHashMap<>();
-        private final IdentityHashMap<Object, Object> copies = new IdentityHashMap<>();
+        private IdentityHashMap<Object, Boolean> active;
+        private IdentityHashMap<Object, Object> copies;
 
         Object copy(Object value, int depth) {
             if ((this.bounded && ++this.nodes > 4096) || depth > 16) {
@@ -279,6 +340,18 @@ public final class ScriptBindings {
             }
             if (value == null) {
                 return null;
+            }
+            if (isScalar(value.getClass())) {
+                this.size += scalarLength(value) * 2L;
+                if (this.bounded) {
+                    checkSize(this.size);
+                }
+                return value;
+            }
+            // Scalars need neither alias preservation nor cycle detection.
+            if (this.copies == null) {
+                this.copies = new IdentityHashMap<>();
+                this.active = new IdentityHashMap<>();
             }
             if (value.getClass() == Blob.class) {
                 if (this.copies.containsKey(value)) {
@@ -291,17 +364,10 @@ public final class ScriptBindings {
             }
             if (value.getClass() == Date.class) {
                 this.size += Long.BYTES;
-                if (this.bounded && this.size > MAX_SOURCE_BYTES) {
-                    throw denied("binding size limit");
+                if (this.bounded) {
+                    checkSize(this.size);
                 }
                 return this.copies.computeIfAbsent(value, date -> this.materialize ? new Date(((Date) date).getTime()) : date);
-            }
-            if (isScalar(value.getClass())) {
-                this.size += scalarLength(value) * 2L;
-                if (this.bounded && this.size > MAX_SOURCE_BYTES) {
-                    throw denied("binding size limit");
-                }
-                return value;
             }
             if (this.active.put(value, Boolean.TRUE) != null) {
                 throw denied("cyclic binding");
@@ -320,10 +386,7 @@ public final class ScriptBindings {
                     return copied;
                 }
                 if (value instanceof Map) {
-                    if (!Set.of("java.util.HashMap", "java.util.LinkedHashMap", "java.util.TreeMap",
-                            "java.util.ImmutableCollections$Map1", "java.util.ImmutableCollections$MapN",
-                            "java.util.Collections$EmptyMap", "java.util.Collections$SingletonMap")
-                            .contains(value.getClass().getName()) || value.getClass().getClassLoader() != null) {
+                    if (!MAP_TYPES.contains(value.getClass().getName()) || value.getClass().getClassLoader() != null) {
                         if (!this.allowsView(value) && !isJsonMap(value)) {
                             throw denied("custom map implementation");
                         }
@@ -349,13 +412,8 @@ public final class ScriptBindings {
                                               value instanceof Set ? new LinkedHashSet<>() : new ArrayList<>();
                     if (value instanceof Collection) {
                         this.copies.put(value, this.materialize ? list : value);
-                        if (!Set.of("java.util.ArrayList", "java.util.LinkedList", "java.util.Arrays$ArrayList",
-                                "java.util.HashSet", "java.util.LinkedHashSet", "java.util.TreeSet",
-                                "java.util.ImmutableCollections$List12", "java.util.ImmutableCollections$ListN",
-                                "java.util.ImmutableCollections$Set12", "java.util.ImmutableCollections$SetN",
-                                "java.util.Collections$EmptyList", "java.util.Collections$SingletonList",
-                                "java.util.Collections$EmptySet", "java.util.Collections$SingletonSet")
-                                .contains(value.getClass().getName()) || value.getClass().getClassLoader() != null) {
+                        if (!COLLECTION_TYPES.contains(value.getClass().getName()) ||
+                            value.getClass().getClassLoader() != null) {
                             if (!this.allowsView(value)) {
                                 throw denied("custom collection implementation");
                             }

@@ -18,7 +18,6 @@
 package org.apache.hugegraph.store.node.grpc.scan;
 
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -46,7 +45,8 @@ public class ScanPolicyFailureTest {
     public void testInvalidConditionFailsOnceBeforeIteratorExists() throws Exception {
         BusinessHandler handler = Mockito.mock(BusinessHandler.class);
         ScanPartitionRequest request = request();
-        Mockito.when(handler.scan(request)).thenThrow(new IllegalArgumentException("invalid condition"));
+        IllegalArgumentException failure = new IllegalArgumentException("invalid condition");
+        Mockito.when(handler.scan(request)).thenThrow(failure);
         RecordingSender sender = new RecordingSender();
         ThreadPoolExecutor executor = (ThreadPoolExecutor) Executors.newFixedThreadPool(2);
         try {
@@ -56,7 +56,7 @@ public class ScanPolicyFailureTest {
             observer.onCompleted();
             Assertions.assertEquals(1, sender.errors.get());
             Assertions.assertEquals(0, sender.completed.get());
-            Assertions.assertEquals(Status.Code.INVALID_ARGUMENT, Status.fromThrowable(sender.error).getCode());
+            Assertions.assertSame(failure, sender.error);
             Mockito.verify(handler, Mockito.times(1)).scan(request);
         } finally {
             executor.shutdownNow();
@@ -89,7 +89,7 @@ public class ScanPolicyFailureTest {
             Assertions.assertEquals(1, sender.errors.get());
             Assertions.assertEquals(0, sender.completed.get());
             Assertions.assertEquals(0, sender.rows.get());
-            Assertions.assertEquals(Status.Code.INTERNAL, Status.fromThrowable(sender.error).getCode());
+            Assertions.assertSame(failure, sender.error);
             Mockito.verify(iterator, Mockito.times(1)).close();
         } finally {
             executor.shutdownNow();
@@ -150,12 +150,16 @@ public class ScanPolicyFailureTest {
         GraphStoreIterator<Object> iterator = Mockito.mock(GraphStoreIterator.class);
         RecordingSender sender = new RecordingSender();
         AtomicInteger read = new AtomicInteger();
+        AtomicBoolean boundaryChecked = new AtomicBoolean();
         Mockito.when(iterator.next()).thenAnswer(call -> {
             read.incrementAndGet();
             return Graphpb.Vertex.getDefaultInstance();
         });
         Mockito.when(iterator.hasNext()).thenAnswer(call -> {
             if (read.get() >= 100000) {
+                if (boundaryChecked.compareAndSet(false, true)) {
+                    return true;
+                }
                 Assertions.assertTrue(sender.firstBatch.await(10, TimeUnit.SECONDS), "first batch must be delivered");
                 throw new IllegalStateException("later filter failed");
             }
@@ -214,10 +218,19 @@ public class ScanPolicyFailureTest {
             ScanResponseObserver<?> observer = new ScanResponseObserver<>(sender, handler, executor);
             Future<?> initial = executor.submit(() -> observer.onNext(request));
             Assertions.assertTrue(opening.await(5, TimeUnit.SECONDS));
-            observer.onCompleted();
+            Throwable cancellation = Status.CANCELLED.asRuntimeException();
+            Future<?> cancel = executor.submit(() -> observer.onError(cancellation));
+            AtomicBoolean closed = Whitebox.getInternalState(observer, "closed");
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+            while (!closed.get() && System.nanoTime() < deadline) {
+                Thread.yield();
+            }
+            Assertions.assertTrue(closed.get(), "cancellation must precede iterator publication");
             release.countDown();
             initial.get(5, TimeUnit.SECONDS);
-            Assertions.assertEquals(0, sender.errors.get());
+            cancel.get(5, TimeUnit.SECONDS);
+            Assertions.assertEquals(1, sender.errors.get());
+            Assertions.assertSame(cancellation, sender.error);
             Assertions.assertEquals(0, sender.completed.get());
             Mockito.verify(iterator, Mockito.times(1)).close();
             Mockito.verify(iterator, Mockito.never()).hasNext();
@@ -252,7 +265,7 @@ public class ScanPolicyFailureTest {
             ScanResponseObserver<?> observer = new ScanResponseObserver<>(sender, handler, executor);
             observer.onNext(request);
             Assertions.assertTrue(entered.await(5, TimeUnit.SECONDS));
-            observer.onCompleted();
+            observer.onError(Status.CANCELLED.asRuntimeException());
             Mockito.verify(iterator, Mockito.timeout(5000).times(1)).close();
             Assertions.assertTrue(interrupted.get(), "ongoing filter must observe interruption");
             Assertions.assertEquals(0, sender.rows.get());
@@ -262,141 +275,75 @@ public class ScanPolicyFailureTest {
     }
 
     @Test
-    public void testReadSuccessorRemainsCancellableWhenFirstSubmissionReturnsLate() throws Exception {
-        verifySuccessorCancellation(true);
+    public void testHalfClosePreservesQueuedFilterResults() throws Exception {
+        BusinessHandler handler = Mockito.mock(BusinessHandler.class);
+        GraphStoreIterator<Object> iterator = Mockito.mock(GraphStoreIterator.class);
+        AtomicInteger consumed = new AtomicInteger();
+        Mockito.when(iterator.hasNext()).thenAnswer(call -> consumed.get() < 2);
+        Mockito.when(iterator.next()).thenAnswer(call -> {
+            consumed.incrementAndGet();
+            return Graphpb.Vertex.getDefaultInstance();
+        });
+        ScanPartitionRequest request = request();
+        Mockito.when(handler.scan(request)).thenReturn(iterator);
+        RecordingSender sender = new RecordingSender();
+        CountDownLatch release = new CountDownLatch(1);
+        ThreadPoolExecutor executor = (ThreadPoolExecutor) Executors.newFixedThreadPool(1);
+        Future<?> gate = executor.submit(() -> {
+            release.await();
+            return null;
+        });
+        try {
+            ScanResponseObserver<?> observer = new ScanResponseObserver<>(sender, handler, executor);
+            observer.onNext(request);
+            observer.onCompleted();
+            Mockito.verify(iterator, Mockito.never()).hasNext();
+            release.countDown();
+            gate.get(5, TimeUnit.SECONDS);
+            Assertions.assertTrue(sender.terminal.await(5, TimeUnit.SECONDS));
+            Assertions.assertEquals(0, sender.errors.get());
+            Assertions.assertEquals(1, sender.completed.get());
+            Assertions.assertEquals(1, sender.rows.get());
+            Assertions.assertEquals(2, consumed.get());
+            Mockito.verify(iterator, Mockito.times(1)).close();
+        } finally {
+            release.countDown();
+            executor.shutdownNow();
+        }
     }
 
     @Test
-    public void testSendSuccessorRemainsCancellableWhenFirstSubmissionReturnsLate() throws Exception {
-        verifySuccessorCancellation(false);
-    }
-
-    private static void verifySuccessorCancellation(boolean reader) throws Exception {
+    public void testCancellationBeforeWorkerStartsSkipsFilterEvaluation() throws Exception {
         BusinessHandler handler = Mockito.mock(BusinessHandler.class);
         GraphStoreIterator<Object> iterator = Mockito.mock(GraphStoreIterator.class);
         ScanPartitionRequest request = request();
         Mockito.when(handler.scan(request)).thenReturn(iterator);
-        CountDownLatch entered = new CountDownLatch(1);
-        CountDownLatch release = new CountDownLatch(1);
-        CountDownLatch interrupted = new CountDownLatch(1);
-        Runnable block = () -> {
-            entered.countDown();
-            try {
-                Assertions.assertTrue(release.await(30, TimeUnit.SECONDS), "test must release the blocked successor");
-            } catch (InterruptedException error) {
-                interrupted.countDown();
-                Thread.currentThread().interrupt();
-                throw new IllegalStateException("scan cancelled", error);
-            }
-        };
-        Mockito.when(iterator.hasNext()).thenAnswer(call -> {
-            block.run();
-            return false;
-        });
         RecordingSender sender = new RecordingSender();
-        StreamObserver<ScanResponse> output = reader ? sender : new StreamObserver<ScanResponse>() {
-            @Override
-            public void onNext(ScanResponse response) {
-                block.run();
-                sender.onNext(response);
-            }
-
-            @Override
-            public void onError(Throwable error) {
-                sender.onError(error);
-            }
-
-            @Override
-            public void onCompleted() {
-                sender.onCompleted();
-            }
-        };
-        DelayedFirstSubmission executor = new DelayedFirstSubmission();
-        ExecutorService caller = Executors.newSingleThreadExecutor();
+        CountDownLatch release = new CountDownLatch(1);
+        ThreadPoolExecutor executor = (ThreadPoolExecutor) Executors.newFixedThreadPool(1);
+        Future<?> gate = executor.submit(() -> {
+            release.await();
+            return null;
+        });
         try {
-            ScanResponseObserver<?> observer = new ScanResponseObserver<>(output, handler, executor);
-            LinkedBlockingQueue<ScanResponse> packages = Whitebox.getInternalState(observer, "packages");
-            String start = reader ? "startRead" : "startSend";
-            if (reader) {
-                // Backpressure ends the first reader without generating millions of fixture rows.
-                // Keep the sender at its acknowledgement window while the second reader is tested.
-                AtomicInteger next = Whitebox.getInternalState(observer, "nextSeqNo");
-                next.set(8);
-                executor.beforeFirst = () -> {
-                    while (packages.offer(ScanResponse.getDefaultInstance())) {
-                        // Fill the queue after admission but before the first reader executes.
-                    }
-                };
-            } else {
-                packages.add(ScanResponse.getDefaultInstance());
-                // The first sender observes an empty queue and exits, without completing the scan.
-                executor.beforeFirst = packages::clear;
-            }
-            Future<?> first = caller.submit(() -> {
-                if (reader) {
-                    observer.onNext(request);
-                } else {
-                    Whitebox.invoke(ScanResponseObserver.class, start, observer);
-                }
-            });
-            Assertions.assertTrue(executor.firstFinished.await(5, TimeUnit.SECONDS),
-                                  "first task must finish before its submission returns");
-            packages.clear();
-            if (!reader) {
-                packages.add(ScanResponse.getDefaultInstance());
-            }
-            Whitebox.invoke(ScanResponseObserver.class, start, observer);
-            Assertions.assertTrue(entered.await(5, TimeUnit.SECONDS), "successor must be executing");
-            executor.releaseFirst.countDown();
-            first.get(5, TimeUnit.SECONDS);
-            // Old code overwrites the successor's Future at this point, losing its cancellation handle.
-            Future<?> cancel = caller.submit(observer::onCompleted);
-            Assertions.assertTrue(interrupted.await(5, TimeUnit.SECONDS),
-                                  "cancel must interrupt the current successor");
-            cancel.get(5, TimeUnit.SECONDS);
-            if (reader) {
-                Mockito.verify(iterator, Mockito.times(1)).close();
-            }
+            ScanResponseObserver<?> observer = new ScanResponseObserver<>(sender, handler, executor);
+            observer.onNext(request);
+            Throwable cancellation = Status.CANCELLED.asRuntimeException();
+            observer.onError(cancellation);
+            release.countDown();
+            gate.get(5, TimeUnit.SECONDS);
+            executor.shutdown();
+            Assertions.assertTrue(executor.awaitTermination(5, TimeUnit.SECONDS));
+            Mockito.verify(iterator, Mockito.never()).hasNext();
+            Mockito.verify(iterator, Mockito.never()).next();
+            Mockito.verify(iterator, Mockito.times(1)).close();
             Assertions.assertEquals(0, sender.rows.get());
-            Assertions.assertEquals(0, sender.errors.get());
+            Assertions.assertEquals(1, sender.errors.get());
             Assertions.assertEquals(0, sender.completed.get());
+            Assertions.assertSame(cancellation, sender.error);
         } finally {
             release.countDown();
-            executor.releaseFirst.countDown();
-            caller.shutdownNow();
             executor.shutdownNow();
-            Assertions.assertTrue(caller.awaitTermination(5, TimeUnit.SECONDS));
-            Assertions.assertTrue(executor.awaitTermination(5, TimeUnit.SECONDS));
-        }
-    }
-
-    private static final class DelayedFirstSubmission extends ThreadPoolExecutor {
-
-        private final AtomicBoolean first = new AtomicBoolean(true);
-        private final CountDownLatch firstFinished = new CountDownLatch(1);
-        private final CountDownLatch releaseFirst = new CountDownLatch(1);
-        private Runnable beforeFirst;
-
-        DelayedFirstSubmission() {
-            super(2, 2, 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<>());
-        }
-
-        @Override
-        public void execute(Runnable command) {
-            if (!this.first.compareAndSet(true, false)) {
-                super.execute(command);
-                return;
-            }
-            this.beforeFirst.run();
-            super.execute(command);
-            try {
-                ((Future<?>) command).get(5, TimeUnit.SECONDS);
-                this.firstFinished.countDown();
-                Assertions.assertTrue(this.releaseFirst.await(30, TimeUnit.SECONDS),
-                                      "test must release the first submission");
-            } catch (Exception error) {
-                throw new AssertionError("controlled executor failed", error);
-            }
         }
     }
 

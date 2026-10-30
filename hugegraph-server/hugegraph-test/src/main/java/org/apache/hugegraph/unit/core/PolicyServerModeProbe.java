@@ -31,6 +31,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 
 import org.apache.hugegraph.auth.ContextGremlinServer;
+import org.apache.hugegraph.auth.ContextGremlinServerHttpTest;
 import org.apache.hugegraph.event.EventHub;
 import org.apache.hugegraph.security.HugeSecurityManager;
 import org.apache.hugegraph.security.script.ScriptPolicyRuntime;
@@ -95,6 +96,7 @@ public final class PolicyServerModeProbe {
               .putTraversalSource("gOther", EmptyGraph.instance().traversal().withSideEffect("marker", 2));
         try {
             server.start().get(20, TimeUnit.SECONDS);
+            ContextGremlinServerHttpTest.assertAliasRecovery(port, "g");
             Cluster cluster = Cluster.build("127.0.0.1").port(port).create();
             try {
                 Client client = cluster.connect();

@@ -153,6 +153,7 @@ import org.apache.hugegraph.unit.util.collection.IntSetTest;
 import org.apache.hugegraph.unit.util.collection.ObjectIntMappingTest;
 import org.apache.hugegraph.auth.PolicySessionLifecycleTest;
 import org.apache.hugegraph.unit.core.PolicyGraphModeTest;
+import org.apache.hugegraph.unit.core.GremlinQueryFastPathTest;
 import org.apache.hugegraph.unit.core.PolicyScriptEngineTest;
 import org.apache.hugegraph.unit.core.PolicyCompatibilityTest;
 import org.apache.hugegraph.unit.core.PolicySessionEngineTest;
@@ -241,6 +242,7 @@ import org.junit.runners.Suite;
         GroovyScriptEngineCompatibilityTest.class,
         ScriptPolicyCompilationTest.class,
         PolicyScriptEngineTest.class,
+        GremlinQueryFastPathTest.class,
         PolicyCompatibilityTest.class,
         ScriptResultPreparationTest.class,
         StorePropertySnapshotTest.class,

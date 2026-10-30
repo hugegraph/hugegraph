@@ -17,7 +17,6 @@
 
 package org.apache.hugegraph.auth;
 
-import java.util.LinkedHashMap;
 import java.util.Map;
 
 import org.apache.hugegraph.security.script.ScriptBindings;
@@ -79,14 +78,7 @@ public final class ScriptRequestGuard extends ChannelInboundHandlerAdapter {
             if (!(data instanceof Map)) {
                 throw new IllegalArgumentException("SCRIPT_BINDING_DENIED");
             }
-            Map<String, Object> parameters = new LinkedHashMap<>();
-            for (Map.Entry<?, ?> entry : ((Map<?, ?>) data).entrySet()) {
-                if (!(entry.getKey() instanceof String)) {
-                    throw new IllegalArgumentException("SCRIPT_BINDING_DENIED");
-                }
-                parameters.put((String) entry.getKey(), entry.getValue());
-            }
-            ScriptBindings.client(parameters);
+            ScriptBindings.validateClient((Map<?, ?>) data);
         }
         Object script = request.getArgs().get(Tokens.ARGS_GREMLIN);
         if (session && ((Tokens.OPS_EVAL.equals(request.getOp()) && !(script instanceof String)) ||
