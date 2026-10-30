@@ -56,12 +56,12 @@ public final class HugeGraphServerBootstrap {
 
             try {
                 if (ScriptPolicyRuntime.mode() !=
-                    ScriptSecurityMode.POLICY_ONLY) {
+                    ScriptSecurityMode.POLICY) {
                     System.setSecurityManager(new HugeSecurityManager());
                 }
                 ScriptPolicyRuntime.validateSecurityManager();
                 if (ScriptPolicyRuntime.mode() !=
-                    ScriptSecurityMode.POLICY_ONLY &&
+                    ScriptSecurityMode.POLICY &&
                     !(System.getSecurityManager() instanceof HugeSecurityManager)) {
                     throw new IllegalStateException(
                             "Unexpected security manager");

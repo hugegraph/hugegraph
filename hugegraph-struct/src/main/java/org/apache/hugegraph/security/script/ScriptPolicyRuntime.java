@@ -36,10 +36,10 @@ public final class ScriptPolicyRuntime {
     }
 
     public static void validateSecurityManager() {
-        if (MODE == ScriptSecurityMode.POLICY_ONLY &&
+        if (MODE == ScriptSecurityMode.POLICY &&
             System.getSecurityManager() != null) {
             throw new IllegalStateException(
-                    "policy-only requires a JVM without a SecurityManager");
+                    "policy requires a JVM without a SecurityManager");
         }
     }
 }

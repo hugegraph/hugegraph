@@ -38,7 +38,7 @@ import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufAllocator;
 import org.junit.Assert;
 
-/** Real WebSocket checks reused by the isolated combined/policy-only server probes. */
+/** Real WebSocket checks reused by the isolated legacy/policy server probes. */
 public final class PolicySessionProtocolChecks {
 
     private static final String SERIALIZATION_FAILURE = "__policy_test_serialization_failure__";

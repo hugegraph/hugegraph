@@ -30,24 +30,22 @@ import org.junit.Test;
 public class StorePolicyModeTest {
 
     @Test
-    public void testStoreFilterInCombinedMode() throws Exception {
-        run("combined", false, true);
+    public void testStoreFilterInPolicyMode() throws Exception {
+        run("policy", true);
     }
 
     @Test
-    public void testStoreFilterWithoutSecurityManager() throws Exception {
-        run("policy-only", false, true);
+    public void testRemovedModesFailStartup() throws Exception {
+        run("combined", false);
+        run("policy-only", false);
     }
 
-    private static void run(String mode, boolean installed, boolean success) throws Exception {
+    private static void run(String mode, boolean success) throws Exception {
         Path output = Files.createTempFile("hg-policy-mode-", ".log");
         List<String> command = new ArrayList<>(List.of(
                 Path.of(System.getProperty("java.home"), "bin", "java").toString(),
                 "-Dhugegraph.script.security.mode=" + mode,
                 "-cp", System.getProperty("java.class.path"), StorePolicyModeProbe.class.getName()));
-        if (installed) {
-            command.add("installed");
-        }
         Process process = new ProcessBuilder(command).redirectErrorStream(true)
                 .redirectOutput(output.toFile()).start();
         try {
@@ -58,6 +56,7 @@ public class StorePolicyModeTest {
                 Assert.assertTrue(log, log.contains("STORE_POLICY_VERIFIED " + mode));
             } else {
                 Assert.assertNotEquals(log, 0, process.exitValue());
+                Assert.assertTrue(log, log.contains("Unknown script security mode"));
             }
         } finally {
             if (process.isAlive()) {

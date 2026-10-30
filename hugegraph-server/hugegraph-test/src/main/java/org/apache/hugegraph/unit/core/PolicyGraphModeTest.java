@@ -30,23 +30,13 @@ import org.junit.Test;
 public class PolicyGraphModeTest {
 
     @Test
-    public void testGraphJobsSchemaAndPermissionsInCombinedMode() throws Exception {
-        run("combined", "memory");
+    public void testGraphJobsSchemaAndPermissionsInPolicyMode() throws Exception {
+        run("policy", "memory");
     }
 
     @Test
-    public void testGraphJobsSchemaAndPermissionsWithoutSecurityManager() throws Exception {
-        run("policy-only", "memory");
-    }
-
-    @Test
-    public void testRocksdbJobsSchemaAndPermissionsInCombinedMode() throws Exception {
-        run("combined", "rocksdb");
-    }
-
-    @Test
-    public void testRocksdbJobsSchemaAndPermissionsWithoutSecurityManager() throws Exception {
-        run("policy-only", "rocksdb");
+    public void testRocksdbJobsSchemaAndPermissionsInPolicyMode() throws Exception {
+        run("policy", "rocksdb");
     }
 
     private static void run(String mode, String backend) throws Exception {
@@ -70,8 +60,7 @@ public class PolicyGraphModeTest {
             String log = Files.readString(output, StandardCharsets.UTF_8);
             Assert.assertEquals(log, 0, process.exitValue());
             Assert.assertTrue(log, log.contains("GRAPH_POLICY_VERIFIED " + mode));
-            Assert.assertTrue(log, log.contains("combined".equals(mode) ?
-                    "manager=installed" : "manager=none"));
+            Assert.assertTrue(log, log.contains("manager=none"));
         } finally {
             if (process.isAlive()) {
                 process.destroyForcibly().waitFor(5, TimeUnit.SECONDS);

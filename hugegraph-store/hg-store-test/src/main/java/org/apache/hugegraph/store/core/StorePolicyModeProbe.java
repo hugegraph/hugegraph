@@ -52,6 +52,7 @@ public final class StorePolicyModeProbe {
 
     public static void main(String[] args) {
         try {
+            ScriptPolicyRuntime.validateSecurityManager();
             Assert.assertTrue(ScriptPolicyRuntime.enabled());
             Assert.assertNull(System.getSecurityManager());
             Assert.assertThrows(ClassNotFoundException.class,

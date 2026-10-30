@@ -7,8 +7,12 @@ The mode remains fixed for the lifetime of the JVM.
 | Mode | Behavior |
 | --- | --- |
 | `legacy` (default) | Keep the existing Groovy execution paths and authorization. |
-| `combined` | Apply script policies alongside the deployment's existing SecurityManager. |
-| `policy-only` | Apply policies without a SecurityManager; startup rejects an installed SecurityManager. This mode remains experimental. |
+| `policy` | Apply script policies without a SecurityManager; startup rejects an installed SecurityManager. |
+
+Only these two values are accepted. The earlier development names `combined` and
+`policy-only` are rejected at startup. To enable policies, set
+`-Dhugegraph.script.security.mode=policy` on Server and on Store nodes that evaluate
+scan filters. A missing property selects `legacy`; changing modes requires a restart.
 
 The policies cover three execution profiles:
 
@@ -20,7 +24,7 @@ Policy checks cover compilation, permitted method signatures, bindings, results,
 and execution budgets. Ordinary graph authorization remains active. Session
 requests retain their transaction handling and supported data values. Unsupported
 constructs fail with a script policy error; enabling a policy mode can require
-changes to existing scripts. The policy-only mode has not been qualified as a
+changes to existing scripts. The policy mode has not been qualified as a
 replacement for every deployment security control.
 
 ## Shared runtime
@@ -153,4 +157,4 @@ mvn test -pl hugegraph-store/hg-store-node,hugegraph-store/hg-store-test -am \
 ```
 
 These checks do not establish production authentication, concurrent-load
-performance, or policy-only isolation qualification.
+performance, or policy deployment isolation qualification.

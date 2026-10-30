@@ -32,6 +32,7 @@ import java.util.concurrent.TimeUnit;
 
 import org.apache.hugegraph.auth.ContextGremlinServer;
 import org.apache.hugegraph.auth.ContextGremlinServerHttpTest;
+import org.apache.hugegraph.dist.HugeGraphServer;
 import org.apache.hugegraph.event.EventHub;
 import org.apache.hugegraph.security.HugeSecurityManager;
 import org.apache.hugegraph.security.script.ScriptPolicyRuntime;
@@ -64,8 +65,17 @@ public final class PolicyServerModeProbe {
         ScriptSecurityMode mode = ScriptPolicyRuntime.mode();
         // Initialize the trusted compiler before worker threads, as the server bootstrap does.
         new GremlinGroovyScriptEngine().eval("1 + 1");
-        if (mode != ScriptSecurityMode.POLICY_ONLY || args.length > 0) {
+        if (mode == ScriptSecurityMode.LEGACY || args.length > 0) {
             System.setSecurityManager(new HugeSecurityManager());
+        }
+        if (args.length > 0 && "direct".equals(args[0])) {
+            SecurityManager manager = System.getSecurityManager();
+            try {
+                new HugeGraphServer("unused-gremlin.yaml", "unused-rest.properties");
+            } finally {
+                Assert.assertSame(manager, System.getSecurityManager());
+            }
+            throw new AssertionError("Direct server entry accepted policy with a SecurityManager");
         }
         ScriptPolicyRuntime.validateSecurityManager();
         int port;

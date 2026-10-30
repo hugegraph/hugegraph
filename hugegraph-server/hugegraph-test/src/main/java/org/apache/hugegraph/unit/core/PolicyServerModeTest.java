@@ -31,26 +31,33 @@ public class PolicyServerModeTest {
 
     @Test
     public void testLegacyHttpWebSocketAndBytecode() throws Exception {
-        run("legacy", false, true);
+        run("legacy", null, true);
     }
 
     @Test
-    public void testCombinedHttpWebSocketAndBytecode() throws Exception {
-        run("combined", false, true);
+    public void testDefaultHttpWebSocketAndBytecode() throws Exception {
+        run(null, null, true);
     }
 
     @Test
-    public void testPolicyOnlyHttpWebSocketAndBytecode() throws Exception {
-        run("policy-only", false, true);
+    public void testPolicyHttpWebSocketAndBytecode() throws Exception {
+        run("policy", null, true);
     }
 
     @Test
     public void testInvalidModeAndInstalledManagerFailStartup() throws Exception {
-        run("unknown", false, false);
-        run("policy-only", true, false);
+        run("unknown", null, false);
+        run("combined", null, false);
+        run("policy-only", null, false);
+        run("policy", "installed", false);
     }
 
-    private static void run(String mode, boolean installed, boolean success) throws Exception {
+    @Test
+    public void testDirectServerEntryRejectsInstalledManager() throws Exception {
+        run("policy", "direct", false);
+    }
+
+    private static void run(String mode, String installed, boolean success) throws Exception {
         Path output = Files.createTempFile("hg-policy-mode-", ".log");
         Path root = Path.of("").toAbsolutePath();
         while (root != null && !Files.isDirectory(root.resolve("hugegraph-server/hugegraph-dist"))) {
@@ -60,10 +67,12 @@ public class PolicyServerModeTest {
         List<String> command = new ArrayList<>(List.of(
                 Path.of(System.getProperty("java.home"), "bin", "java").toString(),
                 "@" + root.resolve("hugegraph-server/hugegraph-dist/src/assembly/static/bin/jvm-module.options"),
-                "-Dhugegraph.script.security.mode=" + mode,
                 "-cp", System.getProperty("java.class.path"), PolicyServerModeProbe.class.getName()));
-        if (installed) {
-            command.add("installed");
+        if (mode != null) {
+            command.add(2, "-Dhugegraph.script.security.mode=" + mode);
+        }
+        if (installed != null) {
+            command.add(installed);
         }
         // Keep the reactor's compiled classes within HSM's existing launch-directory scope.
         Process process = new ProcessBuilder(command).directory(root.toFile()).redirectErrorStream(true)
@@ -73,9 +82,11 @@ public class PolicyServerModeTest {
             String log = Files.readString(output, StandardCharsets.UTF_8);
             if (success) {
                 Assert.assertEquals(log, 0, process.exitValue());
-                Assert.assertTrue(log, log.contains("POLICY_MODE_VERIFIED " + mode));
+                Assert.assertTrue(log, log.contains("POLICY_MODE_VERIFIED " + (mode == null ? "legacy" : mode)));
             } else {
                 Assert.assertNotEquals(log, 0, process.exitValue());
+                Assert.assertTrue(log, log.contains(installed != null ?
+                        "policy requires a JVM without a SecurityManager" : "Unknown script security mode"));
             }
         } finally {
             if (process.isAlive()) {

@@ -47,7 +47,6 @@ import org.apache.hugegraph.core.GraphManager;
 import org.apache.hugegraph.dist.RegisterUtil;
 import org.apache.hugegraph.event.EventHub;
 import org.apache.hugegraph.job.GremlinJob;
-import org.apache.hugegraph.security.HugeSecurityManager;
 import org.apache.hugegraph.security.script.PolicyScriptEngine;
 import org.apache.hugegraph.security.script.PolicyScriptEngines;
 import org.apache.hugegraph.security.script.ScriptExecutionProfile;
@@ -87,13 +86,10 @@ public final class PolicyGraphModeProbe {
             graph.initBackend();
             // Match GraphManager startup: restore task metadata before accepting script workers.
             graph.serverStarted(null);
-            // HugeGraphServer also initializes the deployment engine before restoring HSM.
+            // Initialize the deployment engine before accepting script workers.
             new GremlinGroovyScriptEngine().eval("1 + 1");
-            if (ScriptPolicyRuntime.mode() == ScriptSecurityMode.COMBINED) {
-                System.setSecurityManager(new HugeSecurityManager());
-            }
-            Assert.assertEquals(ScriptPolicyRuntime.mode() == ScriptSecurityMode.COMBINED,
-                    System.getSecurityManager() instanceof HugeSecurityManager);
+            Assert.assertEquals(ScriptSecurityMode.POLICY, ScriptPolicyRuntime.mode());
+            Assert.assertNull(System.getSecurityManager());
             PolicyScriptEngines.initializeServer();
             runOnWorker(() -> {
                 GraphManager.prepareSchema(graph,

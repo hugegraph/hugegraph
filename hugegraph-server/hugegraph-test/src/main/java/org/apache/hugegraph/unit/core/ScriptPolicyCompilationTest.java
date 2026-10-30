@@ -53,9 +53,13 @@ public class ScriptPolicyCompilationTest {
     public void testModeParsingDoesNotFallBack() {
         Assert.assertEquals(ScriptSecurityMode.LEGACY,
                             ScriptSecurityMode.parse("legacy"));
-        Assert.assertTrue(ScriptSecurityMode.parse("combined").policyEnabled());
-        Assert.assertTrue(ScriptSecurityMode.parse("policy-only").experimental());
-        for (String invalid : new String[]{null, "", "off", "enforce", "LEGACY"}) {
+        Assert.assertEquals(ScriptSecurityMode.POLICY, ScriptSecurityMode.parse("policy"));
+        Assert.assertFalse(ScriptSecurityMode.LEGACY.policyEnabled());
+        Assert.assertTrue(ScriptSecurityMode.POLICY.policyEnabled());
+        Assert.assertArrayEquals(new ScriptSecurityMode[]{ScriptSecurityMode.LEGACY, ScriptSecurityMode.POLICY},
+                                 ScriptSecurityMode.values());
+        for (String invalid : new String[]{null, "", "off", "enforce", "LEGACY", "POLICY",
+                                          "combined", "policy-only"}) {
             Assert.assertThrows(IllegalArgumentException.class,
                                 () -> ScriptSecurityMode.parse(invalid));
         }

@@ -23,27 +23,16 @@ package org.apache.hugegraph.security.script;
  */
 public enum ScriptSecurityMode {
 
-    LEGACY("legacy", false, false),
-    COMBINED("combined", true, false),
-    POLICY_ONLY("policy-only", true, true);
+    LEGACY("legacy"),
+    POLICY("policy");
 
     private final String configValue;
-    private final boolean policyEnabled;
-    private final boolean experimental;
-
-    ScriptSecurityMode(String configValue, boolean policyEnabled,
-                       boolean experimental) {
+    ScriptSecurityMode(String configValue) {
         this.configValue = configValue;
-        this.policyEnabled = policyEnabled;
-        this.experimental = experimental;
     }
 
     public boolean policyEnabled() {
-        return this.policyEnabled;
-    }
-
-    public boolean experimental() {
-        return this.experimental;
+        return this == POLICY;
     }
 
     public String configValue() {
@@ -56,6 +45,6 @@ public enum ScriptSecurityMode {
                 return mode;
             }
         }
-        throw new IllegalArgumentException("Unknown script security mode");
+        throw new IllegalArgumentException("Unknown script security mode: expected legacy or policy");
     }
 }

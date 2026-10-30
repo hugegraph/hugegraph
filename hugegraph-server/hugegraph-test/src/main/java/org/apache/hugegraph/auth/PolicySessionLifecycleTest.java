@@ -74,7 +74,7 @@ public class PolicySessionLifecycleTest {
         Process process = new ProcessBuilder(
                 Path.of(System.getProperty("java.home"), "bin", "java").toString(),
                 "@" + root.resolve("hugegraph-server/hugegraph-dist/src/assembly/static/bin/jvm-module.options"),
-                "-Dhugegraph.script.security.mode=policy-only",
+                "-Dhugegraph.script.security.mode=policy",
                 "-cp", System.getProperty("java.class.path"), PolicySessionLifecycleTest.class.getName())
                 .directory(root.toFile()).redirectErrorStream(true).redirectOutput(output.toFile()).start();
         try {
