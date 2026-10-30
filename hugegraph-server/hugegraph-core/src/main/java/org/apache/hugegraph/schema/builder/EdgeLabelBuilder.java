@@ -95,7 +95,9 @@ public class EdgeLabelBuilder extends AbstractBuilder
         HugeGraphSupplier origin = copy.graph();
         this.id = null;
         this.name = copy.name();
-        this.links = mapPairId2Name(origin, copy.links());
+        // Parent links are derived from its children and cannot be set at creation.
+        this.links = copy.edgeLabelType().parent() ? new HashSet<>() :
+                     mapPairId2Name(origin, copy.links());
         this.edgeLabelType = copy.edgeLabelType();
         if (copy.edgeLabelType().sub()) {
             this.fatherLabel = mapElId2Name(origin, copy.fatherId());

@@ -173,6 +173,72 @@ public class GraphsApiTest extends BaseApiTest {
     }
 
     @Test
+    public void testCloneSchemaWithoutGraphData() {
+        String source = PATH + "/schema_source";
+        String target = PATH + "/schema_target";
+        try {
+            assertResponseStatus(201, createGraphInRocksDB(TEMP_SPACE, "schema_source"));
+            createAndAssert(source + "/schema/propertykeys",
+                            "{\"name\":\"name\",\"data_type\":\"TEXT\"," +
+                            "\"cardinality\":\"SINGLE\"}", 202);
+            createAndAssert(source + "/schema/vertexlabels",
+                            "{\"name\":\"person\",\"id_strategy\":\"AUTOMATIC\"," +
+                            "\"properties\":[\"name\"],\"nullable_keys\":[]}");
+            createAndAssert(source + "/schema/edgelabels",
+                            "{\"name\":\"knows\",\"source_label\":\"person\"," +
+                            "\"target_label\":\"person\",\"frequency\":\"SINGLE\"}");
+            createAndAssert(source + "/schema/indexlabels",
+                            "{\"name\":\"personByName\",\"base_type\":\"VERTEX_LABEL\"," +
+                            "\"base_value\":\"person\",\"index_type\":\"SECONDARY\"," +
+                            "\"fields\":[\"name\"],\"rebuild\":false}", 202);
+            createAndAssert(source + "/graph/vertices",
+                            "{\"label\":\"person\",\"properties\":{\"name\":\"alice\"}}");
+
+            Response cloned = client().target(baseUrl()).path(target + "/schema-clone")
+                                      .queryParam("source", "schema_source").request()
+                                      .post(Entity.json("{\"nickname\":\"SchemaCopy\"}"));
+            String result = assertResponseStatus(201, cloned);
+            Assert.assertEquals("schema_target", JsonUtil.fromJson(result, Map.class).get("name"));
+            Assert.assertEquals("SchemaCopy", JsonUtil.fromJson(result, Map.class).get("nickname"));
+            Assert.assertEquals("name", assertJsonContains(assertResponseStatus(200,
+                    client().get(target + "/schema/propertykeys/name")), "name"));
+            Assert.assertEquals("person", assertJsonContains(assertResponseStatus(200,
+                    client().get(target + "/schema/vertexlabels/person")), "name"));
+            Assert.assertEquals("knows", assertJsonContains(assertResponseStatus(200,
+                    client().get(target + "/schema/edgelabels/knows")), "name"));
+            Assert.assertEquals("person", assertJsonContains(assertResponseStatus(200,
+                    client().get(target + "/schema/indexlabels/personByName")), "base_value"));
+            String vertices = assertResponseStatus(200, client().get(target + "/graph/vertices"));
+            Assert.assertTrue(readList(vertices, "vertices", Map.class).isEmpty());
+        } finally {
+            Map<String, Object> confirm = ImmutableMap.of(
+                    "confirm_message", "I'm sure to drop the graph");
+            client().delete(target, confirm);
+            client().delete(source, confirm);
+        }
+    }
+
+    @Test
+    public void testSchemaCloneRejectsMissingSourceBeforeCreatingTarget() {
+        String target = PATH + "/invalid_schema_target";
+        Response response = client().target(baseUrl()).path(target + "/schema-clone")
+                                    .queryParam("source", "missing_source").request()
+                                    .post(Entity.json("{}"));
+        Assert.assertTrue(response.getStatus() >= 400);
+        Assert.assertTrue(client().get(target).getStatus() >= 400);
+    }
+
+    @Test
+    public void testSchemaCloneRejectsDataOption() {
+        String target = PATH + "/invalid_data_target";
+        Response response = client().target(baseUrl()).path(target + "/schema-clone")
+                                    .queryParam("source", "hugegraph").request()
+                                    .post(Entity.json("{\"load_data\":true}"));
+        Assert.assertTrue(response.getStatus() >= 400);
+        Assert.assertTrue(client().get(target).getStatus() >= 400);
+    }
+
+    @Test
     public void testDeleteGraph() {
         Response r = createGraphInRocksDB(TEMP_SPACE, "delete_test");
         assertResponseStatus(201, r);

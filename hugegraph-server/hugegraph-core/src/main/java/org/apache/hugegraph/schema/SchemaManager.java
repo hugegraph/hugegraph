@@ -130,8 +130,17 @@ public class SchemaManager {
         for (VertexLabel vl : schema.getVertexLabels()) {
             new VertexLabelBuilder(this.transaction, this.graph, vl).create();
         }
-        for (EdgeLabel el : schema.getEdgeLabels()) {
-            new EdgeLabelBuilder(this.transaction, this.graph, el).create();
+        // A sublabel refers to its parent by name during creation.
+        List<EdgeLabel> edgeLabels = schema.getEdgeLabels();
+        for (EdgeLabel el : edgeLabels) {
+            if (!el.edgeLabelType().sub()) {
+                new EdgeLabelBuilder(this.transaction, this.graph, el).create();
+            }
+        }
+        for (EdgeLabel el : edgeLabels) {
+            if (el.edgeLabelType().sub()) {
+                new EdgeLabelBuilder(this.transaction, this.graph, el).create();
+            }
         }
         for (IndexLabel il : schema.getIndexLabels()) {
             new IndexLabelBuilder(this.transaction, this.graph, il).create();

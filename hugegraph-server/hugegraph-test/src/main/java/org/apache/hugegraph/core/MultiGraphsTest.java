@@ -51,6 +51,7 @@ import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.apache.tinkerpop.gremlin.structure.util.GraphFactory;
 import org.junit.Assume;
 import org.junit.Test;
+import org.mockito.Mockito;
 import org.rocksdb.RocksDBException;
 
 import com.google.common.collect.ImmutableList;
@@ -305,6 +306,44 @@ public class MultiGraphsTest extends BaseCoreTest {
             graph.clearBackend();
         }
         destroyGraphs(graphs);
+    }
+
+    @Test
+    public void testCopySchemaIndexUsesSourceLabelNameWhenIdsDiffer() {
+        List<HugeGraph> graphs = openGraphs("schema_origin", "schema_target");
+        try {
+            for (HugeGraph graph : graphs) {
+                graph.initBackend();
+                graph.serverStarted(GlobalMasterInfo.master("schema-index-copy"));
+            }
+            HugeGraph source = graphs.get(0);
+            HugeGraph target = graphs.get(1);
+            source.schema().propertyKey("name").asText().create();
+            source.schema().vertexLabel("person").properties("name").useAutomaticId().create();
+            source.schema().indexLabel("personByName").onV("person").secondary()
+                  .by("name").create();
+            EdgeLabel parent = source.schema().edgeLabel("zParent").asBase().create();
+            EdgeLabel child = source.schema().edgeLabel("aChild").withBase("zParent")
+                                    .link("person", "person").create();
+            target.schema().vertexLabel("unrelated").useAutomaticId().create();
+            SchemaManager sourceSchema = Mockito.spy(source.schema());
+            // Storage iteration order must not be relied on for parent dependencies.
+            Mockito.doReturn(ImmutableList.of(child, parent)).when(sourceSchema).getEdgeLabels();
+
+            target.schema().copyFrom(sourceSchema);
+
+            Assert.assertEquals(target.schema().getEdgeLabel("zParent").id(),
+                                target.schema().getEdgeLabel("aChild").fatherId());
+            Assert.assertNotEquals(source.schema().getVertexLabel("person").id(),
+                                   target.schema().getVertexLabel("person").id());
+            Assert.assertEquals(target.schema().getVertexLabel("person").id(),
+                                target.schema().getIndexLabel("personByName").baseValue());
+        } finally {
+            for (HugeGraph graph : graphs) {
+                graph.clearBackend();
+            }
+            destroyGraphs(graphs);
+        }
     }
 
     @Test
