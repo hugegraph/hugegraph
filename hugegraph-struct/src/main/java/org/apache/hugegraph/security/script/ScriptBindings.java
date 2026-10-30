@@ -278,6 +278,11 @@ public final class ScriptBindings {
     }
 
     private static int scalarLength(Object value) {
+        if (value instanceof BigDecimal &&
+            (Math.abs((long) ((BigDecimal) value).scale()) > MAX_SOURCE_BYTES ||
+             ((BigDecimal) value).precision() > MAX_SOURCE_BYTES)) {
+            throw denied("numeric size limit");
+        }
         if (value instanceof String) {
             return ((String) value).length();
         }

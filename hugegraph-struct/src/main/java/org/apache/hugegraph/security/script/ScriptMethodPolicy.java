@@ -74,8 +74,8 @@ public final class ScriptMethodPolicy {
         this.allow("java.lang.String", "length", "isEmpty", "equals", "equalsIgnoreCase",
                    "compareTo", "contains", "startsWith", "endsWith", "substring", "trim",
                    "toLowerCase", "toUpperCase", "charAt", "indexOf", "lastIndexOf", "concat",
-                   "toString", "valueOf", "format", "replace", "toCharArray",
-                   "strip", "stripLeading", "stripTrailing", "repeat", "isBlank");
+                   "toString", "valueOf", "replace", "toCharArray",
+                   "strip", "stripLeading", "stripTrailing", "isBlank");
         for (String name : new String[]{"Integer", "Long", "Double", "Float", "Short", "Byte",
                                         "Number", "Boolean", "Character"}) {
             this.allow("java.lang." + name, "intValue", "longValue", "doubleValue", "floatValue",
@@ -85,9 +85,9 @@ public final class ScriptMethodPolicy {
         this.allow("java.lang.Math", "abs", "min", "max", "floor", "ceil", "round", "sqrt");
         this.allow("java.util.UUID", "toString", "equals", "fromString", "randomUUID");
         for (String type : new String[]{"java.math.BigDecimal", "java.math.BigInteger"}) {
-            this.allow(type, "add", "subtract", "multiply", "divide", "remainder", "pow",
+            this.allow(type, "add", "subtract", "multiply", "divide", "remainder",
                        "abs", "negate", "compareTo", "equals", "intValue", "longValue",
-                       "doubleValue", "floatValue", "toString", "valueOf", "setScale",
+                       "doubleValue", "floatValue", "toString", "valueOf",
                        "scale", "precision", "stripTrailingZeros", "toPlainString",
                        "intValueExact", "longValueExact", "toBigInteger");
         }
@@ -101,6 +101,10 @@ public final class ScriptMethodPolicy {
         for (String type : ScriptExpressionGuard.CONSTRUCTIBLE_TYPES) {
             try {
                 for (Constructor<?> constructor : Class.forName(type).getConstructors()) {
+                    if (Arrays.asList(constructor.getParameterTypes()).contains(float.class)) {
+                        // Custom load factors can amplify a small initial capacity on each insertion.
+                        continue;
+                    }
                     String parameters = Arrays.stream(constructor.getParameterTypes())
                                               .map(Class::getTypeName).collect(Collectors.joining(","));
                     this.signatures.add(type + "#<init>(" + parameters + ")");
@@ -123,7 +127,11 @@ public final class ScriptMethodPolicy {
                    "elementProperties",
                    "regexMatches", "regexFind", "regexReplaceAll", "regexReplaceFirst", "regexSplit",
                    "regexText", "regexTexts", "regexArrayTexts", "toJson", "convertReturn", "discard",
-                   "checkedData", "checkedMap");
+                   "checkedData", "checkedMap", "capacity", "constructorArgument",
+                   "checkedNumber", "range", "intRange",
+                   "bounded", "boundedValues", "valueOf", "format", "emptyRange", "emptyRangeReceiver");
+        this.allow(ScriptDataOperations.BoundedValue.class.getName(),
+                   "repeat", "pow", "setScale", "padLeft", "padRight", "center", "multiply", "divide");
         this.allowExact(ScriptDataOperations.class.getName(), "toString", Object.class, boolean.class);
         this.allow(ScriptDataOperations.RegexText.class.getName(), "matches", "replaceAll", "replaceFirst", "split");
         this.allow(ScriptExecutionBudget.class.getName(), "check", "deadline");
@@ -132,7 +140,7 @@ public final class ScriptMethodPolicy {
         this.allow("org.codehaus.groovy.runtime.StringGroovyMethods",
                    "getAt", "size", "contains", "isInteger", "isLong", "isNumber",
                    "toInteger", "toLong", "toDouble", "take", "drop", "plus", "minus",
-                   "tokenize", "capitalize", "uncapitalize", "padLeft", "padRight", "center", "reverse");
+                   "tokenize", "capitalize", "uncapitalize", "reverse");
         this.allowExact("org.codehaus.groovy.runtime.DefaultGroovyMethods", "next", Number.class);
         this.allowExact("org.codehaus.groovy.runtime.DefaultGroovyMethods", "previous", Number.class);
         this.allow("groovy.lang.Closure", "call");
@@ -356,6 +364,10 @@ public final class ScriptMethodPolicy {
             for (Method method : type.getMethods()) {
                 if (!Modifier.isPublic(method.getModifiers()) ||
                     !allowedNames.contains(method.getName())) {
+                    continue;
+                }
+                if (className.equals("java.math.BigDecimal") && method.getName().equals("valueOf") &&
+                    method.getParameterCount() == 2) {
                     continue;
                 }
                 if (className.equals("org.codehaus.groovy.runtime.DefaultGroovyMethods")) {

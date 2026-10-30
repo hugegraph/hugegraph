@@ -23,6 +23,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Date;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -38,19 +39,446 @@ import org.codehaus.groovy.runtime.typehandling.NumberMath;
 
 import groovy.lang.Closure;
 import groovy.lang.GString;
+import groovy.lang.IntRange;
+import groovy.lang.Range;
 
 /** Fixed data operations for values whose element type is not known at compilation. */
 public final class ScriptDataOperations {
 
+    private static final int MAX_ALLOCATION = 65536;
+    private static final Pattern FORMAT_SPECIFIER = Pattern.compile(
+            "%(?:[0-9]++\\$)?[-#+ 0,(<]*+([0-9]++)?(?:\\.([0-9]++))?[tT]?[a-zA-Z%]");
     private static final Set<Class<?>> NUMBERS = Set.of(Byte.class, Short.class, Integer.class,
             Long.class, Float.class, Double.class, BigDecimal.class, BigInteger.class);
 
     private ScriptDataOperations() {
     }
 
+    private static void allocation(long size) {
+        if (size < 0 || size > MAX_ALLOCATION) {
+            throw new IllegalArgumentException("SCRIPT_DATA_ALLOCATION_LIMIT");
+        }
+    }
+
+    public static int capacity(int size) {
+        allocation(size);
+        return size;
+    }
+
+    public static <T> T constructorArgument(T value) {
+        if (value instanceof Number) {
+            allocation(((Number) value).longValue());
+        } else if (value instanceof Collection) {
+            allocation(((Collection<?>) value).size());
+        } else if (value instanceof Map) {
+            allocation(((Map<?, ?>) value).size());
+        }
+        return value;
+    }
+
+    private static String repeat(String value, int count) {
+        allocation((long) value.length() * count);
+        allocation(count);
+        return value.repeat(count);
+    }
+
+    public static String format(String pattern, Object... arguments) {
+        return format(java.util.Locale.getDefault(java.util.Locale.Category.FORMAT), pattern, arguments);
+    }
+
+    public static String format(java.util.Locale locale, String pattern, Object... arguments) {
+        if (arguments != null) {
+            for (Object argument : arguments) {
+                if (argument instanceof BigDecimal) {
+                    checkedNumber((BigDecimal) argument);
+                } else if (argument instanceof BigInteger) {
+                    checkedNumber((BigInteger) argument);
+                } else if (argument instanceof java.util.Formattable) {
+                    throw new IllegalArgumentException("SCRIPT_DATA_TYPE_DENIED: custom formatter");
+                }
+            }
+        }
+        Matcher specifier = FORMAT_SPECIFIER.matcher(pattern);
+        for (int start = pattern.indexOf('%'); start >= 0; start = pattern.indexOf('%', specifier.end())) {
+            specifier.region(start, pattern.length());
+            if (!specifier.lookingAt()) {
+                throw new java.util.UnknownFormatConversionException(
+                        start + 1 < pattern.length() ? pattern.substring(start + 1, start + 2) : "%");
+            }
+            for (int group = 1; group <= 2; group++) {
+                if (specifier.group(group) != null) {
+                    try {
+                        allocation(Long.parseLong(specifier.group(group)));
+                    } catch (NumberFormatException error) {
+                        throw new IllegalArgumentException("SCRIPT_DATA_ALLOCATION_LIMIT");
+                    }
+                }
+            }
+        }
+        StringBuilder result = new StringBuilder();
+        Appendable output = new Appendable() {
+            @Override
+            public Appendable append(CharSequence value) {
+                CharSequence text = value == null ? "null" : value;
+                return this.append(text, 0, text.length());
+            }
+
+            @Override
+            public Appendable append(CharSequence value, int start, int end) {
+                allocation((long) result.length() + end - start);
+                result.append(value, start, end);
+                return this;
+            }
+
+            @Override
+            public Appendable append(char value) {
+                allocation((long) result.length() + 1);
+                result.append(value);
+                return this;
+            }
+        };
+        // Formatter still owns conversion, locale, flag and invalid-format semantics.
+        try (java.util.Formatter formatter = new java.util.Formatter(output, locale)) {
+            formatter.format(pattern, arguments);
+        }
+        return result.toString();
+    }
+
+    private static BigInteger pow(BigInteger value, int exponent) {
+        allocation(exponent);
+        allocation((long) value.bitLength() * exponent);
+        return value.pow(exponent);
+    }
+
+    private static BigDecimal pow(BigDecimal value, int exponent) {
+        allocation(exponent);
+        allocation((long) value.unscaledValue().bitLength() * exponent);
+        allocation(Math.abs((long) value.scale() * exponent));
+        return value.pow(exponent);
+    }
+
+    public static BigDecimal checkedNumber(BigDecimal value) {
+        allocation(value.precision());
+        allocation(Math.abs((long) value.scale()));
+        return value;
+    }
+
+    public static BigDecimal valueOf(long value, int scale) {
+        allocation(Math.abs((long) scale));
+        return BigDecimal.valueOf(value, scale);
+    }
+
+    private static BigInteger multiplyNumbers(BigInteger left, BigInteger right) {
+        allocation((long) left.bitLength() + right.bitLength());
+        return left.multiply(right);
+    }
+
+    private static BigDecimal multiplyNumbers(BigDecimal left, BigDecimal right) {
+        checkedNumber(left);
+        checkedNumber(right);
+        allocation(Math.abs((long) left.scale() + right.scale()));
+        allocation((long) left.unscaledValue().bitLength() + right.unscaledValue().bitLength());
+        return checkedNumber(left.multiply(right));
+    }
+
+    private static BigDecimal divide(BigDecimal left, BigDecimal right) {
+        checkedNumber(left);
+        checkedNumber(right);
+        return checkedNumber(left.divide(right));
+    }
+
+    private static BigDecimal divide(BigDecimal left, BigDecimal right, java.math.RoundingMode rounding) {
+        checkedNumber(left);
+        checkedNumber(right);
+        return checkedNumber(left.divide(right, rounding));
+    }
+
+    private static BigDecimal divide(BigDecimal left, BigDecimal right, int rounding) {
+        return divide(left, right, java.math.RoundingMode.valueOf(rounding));
+    }
+
+    private static BigDecimal divide(BigDecimal left, BigDecimal right, int scale, java.math.RoundingMode rounding) {
+        scale(left, scale);
+        checkedNumber(right);
+        return checkedNumber(left.divide(right, scale, rounding));
+    }
+
+    private static BigDecimal divide(BigDecimal left, BigDecimal right, int scale, int rounding) {
+        return divide(left, right, scale, java.math.RoundingMode.valueOf(rounding));
+    }
+
+    private static void scale(BigDecimal value, int scale) {
+        checkedNumber(value);
+        allocation(Math.abs((long) scale));
+        allocation(value.precision() + Math.max(0L, (long) scale - value.scale()));
+    }
+
+    private static BigDecimal setScale(BigDecimal value, int scale) {
+        scale(value, scale);
+        return value.setScale(scale);
+    }
+
+    private static BigDecimal setScale(BigDecimal value, int scale, java.math.RoundingMode rounding) {
+        scale(value, scale);
+        return value.setScale(scale, rounding);
+    }
+
+    private static BigDecimal setScale(BigDecimal value, int scale, int rounding) {
+        return setScale(value, scale, java.math.RoundingMode.valueOf(rounding));
+    }
+
+    private static String padLeft(CharSequence value, Number width) {
+        return padLeft(value, width, " ");
+    }
+
+    private static String padLeft(CharSequence value, Number width, CharSequence padding) {
+        allocation(Math.max(0, width.intValue()));
+        return StringGroovyMethods.padLeft(value, width, padding);
+    }
+
+    private static String padRight(CharSequence value, Number width) {
+        return padRight(value, width, " ");
+    }
+
+    private static String padRight(CharSequence value, Number width, CharSequence padding) {
+        allocation(Math.max(0, width.intValue()));
+        return StringGroovyMethods.padRight(value, width, padding);
+    }
+
+    private static String center(CharSequence value, Number width) {
+        return center(value, width, " ");
+    }
+
+    private static String center(CharSequence value, Number width, CharSequence padding) {
+        allocation(Math.max(0, width.intValue()));
+        return StringGroovyMethods.center(value, width, padding);
+    }
+
+    public static BigInteger checkedNumber(BigInteger value) {
+        allocation(value.bitLength());
+        return value;
+    }
+
+    public static <T> BoundedValue<T> bounded(T value) {
+        return value == null ? null : new BoundedValue<>(value);
+    }
+
+    public static <T> Iterable<BoundedValue<T>> boundedValues(Iterable<T> values) {
+        return values == null ? null : () -> boundedIterator(values.iterator());
+    }
+
+    public static <T> Iterable<BoundedValue<T>> boundedValues(T[] values) {
+        return values == null ? null : boundedValues(Arrays.asList(values));
+    }
+
+    public static <T> Iterable<BoundedValue<T>> boundedValues(Iterator<T> values) {
+        return values == null ? null : () -> boundedIterator(values);
+    }
+
+    private static <T> Iterator<BoundedValue<T>> boundedIterator(Iterator<T> values) {
+        return new Iterator<>() {
+            private int count;
+            private final long deadline = ScriptExecutionBudget.deadline();
+
+            @Override
+            public boolean hasNext() {
+                this.check(false);
+                return values.hasNext();
+            }
+
+            @Override
+            public BoundedValue<T> next() {
+                this.check(true);
+                return bounded(values.next());
+            }
+
+            private void check(boolean advance) {
+                try {
+                    ScriptExecutionBudget.check(this.deadline);
+                    if (advance) {
+                        allocation(++this.count);
+                    }
+                } catch (RuntimeException failure) {
+                    try {
+                        org.apache.tinkerpop.gremlin.structure.util.CloseableIterator.closeIterator(values);
+                    } catch (RuntimeException closeFailure) {
+                        failure.addSuppressed(closeFailure);
+                    }
+                    throw failure;
+                }
+            }
+        };
+    }
+
+    /** A receiver bridge preserves Groovy's safe/spread argument evaluation order. */
+    public static final class BoundedValue<T> {
+        private final T value;
+
+        private BoundedValue(T value) {
+            this.value = value;
+        }
+
+        public String repeat(int count) {
+            return ScriptDataOperations.repeat(text(this.value), count);
+        }
+
+        @SuppressWarnings("unchecked")
+        public T pow(int exponent) {
+            return (T) (this.value instanceof BigInteger ?
+                    ScriptDataOperations.pow((BigInteger) this.value, exponent) :
+                    ScriptDataOperations.pow((BigDecimal) this.value, exponent));
+        }
+
+        @SuppressWarnings("unchecked")
+        public T multiply(T right) {
+            return (T) (this.value instanceof BigInteger ?
+                    ScriptDataOperations.multiplyNumbers((BigInteger) this.value, (BigInteger) right) :
+                    ScriptDataOperations.multiplyNumbers((BigDecimal) this.value, (BigDecimal) right));
+        }
+
+        public BigDecimal setScale(int scale) {
+            return ScriptDataOperations.setScale((BigDecimal) this.value, scale);
+        }
+
+        public BigDecimal setScale(int scale, java.math.RoundingMode rounding) {
+            return ScriptDataOperations.setScale((BigDecimal) this.value, scale, rounding);
+        }
+
+        public BigDecimal setScale(int scale, int rounding) {
+            return ScriptDataOperations.setScale((BigDecimal) this.value, scale, rounding);
+        }
+
+        public BigDecimal divide(BigDecimal right) {
+            return ScriptDataOperations.divide((BigDecimal) this.value, right);
+        }
+
+        public BigDecimal divide(BigDecimal right, java.math.RoundingMode rounding) {
+            return ScriptDataOperations.divide((BigDecimal) this.value, right, rounding);
+        }
+
+        public BigDecimal divide(BigDecimal right, int rounding) {
+            return ScriptDataOperations.divide((BigDecimal) this.value, right, rounding);
+        }
+
+        public BigDecimal divide(BigDecimal right, int scale, java.math.RoundingMode rounding) {
+            return ScriptDataOperations.divide((BigDecimal) this.value, right, scale, rounding);
+        }
+
+        public BigDecimal divide(BigDecimal right, int scale, int rounding) {
+            return ScriptDataOperations.divide((BigDecimal) this.value, right, scale, rounding);
+        }
+
+        public String padLeft(Number width) {
+            return ScriptDataOperations.padLeft((CharSequence) this.value, width);
+        }
+
+        public String padLeft(Number width, CharSequence padding) {
+            return ScriptDataOperations.padLeft((CharSequence) this.value, width, padding);
+        }
+
+        public String padRight(Number width) {
+            return ScriptDataOperations.padRight((CharSequence) this.value, width);
+        }
+
+        public String padRight(Number width, CharSequence padding) {
+            return ScriptDataOperations.padRight((CharSequence) this.value, width, padding);
+        }
+
+        public String center(Number width) {
+            return ScriptDataOperations.center((CharSequence) this.value, width);
+        }
+
+        public String center(Number width, CharSequence padding) {
+            return ScriptDataOperations.center((CharSequence) this.value, width, padding);
+        }
+    }
+
+    private static void rangeSize(Object from, Object to, boolean left, boolean right) {
+        long start;
+        long end;
+        if (from instanceof Character && to instanceof Character) {
+            start = (Character) from;
+            end = (Character) to;
+        } else if (from instanceof String && to instanceof String &&
+                   ((String) from).length() == 1 && ((String) to).length() == 1) {
+            start = ((String) from).charAt(0);
+            end = ((String) to).charAt(0);
+        } else if (from instanceof Number && to instanceof Number) {
+            Number first = number(from);
+            Number last = number(to);
+            BigDecimal difference = new BigDecimal(first.toString()).subtract(new BigDecimal(last.toString())).abs();
+            if (difference.compareTo(BigDecimal.valueOf(MAX_ALLOCATION)) > 0) {
+                throw new IllegalArgumentException("SCRIPT_DATA_ALLOCATION_LIMIT");
+            }
+            // Fractional endpoints need at most floor(distance) + 1 entries.
+            start = 0;
+            end = difference.longValue();
+        } else if (from instanceof String && to instanceof String) {
+            // Groovy owns multi-character string ordering and successor semantics.
+            return;
+        } else {
+            throw new IllegalArgumentException("SCRIPT_DATA_TYPE_DENIED: unsupported range endpoints");
+        }
+        allocation(Math.max(0, Math.abs(end - start) + 1 - (left ? 0 : 1) - (right ? 0 : 1)));
+    }
+
+    public static IntRange range(int from, int to, boolean exclusiveLeft, boolean exclusiveRight) {
+        return intRange(!exclusiveLeft, !exclusiveRight, from, to);
+    }
+
+    public static Range<?> range(Object from, Object to, boolean exclusiveLeft, boolean exclusiveRight)
+            throws Throwable {
+        rangeSize(from, to, !exclusiveLeft, !exclusiveRight);
+        Range<?> range = (Range<?>) org.codehaus.groovy.runtime.ScriptBytecodeAdapter
+                .createRange(from, to, exclusiveLeft, exclusiveRight);
+        if (from instanceof String && ((String) from).length() > 1) {
+            int count = 0;
+            long deadline = ScriptExecutionBudget.deadline();
+            for (Object ignored : range) {
+                ScriptExecutionBudget.check(deadline);
+                allocation(++count);
+            }
+        } else {
+            allocation(range.size());
+        }
+        return range;
+    }
+
+    public static groovy.lang.EmptyRange<?> emptyRange(Comparable<?> from) {
+        return new groovy.lang.EmptyRange<>(from);
+    }
+
+    public static CharSequence emptyRangeReceiver(CharSequence value) {
+        return value;
+    }
+
+    public static <T> T emptyRangeReceiver(T value) {
+        return value;
+    }
+
+    public static IntRange intRange(int from, int to) {
+        rangeSize(from, to, true, true);
+        return new IntRange(from, to);
+    }
+
+    public static IntRange intRange(boolean inclusive, int from, int to) {
+        rangeSize(from, to, true, inclusive);
+        return new IntRange(inclusive, from, to);
+    }
+
+    public static IntRange intRange(boolean left, boolean right, int from, int to) {
+        rangeSize(from, to, left, right);
+        return new IntRange(left, right, from, to);
+    }
+
     private static Number number(Object value) {
         if (value == null || !NUMBERS.contains(value.getClass())) {
             throw new IllegalArgumentException("SCRIPT_DATA_TYPE_DENIED: number required");
+        }
+        if (value instanceof BigDecimal) {
+            checkedNumber((BigDecimal) value);
+        } else if (value instanceof BigInteger) {
+            checkedNumber((BigInteger) value);
         }
         return (Number) value;
     }
@@ -178,9 +606,13 @@ public final class ScriptDataOperations {
 
     public static Object multiply(Object left, Object right) {
         if (left instanceof Collection) {
+            allocation(number(right).intValue());
+            allocation((long) ((Collection<?>) left).size() * number(right).intValue());
             return DefaultGroovyMethods.multiply((Iterable<?>) left, number(right));
         }
         if (left instanceof String || left instanceof GString) {
+            allocation(number(right).intValue());
+            allocation((long) text(left).length() * number(right).intValue());
             return StringGroovyMethods.multiply(text(left), number(right));
         }
         return NumberMath.multiply(number(left), number(right));
@@ -195,6 +627,14 @@ public final class ScriptDataOperations {
     }
 
     public static Object power(Object left, Object right) {
+        Number exponent = number(right);
+        allocation((long) Math.ceil(Math.abs(exponent.doubleValue())));
+        long growth = Math.max(0L, exponent.longValue());
+        if (left instanceof BigInteger) {
+            allocation((long) ((BigInteger) left).bitLength() * growth);
+        } else if (left instanceof BigDecimal) {
+            allocation((long) ((BigDecimal) left).unscaledValue().bitLength() * growth);
+        }
         return DefaultGroovyMethods.power(number(left), number(right));
     }
 

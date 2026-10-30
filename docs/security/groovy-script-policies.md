@@ -57,6 +57,27 @@ profile additions, and `session-methods.txt` contains the session additions.
 Public runtime constructors verify the union against the resolved dependencies.
 An unreviewed new overload still prevents policy initialization.
 
+## Local data operations and budgets
+
+The compiler routes repetition, padding, formatting, powers and selected decimal
+operations through bounded helpers. Repetition output, initial collection capacity,
+one-dimensional array length and range cardinality are capped at 65,536 units.
+Power checks estimate integer bit growth; decimal checks bound precision and
+absolute scale. Formatting delegates conversions to Java Formatter after checking
+width and precision, and bounds the destination as text is appended.
+Existing stored values can be formatted with bounded output; custom formatter callbacks are rejected.
+
+Ordinary small calls retain their result types. Receiver bridges preserve safe
+navigation and spread evaluation, including null elements and argument side
+effects. Range creation and slicing retain Groovy's range implementations. Custom
+collection load factors and dynamic multidimensional array allocation are rejected.
+
+The execution deadline is cooperative: checks cover script loops, closures,
+bounded helper iterations and result consumption. These checks cannot forcibly
+interrupt every JDK or third-party call, and the individual operation limits do
+not cap the total heap retained by a request or multiple concurrent requests.
+Policy mode still requires deployment resource controls and isolation validation.
+
 ## Pure Gremlin fast path
 
 Non-session QUERY string evaluation can use TinkerPop's Gremlin language parser
@@ -80,6 +101,12 @@ Bytecode copy or JavaTranslator pass is needed. Server-configured source state
 and authorization proxies are preserved. Only the trusted source's existing
 source instructions are excluded from query validation; all instructions from
 native client Bytecode remain checked.
+
+Native Bytecode accepts TinkerPop's exact reference/detached vertex, edge,
+vertex-property and property classes. Their IDs, labels, property keys and values,
+meta-properties and edge endpoints retain data, depth and node-budget checks.
+Arbitrary element subclasses are rejected before invoking their accessors.
+This does not make graph elements valid ordinary client bindings or source state.
 
 Once execution starts, failures propagate without retrying through Groovy.
 Queries exceeding the Bytecode structural budget discard the unexecuted traversal

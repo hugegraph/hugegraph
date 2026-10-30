@@ -233,6 +233,25 @@ public class PolicyCompatibilityTest {
     }
 
     @Test
+    public void testNativeElementLookupAndPropertyValues() throws Exception {
+        try (TinkerGraph graph = TinkerFactory.createModern();
+             PolicyScriptEngine policy = new PolicyScriptEngine(ScriptExecutionProfile.QUERY)) {
+            GraphTraversalSource g = graph.traversal();
+            org.apache.tinkerpop.gremlin.structure.Vertex vertex = g.V(1).next();
+            for (Object value : List.of(
+                    org.apache.tinkerpop.gremlin.structure.util.reference.ReferenceFactory.detach(vertex),
+                    org.apache.tinkerpop.gremlin.structure.util.detached.DetachedFactory.detach(vertex, true))) {
+                Bytecode code = g.V(value).id().asAdmin().getBytecode();
+                Assert.assertEquals(List.of(1), policy.eval(code, new SimpleBindings(Map.of("g", g)), "g").toList());
+            }
+            Object property = org.apache.tinkerpop.gremlin.structure.util.detached.DetachedFactory
+                    .detach(vertex.property("name"), true);
+            Assert.assertEquals(List.of("marko"), policy.eval(g.inject(property).value().asAdmin().getBytecode(),
+                    new SimpleBindings(Map.of("g", g)), "g").toList());
+        }
+    }
+
+    @Test
     public void testCacheWithEmptyMixedAndChangedData() throws Exception {
         try (PolicyScriptEngine engine = new PolicyScriptEngine(ScriptExecutionProfile.QUERY)) {
             String source = "xs.collect { it * 2 }";

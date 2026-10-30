@@ -26,9 +26,13 @@ import org.codehaus.groovy.ast.expr.ArgumentListExpression;
 import org.codehaus.groovy.ast.expr.BinaryExpression;
 import org.codehaus.groovy.ast.expr.ClosureExpression;
 import org.codehaus.groovy.ast.expr.ConstantExpression;
+import org.codehaus.groovy.ast.expr.ArrayExpression;
+import org.codehaus.groovy.ast.expr.ConstructorCallExpression;
 import org.codehaus.groovy.ast.expr.Expression;
 import org.codehaus.groovy.ast.expr.MethodCallExpression;
 import org.codehaus.groovy.ast.expr.PropertyExpression;
+import org.codehaus.groovy.ast.expr.RangeExpression;
+import org.codehaus.groovy.ast.expr.TupleExpression;
 import org.codehaus.groovy.ast.expr.StaticMethodCallExpression;
 import org.codehaus.groovy.classgen.GeneratorContext;
 import org.codehaus.groovy.control.CompilePhase;
@@ -39,6 +43,7 @@ import org.codehaus.groovy.syntax.Types;
 /** Replaces collection property projection with data-only access before static compilation. */
 final class ScriptDataSyntaxCustomizer extends CompilationCustomizer {
 
+    private static final Object CHECKED_NUMBER = new Object();
     ScriptDataSyntaxCustomizer() {
         super(CompilePhase.SEMANTIC_ANALYSIS);
     }
@@ -62,6 +67,55 @@ final class ScriptDataSyntaxCustomizer extends CompilationCustomizer {
 
             @Override
             public Expression transform(Expression expression) {
+                if (expression instanceof RangeExpression) {
+                    RangeExpression range = (RangeExpression) expression;
+                    if (this.emptyRange(range)) {
+                        return this.safeCall(expression, "emptyRange",
+                                new ArgumentListExpression(this.transform(range.getFrom())));
+                    }
+                    return this.safeCall(expression, "range", new ArgumentListExpression(java.util.List.of(
+                            this.transform(range.getFrom()), this.transform(range.getTo()),
+                            new ConstantExpression(range.isExclusiveLeft()),
+                            new ConstantExpression(range.isExclusiveRight()))));
+                }
+                if (expression instanceof ArrayExpression) {
+                    ArrayExpression array = (ArrayExpression) expression;
+                    if (array.getSizeExpression() != null && !array.getSizeExpression().isEmpty()) {
+                        if (array.getSizeExpression().size() != 1) {
+                            throw new SecurityException("SCRIPT_EXPRESSION_DENIED: multidimensional allocation");
+                        }
+                        array.getSizeExpression().set(0, this.safeCall(expression, "capacity",
+                                new ArgumentListExpression(this.transform(array.getSizeExpression().get(0)))));
+                    }
+                }
+                if (expression instanceof ConstructorCallExpression) {
+                    ConstructorCallExpression constructor = (ConstructorCallExpression) expression;
+                    String type = constructor.getType().getName();
+                    if (type.equals("groovy.lang.IntRange")) {
+                        return this.safeCall(expression, "intRange", this.transform(constructor.getArguments()));
+                    }
+                    if (Set.of("java.util.ArrayList", "java.util.LinkedList", "java.util.HashMap",
+                               "java.util.LinkedHashMap", "java.util.HashSet", "java.util.LinkedHashSet")
+                            .contains(type) &&
+                        constructor.getArguments() instanceof TupleExpression) {
+                        java.util.List<Expression> arguments =
+                                ((TupleExpression) constructor.getArguments()).getExpressions();
+                        if (!arguments.isEmpty()) {
+                            arguments.set(0, this.safeCall(expression, "constructorArgument",
+                                    new ArgumentListExpression(this.transform(arguments.get(0)))));
+                        }
+                    }
+                    if (Set.of("java.math.BigDecimal", "java.math.BigInteger").contains(type)) {
+                        return this.safeCall(expression, "checkedNumber",
+                                new ArgumentListExpression(super.transform(expression)));
+                    }
+                }
+                if (expression instanceof ConstantExpression && expression.getNodeMetaData(CHECKED_NUMBER) == null &&
+                    (((ConstantExpression) expression).getValue() instanceof java.math.BigDecimal ||
+                     ((ConstantExpression) expression).getValue() instanceof java.math.BigInteger)) {
+                    expression.putNodeMetaData(CHECKED_NUMBER, Boolean.TRUE);
+                    return this.safeCall(expression, "checkedNumber", new ArgumentListExpression(expression));
+                }
                 if (expression instanceof StaticMethodCallExpression) {
                     StaticMethodCallExpression call = (StaticMethodCallExpression) expression;
                     if (call.getOwnerType().getName().equals("groovy.json.JsonOutput") &&
@@ -106,6 +160,15 @@ final class ScriptDataSyntaxCustomizer extends CompilationCustomizer {
                 }
                 if (expression instanceof BinaryExpression) {
                     BinaryExpression binary = (BinaryExpression) expression;
+                    if (binary.getOperation().getType() == Types.LEFT_SQUARE_BRACKET &&
+                        binary.getRightExpression() instanceof RangeExpression &&
+                        this.emptyRange((RangeExpression) binary.getRightExpression())) {
+                        // Prefer Groovy's CharSequence/EmptyRange overload over String/Range.
+                        binary.setLeftExpression(this.safeCall(binary, "emptyRangeReceiver",
+                                new ArgumentListExpression(this.transform(binary.getLeftExpression()))));
+                        binary.setRightExpression(this.transform(binary.getRightExpression()));
+                        return binary;
+                    }
                     if (Set.of("==", "!=").contains(binary.getOperation().getText())) {
                         Expression equal = this.dataCall(binary, "equal", binary.getLeftExpression(),
                                                          binary.getRightExpression());
@@ -179,6 +242,22 @@ final class ScriptDataSyntaxCustomizer extends CompilationCustomizer {
                     }
                 }
                 return super.transform(expression);
+            }
+
+            private Expression safeCall(Expression original, String method, Expression arguments) {
+                StaticMethodCallExpression call = new StaticMethodCallExpression(
+                        ClassHelper.make(ScriptDataOperations.class), method, arguments);
+                call.setSourcePosition(original);
+                call.putNodeMetaData(ScriptTypeCheckingExtension.DATA_CALL, Boolean.TRUE);
+                return call;
+            }
+
+            private boolean emptyRange(RangeExpression range) {
+                return (range.isExclusiveLeft() || range.isExclusiveRight()) &&
+                       range.getFrom() instanceof ConstantExpression && range.getTo() instanceof ConstantExpression &&
+                       ((ConstantExpression) range.getFrom()).getValue() instanceof Comparable &&
+                       ((ConstantExpression) range.getFrom()).getValue()
+                               .equals(((ConstantExpression) range.getTo()).getValue());
             }
 
             private Expression transformLValue(Expression expression) {

@@ -56,6 +56,16 @@ public final class ScriptTypeCheckingExtension extends TypeCheckingExtension {
     public boolean beforeMethodCall(MethodCall call) {
         if (call instanceof StaticMethodCallExpression) {
             StaticMethodCallExpression method = (StaticMethodCallExpression) call;
+            if ("format".equals(method.getMethod()) && method.getOwnerType().getName().equals("java.lang.String")) {
+                method.setOwnerType(ClassHelper.make(ScriptDataOperations.class));
+                method.putNodeMetaData(DATA_CALL, Boolean.TRUE);
+            }
+            if ("valueOf".equals(method.getMethod()) &&
+                method.getOwnerType().getName().equals("java.math.BigDecimal") &&
+                ((TupleExpression) method.getArguments()).getExpressions().size() == 2) {
+                method.setOwnerType(ClassHelper.make(ScriptDataOperations.class));
+                method.putNodeMetaData(DATA_CALL, Boolean.TRUE);
+            }
             if ("toJson".equals(method.getMethod()) &&
                 method.getOwnerType().getName().equals("groovy.json.JsonOutput")) {
                 method.setOwnerType(ClassHelper.make(ScriptDataOperations.class));
@@ -65,6 +75,46 @@ public final class ScriptTypeCheckingExtension extends TypeCheckingExtension {
         if (call instanceof MethodCallExpression) {
             MethodCallExpression method = (MethodCallExpression) call;
             String name = method.getMethodAsString();
+            if ("format".equals(name) && method.getObjectExpression() instanceof ClassExpression &&
+                ((ClassExpression) method.getObjectExpression()).getType().getName().equals("java.lang.String")) {
+                method.setObjectExpression(new ClassExpression(ClassHelper.make(ScriptDataOperations.class)));
+                method.putNodeMetaData(DATA_CALL, Boolean.TRUE);
+            }
+            if ("valueOf".equals(name) && method.getObjectExpression() instanceof ClassExpression &&
+                ((ClassExpression) method.getObjectExpression()).getType().getName().equals("java.math.BigDecimal") &&
+                ((TupleExpression) method.getArguments()).getExpressions().size() == 2) {
+                method.setObjectExpression(new ClassExpression(ClassHelper.make(ScriptDataOperations.class)));
+                method.putNodeMetaData(DATA_CALL, Boolean.TRUE);
+            }
+            if (Set.of("repeat", "pow", "setScale", "padLeft", "padRight", "center", "multiply", "divide")
+                    .contains(name == null ? "" : name)) {
+                Expression original = method.getObjectExpression();
+                original.visit(this.typeCheckingVisitor);
+                ClassNode receiver = this.getType(original);
+                ClassNode element = receiver;
+                if (method.isSpreadSafe()) {
+                    if (receiver.isArray()) {
+                        element = receiver.getComponentType();
+                    } else if (receiver.getGenericsTypes() != null && receiver.getGenericsTypes().length > 0) {
+                        element = receiver.getGenericsTypes()[receiver.getGenericsTypes().length - 1].getType();
+                    }
+                }
+                boolean integer = element.getName().equals("java.math.BigInteger");
+                boolean decimal = element.getName().equals("java.math.BigDecimal");
+                boolean text = element.getName().equals("java.lang.String") ||
+                               element.implementsInterface(ClassHelper.make(CharSequence.class));
+                if (("repeat".equals(name) && text) ||
+                    (Set.of("pow", "multiply").contains(name) && (integer || decimal)) ||
+                    (Set.of("setScale", "divide").contains(name) && decimal) ||
+                    (Set.of("padLeft", "padRight", "center").contains(name) && text)) {
+                    StaticMethodCallExpression bounded = new StaticMethodCallExpression(
+                            ClassHelper.make(ScriptDataOperations.class),
+                            method.isSpreadSafe() ? "boundedValues" : "bounded", new ArgumentListExpression(original));
+                    bounded.setSourcePosition(original);
+                    bounded.putNodeMetaData(DATA_CALL, Boolean.TRUE);
+                    method.setObjectExpression(bounded);
+                }
+            }
             if ("toString".equals(name) && !method.isSpreadSafe() &&
                 this.getType(method.getObjectExpression()).equals(ClassHelper.OBJECT_TYPE) &&
                 method.getArguments() instanceof TupleExpression &&

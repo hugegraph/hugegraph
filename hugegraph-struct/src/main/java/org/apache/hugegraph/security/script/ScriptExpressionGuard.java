@@ -191,7 +191,10 @@ public final class ScriptExpressionGuard extends CompilationCustomizer {
                         }
                         boolean map = isMapType(receiver);
                         boolean sequence = receiver.isArray() || isListType(receiver) ||
-                                           receiver.getName().equals("java.lang.String");
+                                           receiver.getName().equals("java.lang.String") ||
+                                           (receiver.getName().equals("java.lang.CharSequence") &&
+                                            Boolean.TRUE.equals(expression.getLeftExpression().getNodeMetaData(
+                                                    ScriptTypeCheckingExtension.DATA_CALL)));
                         if (!map && (!sequence || index.getName().equals("java.lang.String") ||
                                      index.getName().equals("java.lang.Object"))) {
                             throw denied("only data containers support indexing");

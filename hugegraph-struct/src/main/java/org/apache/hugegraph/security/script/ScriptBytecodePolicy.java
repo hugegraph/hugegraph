@@ -18,6 +18,7 @@
 package org.apache.hugegraph.security.script;
 
 import java.util.Collection;
+import java.util.Iterator;
 import java.util.Map;
 import java.util.Set;
 
@@ -26,11 +27,25 @@ import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.TextP;
 import org.apache.tinkerpop.gremlin.process.traversal.Text;
 import org.apache.tinkerpop.gremlin.process.traversal.util.ConnectiveP;
+import org.apache.tinkerpop.gremlin.structure.Edge;
+import org.apache.tinkerpop.gremlin.structure.Element;
+import org.apache.tinkerpop.gremlin.structure.Property;
+import org.apache.tinkerpop.gremlin.structure.util.detached.DetachedEdge;
+import org.apache.tinkerpop.gremlin.structure.util.detached.DetachedProperty;
+import org.apache.tinkerpop.gremlin.structure.util.detached.DetachedVertex;
+import org.apache.tinkerpop.gremlin.structure.util.detached.DetachedVertexProperty;
+import org.apache.tinkerpop.gremlin.structure.util.reference.ReferenceEdge;
+import org.apache.tinkerpop.gremlin.structure.util.reference.ReferenceProperty;
+import org.apache.tinkerpop.gremlin.structure.util.reference.ReferenceVertex;
+import org.apache.tinkerpop.gremlin.structure.util.reference.ReferenceVertexProperty;
 import org.apache.tinkerpop.gremlin.util.function.Lambda;
 
 /** Checks native bytecode before the existing traversal processor interprets it. */
 public final class ScriptBytecodePolicy {
 
+    private static final Set<Class<?>> ELEMENT_TYPES = Set.of(
+            ReferenceVertex.class, ReferenceEdge.class, ReferenceVertexProperty.class, ReferenceProperty.class,
+            DetachedVertex.class, DetachedEdge.class, DetachedVertexProperty.class, DetachedProperty.class);
     private static final Set<String> PREDICATE_TYPES = Set.of(
             "org.apache.tinkerpop.gremlin.process.traversal.Compare",
             "org.apache.tinkerpop.gremlin.process.traversal.Contains",
@@ -136,6 +151,30 @@ public final class ScriptBytecodePolicy {
             if (!ENUM_TYPES.contains(type)) {
                 throw new IllegalArgumentException("SCRIPT_BYTECODE_ENUM_DENIED");
             }
+        } else if (value instanceof Element || value instanceof Property) {
+            // Client serializers use these data-only forms. Never call arbitrary provider accessors.
+            if (!ELEMENT_TYPES.contains(value.getClass())) {
+                throw new IllegalArgumentException("SCRIPT_BYTECODE_ELEMENT_DENIED");
+            }
+            if (value instanceof Element) {
+                Element element = (Element) value;
+                checkData(element.id(), depth + 1, count);
+                checkData(element.label(), depth + 1, count);
+                if (element instanceof Edge) {
+                    check(((Edge) element).outVertex(), depth + 1, count);
+                    check(((Edge) element).inVertex(), depth + 1, count);
+                }
+                Iterator<? extends Property<?>> properties = element.properties();
+                while (properties.hasNext()) {
+                    check(properties.next(), depth + 1, count);
+                }
+            }
+            if (value instanceof Property) {
+                Property<?> property = (Property<?>) value;
+                checkData(property.key(), depth + 1, count);
+                checkData(property.value(), depth + 1, count);
+                // Parent links point back to the vertex/edge; they are not property payloads.
+            }
         } else if (value instanceof Collection) {
             for (Object item : (Collection<?>) value) {
                 check(item, depth + 1, count);
@@ -152,5 +191,10 @@ public final class ScriptBytecodePolicy {
         } else {
             ScriptBindings.validateData(value);
         }
+    }
+
+    private static void checkData(Object value, int depth, int[] count) {
+        ScriptBindings.validateData(value);
+        check(value, depth, count);
     }
 }

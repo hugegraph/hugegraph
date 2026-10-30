@@ -27,6 +27,14 @@ import org.apache.hugegraph.security.script.ScriptBytecodePolicy;
 import org.apache.tinkerpop.gremlin.process.traversal.Bytecode;
 import org.apache.tinkerpop.gremlin.process.traversal.GraphOp;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
+import org.apache.tinkerpop.gremlin.structure.util.detached.DetachedFactory;
+import org.apache.tinkerpop.gremlin.structure.util.detached.DetachedProperty;
+import org.apache.tinkerpop.gremlin.structure.util.detached.DetachedVertex;
+import org.apache.tinkerpop.gremlin.structure.util.detached.DetachedVertexProperty;
+import org.apache.tinkerpop.gremlin.structure.util.reference.ReferenceFactory;
+import org.apache.tinkerpop.gremlin.structure.util.reference.ReferenceVertex;
+import org.apache.tinkerpop.gremlin.tinkergraph.structure.TinkerFactory;
+import org.apache.tinkerpop.gremlin.tinkergraph.structure.TinkerGraph;
 import org.apache.tinkerpop.gremlin.util.function.Lambda;
 import org.apache.tinkerpop.gremlin.util.message.RequestMessage;
 import org.apache.tinkerpop.gremlin.util.message.ResponseMessage;
@@ -175,6 +183,69 @@ public class ScriptRequestGuardTest {
             denied.addStep("inject", value);
             Assert.assertThrows(IllegalArgumentException.class, () -> ScriptBytecodePolicy.validate(denied));
         }
+    }
+
+    @Test
+    public void testNativeElementArgumentsReachTraversalProcessor() throws Exception {
+        try (TinkerGraph graph = TinkerFactory.createModern()) {
+            org.apache.tinkerpop.gremlin.structure.Vertex vertex = graph.vertices(1).next();
+            org.apache.tinkerpop.gremlin.structure.Edge edge = graph.edges().next();
+            for (Object value : List.of(ReferenceFactory.detach(vertex), DetachedFactory.detach(vertex, true),
+                    ReferenceFactory.detach(edge), DetachedFactory.detach(edge, true),
+                    ReferenceFactory.detach(vertex.property("name")),
+                    DetachedFactory.detach(vertex.property("name"), true), ReferenceFactory.detach(edge.property("weight")),
+                    DetachedFactory.detach(edge.property("weight")))) {
+                Bytecode code = new Bytecode();
+                code.addStep("inject", value);
+                EmbeddedChannel channel = new EmbeddedChannel(new ScriptRequestGuard(1000L));
+                try {
+                    RequestMessage request = RequestMessage.build("bytecode").processor("traversal")
+                            .addArg("gremlin", code).create();
+                    Assert.assertTrue(value.getClass().getName(), channel.writeInbound(request));
+                    RequestMessage forwarded = channel.readInbound();
+                    Assert.assertEquals(request.getRequestId(), forwarded.getRequestId());
+                    Assert.assertSame(code, forwarded.getArgs().get("gremlin"));
+                } finally {
+                    channel.finishAndReleaseAll();
+                }
+            }
+            Bytecode addEdge = new Bytecode();
+            addEdge.addStep("addE", "knows");
+            addEdge.addStep("from", ReferenceFactory.detach(vertex));
+            addEdge.addStep("to", DetachedFactory.detach(graph.vertices(2).next(), true));
+            ScriptBytecodePolicy.validate(addEdge);
+        }
+    }
+
+    @Test
+    public void testNativeElementPayloadsKeepDataAndStructureChecks() {
+        Object unsupported = new java.util.concurrent.atomic.AtomicInteger(1);
+        List<Object> cyclic = new ArrayList<>();
+        cyclic.add(cyclic);
+        for (Object element : List.of(
+                new ReferenceVertex(unsupported, "person"),
+                new DetachedProperty<>("bad", unsupported),
+                ReferenceFactory.detach(new DetachedProperty<>("bad", unsupported)),
+                new DetachedVertexProperty<>(1, "bad", cyclic, Map.of()),
+                new DetachedVertexProperty<>(1, "name", "ok", Map.of("meta", unsupported)),
+                new DetachedVertex(1, "person", List.of(new DetachedVertexProperty<>(2, "bad", unsupported, Map.of()))),
+                new DetachedProperty<>("bad", "x".repeat(32769)))) {
+            Bytecode code = new Bytecode();
+            code.addStep("inject", List.of(element));
+            Assert.assertThrows(element.getClass().getName(), IllegalArgumentException.class,
+                                () -> ScriptBytecodePolicy.validate(code));
+        }
+        java.util.concurrent.atomic.AtomicBoolean called = new java.util.concurrent.atomic.AtomicBoolean();
+        Bytecode custom = new Bytecode();
+        custom.addStep("inject", new ReferenceVertex(1, "person") {
+            @Override
+            public Object id() {
+                called.set(true);
+                return 1;
+            }
+        });
+        Assert.assertThrows(IllegalArgumentException.class, () -> ScriptBytecodePolicy.validate(custom));
+        Assert.assertFalse(called.get());
     }
 
     @Test
