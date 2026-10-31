@@ -652,9 +652,8 @@ initialized cluster the flags are inert and the authoritative values live
 in PD metadata, changeable only through PD's own config API. PD reconciles
 existing shard groups toward the stored value when a partition patrol is
 triggered (TaskScheduleService reallocShards). The empty-value derivation
-is 3 when store.replicas is at least 3, else 1, because PD clamps a shard
-count of 2 to 1 (two shards cannot elect a leader) and its config API
-accepts only odd values. store-max-shard-count is rendered only when set,
+is 3 when store.replicas is at least 3, else 1. PD requires an odd
+replica count and rejects allocations with insufficient eligible Stores. store-max-shard-count is rendered only when set,
 keeping the image default. All lookups tolerate absent keys so releases
 stored before these values existed keep rendering under --reuse-values.
 
@@ -963,9 +962,8 @@ and must not be failed for a value that has no effect.
 PD -D system properties must be empty or a positive integer. The schema
 enforces the types; these checks add a named failure for zero, negative, and
 nonsense values, and check an explicit shard count against PD's real
-constraints: PD's config API accepts only odd shard counts, PD clamps a
-count of 2 to 1 (two shards cannot elect a leader), and PD clamps the
-effective count to the number of live stores. All lookups tolerate absent
+constraints: PD accepts only positive odd shard counts and rejects
+placement when there are fewer eligible Stores than requested replicas. All lookups tolerate absent
 keys for releases stored before the values existed.
 */}}
 {{- $pdPartition := get .Values.pd "partition" | default dict -}}
@@ -980,10 +978,10 @@ keys for releases stored before the values existed.
 {{- $explicitShards := include "hugegraph.optionalScalar" (get $pdPartition "defaultShardCount") -}}
 {{- if regexMatch "^[1-9][0-9]*$" $explicitShards -}}
 {{- if eq (mod (int $explicitShards) 2) 0 -}}
-{{- fail "pd.partition.defaultShardCount must be odd: PD's config API rejects even shard counts, and PD clamps a bootstrap value of 2 to 1 because two shards cannot elect a leader" -}}
+{{- fail "pd.partition.defaultShardCount must be odd: PD rejects even shard counts because they cannot provide an odd voting majority" -}}
 {{- end -}}
 {{- if gt (int $explicitShards) (int .Values.store.replicas) -}}
-{{- fail "pd.partition.defaultShardCount is greater than store.replicas: PD would clamp the effective shard count to the number of live stores, so the extra replicas would silently never be placed. Raise store.replicas or lower the shard count" -}}
+{{- fail "pd.partition.defaultShardCount is greater than store.replicas: PD rejects placement without enough eligible Stores. Raise store.replicas or lower the shard count" -}}
 {{- end -}}
 {{- end -}}
 {{- $svc := get .Values.server "service" | default dict -}}
