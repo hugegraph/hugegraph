@@ -60,6 +60,22 @@ require_env "HG_STORE_RAFT_ADDRESS"
 : "${HG_STORE_GRPC_PORT:=8500}"
 : "${HG_STORE_REST_PORT:=8520}"
 : "${HG_STORE_DATA_PATH:=/hugegraph-store/storage}"
+: "${HG_STORE_ROCKSDB_TOTAL_MEMORY_SIZE:=}"
+
+# auto or a number of bytes: the Store refuses to start on anything else
+if [[ -n "${HG_STORE_ROCKSDB_TOTAL_MEMORY_SIZE}" &&
+      ! "${HG_STORE_ROCKSDB_TOTAL_MEMORY_SIZE}" =~ ^([0-9]+|auto)$ ]]; then
+    echo "ERROR: HG_STORE_ROCKSDB_TOTAL_MEMORY_SIZE must be auto or a number of bytes," \
+         "got '${HG_STORE_ROCKSDB_TOTAL_MEMORY_SIZE}'" >&2
+    exit 2
+fi
+
+# Only emitted when set: SPRING_APPLICATION_JSON outranks conf/application-pd.yml
+ROCKSDB_JSON=""
+if [[ -n "${HG_STORE_ROCKSDB_TOTAL_MEMORY_SIZE}" ]]; then
+    ROCKSDB_JSON=",
+  \"rocksdb\":  { \"total_memory_size\": \"${HG_STORE_ROCKSDB_TOTAL_MEMORY_SIZE}\" }"
+fi
 
 # Preserve mounted business configuration in the ordinary image. An explicitly
 # selected runtime (including the Topling image's default) configures both sides.
@@ -77,7 +93,7 @@ SPRING_APPLICATION_JSON="$(cat <<JSON
                 "port": "$(json_escape "${HG_STORE_GRPC_PORT}")" },
   "raft":     { "address": "$(json_escape "${HG_STORE_RAFT_ADDRESS}")" },
   "server":   { "port": "$(json_escape "${HG_STORE_REST_PORT}")" },
-  "app":      { "data-path": "$(json_escape "${HG_STORE_DATA_PATH}")" }
+  "app":      { "data-path": "$(json_escape "${HG_STORE_DATA_PATH}")" }${ROCKSDB_JSON}
 }
 JSON
 )"
@@ -95,5 +111,6 @@ log "  grpc.port=${HG_STORE_GRPC_PORT}"
 log "  raft.address=${HG_STORE_RAFT_ADDRESS}"
 log "  server.port=${HG_STORE_REST_PORT}"
 log "  app.data-path=${HG_STORE_DATA_PATH}"
+log "  rocksdb.total_memory_size=${HG_STORE_ROCKSDB_TOTAL_MEMORY_SIZE:-<from config>}"
 
 ./bin/start-hugegraph-store.sh -d false -j "${JAVA_OPTS:-}"

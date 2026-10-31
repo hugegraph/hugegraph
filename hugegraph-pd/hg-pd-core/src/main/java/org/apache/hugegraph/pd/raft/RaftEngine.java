@@ -463,6 +463,10 @@ public class RaftEngine {
         this.stateMachine.addTaskHandler(handler);
     }
 
+    public void removeTaskHandler(RaftTaskHandler handler) {
+        this.stateMachine.removeTaskHandler(handler);
+    }
+
     public PDConfig.Raft getConfig() {
         return this.config;
     }
@@ -569,13 +573,15 @@ public class RaftEngine {
             builder.setRole(role);
 
             try {
-                if (future.isCompletedExceptionally()) {
-                    log.error("failed to getGrpcAddress of {}", peerId.getEndpoint().toString());
+                RaftRpcProcessor.GetMemberResponse response =
+                        future.get(config.getRpcTimeout(), TimeUnit.MILLISECONDS);
+                if (response == null) {
+                    log.error("failed to getGrpcAddress of {}, null response",
+                              peerId.getEndpoint().toString());
                     builder.setState(Metapb.StoreState.Offline);
                     builder.setRaftUrl(peerId.getEndpoint().toString());
                     members.add(builder.build());
                 } else {
-                    RaftRpcProcessor.GetMemberResponse response = future.get();
                     builder.setState(Metapb.StoreState.Up);
                     builder.setRaftUrl(response.getRaftAddress());
                     builder.setDataPath(response.getDatePath());
