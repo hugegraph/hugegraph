@@ -35,6 +35,7 @@ import org.apache.hugegraph.struct.schema.VertexLabel;
 import org.apache.hugegraph.type.define.EdgeLabelType;
 import org.apache.hugegraph.type.define.Frequency;
 import org.apache.hugegraph.type.define.SchemaStatus;
+import org.apache.hugegraph.util.LockUtil;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.Assert;
@@ -42,6 +43,8 @@ import org.junit.Test;
 import org.mockito.Mockito;
 
 public class GraphSchemaCloneTest {
+
+    private static final String PARENT_COPY_GRAPH = "DEFAULT-parent-copy";
 
     @Test
     public void testEdgeLabelsAreRejectedBeforeTargetCreation() {
@@ -121,6 +124,7 @@ public class GraphSchemaCloneTest {
         Mockito.verify(manager, Mockito.never()).dropGraph(Mockito.anyString(),
                                                           Mockito.anyString(), Mockito.anyBoolean());
     }
+
     @Test
     public void testFailedIndexCannotProduceSuccessfulClone() {
         GraphManager manager = Mockito.mock(GraphManager.class, Mockito.CALLS_REAL_METHODS);
@@ -146,7 +150,7 @@ public class GraphSchemaCloneTest {
     public void testSingleParentCreateIgnoresDerivedFields() {
         ISchemaTransaction transaction = Mockito.mock(ISchemaTransaction.class);
         HugeGraph graph = Mockito.mock(HugeGraph.class);
-        Mockito.when(graph.spaceGraphName()).thenReturn("DEFAULT-parent-copy");
+        Mockito.when(graph.spaceGraphName()).thenReturn(PARENT_COPY_GRAPH);
 
         Id sourceId = IdGenerator.of(1L);
         Id targetId = IdGenerator.of(2L);
@@ -176,14 +180,14 @@ public class GraphSchemaCloneTest {
         builder.singleTime();
         builder.ifNotExist();
 
-        Assert.assertSame(existed, builder.create());
+        Assert.assertSame(existed, createWithLocks(builder));
     }
 
     @Test
     public void testMultiParentCreateIgnoresOnlyDerivedLinks() {
         ISchemaTransaction transaction = Mockito.mock(ISchemaTransaction.class);
         HugeGraph graph = Mockito.mock(HugeGraph.class);
-        Mockito.when(graph.spaceGraphName()).thenReturn("DEFAULT-parent-copy");
+        Mockito.when(graph.spaceGraphName()).thenReturn(PARENT_COPY_GRAPH);
 
         Id sourceId = IdGenerator.of(1L);
         Id targetId = IdGenerator.of(2L);
@@ -219,7 +223,15 @@ public class GraphSchemaCloneTest {
         builder.sortKeys("time");
         builder.ifNotExist();
 
-        Assert.assertSame(existed, builder.create());
+        Assert.assertSame(existed, createWithLocks(builder));
     }
 
+    private static EdgeLabel createWithLocks(EdgeLabelBuilder builder) {
+        LockUtil.init(PARENT_COPY_GRAPH);
+        try {
+            return builder.create();
+        } finally {
+            LockUtil.destroy(PARENT_COPY_GRAPH);
+        }
+    }
 }
