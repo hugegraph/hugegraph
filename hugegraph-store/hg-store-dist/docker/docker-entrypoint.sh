@@ -71,17 +71,24 @@ if [[ -n "${HG_STORE_ROCKSDB_TOTAL_MEMORY_SIZE}" &&
 fi
 
 # Only emitted when set: SPRING_APPLICATION_JSON outranks conf/application-pd.yml
-ROCKSDB_JSON=""
-if [[ -n "${HG_STORE_ROCKSDB_TOTAL_MEMORY_SIZE}" ]]; then
-    ROCKSDB_JSON=",
-  \"rocksdb\":  { \"total_memory_size\": \"${HG_STORE_ROCKSDB_TOTAL_MEMORY_SIZE}\" }"
-fi
-
-# Preserve mounted business configuration in the ordinary image. An explicitly
-# selected runtime (including the Topling image's default) configures both sides.
-ROCKSDB_JSON=""
+#
+# Two independent sources contribute to one rocksdb object: the runtime variant
+# (provider) and the memory budget. They must be merged into a single object --
+# emitting two "rocksdb" members produces duplicate keys and a trailing comma,
+# which Spring rejects with a JsonParseException at startup.
+ROCKSDB_ENTRIES=""
 if [[ -n "${TOPLINGDB_ROCKSDB_PROVIDER:-}" ]]; then
-    ROCKSDB_JSON="\"rocksdb\": { \"provider\": \"${ROCKSDB_PROVIDER}\" },"
+    ROCKSDB_ENTRIES="\"provider\": \"${ROCKSDB_PROVIDER}\""
+fi
+if [[ -n "${HG_STORE_ROCKSDB_TOTAL_MEMORY_SIZE}" ]]; then
+    if [[ -n "${ROCKSDB_ENTRIES}" ]]; then
+        ROCKSDB_ENTRIES="${ROCKSDB_ENTRIES}, "
+    fi
+    ROCKSDB_ENTRIES="${ROCKSDB_ENTRIES}\"total_memory_size\": \"${HG_STORE_ROCKSDB_TOTAL_MEMORY_SIZE}\""
+fi
+ROCKSDB_JSON=""
+if [[ -n "${ROCKSDB_ENTRIES}" ]]; then
+    ROCKSDB_JSON="\"rocksdb\": { ${ROCKSDB_ENTRIES} },"
 fi
 
 # ── Build SPRING_APPLICATION_JSON ─────────────────────────────────────
@@ -93,7 +100,7 @@ SPRING_APPLICATION_JSON="$(cat <<JSON
                 "port": "$(json_escape "${HG_STORE_GRPC_PORT}")" },
   "raft":     { "address": "$(json_escape "${HG_STORE_RAFT_ADDRESS}")" },
   "server":   { "port": "$(json_escape "${HG_STORE_REST_PORT}")" },
-  "app":      { "data-path": "$(json_escape "${HG_STORE_DATA_PATH}")" }${ROCKSDB_JSON}
+  "app":      { "data-path": "$(json_escape "${HG_STORE_DATA_PATH}")" }
 }
 JSON
 )"
