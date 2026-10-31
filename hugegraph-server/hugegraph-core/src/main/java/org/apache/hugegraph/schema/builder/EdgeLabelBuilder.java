@@ -104,7 +104,12 @@ public class EdgeLabelBuilder extends AbstractBuilder
         }
         this.frequency = copy.frequency();
         this.properties = mapPkId2Name(origin, copy.properties());
-        this.sortKeys = mapPkId2Name(origin, copy.sortKeys());
+        // A SINGLE parent may acquire sort keys from a MULTIPLE child. They
+        // cannot be supplied while recreating the SINGLE parent; creating the
+        // children will restore those derived keys. MULTIPLE parents have
+        // their own required sort keys, which must be preserved.
+        this.sortKeys = copy.edgeLabelType().parent() && copy.frequency() != Frequency.MULTIPLE ?
+                        new ArrayList<>() : mapPkId2Name(origin, copy.sortKeys());
         this.nullableKeys = mapPkId2Name(origin, copy.nullableKeys());
         this.ttl = copy.ttl();
         this.ttlStartTime = copy.ttlStartTimeName();

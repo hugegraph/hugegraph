@@ -1064,9 +1064,12 @@ before its builder can schedule the rebuild.
 
 ## Create a graph with a copied schema
 
+With Server API version 0.73 or newer,
 `POST /graphspaces/{space}/graphs/{target}/schema-clone?source={source}` creates a
 new graph in the same graph space and synchronously copies the source's property
-keys, vertex labels, edge labels, and indexes. The JSON body may contain a
+keys, vertex labels, and indexes. Sources with any edge label are rejected before
+creating the target: some schema stores do not preserve the hierarchy metadata
+needed to copy edge labels safely. The JSON body may contain a
 `nickname` string. HTTP 201 confirms schema copying completed; graph vertices and
 edges are not copied. Stop changes to the source schema for the duration of the
 operation. If copying fails after graph creation, the target may be visible with a

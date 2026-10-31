@@ -1376,6 +1376,12 @@ public final class GraphManager {
         E.checkArgumentNotNull(sourceGraph,
                                "The clone source graph '%s' doesn't exist in graphspace '%s'",
                                source, graphspace);
+        SchemaManager sourceSchema = sourceGraph.schema();
+        // Some schema stores do not persist edge-label hierarchy metadata. A
+        // normal label cannot then be distinguished from a parent or child.
+        // Refuse all edge labels until the storage contract can prove fidelity.
+        E.checkArgument(sourceSchema.getEdgeLabels().isEmpty(),
+                        "Schema cloning does not currently support graphs with edge labels");
         Map<String, Object> overrides = new HashMap<>();
         // A source template may have changed since it was applied. Copy the actual schema.
         overrides.put(CoreOptions.SCHEMA_INIT_TEMPLATE.name(), "");
@@ -1388,7 +1394,9 @@ public final class GraphManager {
         HugeGraph graph = this.cloneGraph(graphspace, source, target, overrides);
         try {
             SchemaManager schema = graph.schema();
-            schema.copyFrom(sourceGraph.schema());
+            schema.copyFromWithoutEdges(sourceSchema);
+            E.checkState(sourceSchema.getEdgeLabels().isEmpty(),
+                         "Source edge labels changed during schema cloning");
             // Synchronous builders wait for tasks, but a completed task can have failed.
             checkCopiedSchema(schema.getPropertyKeys());
             checkCopiedSchema(schema.getVertexLabels());
