@@ -233,11 +233,21 @@ public class EdgeLabelBuilder extends AbstractBuilder
      */
     private boolean hasSameProperties(EdgeLabel existedEdgeLabel) {
         HugeGraph graph = this.graph();
-        for (Pair<Id, Id> link : existedEdgeLabel.links()) {
-            String sourceName = graph.vertexLabel(link.getLeft()).name();
-            String targetName = graph.vertexLabel(link.getRight()).name();
-            if (!this.links.contains(Pair.of(sourceName, targetName))) {
+        boolean parent = this.edgeLabelType.parent() &&
+                         existedEdgeLabel.edgeLabelType().parent();
+        if (parent) {
+            // Parent links are derived from sub-labels and are not supplied
+            // while recreating the parent itself.
+            if (!this.links.isEmpty()) {
                 return false;
+            }
+        } else {
+            for (Pair<Id, Id> link : existedEdgeLabel.links()) {
+                String sourceName = graph.vertexLabel(link.getLeft()).name();
+                String targetName = graph.vertexLabel(link.getRight()).name();
+                if (!this.links.contains(Pair.of(sourceName, targetName))) {
+                    return false;
+                }
             }
         }
 
@@ -270,14 +280,21 @@ public class EdgeLabelBuilder extends AbstractBuilder
             }
         }
 
-        List<Id> existedSortKeys = existedEdgeLabel.sortKeys();
-        if (this.sortKeys.size() != existedSortKeys.size()) {
-            return false;
-        }
-        for (String key : this.sortKeys) {
-            PropertyKey propertyKey = graph.propertyKey(key);
-            if (!existedSortKeys.contains(propertyKey.id())) {
+        // A SINGLE parent may acquire sort keys from a MULTIPLE child. The
+        // empty builder value represents those derived keys. MULTIPLE parent
+        // sort keys are explicit and must still match strictly.
+        boolean derivedSortKeys = parent && this.sortKeys.isEmpty() &&
+                                  existedEdgeLabel.frequency() == Frequency.SINGLE;
+        if (!derivedSortKeys) {
+            List<Id> existedSortKeys = existedEdgeLabel.sortKeys();
+            if (this.sortKeys.size() != existedSortKeys.size()) {
                 return false;
+            }
+            for (String key : this.sortKeys) {
+                PropertyKey propertyKey = graph.propertyKey(key);
+                if (!existedSortKeys.contains(propertyKey.id())) {
+                    return false;
+                }
             }
         }
 

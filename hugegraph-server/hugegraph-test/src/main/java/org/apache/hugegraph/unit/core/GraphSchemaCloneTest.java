@@ -17,13 +17,23 @@
 
 package org.apache.hugegraph.unit.core;
 
+import java.util.Collections;
+
+import org.apache.commons.lang3.tuple.Pair;
 import org.apache.hugegraph.HugeGraph;
 import org.apache.hugegraph.backend.tx.ISchemaTransaction;
 import org.apache.hugegraph.core.GraphManager;
 import org.apache.hugegraph.exception.HugeException;
+import org.apache.hugegraph.id.Id;
+import org.apache.hugegraph.id.IdGenerator;
 import org.apache.hugegraph.schema.SchemaManager;
-import org.apache.hugegraph.struct.schema.IndexLabel;
+import org.apache.hugegraph.schema.builder.EdgeLabelBuilder;
 import org.apache.hugegraph.struct.schema.EdgeLabel;
+import org.apache.hugegraph.struct.schema.IndexLabel;
+import org.apache.hugegraph.struct.schema.PropertyKey;
+import org.apache.hugegraph.struct.schema.VertexLabel;
+import org.apache.hugegraph.type.define.EdgeLabelType;
+import org.apache.hugegraph.type.define.Frequency;
 import org.apache.hugegraph.type.define.SchemaStatus;
 
 import com.google.common.collect.ImmutableList;
@@ -130,6 +140,86 @@ public class GraphSchemaCloneTest {
                 () -> manager.cloneGraphSchema("DEFAULT", "source", "target", "copy", "admin"));
         Assert.assertTrue(failure.getMessage().contains("partially created"));
         Assert.assertNull(failure.getCause());
+    }
+
+    @Test
+    public void testSingleParentCreateIgnoresDerivedFields() {
+        ISchemaTransaction transaction = Mockito.mock(ISchemaTransaction.class);
+        HugeGraph graph = Mockito.mock(HugeGraph.class);
+        Mockito.when(graph.spaceGraphName()).thenReturn("DEFAULT-parent-copy");
+
+        Id sourceId = IdGenerator.of(1L);
+        Id targetId = IdGenerator.of(2L);
+        Id sortKeyId = IdGenerator.of(3L);
+        VertexLabel source = Mockito.mock(VertexLabel.class);
+        VertexLabel target = Mockito.mock(VertexLabel.class);
+        Mockito.when(source.name()).thenReturn("person");
+        Mockito.when(target.name()).thenReturn("software");
+        Mockito.when(graph.vertexLabel(sourceId)).thenReturn(source);
+        Mockito.when(graph.vertexLabel(targetId)).thenReturn(target);
+
+        EdgeLabel existed = Mockito.mock(EdgeLabel.class);
+        Mockito.when(existed.edgeLabelType()).thenReturn(EdgeLabelType.PARENT);
+        Mockito.when(existed.links())
+               .thenReturn(Collections.singleton(Pair.of(sourceId, targetId)));
+        Mockito.when(existed.frequency()).thenReturn(Frequency.SINGLE);
+        Mockito.when(existed.enableLabelIndex()).thenReturn(true);
+        Mockito.when(existed.properties()).thenReturn(Collections.emptySet());
+        Mockito.when(existed.sortKeys())
+               .thenReturn(Collections.singletonList(sortKeyId));
+        Mockito.when(existed.nullableKeys()).thenReturn(Collections.emptySet());
+        Mockito.when(transaction.getEdgeLabel("singleParent")).thenReturn(existed);
+
+        EdgeLabelBuilder builder = new EdgeLabelBuilder(transaction, graph,
+                                                        "singleParent");
+        builder.asBase();
+        builder.singleTime();
+        builder.ifNotExist();
+
+        Assert.assertSame(existed, builder.create());
+    }
+
+    @Test
+    public void testMultiParentCreateIgnoresOnlyDerivedLinks() {
+        ISchemaTransaction transaction = Mockito.mock(ISchemaTransaction.class);
+        HugeGraph graph = Mockito.mock(HugeGraph.class);
+        Mockito.when(graph.spaceGraphName()).thenReturn("DEFAULT-parent-copy");
+
+        Id sourceId = IdGenerator.of(1L);
+        Id targetId = IdGenerator.of(2L);
+        Id sortKeyId = IdGenerator.of(3L);
+        VertexLabel source = Mockito.mock(VertexLabel.class);
+        VertexLabel target = Mockito.mock(VertexLabel.class);
+        PropertyKey sortKey = Mockito.mock(PropertyKey.class);
+        Mockito.when(source.name()).thenReturn("person");
+        Mockito.when(target.name()).thenReturn("software");
+        Mockito.when(sortKey.id()).thenReturn(sortKeyId);
+        Mockito.when(graph.vertexLabel(sourceId)).thenReturn(source);
+        Mockito.when(graph.vertexLabel(targetId)).thenReturn(target);
+        Mockito.when(graph.propertyKey("time")).thenReturn(sortKey);
+
+        EdgeLabel existed = Mockito.mock(EdgeLabel.class);
+        Mockito.when(existed.edgeLabelType()).thenReturn(EdgeLabelType.PARENT);
+        Mockito.when(existed.links())
+               .thenReturn(Collections.singleton(Pair.of(sourceId, targetId)));
+        Mockito.when(existed.frequency()).thenReturn(Frequency.MULTIPLE);
+        Mockito.when(existed.enableLabelIndex()).thenReturn(true);
+        Mockito.when(existed.properties())
+               .thenReturn(Collections.singleton(sortKeyId));
+        Mockito.when(existed.sortKeys())
+               .thenReturn(Collections.singletonList(sortKeyId));
+        Mockito.when(existed.nullableKeys()).thenReturn(Collections.emptySet());
+        Mockito.when(transaction.getEdgeLabel("multiParent")).thenReturn(existed);
+
+        EdgeLabelBuilder builder = new EdgeLabelBuilder(transaction, graph,
+                                                        "multiParent");
+        builder.asBase();
+        builder.multiTimes();
+        builder.properties("time");
+        builder.sortKeys("time");
+        builder.ifNotExist();
+
+        Assert.assertSame(existed, builder.create());
     }
 
 }
