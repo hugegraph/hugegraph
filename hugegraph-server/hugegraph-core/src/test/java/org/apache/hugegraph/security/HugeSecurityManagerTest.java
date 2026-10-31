@@ -155,4 +155,35 @@ public class HugeSecurityManagerTest {
             Assert.assertTrue(e.toString(), e.toString().contains(message));
         }
     }
+
+    @Test
+    public void testUnrelatedPermissionDoesNotCaptureStack() {
+        HugeSecurityManager.resetStackCapturesForTest();
+        new HugeSecurityManager().checkPermission(new RuntimePermission("setIO"));
+        Assert.assertEquals(0, HugeSecurityManager.stackCapturesForTest());
+    }
+
+    @Test
+    public void testNonGremlinWorkerDoesNotCaptureStack() {
+        String previous = Thread.currentThread().getName();
+        HugeSecurityManager.resetStackCapturesForTest();
+        try {
+            Thread.currentThread().setName("main");
+            new HugeSecurityManager().checkAccess(Thread.currentThread());
+            Assert.assertEquals(0, HugeSecurityManager.stackCapturesForTest());
+        } finally {
+            Thread.currentThread().setName(previous);
+        }
+    }
+
+    @Test
+    public void testGremlinWorkerReusesOneSnapshotForAllHelpers() {
+        String previous = Thread.currentThread().getName();
+        try {
+            Thread.currentThread().setName("gremlin-server-exec-reuse");
+            Assert.assertEquals(1, HugeSecurityManager.captureCountRunningAllHelpers());
+        } finally {
+            Thread.currentThread().setName(previous);
+        }
+    }
 }

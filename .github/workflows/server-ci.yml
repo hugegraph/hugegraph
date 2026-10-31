@@ -104,7 +104,9 @@ jobs:
 
       - name: Test CI policy and deployment checks
         if: ${{ !cancelled() && steps.checkout.outcome == 'success' }}
-        run: python3 -m unittest discover -s .github/scripts -p 'test_*.py'
+        run: |
+          python3 -m unittest discover -s .github/scripts -p 'test_*.py'
+          python3 -m unittest discover -s install-dist/scripts/script-policy -p 'test_*.py'
 
       - name: Check Helm chart
         if: ${{ !cancelled() && steps.checkout.outcome == 'success' && steps.select.outputs.helm == 'true' }}
