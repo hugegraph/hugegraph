@@ -59,7 +59,7 @@ An unreviewed new overload still prevents policy initialization.
 
 ## Local data operations and budgets
 
-The compiler routes repetition, padding, formatting, powers and selected decimal
+The compiler routes concatenation, repetition, padding, formatting, powers and selected decimal
 operations through bounded helpers. Repetition output, initial collection capacity,
 one-dimensional array length and range cardinality are capped at 65,536 units.
 Power checks estimate integer bit growth; decimal checks bound precision and
@@ -71,6 +71,15 @@ Ordinary small calls retain their result types. Receiver bridges preserve safe
 navigation and spread evaluation, including null elements and argument side
 effects. Range creation and slicing retain Groovy's range implementations. Custom
 collection load factors and dynamic multidimensional array allocation are rejected.
+
+Concatenation checks the estimated output size before copying text, arrays or
+collections. The bridge retains Groovy's selected overload, including null string
+receivers, single-element Object arguments and primitive-array conversion. Typed
+integer powers check magnitude growth before Groovy can allocate a BigInteger;
+the generic Number power path retains its floating-point conversion behavior.
+Text preflight counts repeated aliases on each rendered occurrence and limits
+visitation before native formatting. Groovy owns compound-assignment lvalue
+memoization, including receiver and subscript evaluation.
 
 The execution deadline is cooperative: checks cover script loops, closures,
 bounded helper iterations and result consumption. These checks cannot forcibly

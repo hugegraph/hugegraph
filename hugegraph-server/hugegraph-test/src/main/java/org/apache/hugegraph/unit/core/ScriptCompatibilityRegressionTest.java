@@ -33,6 +33,126 @@ import org.junit.Test;
 public class ScriptCompatibilityRegressionTest {
 
     @Test
+    public void testConcatenationBudgetsAcrossProfiles() throws Exception {
+        for (ScriptExecutionProfile profile : ScriptExecutionProfile.values()) {
+            try (PolicyScriptEngine engine = new PolicyScriptEngine(profile)) {
+                for (String source : List.of(
+                        "String s=null; s.plus('x') == 'nullx' && s+null == 'nullnull'",
+                        "String s=null; int n=0; s?.plus(n++); n == 0",
+                        "int n=0; def r=['a',null,'b']*.plus(n++); n == 2 && r == ['a0',null,'b1']",
+                        "def f(Object rhs) { List<Object> a=[1]; a+rhs }; f([2,3]) == [1,[2,3]]",
+                        "def f(Object rhs) { List<Object> a=[1]; a.plus(rhs) }; f([2,3]) == [1,[2,3]]",
+                        "def f(Object rhs) { Object[] a=[1]; a+rhs }; f([2,3]) == ([1,[2,3]] as Object[])",
+                        "def x='v'; [a:1]+\"${x}\" == '[a:1]v' && 1+\"${x}\" == '1v'",
+                        "([1,2] as Set) + [2,3] == ([1,2,3] as Set)",
+                        "([1] as Integer[]) + ([2,3] as Integer[]) == ([1,2,3] as Integer[])",
+                        "Object[] a=[1]; int[] b=[2,3]; a+b == ([1,2,3] as Object[])",
+                        "Object[] a=[1]; int[] b=[2,3]; a.plus(b) == ([1,2,3] as Object[])",
+                        "[1,3].plus(1,[2]) == [1,2,3]",
+                        "def f() { 'a'+'b' }; def g={ f()+'c' }; g() == 'abc'",
+                        "Iterator<String> a=['a',null,'b'].iterator(); a*.plus('x') == ['ax',null,'bx']",
+                        "def a=['a']; def x=(a[0]+='b'); x=='ab' && a==['ab']",
+                        "def a=['a']; a[0]+=(a[0]='z'); a==['az']",
+                        "def a=[x:'a']; a.x+=(a.x='z'); a.x=='az'",
+                        "def a=['a']; int n=0; int k=0; def r={n++;a}; def i={k++;0}; " +
+                        "r()[i()]+='b'; n==1 && k==1 && a==['ab']",
+                        "def l=['x'.repeat(30000)]; def s=\"$l$l\"; (s+'').length()==60004",
+                        "'x'.repeat(32768) + 'x'.repeat(32768) == 'x'.repeat(65536)")) {
+                    Assert.assertEquals(profile + ": " + source, true, engine.eval(source, new SimpleBindings()));
+                }
+                for (String source : List.of(
+                        "def s='x'.repeat(32769); s += s; true",
+                        "def s='x'.repeat(32769); s = s+s; true",
+                        "def s='x'.repeat(32769); s.plus(s); true",
+                        "def a=['x'.repeat(32769)]; a[0]+=a[0]; true",
+                        "def a=[x:'x'.repeat(32769)]; a.x+=a.x; true",
+                        "Iterator<String> a=['x'.repeat(32769)].iterator(); a*.plus('x'.repeat(32769)); true",
+                        "def l=['x'.repeat(30000)]; def s=\"$l$l$l\"; s+''; true",
+                        "def l=['x'.repeat(30000)]; def a=[l,l,l]; ''+a; true",
+                        "def f={ def s='x'.repeat(32769); s+s }; f(); true",
+                        "def a=(0..32768).toList(); a += a; true",
+                        "def a=(0..32768).toList(); a+a; true",
+                        "def a=new Integer[32769]; a+a; true",
+                        "def a=(0..32768).toList(); a.plus(0,a); true")) {
+                    assertAllocationDenied(engine, profile, source);
+                }
+            }
+        }
+    }
+
+    @Test
+    public void testNativeIterableConcatenation() throws Exception {
+        try (org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversalSource g =
+                     org.apache.tinkerpop.gremlin.structure.util.empty.EmptyGraph.instance().traversal();
+             PolicyScriptEngine engine = new PolicyScriptEngine(ScriptExecutionProfile.QUERY)) {
+            for (String source : List.of(
+                    "def p=g.inject(1).path().next(); List<Object> b=[2]; p+b == [1,2]",
+                    "def p=g.inject(1).path().next(); List<Object> b=[2]; p.plus(b) == [1,2]")) {
+                Assert.assertEquals(source, true, engine.eval(source, new SimpleBindings(Map.of("g", g))));
+            }
+        }
+    }
+
+    @Test
+    public void testPowerBudgetsPreserveNumericDispatch() throws Exception {
+        Assert.assertEquals(Double.POSITIVE_INFINITY, ScriptDataOperations.power(9223372036854775807L, 1041));
+        for (ScriptExecutionProfile profile : ScriptExecutionProfile.values()) {
+            try (PolicyScriptEngine engine = new PolicyScriptEngine(profile)) {
+                for (String source : List.of("2 ** 8 == 256", "2L ** 8 == 256L", "2 ** 40 == 1099511627776G",
+                        "def x=1E-60000G; x **= 2; x == 0",
+                        "def f(Object x) { x ** -1 }; f(BigDecimal.TEN) == 0.1G")) {
+                    Assert.assertEquals(profile + ": " + source, true, engine.eval(source, new SimpleBindings()));
+                }
+                for (String source : List.of("def x=9223372036854775807L; x ** 1041; true",
+                        "def x=2147483647; x ** 2115; true",
+                        "def f={ Long x=9223372036854775807L; x ** 1041 }; f(); true")) {
+                    assertAllocationDenied(engine, profile, source);
+                }
+            }
+        }
+    }
+
+    private static void assertAllocationDenied(PolicyScriptEngine engine, ScriptExecutionProfile profile,
+                                               String source) {
+        ScriptException error = Assert.assertThrows(profile + ": " + source, ScriptException.class,
+                () -> engine.eval(source, new SimpleBindings()));
+        Throwable cause = error;
+        while (cause != null && !String.valueOf(cause.getMessage()).contains("SCRIPT_DATA_ALLOCATION_LIMIT")) {
+            cause = cause.getCause();
+        }
+        Assert.assertNotNull(profile + ": " + source + " -> " + error, cause);
+    }
+
+    @Test
+    public void testRejectedConcatenationClosesItsCursor() {
+        java.util.concurrent.atomic.AtomicInteger closed = new java.util.concurrent.atomic.AtomicInteger();
+        org.apache.tinkerpop.gremlin.structure.util.CloseableIterator<String> cursor =
+                new org.apache.tinkerpop.gremlin.structure.util.CloseableIterator<>() {
+                    @Override
+                    public boolean hasNext() {
+                        return true;
+                    }
+
+                    @Override
+                    public String next() {
+                        return "x";
+                    }
+
+                    @Override
+                    public void close() {
+                        closed.incrementAndGet();
+                        throw new IllegalStateException("close failure");
+                    }
+                };
+        Iterable<String> items = () -> cursor;
+        IllegalArgumentException error = Assert.assertThrows(IllegalArgumentException.class, () ->
+                ScriptDataOperations.plus(List.of("x"), items, List.class, Iterable.class));
+        Assert.assertEquals("SCRIPT_DATA_ALLOCATION_LIMIT", error.getMessage());
+        Assert.assertEquals(1, closed.get());
+        Assert.assertEquals(1, error.getSuppressed().length);
+    }
+
+    @Test
     public void testRejectedSpreadClosesItsCursor() {
         java.util.concurrent.atomic.AtomicInteger closed = new java.util.concurrent.atomic.AtomicInteger();
         org.apache.tinkerpop.gremlin.structure.util.CloseableIterator<String> cursor =

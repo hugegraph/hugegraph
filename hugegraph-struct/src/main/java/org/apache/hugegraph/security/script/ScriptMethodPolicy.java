@@ -123,15 +123,16 @@ public final class ScriptMethodPolicy {
         }
         this.allow("java.util.Iterator", "hasNext", "next");
         this.allow(ScriptDataOperations.class.getName(), "plus", "minus", "multiply", "div", "mod",
-                   "power", "compareTo", "equal", "propertyMap", "collect", "getAt", "getAtSafe", "project",
+                   "power", "integerPower", "compareTo", "equal", "propertyMap", "collect", "getAt", "getAtSafe",
+                   "project",
                    "elementProperties",
                    "regexMatches", "regexFind", "regexReplaceAll", "regexReplaceFirst", "regexSplit",
                    "regexText", "regexTexts", "regexArrayTexts", "toJson", "convertReturn", "discard",
                    "checkedData", "checkedMap", "capacity", "constructorArgument",
                    "checkedNumber", "range", "intRange",
-                   "bounded", "boundedValues", "valueOf", "format", "emptyRange", "emptyRangeReceiver");
+                   "bounded", "boundedPlus", "boundedValues", "valueOf", "format", "emptyRange", "emptyRangeReceiver");
         this.allow(ScriptDataOperations.BoundedValue.class.getName(),
-                   "repeat", "pow", "setScale", "padLeft", "padRight", "center", "multiply", "divide");
+                   "repeat", "pow", "setScale", "padLeft", "padRight", "center", "multiply", "divide", "plus");
         this.allowExact(ScriptDataOperations.class.getName(), "toString", Object.class, boolean.class);
         this.allow(ScriptDataOperations.RegexText.class.getName(), "matches", "replaceAll", "replaceFirst", "split");
         this.allow(ScriptExecutionBudget.class.getName(), "check", "deadline");

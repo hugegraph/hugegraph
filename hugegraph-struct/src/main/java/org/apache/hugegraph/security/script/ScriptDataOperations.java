@@ -263,6 +263,10 @@ public final class ScriptDataOperations {
         return value == null ? null : new BoundedValue<>(value);
     }
 
+    public static <T> BoundedValue<T> boundedPlus(T value) {
+        return new BoundedValue<>(value);
+    }
+
     public static <T> Iterable<BoundedValue<T>> boundedValues(Iterable<T> values) {
         return values == null ? null : () -> boundedIterator(values.iterator());
     }
@@ -320,6 +324,25 @@ public final class ScriptDataOperations {
 
         public String repeat(int count) {
             return ScriptDataOperations.repeat(text(this.value), count);
+        }
+
+        public Object plus(Object right, Class<?> result, Class<?> argument) {
+            return ScriptDataOperations.plus(this.value, right, result, argument);
+        }
+
+        @SuppressWarnings({"rawtypes", "unchecked"})
+        public Object plus(int index, Iterable<?> right) {
+            List values = (List) this.value;
+            Collection<?> items = plusItems(values.size(), right);
+            allocation((long) values.size() + items.size());
+            return DefaultGroovyMethods.plus(values, index, (Iterable) items);
+        }
+
+        @SuppressWarnings({"rawtypes", "unchecked"})
+        public Object plus(int index, Object[] right) {
+            List values = (List) this.value;
+            allocation((long) values.size() + right.length);
+            return DefaultGroovyMethods.plus(values, index, right);
         }
 
         @SuppressWarnings("unchecked")
@@ -522,11 +545,11 @@ public final class ScriptDataOperations {
     }
 
     public static GString plus(GString left, GString right) {
-        return ((GString) ScriptBindings.data(left)).plus((GString) ScriptBindings.data(right));
+        return (GString) plus(left, right, GString.class, GString.class);
     }
 
     public static GString plus(GString left, String right) {
-        return ((GString) ScriptBindings.data(left)).plus(right);
+        return (GString) plus(left, right, GString.class, String.class);
     }
 
     @SuppressWarnings("unchecked")
@@ -546,6 +569,9 @@ public final class ScriptDataOperations {
     @SuppressWarnings({"rawtypes", "unchecked"})
     public static Object plus(Object left, Object right) {
         if (left instanceof Object[]) {
+            allocation((long) ((Object[]) left).length +
+                       (right instanceof Object[] ? ((Object[]) right).length :
+                        right instanceof Collection ? ((Collection<?>) right).size() : 1));
             if (right instanceof Object[]) {
                 return DefaultGroovyMethods.plus((Object[]) left, (Object[]) right);
             }
@@ -555,7 +581,8 @@ public final class ScriptDataOperations {
             return DefaultGroovyMethods.plus((Object[]) left, right);
         }
         if (left instanceof Collection) {
-            // An empty subtraction preserves Groovy's collection-copy semantics.
+            allocation((long) ((Collection<?>) left).size() +
+                       (right instanceof Collection ? ((Collection<?>) right).size() : 1));
             Collection<Object> values = DefaultGroovyMethods.minus((Collection<Object>) left,
                                                                      java.util.Collections.emptyList());
             if (right instanceof Collection) {
@@ -566,25 +593,127 @@ public final class ScriptDataOperations {
             return values;
         }
         if (left instanceof Map && right instanceof Map) {
+            allocation((long) ((Map<?, ?>) left).size() + ((Map<?, ?>) right).size());
             return DefaultGroovyMethods.plus((Map) left, (Map) right);
         }
         if (left instanceof GString) {
             GString value = (GString) ScriptBindings.data(left);
+            long length = renderedLength(value);
             if (right instanceof GString) {
-                return value.plus((GString) ScriptBindings.data(right));
+                GString suffix = (GString) ScriptBindings.data(right);
+                allocation(length + renderedLength(suffix));
+                return value.plus(suffix);
             }
             if (right instanceof String) {
+                allocation(length + ((String) right).length());
                 return value.plus((String) right);
             }
-            return value.toString() + concatenatedText(right);
+            return concatenate(value.toString(), concatenatedText(right));
         }
         if (left instanceof String) {
-            return left + concatenatedText(right);
+            return concatenate((String) left, concatenatedText(right));
         }
         if (right instanceof String) {
-            return text(left) + right;
+            return concatenate(text(left), (String) right);
         }
         return NumberMath.add(number(left), number(right));
+    }
+
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    public static Object plus(Object left, Object right, Class<?> result, Class<?> argument) {
+        // Preserve the overload selected by Groovy, including Object-valued single items and null text receivers.
+        if (result == String.class) {
+            return concatenate(concatenatedText(left), concatenatedText(right));
+        }
+        if (GString.class.isAssignableFrom(result)) {
+            GString value = (GString) ScriptBindings.data(left);
+            long length = renderedLength(value);
+            if (argument == String.class) {
+                allocation(length + String.valueOf(right).length());
+                return value.plus((String) right);
+            }
+            if (GString.class.isAssignableFrom(argument)) {
+                GString suffix = (GString) ScriptBindings.data(right);
+                allocation(length + renderedLength(suffix));
+                return value.plus(suffix);
+            }
+        }
+        if (Collection.class.isAssignableFrom(result)) {
+            Collection<?> values = left instanceof Collection ? (Collection<?>) left : plusItems(0, (Iterable<?>) left);
+            return collectionPlus(values, right, Iterable.class.isAssignableFrom(argument));
+        }
+        if (Map.class.isAssignableFrom(result) && Collection.class.isAssignableFrom(argument)) {
+            allocation((long) ((Map<?, ?>) left).size() + ((Collection<?>) right).size());
+            return DefaultGroovyMethods.plus((Map) left, (Collection) right);
+        }
+        if (Map.class.isAssignableFrom(result) && Map.class.isAssignableFrom(argument)) {
+            allocation((long) ((Map<?, ?>) left).size() + ((Map<?, ?>) right).size());
+            return DefaultGroovyMethods.plus((Map) left, (Map) right);
+        }
+        if (result.isArray()) {
+            Object[] values = (Object[]) left;
+            if (argument.isArray()) {
+                allocation((long) values.length + java.lang.reflect.Array.getLength(right));
+                Object[] items = right instanceof Object[] ? (Object[]) right :
+                                 (Object[]) org.codehaus.groovy.runtime.typehandling.DefaultTypeTransformation
+                                         .castToType(right, Object[].class);
+                return DefaultGroovyMethods.plus(values, items);
+            }
+            if (Iterable.class.isAssignableFrom(argument)) {
+                Collection<?> items = plusItems(values.length, (Iterable<?>) right);
+                allocation((long) values.length + items.size());
+                return DefaultGroovyMethods.plus(values, items);
+            }
+            allocation((long) values.length + 1);
+            return DefaultGroovyMethods.plus(values, right);
+        }
+        return plus(left, right);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Collection<?> collectionPlus(Collection<?> left, Object right, boolean appendAll) {
+        Collection<?> items = appendAll ? plusItems(left.size(), (Iterable<?>) right) : null;
+        long size = (long) left.size() + (appendAll ? items.size() : 1);
+        allocation(size);
+        Collection<Object> result = NativeCollections.copy((Collection<Object>) left, (int) size);
+        if (appendAll) {
+            result.addAll(items);
+        } else {
+            result.add(right);
+        }
+        return result;
+    }
+
+    // Groovy's copier preserves the native collection type and sorted-set comparator.
+    private static final class NativeCollections extends org.codehaus.groovy.runtime.DefaultGroovyMethodsSupport {
+
+        private static Collection<Object> copy(Collection<Object> values, int capacity) {
+            return cloneSimilarCollection(values, capacity);
+        }
+    }
+
+    private static String concatenate(String left, String right) {
+        allocation((long) left.length() + right.length());
+        return left + right;
+    }
+
+    private static Collection<?> plusItems(int count, Iterable<?> values) {
+        allocation(count);
+        if (values instanceof Collection) {
+            allocation((long) count + ((Collection<?>) values).size());
+            return (Collection<?>) values;
+        }
+        List<Object> result = new ArrayList<>();
+        long deadline = ScriptExecutionBudget.deadline();
+        try (org.apache.tinkerpop.gremlin.structure.util.CloseableIterator<?> items =
+                     org.apache.tinkerpop.gremlin.structure.util.CloseableIterator.of(values.iterator())) {
+            while (items.hasNext()) {
+                ScriptExecutionBudget.check(deadline);
+                allocation((long) count + result.size() + 1);
+                result.add(items.next());
+            }
+        }
+        return result;
     }
 
     @SuppressWarnings({"rawtypes", "unchecked"})
@@ -638,6 +767,21 @@ public final class ScriptDataOperations {
         return DefaultGroovyMethods.power(number(left), number(right));
     }
 
+    public static Number integerPower(Integer left, Integer right) {
+        checkIntegerPower(left.longValue(), right);
+        return DefaultGroovyMethods.power(left, right);
+    }
+
+    public static Number integerPower(Long left, Integer right) {
+        checkIntegerPower(left, right);
+        return DefaultGroovyMethods.power(left, right);
+    }
+
+    private static void checkIntegerPower(long value, int exponent) {
+        allocation(Math.abs((long) exponent));
+        allocation((long) BigInteger.valueOf(value).abs().bitLength() * Math.max(0, exponent));
+    }
+
     public static boolean equal(Object left, Object right) {
         return org.codehaus.groovy.runtime.ScriptBytecodeAdapter.compareEqual(left, right);
     }
@@ -657,11 +801,67 @@ public final class ScriptDataOperations {
     }
 
     private static String concatenatedText(Object value) {
+        Object data;
         if (value == null || value instanceof String || value instanceof Boolean ||
             value instanceof Character || value instanceof GString || NUMBERS.contains(value.getClass())) {
-            return text(value);
+            data = value instanceof GString ? ScriptBindings.data(value) : value;
+        } else {
+            data = ScriptBindings.snapshot(value);
         }
-        return org.codehaus.groovy.runtime.InvokerHelper.toString(ScriptBindings.snapshot(value));
+        renderedLength(data);
+        return org.codehaus.groovy.runtime.InvokerHelper.toString(data);
+    }
+
+    private static long renderedLength(Object value) {
+        long[] counts = new long[2];
+        renderedLength(value, counts, ScriptExecutionBudget.deadline());
+        return counts[0];
+    }
+
+    private static void renderedLength(Object value, long[] counts, long deadline) {
+        ScriptExecutionBudget.check(deadline);
+        allocation(++counts[1]);
+        // Count aliases on every occurrence: native formatting expands them on every occurrence too.
+        if (value instanceof GString) {
+            GString string = (GString) value;
+            String[] strings = string.getStrings();
+            Object[] values = string.getValues();
+            for (int i = 0; i < strings.length; i++) {
+                allocation(counts[0] += strings[i].length());
+                if (i < values.length) {
+                    renderedLength(values[i], counts, deadline);
+                }
+            }
+        } else if (value instanceof Map) {
+            Map<?, ?> map = (Map<?, ?>) value;
+            allocation(counts[0] += map.isEmpty() ? 3 : 2);
+            int index = 0;
+            for (Map.Entry<?, ?> entry : map.entrySet()) {
+                allocation(counts[0] += index++ == 0 ? 1 : 3);
+                renderedLength(entry.getKey(), counts, deadline);
+                renderedLength(entry.getValue(), counts, deadline);
+            }
+        } else if (value instanceof Collection) {
+            allocation(counts[0] += 2);
+            int index = 0;
+            for (Object item : (Collection<?>) value) {
+                allocation(counts[0] += index++ == 0 ? 0 : 2);
+                renderedLength(item, counts, deadline);
+            }
+        } else if (value != null && value.getClass().isArray()) {
+            int size = java.lang.reflect.Array.getLength(value);
+            if (value instanceof char[]) {
+                allocation(counts[0] += size);
+            } else {
+                allocation(counts[0] += 2);
+                for (int i = 0; i < size; i++) {
+                    allocation(counts[0] += i == 0 ? 0 : 2);
+                    renderedLength(java.lang.reflect.Array.get(value, i), counts, deadline);
+                }
+            }
+        } else {
+            allocation(counts[0] += String.valueOf(value).length());
+        }
     }
 
     private static String text(Object value) {
