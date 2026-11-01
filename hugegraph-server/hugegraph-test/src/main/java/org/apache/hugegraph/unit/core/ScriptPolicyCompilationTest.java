@@ -26,6 +26,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import javax.script.ScriptException;
+import javax.script.SimpleBindings;
+
+import org.apache.hugegraph.security.script.PolicyScriptEngine;
 import org.apache.hugegraph.security.script.ScriptCompilerConfiguration;
 import org.apache.hugegraph.security.script.ScriptExecutionProfile;
 import org.apache.hugegraph.security.script.ScriptMethodPolicy;
@@ -113,6 +117,26 @@ public class ScriptPolicyCompilationTest {
                 ClassNode.EMPTY_ARRAY, null);
         concrete.setDeclaringClass(string);
         Assert.assertFalse(policy.allows(concrete));
+    }
+
+    @Test
+    public void testRejectsRandomBigIntegerConstructors() throws Exception {
+        String twoArgument = "java.math.BigInteger#<init>(int,java.util.Random)";
+        String threeArgument =
+                "java.math.BigInteger#<init>(int,int,java.util.Random)";
+        for (ScriptExecutionProfile profile : ScriptExecutionProfile.values()) {
+            ScriptMethodPolicy policy = new ScriptMethodPolicy(profile);
+            Assert.assertFalse(profile + ": " + twoArgument,
+                               policy.signatures().contains(twoArgument));
+            Assert.assertFalse(profile + ": " + threeArgument,
+                               policy.signatures().contains(threeArgument));
+            try (PolicyScriptEngine engine = new PolicyScriptEngine(profile)) {
+                Assert.assertThrows(ScriptException.class, () ->
+                        engine.eval("new BigInteger(8, null)", new SimpleBindings()));
+                Assert.assertThrows(ScriptException.class, () ->
+                        engine.eval("new BigInteger(8, 0, null)", new SimpleBindings()));
+            }
+        }
     }
 
     @Test
