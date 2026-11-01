@@ -101,13 +101,20 @@ public final class ScriptMethodPolicy {
         for (String type : ScriptExpressionGuard.CONSTRUCTIBLE_TYPES) {
             try {
                 for (Constructor<?> constructor : Class.forName(type).getConstructors()) {
-                    if (Arrays.asList(constructor.getParameterTypes()).contains(float.class)) {
+                    List<Class<?>> parameters =
+                            Arrays.asList(constructor.getParameterTypes());
+                    if (parameters.contains(float.class)) {
                         // Custom load factors can amplify a small initial capacity on each insertion.
                         continue;
                     }
-                    String parameters = Arrays.stream(constructor.getParameterTypes())
-                                              .map(Class::getTypeName).collect(Collectors.joining(","));
-                    this.signatures.add(type + "#<init>(" + parameters + ")");
+                    if (parameters.contains(java.util.Random.class)) {
+                        // BigInteger allocates numBits before post-construction checks.
+                        continue;
+                    }
+                    String parameterNames = Arrays.stream(constructor.getParameterTypes())
+                                                  .map(Class::getTypeName)
+                                                  .collect(Collectors.joining(","));
+                    this.signatures.add(type + "#<init>(" + parameterNames + ")");
                 }
             } catch (ClassNotFoundException error) {
                 throw new IllegalStateException("Missing data constructor type", error);
@@ -168,7 +175,8 @@ public final class ScriptMethodPolicy {
         this.allow("org.apache.tinkerpop.gremlin.process.traversal.Traversal",
                    "next", "hasNext", "tryNext", "toList", "toSet", "toBulkSet", "iterate");
         this.allow("org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversalSource",
-                   "V", "E", "addV", "addE", "mergeV", "mergeE", "union", "inject", "withBulk", "withPath", "withSideEffect", "withSack");
+                   "V", "E", "addV", "addE", "mergeV", "mergeE", "union", "inject",
+                   "withBulk", "withPath", "withSideEffect", "withSack");
         this.allow("org.apache.tinkerpop.gremlin.process.traversal.TraversalSource",
                    "withSideEffect");
         this.allowExact("org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal",
