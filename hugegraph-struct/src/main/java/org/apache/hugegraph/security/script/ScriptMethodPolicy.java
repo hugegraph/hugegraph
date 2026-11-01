@@ -73,8 +73,8 @@ public final class ScriptMethodPolicy {
     private void initialize(ScriptExecutionProfile profile) {
         this.allow("java.lang.String", "length", "isEmpty", "equals", "equalsIgnoreCase",
                    "compareTo", "contains", "startsWith", "endsWith", "substring", "trim",
-                   "toLowerCase", "toUpperCase", "charAt", "indexOf", "lastIndexOf", "concat",
-                   "toString", "valueOf", "replace", "toCharArray",
+                   "toLowerCase", "toUpperCase", "charAt", "indexOf", "lastIndexOf",
+                   "toString", "valueOf", "toCharArray",
                    "strip", "stripLeading", "stripTrailing", "isBlank");
         for (String name : new String[]{"Integer", "Long", "Double", "Float", "Short", "Byte",
                                         "Number", "Boolean", "Character"}) {
@@ -119,7 +119,7 @@ public final class ScriptMethodPolicy {
             this.allow(type, "get", "getOrDefault", "contains", "containsKey", "containsValue",
                        "size", "isEmpty", "indexOf", "lastIndexOf", "keySet", "values",
                        "entrySet", "getKey", "getValue", "iterator", "subList");
-            this.allow(type, "add", "addAll", "put", "putAll", "remove", "set", "clear");
+            this.allow(type, "add", "put", "putAll", "remove", "set", "clear");
         }
         this.allow("java.util.Iterator", "hasNext", "next");
         this.allow(ScriptDataOperations.class.getName(), "plus", "minus", "multiply", "div", "mod",
@@ -130,9 +130,11 @@ public final class ScriptMethodPolicy {
                    "regexText", "regexTexts", "regexArrayTexts", "toJson", "convertReturn", "discard",
                    "checkedData", "checkedMap", "capacity", "constructorArgument",
                    "checkedNumber", "range", "intRange",
-                   "bounded", "boundedPlus", "boundedValues", "valueOf", "format", "emptyRange", "emptyRangeReceiver");
+                   "bounded", "boundedPlus", "boundedValues", "boundedText", "boundedTexts",
+                   "valueOf", "format", "emptyRange", "emptyRangeReceiver");
         this.allow(ScriptDataOperations.BoundedValue.class.getName(),
-                   "repeat", "pow", "setScale", "padLeft", "padRight", "center", "multiply", "divide", "plus");
+                   "repeat", "pow", "setScale", "padLeft", "padRight", "center", "multiply", "divide", "plus",
+                   "concat", "replace", "addAll");
         this.allowExact(ScriptDataOperations.class.getName(), "toString", Object.class, boolean.class);
         this.allow(ScriptDataOperations.RegexText.class.getName(), "matches", "replaceAll", "replaceFirst", "split");
         this.allow(ScriptExecutionBudget.class.getName(), "check", "deadline");

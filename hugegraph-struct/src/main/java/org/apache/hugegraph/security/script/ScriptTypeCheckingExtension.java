@@ -232,7 +232,8 @@ public final class ScriptTypeCheckingExtension extends TypeCheckingExtension {
                 method.setObjectExpression(new ClassExpression(ClassHelper.make(ScriptDataOperations.class)));
                 method.putNodeMetaData(DATA_CALL, Boolean.TRUE);
             }
-            if (Set.of("repeat", "pow", "setScale", "padLeft", "padRight", "center", "multiply", "divide")
+            if (Set.of("repeat", "pow", "setScale", "padLeft", "padRight", "center", "multiply", "divide",
+                       "concat", "replace", "addAll")
                     .contains(name == null ? "" : name)) {
                 Expression original = method.getObjectExpression();
                 original.visit(this.typeCheckingVisitor);
@@ -249,13 +250,33 @@ public final class ScriptTypeCheckingExtension extends TypeCheckingExtension {
                 boolean decimal = element.getName().equals("java.math.BigDecimal");
                 boolean text = element.getName().equals("java.lang.String") ||
                                element.implementsInterface(ClassHelper.make(CharSequence.class));
+                boolean collection = element.equals(ClassHelper.make(java.util.Collection.class)) ||
+                                     element.implementsInterface(ClassHelper.make(java.util.Collection.class));
+                boolean list = element.equals(ClassHelper.make(List.class)) ||
+                               element.implementsInterface(ClassHelper.make(List.class));
+                boolean stringOperation = Set.of("concat", "replace").contains(name) &&
+                                          (element.equals(ClassHelper.STRING_TYPE) ||
+                                           element.isDerivedFrom(ClassHelper.GSTRING_TYPE));
                 if (("repeat".equals(name) && text) ||
+                    stringOperation ||
+                    ("addAll".equals(name) && collection && (list ||
+                     ((TupleExpression) method.getArguments()).getExpressions().size() == 1)) ||
                     (Set.of("pow", "multiply").contains(name) && (integer || decimal)) ||
                     (Set.of("setScale", "divide").contains(name) && decimal) ||
                     (Set.of("padLeft", "padRight", "center").contains(name) && text)) {
+                    String bridge = method.isSpreadSafe() ? "boundedValues" : "bounded";
+                    if (stringOperation) {
+                        if (method.isSpreadSafe()) {
+                            bridge = "boundedTexts";
+                        } else {
+                            original = boundedText(original);
+                        }
+                        if ("concat".equals(name)) {
+                            boundedTextArguments(method);
+                        }
+                    }
                     StaticMethodCallExpression bounded = new StaticMethodCallExpression(
-                            ClassHelper.make(ScriptDataOperations.class),
-                            method.isSpreadSafe() ? "boundedValues" : "bounded", new ArgumentListExpression(original));
+                            ClassHelper.make(ScriptDataOperations.class), bridge, new ArgumentListExpression(original));
                     bounded.setSourcePosition(original);
                     bounded.putNodeMetaData(DATA_CALL, Boolean.TRUE);
                     method.setObjectExpression(bounded);
@@ -288,6 +309,9 @@ public final class ScriptTypeCheckingExtension extends TypeCheckingExtension {
             }
             if (Set.of("matches", "replaceAll", "replaceFirst", "split").contains(name == null ? "" : name) &&
                 (method.isSpreadSafe() || this.getType(method.getObjectExpression()).equals(ClassHelper.STRING_TYPE))) {
+                if (Set.of("replaceAll", "replaceFirst").contains(name)) {
+                    boundedTextArguments(method);
+                }
                 String bridge = "regexText";
                 if (method.isSpreadSafe()) {
                     bridge = this.getType(method.getObjectExpression()).isArray() ? "regexArrayTexts" : "regexTexts";
@@ -406,6 +430,23 @@ public final class ScriptTypeCheckingExtension extends TypeCheckingExtension {
                                     target.getDeclaringClass().getName() + "#" + target.getName(),
                                     expression);
         }
+    }
+
+    private static StaticMethodCallExpression boundedText(Expression value) {
+        StaticMethodCallExpression result = new StaticMethodCallExpression(ClassHelper.make(ScriptDataOperations.class),
+                "boundedText", new ArgumentListExpression(value));
+        result.setSourcePosition(value);
+        result.putNodeMetaData(DATA_CALL, Boolean.TRUE);
+        return result;
+    }
+
+    private static void boundedTextArguments(MethodCallExpression call) {
+        // Preserve each implicit String conversion before the next argument is evaluated.
+        ArgumentListExpression arguments = new ArgumentListExpression();
+        for (Expression value : ((TupleExpression) call.getArguments()).getExpressions()) {
+            arguments.addExpression(boundedText(value));
+        }
+        call.setArguments(arguments);
     }
 
     static final class CompilationPolicy {

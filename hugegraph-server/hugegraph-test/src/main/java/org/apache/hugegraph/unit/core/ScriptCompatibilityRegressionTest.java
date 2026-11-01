@@ -33,6 +33,166 @@ import org.junit.Test;
 public class ScriptCompatibilityRegressionTest {
 
     @Test
+    public void testNativeGrowthBudgetsAcrossProfiles() throws Exception {
+        for (ScriptExecutionProfile profile : ScriptExecutionProfile.values()) {
+            try (PolicyScriptEngine engine = new PolicyScriptEngine(profile)) {
+                for (String source : List.of(
+                        "'ab'.concat('cd') == 'abcd'",
+                        "def x='a'; \"${x}\".concat('b') == 'ab' && \"${x}\".replace('a','b') == 'b'",
+                        "int n=0; def x=\"${-> ++n}\"; 'a'.concat(x)=='a1' && n==1",
+                        "int n=0; def x=\"${-> n++}\"; x.concat(''+n++)=='01' && n==2",
+                        "int n=0; def x=\"${-> n++}\"; x?.concat(''+n++)=='01' && n==2",
+                        "int n=0; def x=\"${-> n++}\"; x.replace('z',''+n++)=='0' && n==2",
+                        "int n=0; def x=\"${-> n++}\"; [x,null,x]*.concat(''+n++)==['01',null,'23'] && n==4",
+                        "def a=(0..4999).toList(); def x=\"$a\"; ''.concat(x).startsWith('[0, 1, 2')",
+                        "'a'.concat(\"${1..3}\")=='a[1, 2, 3]'",
+                        "def x=\"${-> 'b'}\"; 'a'.concat(\"${[x]}\")=='a[b]'",
+                        "def x=\"${-> 'b'}\"; 'a'.concat(\"${[x:x]}\")=='a[x:b]'",
+                        "int n=0; def x=\"${-> ++n}\"; " +
+                        "try { 'a'.replace(x,null) } catch(NullPointerException ignored) {}; n==1",
+                        "String s=null; int n=0; s?.concat(''+n++); n==0",
+                        "int n=0; ['a',null,'b']*.concat(''+n++) == ['a0',null,'b1'] && n==2",
+                        "'abab'.replace('ab','x') == 'xx' && 'ab'.replace('','x') == 'xaxbx'",
+                        "'aaa'.replace('a'.charAt(0),'b'.charAt(0)) == 'bbb'",
+                        "'aaa'.replace('aa','x') == 'xa' && 'aaa'.replace('a','') == ''",
+                        "String s=null; int n=0; s?.replace('a',''+n++); n==0",
+                        "['ab',null,'ba']*.replace('a','x') == ['xb',null,'bx']",
+                        "def a=[1,2]; def b=a; a.addAll(a) && b==[1,2,1,2]",
+                        "def a=[1,3]; a.addAll(1,[2]) && a==[1,2,3]",
+                        "Collection<Integer> a=[1]; a.addAll([2]) && a==[1,2]",
+                        "Set<Integer> a=[1]; !a.addAll([1]) && a.addAll([2]) && a==([1,2] as Set)",
+                        "List a=null; int n=0; a?.addAll([n++]); n==0",
+                        "def a=[[1],null,[2]]; a*.addAll([3]) == [true,null,true] && a==[[1,3],null,[2,3]]",
+                        "'x'.repeat(32768).concat('x'.repeat(32768)).length()==65536",
+                        "'x'.repeat(32768).replace('x','xx').length()==65536")) {
+                    Assert.assertEquals(profile + ": " + source, true, engine.eval(source, new SimpleBindings()));
+                }
+                for (String source : List.of(
+                        "def s='x'.repeat(32769); s.concat(s); true",
+                        "def s='x'.repeat(32768); ''.concat(\"$s$s$s\"); true",
+                        "def s='x'.repeat(32768); def x=\"${-> \"$s$s$s\"}\"; 'a'.replace('z',x); true",
+                        "'x'.repeat(32769).replace('x','xx'); true",
+                        "'x'.repeat(32768).replace('','x'); true",
+                        "['x'.repeat(32769)]*.concat('x'.repeat(32769)); true",
+                        "def a=(0..32768).toList(); a.addAll(a); true",
+                        "def a=(0..32768).toList(); a.addAll(0,a); true",
+                        "Collection a=(0..32768).toList(); a.addAll(a); true",
+                        "def a=[(0..32768).toList()]; a*.addAll(a[0]); true")) {
+                    assertAllocationDenied(engine, profile, source);
+                }
+            }
+        }
+    }
+
+    @Test
+    public void testRegexReplacementBudgetsAcrossProfiles() throws Exception {
+        for (ScriptExecutionProfile profile : ScriptExecutionProfile.values()) {
+            try (PolicyScriptEngine engine = new PolicyScriptEngine(profile)) {
+                for (String source : List.of(
+                        "'ab'.replaceAll('(a)(b)', '$2$1$0') == 'baab'",
+                        "'ab ab'.replaceFirst('(?<word>ab)', '${word}${word}') == 'abab ab'",
+                        "'ab'.replaceAll('', '-') == '-a-b-'",
+                        "int n=0; def x=\"${-> ++n}\"; 'a'.replaceAll('a',x)=='1' && n==1",
+                        "int n=0; def x=\"${-> ++n}\"; 'a'.replaceAll('z',x)=='a' && n==1",
+                        "int n=0; def x=\"${-> n++}\"; '0'.replaceAll(x,''+n++)=='1' && n==2",
+                        "int n=0; def x=\"${-> n++}\"; '0'.replaceFirst(x,''+n++)=='1' && n==2",
+                        "['ab',null,'ab']*.replaceAll('(a)(b)', '$2$1') == ['ba',null,'ba']",
+                        "String s=null; int n=0; s?.replaceAll('x',''+n++); n==0",
+                        "'x'.repeat(32768).replaceAll('x','xx').length()==65536")) {
+                    Assert.assertEquals(profile + ": " + source, true, engine.eval(source, new SimpleBindings()));
+                }
+                for (String source : List.of(
+                        "'x'.repeat(32769).replaceAll('x','xx'); true",
+                        "def s='x'.repeat(32768); 'ab'.replaceFirst('z',\"$s$s$s\"); true",
+                        "def s='x'.repeat(32768); def x=\"${-> \"$s$s$s\"}\"; 'ab'.replaceFirst('z',x); true",
+                        "'x'.repeat(32768).replaceAll('','x'); true",
+                        "'x'.repeat(32769).replaceFirst('(.*)', '$1$1'); true",
+                        "'x'.repeat(32769).replaceAll('(?<word>.*)', '${word}${word}'); true",
+                        "'ab'.replaceFirst('b','x'.repeat(65536)); true",
+                        "'ab'.replaceFirst('a','x'.repeat(65536)); true",
+                        "['x'.repeat(32769)]*.replaceAll('x','xx'); true")) {
+                    assertAllocationDenied(engine, profile, source);
+                }
+            }
+        }
+    }
+
+    @Test
+    public void testRegexReplacementMatchesJdk() {
+        String unchanged = new String(new char[]{'a'});
+        Assert.assertSame(unchanged, ScriptDataOperations.regexReplaceAll(unchanged, "z", "x"));
+        Assert.assertSame(unchanged, ScriptDataOperations.regexReplaceFirst(unchanged, "z", "x"));
+        IllegalArgumentException oversizedName = Assert.assertThrows(IllegalArgumentException.class,
+                () -> ScriptDataOperations.regexReplaceAll("a", "a", "${" + "a".repeat(65537) + "}"));
+        Assert.assertEquals("SCRIPT_DATA_ALLOCATION_LIMIT", oversizedName.getMessage());
+        for (String value : List.of("", "a", "ab", "aba", "\uD83D\uDE00ab")) {
+            for (String pattern : List.of("", "a", "(a)(b)?", "(?<word>a)(b)?", "(?=a)", "$", "(a*)")) {
+                for (String replacement : java.util.Arrays.asList(null, "", "x", "$0", "$1", "$12", "$01", "$00",
+                        "$2", "${word}", "$1$1", "\\$1", "\\\\", "$", "\\", "$x", "$9", "${}", "${word")) {
+                    for (boolean first : new boolean[]{false, true}) {
+                        Object expected;
+                        try {
+                            expected = first ? value.replaceFirst(pattern, replacement) :
+                                       value.replaceAll(pattern, replacement);
+                        } catch (RuntimeException error) {
+                            expected = error.getClass();
+                        }
+                        Object actual;
+                        try {
+                            actual = first ? ScriptDataOperations.regexReplaceFirst(value, pattern, replacement) :
+                                     ScriptDataOperations.regexReplaceAll(value, pattern, replacement);
+                        } catch (RuntimeException error) {
+                            actual = error.getClass();
+                        }
+                        Assert.assertEquals(value + " / " + pattern + " / " + replacement + " / " + first,
+                                            expected, actual);
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
+    public void testRejectedBulkAddDoesNotMutateReceiver() {
+        List<Integer> values = new java.util.ArrayList<>(java.util.Collections.nCopies(32769, 1));
+        Assert.assertThrows(IllegalArgumentException.class, () -> ScriptDataOperations.bounded(values).addAll(values));
+        Assert.assertEquals(32769, values.size());
+        Assert.assertThrows(IllegalArgumentException.class,
+                            () -> ScriptDataOperations.bounded(values).addAll(0, values));
+        Assert.assertEquals(32769, values.size());
+    }
+
+    @Test
+    public void testRejectedTextConversionClosesCursor() {
+        java.util.concurrent.atomic.AtomicInteger closed = new java.util.concurrent.atomic.AtomicInteger();
+        org.apache.tinkerpop.gremlin.structure.util.CloseableIterator<CharSequence> values =
+                new org.apache.tinkerpop.gremlin.structure.util.CloseableIterator<>() {
+                    @Override
+                    public boolean hasNext() {
+                        return true;
+                    }
+
+                    @Override
+                    public CharSequence next() {
+                        String text = "x".repeat(32769);
+                        return new org.codehaus.groovy.runtime.GStringImpl(new Object[]{text, text},
+                                                                         new String[]{"", "", ""});
+                    }
+
+                    @Override
+                    public void close() {
+                        closed.incrementAndGet();
+                        throw new IllegalStateException("close failure");
+                    }
+                };
+        IllegalArgumentException failure = Assert.assertThrows(IllegalArgumentException.class,
+                () -> ScriptDataOperations.boundedTexts(values).iterator().next());
+        Assert.assertEquals("SCRIPT_DATA_ALLOCATION_LIMIT", failure.getMessage());
+        Assert.assertEquals(1, closed.get());
+        Assert.assertTrue(failure.getSuppressed()[0].getMessage().contains("close failure"));
+    }
+
+    @Test
     public void testConcatenationBudgetsAcrossProfiles() throws Exception {
         for (ScriptExecutionProfile profile : ScriptExecutionProfile.values()) {
             try (PolicyScriptEngine engine = new PolicyScriptEngine(profile)) {

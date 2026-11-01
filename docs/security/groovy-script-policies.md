@@ -81,6 +81,17 @@ Text preflight counts repeated aliases on each rendered occurrence and limits
 visitation before native formatting. Groovy owns compound-assignment lvalue
 memoization, including receiver and subscript evaluation.
 
+String `concat`, literal `replace` and collection `addAll` also check size before
+copying or modifying the receiver. Bulk insertion bounds the receiver size plus
+the input collection size. Regex replacement preflights capture-group expansion
+and unmatched text before calling JDK append operations, retaining numeric and
+named group references, escaping, and zero-width matches.
+Implicit GString conversions happen at their original evaluation positions.
+Groovy renders interpolation through a bounded writer; lazy values are evaluated
+once per occurrence, and nested collection/map text is checked as the native
+formatter consumes it. This rendering uses the local text budget rather than
+the client-binding size quota.
+
 The execution deadline is cooperative: checks cover script loops, closures,
 bounded helper iterations and result consumption. These checks cannot forcibly
 interrupt every JDK or third-party call, and the individual operation limits do

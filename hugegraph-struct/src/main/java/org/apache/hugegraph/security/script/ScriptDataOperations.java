@@ -268,7 +268,7 @@ public final class ScriptDataOperations {
     }
 
     public static <T> Iterable<BoundedValue<T>> boundedValues(Iterable<T> values) {
-        return values == null ? null : () -> boundedIterator(values.iterator());
+        return values == null ? null : () -> boundedIterator(values.iterator(), ScriptDataOperations::bounded);
     }
 
     public static <T> Iterable<BoundedValue<T>> boundedValues(T[] values) {
@@ -276,10 +276,22 @@ public final class ScriptDataOperations {
     }
 
     public static <T> Iterable<BoundedValue<T>> boundedValues(Iterator<T> values) {
-        return values == null ? null : () -> boundedIterator(values);
+        return values == null ? null : () -> boundedIterator(values, ScriptDataOperations::bounded);
     }
 
-    private static <T> Iterator<BoundedValue<T>> boundedIterator(Iterator<T> values) {
+    public static Iterable<BoundedValue<String>> boundedTexts(Iterable<? extends CharSequence> values) {
+        return values == null ? null : () -> boundedIterator(values.iterator(), value -> bounded(boundedText(value)));
+    }
+
+    public static Iterable<BoundedValue<String>> boundedTexts(CharSequence[] values) {
+        return values == null ? null : boundedTexts(Arrays.asList(values));
+    }
+
+    public static Iterable<BoundedValue<String>> boundedTexts(Iterator<? extends CharSequence> values) {
+        return values == null ? null : () -> boundedIterator(values, value -> bounded(boundedText(value)));
+    }
+
+    private static <T, R> Iterator<R> boundedIterator(Iterator<T> values, java.util.function.Function<T, R> convert) {
         return new Iterator<>() {
             private int count;
             private final long deadline = ScriptExecutionBudget.deadline();
@@ -291,9 +303,14 @@ public final class ScriptDataOperations {
             }
 
             @Override
-            public BoundedValue<T> next() {
+            public R next() {
                 this.check(true);
-                return bounded(values.next());
+                try {
+                    return convert.apply(values.next());
+                } catch (RuntimeException failure) {
+                    this.closeAfter(failure);
+                    throw failure;
+                }
             }
 
             private void check(boolean advance) {
@@ -303,12 +320,16 @@ public final class ScriptDataOperations {
                         allocation(++this.count);
                     }
                 } catch (RuntimeException failure) {
-                    try {
-                        org.apache.tinkerpop.gremlin.structure.util.CloseableIterator.closeIterator(values);
-                    } catch (RuntimeException closeFailure) {
-                        failure.addSuppressed(closeFailure);
-                    }
+                    this.closeAfter(failure);
                     throw failure;
+                }
+            }
+
+            private void closeAfter(RuntimeException failure) {
+                try {
+                    org.apache.tinkerpop.gremlin.structure.util.CloseableIterator.closeIterator(values);
+                } catch (RuntimeException closeFailure) {
+                    failure.addSuppressed(closeFailure);
                 }
             }
         };
@@ -324,6 +345,48 @@ public final class ScriptDataOperations {
 
         public String repeat(int count) {
             return ScriptDataOperations.repeat(text(this.value), count);
+        }
+
+        public String concat(String suffix) {
+            String value = boundedText((CharSequence) this.value);
+            allocation((long) value.length() + suffix.length());
+            return value.concat(suffix);
+        }
+
+        public String replace(char target, char replacement) {
+            return boundedText((CharSequence) this.value).replace(target, replacement);
+        }
+
+        public String replace(CharSequence target, CharSequence replacement) {
+            String value = boundedText((CharSequence) this.value);
+            String search = boundedText(java.util.Objects.requireNonNull(target));
+            String insert = boundedText(java.util.Objects.requireNonNull(replacement));
+            long size = value.length();
+            if (search.isEmpty()) {
+                size += ((long) value.length() + 1) * insert.length();
+            } else if (insert.length() > search.length()) {
+                long deadline = ScriptExecutionBudget.deadline();
+                for (int at = value.indexOf(search); at >= 0; at = value.indexOf(search, at + search.length())) {
+                    ScriptExecutionBudget.check(deadline);
+                    allocation(size += insert.length() - search.length());
+                }
+            }
+            allocation(size);
+            return value.replace(search, insert);
+        }
+
+        @SuppressWarnings("unchecked")
+        public boolean addAll(Collection<?> items) {
+            Collection<Object> values = (Collection<Object>) this.value;
+            allocation((long) values.size() + items.size());
+            return values.addAll(items);
+        }
+
+        @SuppressWarnings("unchecked")
+        public boolean addAll(int index, Collection<?> items) {
+            List<Object> values = (List<Object>) this.value;
+            allocation((long) values.size() + items.size());
+            return values.addAll(index, items);
         }
 
         public Object plus(Object right, Class<?> result, Class<?> argument) {
@@ -875,6 +938,155 @@ public final class ScriptDataOperations {
         throw new IllegalArgumentException("SCRIPT_DATA_TYPE_DENIED: scalar required");
     }
 
+    public static String boundedText(CharSequence value) {
+        return boundedText(value, 0);
+    }
+
+    private static String boundedText(CharSequence value, int depth) {
+        if (!(value instanceof GString)) {
+            return value == null ? null : value.toString();
+        }
+        if (depth > 16) {
+            throw new IllegalArgumentException("SCRIPT_DATA_ALLOCATION_LIMIT");
+        }
+        GString template = (GString) value;
+        Object[] values = template.getValues().clone();
+        for (int i = 0; i < values.length; i++) {
+            Object original = values[i];
+            if (original instanceof Closure && ((Closure<?>) original).getMaximumNumberOfParameters() != 0) {
+                // Groovy passes the bounded Writer to one-argument closures and
+                // rejects larger arities itself.
+                continue;
+            }
+            values[i] = new Closure<Object>(null) {
+                public Object doCall() {
+                    Object result = original instanceof Closure ? ((Closure<?>) original).call() : original;
+                    return boundedRenderedValue(result, depth + 1);
+                }
+            };
+        }
+        try (java.io.StringWriter output = new java.io.StringWriter() {
+            private final long deadline = ScriptExecutionBudget.deadline();
+
+            private void check(int length) {
+                ScriptExecutionBudget.check(this.deadline);
+                allocation((long) this.getBuffer().length() + length);
+            }
+
+            @Override
+            public void write(int character) {
+                this.check(1);
+                super.write(character);
+            }
+
+            @Override
+            public void write(char[] characters, int offset, int length) {
+                this.check(length);
+                super.write(characters, offset, length);
+            }
+
+            @Override
+            public void write(String text) {
+                this.check(text.length());
+                super.write(text);
+            }
+
+            @Override
+            public void write(String text, int offset, int length) {
+                this.check(length);
+                super.write(text, offset, length);
+            }
+        }) {
+            new org.codehaus.groovy.runtime.GStringImpl(values, template.getStrings()).writeTo(output);
+            return output.toString();
+        } catch (java.io.IOException error) {
+            throw new java.io.UncheckedIOException(error);
+        }
+    }
+
+    private static String boundedRenderedValue(Object value, int depth) {
+        if (depth > 16) {
+            throw new IllegalArgumentException("SCRIPT_DATA_ALLOCATION_LIMIT");
+        }
+        if (value instanceof GString) {
+            return boundedText((GString) value, depth);
+        }
+        if (value instanceof char[]) {
+            allocation(((char[]) value).length);
+            return new String((char[]) value);
+        }
+        if (value != null && value.getClass().isArray()) {
+            Object array = value;
+            value = new java.util.AbstractList<Object>() {
+                @Override
+                public int size() {
+                    return java.lang.reflect.Array.getLength(array);
+                }
+
+                @Override
+                public Object get(int index) {
+                    return java.lang.reflect.Array.get(array, index);
+                }
+            };
+        }
+        // Native formatting consumes these views once. Each rendered item is
+        // checked before the native builder can append it; aliases are not cached.
+        if (value instanceof Collection) {
+            Collection<?> source = (Collection<?>) value;
+            allocation(2L * source.size());
+            value = new java.util.AbstractCollection<String>() {
+                @Override
+                public int size() {
+                    return source.size();
+                }
+
+                @Override
+                public Iterator<String> iterator() {
+                    long[] size = {2};
+                    boolean[] first = {true};
+                    return boundedIterator(source.iterator(), item -> {
+                        String text = item == source ? "(this Collection)" : boundedRenderedValue(item, depth + 1);
+                        allocation(size[0] += (first[0] ? 0 : 2) + text.length());
+                        first[0] = false;
+                        return text;
+                    });
+                }
+            };
+        } else if (value instanceof Map) {
+            Map<?, ?> source = (Map<?, ?>) value;
+            allocation(3L * source.size());
+            value = new java.util.AbstractMap<String, String>() {
+                @Override
+                public Set<Entry<String, String>> entrySet() {
+                    return new java.util.AbstractSet<>() {
+                        @Override
+                        public int size() {
+                            return source.size();
+                        }
+
+                        @Override
+                        public Iterator<Entry<String, String>> iterator() {
+                            long[] size = {2};
+                            boolean[] first = {true};
+                            return boundedIterator(source.entrySet().iterator(), entry -> {
+                                String key = entry.getKey() == source ? "(this Map)" :
+                                             boundedRenderedValue(entry.getKey(), depth + 1);
+                                String text = entry.getValue() == source ? "(this Map)" :
+                                              boundedRenderedValue(entry.getValue(), depth + 1);
+                                allocation(size[0] += (first[0] ? 1 : 3) + key.length() + text.length());
+                                first[0] = false;
+                                return new SimpleImmutableEntry<>(key, text);
+                            });
+                        }
+                    };
+                }
+            };
+        }
+        String result = org.codehaus.groovy.runtime.InvokerHelper.toString(value);
+        allocation(result.length());
+        return result;
+    }
+
     public static String toString(Object value, boolean safe) {
         return safe && value == null ? null : String.valueOf(ScriptBindings.data(value));
     }
@@ -1016,11 +1228,92 @@ public final class ScriptDataOperations {
     }
 
     public static String regexReplaceAll(String value, String pattern, String replacement) {
-        return Pattern.compile(pattern).matcher(new RegexInput(value)).replaceAll(replacement);
+        return regexReplace(value, pattern, replacement, false);
     }
 
     public static String regexReplaceFirst(String value, String pattern, String replacement) {
-        return Pattern.compile(pattern).matcher(new RegexInput(value)).replaceFirst(replacement);
+        return regexReplace(value, pattern, replacement, true);
+    }
+
+    private static String regexReplace(String value, String pattern, String replacement, boolean first) {
+        Matcher matcher = Pattern.compile(pattern).matcher(new RegexInput(value));
+        if (first) {
+            // Matcher.replaceFirst checks null even when the pattern does not match.
+            java.util.Objects.requireNonNull(replacement);
+        }
+        if (!matcher.find()) {
+            allocation(value.length());
+            return value;
+        }
+        StringBuilder result = new StringBuilder();
+        int end = 0;
+        do {
+            long size = (long) result.length() + matcher.start() - end;
+            allocation(size + replacementLength(matcher, replacement));
+            // The JDK still performs expansion, after both its temporary expansion
+            // and the destination buffer have been checked before allocation.
+            matcher.appendReplacement(result, replacement);
+            end = matcher.end();
+            if (first) {
+                break;
+            }
+        } while (matcher.find());
+        allocation((long) result.length() + value.length() - end);
+        matcher.appendTail(result);
+        return result.toString();
+    }
+
+    private static long replacementLength(Matcher matcher, String replacement) {
+        long size = 0;
+        long deadline = ScriptExecutionBudget.deadline();
+        for (int cursor = 0; cursor < replacement.length();) {
+            ScriptExecutionBudget.check(deadline);
+            char token = replacement.charAt(cursor++);
+            if (token == '\\') {
+                if (cursor == replacement.length()) {
+                    throw new IllegalArgumentException("character to be escaped is missing");
+                }
+                cursor++;
+                size++;
+            } else if (token == '$') {
+                if (cursor == replacement.length()) {
+                    throw new IllegalArgumentException("Illegal group reference: group index is missing");
+                }
+                int start;
+                int end;
+                if (replacement.charAt(cursor) == '{') {
+                    int close = replacement.indexOf('}', cursor + 1);
+                    if (close < 0) {
+                        throw new IllegalArgumentException("named capturing group is missing trailing '}'");
+                    }
+                    allocation(close - cursor - 1L);
+                    String name = replacement.substring(cursor + 1, close);
+                    start = matcher.start(name);
+                    end = matcher.end(name);
+                    cursor = close + 1;
+                } else {
+                    int group = replacement.charAt(cursor++) - '0';
+                    if (group < 0 || group > 9) {
+                        throw new IllegalArgumentException("Illegal group reference");
+                    }
+                    while (cursor < replacement.length()) {
+                        int digit = replacement.charAt(cursor) - '0';
+                        if (digit < 0 || digit > 9 || group * 10 + digit > matcher.groupCount()) {
+                            break;
+                        }
+                        group = group * 10 + digit;
+                        cursor++;
+                    }
+                    start = matcher.start(group);
+                    end = matcher.end(group);
+                }
+                size += end - start;
+            } else {
+                size++;
+            }
+            allocation(size);
+        }
+        return size;
     }
 
     public static String[] regexSplit(String value, String pattern) {
