@@ -46,7 +46,7 @@ jobs:
       fail-fast: false
       matrix:
         JAVA_VERSION: ${{ fromJSON(inputs.java-versions) }}
-        SCRIPT_SECURITY_MODE: ${{ fromJSON(github.head_ref == 'task/groovy-policy-asf-master' && '["legacy","policy"]' || '["legacy"]') }}
+        SCRIPT_SECURITY_MODE: ${{ fromJSON((inputs.backend == 'memory' || inputs.backend == 'rocksdb') && github.head_ref == 'task/groovy-policy-asf-master' && '["legacy","policy"]' || '["legacy"]') }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -239,10 +239,10 @@ jobs:
           bash "$TRAVIS_DIR/check-java-runtime-logs.sh" "$RUNTIME_LOG"
 
       - name: Upload TinkerPop test reports
-        if: ${{ always() && env.RUN_TINKERPOP_TESTS == 'true' }}
+        if: ${{ always() && env.RUN_TINKERPOP_TESTS == 'true' && (env.BACKEND == 'memory' || env.BACKEND == 'rocksdb') }}
         uses: actions/upload-artifact@v4
         with:
-          name: tinkerpop-${{ env.BACKEND }}-${{ matrix.SCRIPT_SECURITY_MODE }}
+          name: tinkerpop-${{ env.BACKEND }}-java${{ matrix.JAVA_VERSION }}-${{ matrix.SCRIPT_SECURITY_MODE }}
           path: hugegraph-server/hugegraph-test/target/surefire-reports/
           if-no-files-found: error
           retention-days: 7

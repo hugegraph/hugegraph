@@ -90,8 +90,11 @@ for filename in ("server-tests.yml", "pd-store-ci.yml"):
     for head, expected in (("task/groovy-policy-asf-master", ["legacy", "policy"]),
                            ("ordinary-feature", ["legacy"])):
         github = SimpleNamespace(head_ref=head)
-        assert eval(matrix, {"__builtins__": {}},
-                    {"github": github, "fromJSON": json.loads}) == expected
+        for backend in ("memory", "rocksdb", "hbase"):
+            modes = ["legacy"] if filename == "server-tests.yml" and backend == "hbase" else expected
+            assert eval(matrix, {"__builtins__": {}},
+                        {"github": github, "inputs": SimpleNamespace(backend=backend),
+                         "fromJSON": json.loads}) == modes
     steps = source.split("\n      - name: ")
     for step in steps:
         if step.startswith("Run TinkerPop "):
