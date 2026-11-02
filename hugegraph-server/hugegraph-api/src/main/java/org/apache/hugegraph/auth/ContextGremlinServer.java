@@ -17,17 +17,19 @@
 
 package org.apache.hugegraph.auth;
 
+import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ThreadFactory;
 
-import org.apache.hugegraph.exception.HugeException;
 import org.apache.hugegraph.HugeGraph;
 import org.apache.hugegraph.auth.HugeGraphAuthProxy.Context;
 import org.apache.hugegraph.auth.HugeGraphAuthProxy.ContextThreadPoolExecutor;
 import org.apache.hugegraph.config.CoreOptions;
 import org.apache.hugegraph.event.EventHub;
+import org.apache.hugegraph.exception.HugeException;
 import org.apache.hugegraph.security.script.PolicyScriptEngines;
 import org.apache.hugegraph.security.script.ScriptPolicyMonitor;
 import org.apache.hugegraph.security.script.ScriptPolicyRuntime;
@@ -36,11 +38,14 @@ import org.apache.hugegraph.testutil.Whitebox;
 import org.apache.hugegraph.util.Events;
 import org.apache.hugegraph.util.Log;
 import org.apache.tinkerpop.gremlin.groovy.engine.GremlinExecutor;
+import org.apache.tinkerpop.gremlin.process.traversal.TraversalSource;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversalSource;
 import org.apache.tinkerpop.gremlin.server.GraphManager;
 import org.apache.tinkerpop.gremlin.server.GremlinServer;
 import org.apache.tinkerpop.gremlin.server.Settings;
+import org.apache.tinkerpop.gremlin.server.auth.AllowAllAuthenticator;
 import org.apache.tinkerpop.gremlin.server.channel.WsAndHttpChannelizer;
+import org.apache.tinkerpop.gremlin.server.util.ServerGremlinExecutor;
 import org.apache.tinkerpop.gremlin.server.util.ThreadFactoryUtil;
 import org.apache.tinkerpop.gremlin.structure.Graph;
 import org.slf4j.Logger;
@@ -57,6 +62,7 @@ public class ContextGremlinServer extends GremlinServer {
     private final EventHub eventHub;
     private PolicyGremlinScriptEngineManager policyManager;
     private boolean authGraphs;
+    private final Settings policySettings;
 
     static {
         HugeGraphAuthProxy.setContext(Context.admin());
@@ -83,6 +89,7 @@ public class ContextGremlinServer extends GremlinServer {
                      System.getSecurityManager() == null ? "none" :
                      System.getSecurityManager().getClass().getName());
         }
+        this.policySettings = settings;
         this.eventHub = eventHub;
         this.listenChanges();
     }
@@ -117,6 +124,39 @@ public class ContextGremlinServer extends GremlinServer {
         }
         this.eventHub.unlisten(Events.GRAPH_CREATE);
         this.eventHub.unlisten(Events.GRAPH_DROP);
+    }
+
+    @Override
+    public synchronized CompletableFuture<ServerGremlinExecutor> start() throws Exception {
+        if (this.policyManager != null) {
+            GraphManager graphs = this.getServerGremlinExecutor().getGraphManager();
+            try {
+                graphs.getAsBindings().values().forEach(value -> validatePolicyBinding(value, this.policySettings));
+            } catch (RuntimeException failure) {
+                try {
+                    this.stop().join();
+                } catch (RuntimeException closeFailure) {
+                    failure.addSuppressed(closeFailure);
+                }
+                throw failure;
+            }
+        }
+        return super.start();
+    }
+
+    /** Host graphs must preserve the deployment's authorization boundary. */
+    public static void validatePolicyBinding(Object value, Settings settings) {
+        if (AllowAllAuthenticator.class.getName().equals(settings.authentication.authenticator)) {
+            return;
+        }
+        if (value instanceof TraversalSource &&
+            value.getClass() != HugeGraphAuthProxy.GraphTraversalSourceProxy.class) {
+            throw new IllegalArgumentException("SCRIPT_AUTH_GRAPH_BINDING_DENIED");
+        }
+        Object graph = value instanceof TraversalSource ? ((TraversalSource) value).getGraph() : value;
+        if ((value instanceof Graph || value instanceof TraversalSource) && !(graph instanceof HugeGraphAuthProxy)) {
+            throw new IllegalArgumentException("SCRIPT_AUTH_GRAPH_BINDING_DENIED");
+        }
     }
 
     @Override
@@ -174,6 +214,9 @@ public class ContextGremlinServer extends GremlinServer {
 
         if (this.policyManager != null && this.authGraphs && !(graph instanceof HugeGraphAuthProxy)) {
             graph = new HugeGraphAuthProxy(graph);
+        }
+        if (this.policyManager != null) {
+            validatePolicyBinding(graph, this.policySettings);
         }
         manager.putGraph(name, graph);
 
@@ -239,6 +282,7 @@ public class ContextGremlinServer extends GremlinServer {
             return configureChannelizer(settings);
         }
         ScriptPolicyRuntime.validateSecurityManager();
+        validatePolicySerializers(settings);
         if (!"org.apache.tinkerpop.gremlin.server.channel.WsAndHttpChannelizer".equals(settings.channelizer)) {
             throw new IllegalArgumentException("Script policy requires WsAndHttpChannelizer");
         }
@@ -251,6 +295,44 @@ public class ContextGremlinServer extends GremlinServer {
             settings.evaluationTimeout = 30000L;
         }
         return settings;
+    }
+
+    private static void validatePolicySerializers(Settings settings) {
+        Set<String> serializers = Set.of(
+                "org.apache.tinkerpop.gremlin.util.ser.GraphBinaryMessageSerializerV1",
+                "org.apache.tinkerpop.gremlin.util.ser.GraphSONUntypedMessageSerializerV1",
+                "org.apache.tinkerpop.gremlin.util.ser.GraphSONUntypedMessageSerializerV2",
+                "org.apache.tinkerpop.gremlin.util.ser.GraphSONUntypedMessageSerializerV3",
+                "org.apache.tinkerpop.gremlin.util.ser.GraphSONMessageSerializerV2",
+                "org.apache.tinkerpop.gremlin.util.ser.GraphSONMessageSerializerV3");
+        Set<String> registries = Set.of("org.apache.hugegraph.io.HugeGraphIoRegistry",
+                                      "org.apache.hugegraph.io.HugeGraphSONV1MessageIoRegistry");
+        if (settings.serializers == null) {
+            return;
+        }
+        for (Settings.SerializerSettings serializer : settings.serializers) {
+            if (!serializers.contains(serializer.className)) {
+                throw new IllegalArgumentException("SCRIPT_SERIALIZER_CONFIG_DENIED");
+            }
+            Map<String, Object> config = serializer.config;
+            if (config == null) {
+                continue;
+            }
+            Object builder = config.get("builder");
+            if (builder != null && !Set.of("org.apache.hugegraph.io.HugeGraphTypeSerializerRegistryBuilder",
+                    "org.apache.tinkerpop.gremlin.structure.io.binary.TypeSerializerRegistry$Builder")
+                    .contains(builder)) {
+                throw new IllegalArgumentException("SCRIPT_SERIALIZER_CONFIG_DENIED");
+            }
+            for (String option : new String[]{"ioRegistries", "custom"}) {
+                Object values = config.get(option);
+                if (values != null && (!(values instanceof List) ||
+                    ((List<?>) values).stream().anyMatch(value -> !option.equals("ioRegistries") ||
+                                                                  !registries.contains(value)))) {
+                    throw new IllegalArgumentException("SCRIPT_SERIALIZER_CONFIG_DENIED");
+                }
+            }
+        }
     }
 
     static ExecutorService newGremlinExecutorService(Settings settings) {

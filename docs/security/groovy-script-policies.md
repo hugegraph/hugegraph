@@ -27,6 +27,43 @@ constructs fail with a script policy error; enabling a policy mode can require
 changes to existing scripts. The policy mode has not been qualified as a
 replacement for every deployment security control.
 
+## Protocol and extension boundaries
+
+In `policy` mode, Server accepts the existing GraphBinary V1, untyped GraphSON
+V1/V2/V3 and typed GraphSON V2/V3 serializers. The approved registries are
+`HugeGraphIoRegistry` and `HugeGraphSONV1MessageIoRegistry`; GraphBinary may use
+HugeGraph's shipped registry builder or TinkerPop's standard builder. Custom
+serializer classes, registry classes, builders and nonempty `custom` type codec
+lists fail startup with `SCRIPT_SERIALIZER_CONFIG_DENIED`, before codec loading.
+The framework's default serializers remain supported. Plugins that add wire types
+require an explicit policy review and code change.
+
+When authentication is configured, registered graphs and traversal-source origins
+must use `HugeGraphAuthProxy` and its traversal-source implementation, retaining
+both data permissions and the Gremlin EXECUTE check. Startup and graph registration
+through the server check this boundary. Request aliases, retained Session bindings and the final
+Cypher graph selection are checked again, including Cypher's default-graph path.
+No-auth deployments can continue to use raw graphs.
+
+Cypher retains its trusted translator and native predicates. Policy mode uses an
+empty procedure context instead of the global plugin registry, so plugin `CALL`
+procedures are unavailable. Translated results enter the same deadline and result
+checks as Gremlin. The native-client Bytecode policy remains separate because it
+rejects predicates that the trusted Cypher translator legitimately constructs.
+
+Results accept supported data containers, fixed HugeGraph/TinkerPop element and
+Path implementations, IDs, Date/OffsetDateTime/Blob values and traversal diagnostics.
+Nested values, Path labels, element properties, edge endpoint identities and metric
+annotations remain checked; unsupported result implementations fail with
+`SCRIPT_RESULT_DENIED` before serialization.
+Bytecode containers are checked before iteration, retaining supported JDK
+containers and TinkerPop Tree/BulkSet values. HTTP hands its validated request
+object to the standard endpoint without decoding the client payload a second time.
+
+Authentication revocation and authorization refresh for an existing WebSocket
+connection require separate authentication lifecycle support. Script policies do
+not add token revocation or refresh a Session owner's role after a role change.
+
 ## Shared runtime
 
 The shared runtime is packaged in the existing `hugegraph-struct` artifact. Java package names remain

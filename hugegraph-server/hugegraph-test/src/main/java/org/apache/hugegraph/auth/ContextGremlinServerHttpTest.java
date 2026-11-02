@@ -25,8 +25,8 @@ import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
-import java.util.Locale;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
@@ -37,17 +37,45 @@ import org.apache.hugegraph.testutil.Whitebox;
 import org.apache.hugegraph.util.JsonUtil;
 import org.apache.tinkerpop.gremlin.driver.Client;
 import org.apache.tinkerpop.gremlin.driver.Cluster;
+import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversalSource;
 import org.apache.tinkerpop.gremlin.server.Settings;
 import org.apache.tinkerpop.gremlin.server.channel.WebSocketChannelizer;
 import org.apache.tinkerpop.gremlin.server.channel.WsAndHttpChannelizer;
 import org.apache.tinkerpop.gremlin.structure.util.empty.EmptyGraph;
+import org.apache.tinkerpop.gremlin.tinkergraph.structure.TinkerFactory;
+import org.apache.tinkerpop.gremlin.tinkergraph.structure.TinkerGraph;
 import org.apache.tinkerpop.gremlin.util.ser.GraphSONMessageSerializerV3;
 import org.apache.tinkerpop.gremlin.util.ser.GraphSONUntypedMessageSerializerV1;
 import org.junit.Test;
+import org.mockito.Mockito;
 
 import io.netty.channel.Channel;
 
 public class ContextGremlinServerHttpTest {
+
+    @Test
+    public void testAuthenticatedHostBindingsRequireProxyGraphAndTraversalOrigin() throws Exception {
+        Settings settings = new Settings();
+        HugeGraphAuthProxy.Context previous = HugeGraphAuthProxy.setContext(null);
+        try (TinkerGraph graph = TinkerFactory.createModern()) {
+            ContextGremlinServer.validatePolicyBinding(graph, settings);
+            ContextGremlinServer.validatePolicyBinding(graph.traversal(), settings);
+            settings.authentication.authenticator = StandardAuthenticator.class.getName();
+            for (Object raw : List.of(graph, graph.traversal())) {
+                IllegalArgumentException denied = Assert.assertThrows(IllegalArgumentException.class,
+                        () -> ContextGremlinServer.validatePolicyBinding(raw, settings));
+                Assert.assertEquals("SCRIPT_AUTH_GRAPH_BINDING_DENIED", denied.getMessage());
+            }
+            HugeGraphAuthProxy proxy = Mockito.mock(HugeGraphAuthProxy.class);
+            ContextGremlinServer.validatePolicyBinding(proxy, settings);
+            Assert.assertThrows(IllegalArgumentException.class,
+                    () -> ContextGremlinServer.validatePolicyBinding(new GraphTraversalSource(proxy), settings));
+            ContextGremlinServer.validatePolicyBinding(proxy.new GraphTraversalSourceProxy(proxy), settings);
+            ContextGremlinServer.validatePolicyBinding("ordinary data", settings);
+        } finally {
+            HugeGraphAuthProxy.setContext(previous);
+        }
+    }
 
     @Test
     public void testOnlyStandardChannelizerIsAdapted() {

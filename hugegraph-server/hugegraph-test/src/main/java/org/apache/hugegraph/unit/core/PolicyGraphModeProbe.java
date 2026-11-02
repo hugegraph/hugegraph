@@ -35,21 +35,22 @@ import org.apache.commons.configuration2.BaseConfiguration;
 import org.apache.commons.io.FileUtils;
 import org.apache.hugegraph.HugeFactory;
 import org.apache.hugegraph.HugeGraph;
+import org.apache.hugegraph.auth.AuthContext;
 import org.apache.hugegraph.auth.ContextGremlinServer;
 import org.apache.hugegraph.auth.HugeAuthenticator;
 import org.apache.hugegraph.auth.HugeGraphAuthProxy;
 import org.apache.hugegraph.auth.PolicyGremlinScriptEngineManager;
 import org.apache.hugegraph.auth.RolePermission;
-import org.apache.hugegraph.id.IdGenerator;
 import org.apache.hugegraph.config.HugeConfig;
-import org.apache.hugegraph.auth.AuthContext;
 import org.apache.hugegraph.core.GraphManager;
 import org.apache.hugegraph.dist.RegisterUtil;
 import org.apache.hugegraph.event.EventHub;
+import org.apache.hugegraph.id.IdGenerator;
 import org.apache.hugegraph.job.GremlinJob;
 import org.apache.hugegraph.security.script.PolicyScriptEngine;
 import org.apache.hugegraph.security.script.PolicyScriptEngines;
 import org.apache.hugegraph.security.script.ScriptExecutionProfile;
+import org.apache.hugegraph.security.script.ScriptExecutionBudget;
 import org.apache.hugegraph.security.script.ScriptPolicyRuntime;
 import org.apache.hugegraph.security.script.ScriptSecurityMode;
 import org.apache.hugegraph.task.HugeTask;
@@ -108,6 +109,14 @@ public final class PolicyGraphModeProbe {
             try (PolicyScriptEngine engine = new PolicyScriptEngine(ScriptExecutionProfile.QUERY)) {
                 Assert.assertEquals(1L, engine.eval("g.V().count().next()",
                         new SimpleBindings(Map.of("g", graph.traversal()))));
+                SimpleBindings results = new SimpleBindings(Map.of("g", graph.traversal()));
+                Assert.assertNotNull(engine.eval("g.V().path().next()", results));
+                Assert.assertNotNull(engine.eval("g.V().properties('name').next()", results));
+                Assert.assertNotNull(engine.eval("g.V().id().next()", results));
+                Assert.assertNotNull(engine.eval("g.V().profile().next()", results));
+                Object explanation = graph.traversal().V().explain();
+                Assert.assertSame(explanation, PolicyScriptEngines.prepareResult(explanation,
+                        ScriptExecutionBudget.deadline()));
                 Assert.assertEquals(true, engine.eval(
                         "graph.schema().propertyKey('policy_extra').asText().ifNotExist().create(); true",
                         new SimpleBindings(Map.of("graph", graph))));
@@ -178,10 +187,12 @@ public final class PolicyGraphModeProbe {
                 Assert.assertEquals(2L, engine.eval(source, bindings));
                 TaskManager.setContext(new HugeAuthenticator.User("denied", RolePermission.none()).toJson());
                 Assert.assertThrows(ScriptException.class, () -> engine.eval(source, bindings));
+                Assert.assertThrows("Pure data traversals still require GREMLIN EXECUTE", ScriptException.class,
+                        () -> engine.eval("g.inject(1).next()", bindings));
                 TaskManager.setContext(new HugeAuthenticator.User("admin", RolePermission.admin()).toJson());
                 Assert.assertEquals(2L, engine.eval(source, bindings));
                 Assert.assertEquals(0L, engine.compilationCount());
-                Assert.assertEquals(1L, (long) engine.metrics().get("gremlinParseMisses"));
+                Assert.assertEquals(2L, (long) engine.metrics().get("gremlinParseMisses"));
             } finally {
                 TaskManager.resetContext();
                 HugeGraphAuthProxy.resetContext();

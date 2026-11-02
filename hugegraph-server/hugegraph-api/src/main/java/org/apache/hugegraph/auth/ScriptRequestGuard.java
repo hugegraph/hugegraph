@@ -24,6 +24,8 @@ import org.apache.hugegraph.security.script.ScriptBytecodePolicy;
 import org.apache.hugegraph.security.script.ScriptExecutionBudget;
 import org.apache.tinkerpop.gremlin.process.traversal.Bytecode;
 import org.apache.tinkerpop.gremlin.process.traversal.GraphOp;
+import org.apache.tinkerpop.gremlin.server.GraphManager;
+import org.apache.tinkerpop.gremlin.server.Settings;
 import org.apache.tinkerpop.gremlin.util.Tokens;
 import org.apache.tinkerpop.gremlin.util.message.RequestMessage;
 import org.apache.tinkerpop.gremlin.util.message.ResponseMessage;
@@ -35,8 +37,16 @@ import io.netty.channel.ChannelInboundHandlerAdapter;
 public final class ScriptRequestGuard extends ChannelInboundHandlerAdapter {
 
     private final long timeout;
+    private final GraphManager graphs;
+    private final Settings settings;
 
     public ScriptRequestGuard(long timeout) {
+        this(timeout, null, null);
+    }
+
+    ScriptRequestGuard(long timeout, GraphManager graphs, Settings settings) {
+        this.graphs = graphs;
+        this.settings = settings;
         this.timeout = timeout > 0 ? Math.min(timeout, ScriptExecutionBudget.TIMEOUT_MILLIS) :
                        ScriptExecutionBudget.TIMEOUT_MILLIS;
     }
@@ -71,6 +81,18 @@ public final class ScriptRequestGuard extends ChannelInboundHandlerAdapter {
             if (!Tokens.OPS_EVAL.equals(request.getOp()) && !Tokens.OPS_BYTECODE.equals(request.getOp()) &&
                 !Tokens.OPS_CLOSE.equals(request.getOp())) {
                 throw new IllegalArgumentException("SCRIPT_SESSION_OPERATION_DENIED");
+            }
+        }
+        Object aliases = request.getArgs().get(Tokens.ARGS_ALIASES);
+        if (this.graphs != null && aliases instanceof Map) {
+            for (Object name : ((Map<?, ?>) aliases).values()) {
+                if (name instanceof String) {
+                    Object graph = this.graphs.getGraph((String) name);
+                    if (graph == null) {
+                        graph = this.graphs.getTraversalSource((String) name);
+                    }
+                    ContextGremlinServer.validatePolicyBinding(graph, this.settings);
+                }
             }
         }
         Object data = request.getArgs().get(Tokens.ARGS_BINDINGS);

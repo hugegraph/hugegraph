@@ -17,18 +17,22 @@
 
 package org.apache.hugegraph.auth;
 
+import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 
+import org.apache.hugegraph.server.HttpGremlinRequestHandler;
 import org.apache.tinkerpop.gremlin.groovy.engine.GremlinExecutor;
 import org.apache.tinkerpop.gremlin.server.GraphManager;
 import org.apache.tinkerpop.gremlin.server.Settings;
-import org.apache.hugegraph.server.HttpGremlinRequestHandler;
 import org.apache.tinkerpop.gremlin.server.handler.HttpHandlerUtil;
 import org.apache.tinkerpop.gremlin.util.MessageSerializer;
 import org.apache.tinkerpop.gremlin.util.Tokens;
 import org.apache.tinkerpop.gremlin.util.message.RequestMessage;
+import org.apache.tinkerpop.gremlin.util.message.ResponseMessage;
 
+import io.netty.buffer.ByteBuf;
+import io.netty.buffer.ByteBufAllocator;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandler;
@@ -48,7 +52,12 @@ import io.netty.util.ReferenceCountUtil;
 @ChannelHandler.Sharable
 public final class PolicyHttpGremlinEndpointHandler extends HttpGremlinRequestHandler {
 
+    private static final String DECODED_REQUEST = "application/x-hugegraph-decoded-request";
+
     private final Map<String, MessageSerializer<?>> serializers;
+    private final GremlinExecutor executor;
+    private final GraphManager graphs;
+    private final Settings settings;
     private final ScriptRequestGuard guard;
 
     public PolicyHttpGremlinEndpointHandler(Map<String, MessageSerializer<?>> serializers,
@@ -57,7 +66,10 @@ public final class PolicyHttpGremlinEndpointHandler extends HttpGremlinRequestHa
                                             Settings settings) {
         super(serializers, executor, graphs, settings);
         this.serializers = serializers;
-        this.guard = new ScriptRequestGuard(settings.evaluationTimeout);
+        this.executor = executor;
+        this.graphs = graphs;
+        this.settings = settings;
+        this.guard = new ScriptRequestGuard(settings.evaluationTimeout, graphs, settings);
     }
 
     @Override
@@ -68,6 +80,7 @@ public final class PolicyHttpGremlinEndpointHandler extends HttpGremlinRequestHa
                  request.method().equals(HttpMethod.POST)) &&
                 !"/favicon.ico".equals(request.uri())) {
                 RequestMessage decoded = null;
+                RequestMessage checked;
                 try {
                     // A duplicate has independent reader/mark indices; the
                     // endpoint still owns the original reference count.
@@ -76,7 +89,7 @@ public final class PolicyHttpGremlinEndpointHandler extends HttpGremlinRequestHa
                     if ("session".equals(decoded.getProcessor())) {
                         throw new IllegalArgumentException("SCRIPT_HTTP_SESSION_UNSUPPORTED");
                     }
-                    RequestMessage checked = this.guard.validate(decoded);
+                    checked = this.guard.validate(decoded);
                     rejectTimeoutOverride(decoded, checked);
                 } catch (Exception error) {
                     String reason = error instanceof IllegalArgumentException &&
@@ -89,9 +102,72 @@ public final class PolicyHttpGremlinEndpointHandler extends HttpGremlinRequestHa
                     ReferenceCountUtil.release(message);
                     return;
                 }
+                try {
+                    this.dispatch(context, request, checked);
+                } finally {
+                    ReferenceCountUtil.release(message);
+                }
+                return;
             }
         }
         super.channelRead(context, message);
+    }
+
+    private void dispatch(ChannelHandlerContext context, FullHttpRequest original, RequestMessage checked) {
+        // TP 3.8.1 has no parse hook. Hand the checked object to its endpoint through
+        // a request-local serializer instead of decoding the client payload again.
+        // No state is shared across requests; TP still owns negotiation, evaluation,
+        // transaction handling and response serialization.
+        Map<String, MessageSerializer<?>> local = new HashMap<>(this.serializers);
+        local.put(DECODED_REQUEST, new DecodedRequest(checked, local));
+        FullHttpRequest request = original.replace(Unpooled.wrappedBuffer(new byte[]{'{'}));
+        request.setMethod(HttpMethod.POST);
+        request.headers().set(HttpHeaderNames.CONTENT_TYPE, DECODED_REQUEST);
+        HttpUtil.setContentLength(request, 1);
+        new HttpGremlinRequestHandler(local, this.executor, this.graphs, this.settings).channelRead(context, request);
+    }
+
+    private static final class DecodedRequest implements MessageSerializer<Object> {
+
+        private final RequestMessage request;
+        private final Map<String, MessageSerializer<?>> serializers;
+
+        private DecodedRequest(RequestMessage request, Map<String, MessageSerializer<?>> serializers) {
+            this.request = request;
+            this.serializers = serializers;
+        }
+
+        @Override
+        public RequestMessage deserializeRequest(ByteBuf ignored) {
+            // Remove the private handoff before TP negotiates the response serializer.
+            this.serializers.remove(DECODED_REQUEST);
+            return this.request;
+        }
+
+        @Override
+        public String[] mimeTypesSupported() {
+            return new String[]{DECODED_REQUEST};
+        }
+
+        @Override
+        public Object getMapper() {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public ByteBuf serializeResponseAsBinary(ResponseMessage response, ByteBufAllocator allocator) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public ByteBuf serializeRequestAsBinary(RequestMessage request, ByteBufAllocator allocator) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public ResponseMessage deserializeResponse(ByteBuf response) {
+            throw new UnsupportedOperationException();
+        }
     }
 
     private static void rejectTimeoutOverride(RequestMessage decoded,

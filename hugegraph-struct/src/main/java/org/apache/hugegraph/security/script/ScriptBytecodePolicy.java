@@ -24,8 +24,8 @@ import java.util.Set;
 
 import org.apache.tinkerpop.gremlin.process.traversal.Bytecode;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
-import org.apache.tinkerpop.gremlin.process.traversal.TextP;
 import org.apache.tinkerpop.gremlin.process.traversal.Text;
+import org.apache.tinkerpop.gremlin.process.traversal.TextP;
 import org.apache.tinkerpop.gremlin.process.traversal.util.ConnectiveP;
 import org.apache.tinkerpop.gremlin.structure.Edge;
 import org.apache.tinkerpop.gremlin.structure.Element;
@@ -64,6 +64,11 @@ public final class ScriptBytecodePolicy {
             "org.apache.tinkerpop.gremlin.process.traversal.DT");
 
     private ScriptBytecodePolicy() {
+    }
+
+    static boolean isSupportedEnum(Enum<?> value) {
+        Class<?> type = value.getDeclaringClass();
+        return type.getClassLoader() == Bytecode.class.getClassLoader() && ENUM_TYPES.contains(type.getName());
     }
 
     public static void validate(Bytecode bytecode) {
@@ -147,8 +152,7 @@ public final class ScriptBytecodePolicy {
                 check(((P<?>) value).getValue(), depth + 1, count);
             }
         } else if (value instanceof Enum) {
-            String type = ((Enum<?>) value).getDeclaringClass().getName();
-            if (!ENUM_TYPES.contains(type)) {
+            if (!isSupportedEnum((Enum<?>) value)) {
                 throw new IllegalArgumentException("SCRIPT_BYTECODE_ENUM_DENIED");
             }
         } else if (value instanceof Element || value instanceof Property) {
@@ -176,10 +180,12 @@ public final class ScriptBytecodePolicy {
                 // Parent links point back to the vertex/edge; they are not property payloads.
             }
         } else if (value instanceof Collection) {
+            ScriptBindings.validateContainer(value);
             for (Object item : (Collection<?>) value) {
                 check(item, depth + 1, count);
             }
         } else if (value instanceof Map) {
+            ScriptBindings.validateContainer(value);
             ((Map<?, ?>) value).forEach((key, item) -> {
                 check(key, depth + 1, count);
                 check(item, depth + 1, count);

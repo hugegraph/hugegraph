@@ -35,6 +35,10 @@ import java.util.Optional;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
 
+import org.apache.hugegraph.auth.ContextGremlinServer;
+import org.apache.hugegraph.security.script.PolicyScriptEngines;
+import org.apache.hugegraph.security.script.ScriptExecutionBudget;
+import org.apache.hugegraph.security.script.ScriptPolicyRuntime;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.TraversalSource;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.DefaultGraphTraversal;
@@ -66,6 +70,7 @@ import org.opencypher.v9_0.expressions.Parameter;
 import org.slf4j.Logger;
 
 import io.netty.channel.ChannelHandlerContext;
+
 import scala.Product;
 import scala.collection.Seq;
 
@@ -196,7 +201,10 @@ public class CypherOpProcessor extends AbstractEvalOpProcessor {
         GraphTraversalSource gts = traversal(context);
         DefaultGraphTraversal g = new DefaultGraphTraversal(gts.clone());
         Map<String, Object> parameters = ParameterNormalizer.normalize(getParameters(args));
-        ProcedureContext procedureContext = ProcedureContext.global();
+        // The translator is trusted code; deployment plugin procedures are not
+        // part of the script policy. Keep ordinary Cypher and its native predicates.
+        ProcedureContext procedureContext = ScriptPolicyRuntime.enabled() ?
+                                            ProcedureContext.empty() : ProcedureContext.global();
         CypherAst ast = CypherAst.parse(cypher, parameters, procedureContext.getSignatures());
         validateParameters(ast, parameters);
         // The translator has no temporal functions; fold the supported
@@ -267,6 +275,14 @@ public class CypherOpProcessor extends AbstractEvalOpProcessor {
     }
 
     private GraphTraversalSource traversal(Context context) throws OpProcessorException {
+        GraphTraversalSource source = this.resolveTraversal(context);
+        if (ScriptPolicyRuntime.enabled()) {
+            ContextGremlinServer.validatePolicyBinding(source, context.getSettings());
+        }
+        return source;
+    }
+
+    private GraphTraversalSource resolveTraversal(Context context) throws OpProcessorException {
         RequestMessage msg = context.getRequestMessage();
         GraphManager graphManager = context.getGraphManager();
 
@@ -311,11 +327,14 @@ public class CypherOpProcessor extends AbstractEvalOpProcessor {
                              ? ((Number) msg.getArgs().get(Tokens.ARGS_EVAL_TIMEOUT)).longValue()
                              : context.getSettings().evaluationTimeout;
 
+        long deadline = ScriptExecutionBudget.deadline();
         FutureTask<Void> evalFuture = new FutureTask<>(() -> {
             try (GraphTraversal<?, ?> ignored = source) {
                 // The parent commits before sending the terminal success response. Both
                 // iteration and failure rollback must run on this transaction-owning thread.
-                super.handleIterator(context, traversal);
+                Iterator checked = ScriptPolicyRuntime.enabled() ?
+                                   (Iterator) PolicyScriptEngines.prepareResult(traversal, deadline) : traversal;
+                super.handleIterator(context, checked);
             } catch (Error error) {
                 try {
                     attemptRollback(msg, context.getGraphManager(),

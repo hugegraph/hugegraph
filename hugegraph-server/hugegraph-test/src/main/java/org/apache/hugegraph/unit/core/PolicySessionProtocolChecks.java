@@ -17,26 +17,28 @@
 
 package org.apache.hugegraph.unit.core;
 
-import java.util.List;
 import java.util.Collection;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.apache.tinkerpop.gremlin.driver.Client;
 import org.apache.tinkerpop.gremlin.driver.Cluster;
 import org.apache.tinkerpop.gremlin.driver.RequestOptions;
 import org.apache.tinkerpop.gremlin.driver.Result;
 import org.apache.tinkerpop.gremlin.driver.exception.ResponseException;
-import org.apache.tinkerpop.gremlin.util.message.ResponseStatusCode;
+import org.apache.tinkerpop.gremlin.util.message.RequestMessage;
 import org.apache.tinkerpop.gremlin.util.message.ResponseMessage;
+import org.apache.tinkerpop.gremlin.util.message.ResponseStatusCode;
 import org.apache.tinkerpop.gremlin.util.ser.GraphBinaryMessageSerializerV1;
 import org.apache.tinkerpop.gremlin.util.ser.SerializationException;
+import org.junit.Assert;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufAllocator;
-import org.junit.Assert;
 
 /** Real WebSocket checks reused by the isolated legacy/policy server probes. */
 public final class PolicySessionProtocolChecks {
@@ -44,6 +46,14 @@ public final class PolicySessionProtocolChecks {
     private static final String SERIALIZATION_FAILURE = "__policy_test_serialization_failure__";
 
     public static final class FailingResultSerializer extends GraphBinaryMessageSerializerV1 {
+
+        public static final AtomicInteger REQUESTS_DECODED = new AtomicInteger();
+
+        @Override
+        public RequestMessage deserializeRequest(ByteBuf message) throws SerializationException {
+            REQUESTS_DECODED.incrementAndGet();
+            return super.deserializeRequest(message);
+        }
 
         @Override
         public ByteBuf serializeResponseAsBinary(ResponseMessage response, ByteBufAllocator allocator)

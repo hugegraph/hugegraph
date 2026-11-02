@@ -22,11 +22,11 @@ import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Date;
-import java.util.LinkedHashSet;
 import java.util.Collections;
+import java.util.Date;
 import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -228,6 +228,18 @@ public final class ScriptBindings {
             result.put(name, type);
         });
         return Collections.unmodifiableMap(result);
+    }
+
+    // Check the implementation before invoking any client-controlled container accessor.
+    static void validateContainer(Object value) {
+        Set<String> types = value instanceof Map ? MAP_TYPES : COLLECTION_TYPES;
+        if (value.getClass() == org.apache.tinkerpop.gremlin.process.traversal.step.util.BulkSet.class ||
+            value.getClass() == org.apache.tinkerpop.gremlin.process.traversal.step.util.Tree.class) {
+            return;
+        }
+        if (value.getClass().getClassLoader() != null || !types.contains(value.getClass().getName())) {
+            throw denied("custom container implementation");
+        }
     }
 
     private static void validateName(String name) {

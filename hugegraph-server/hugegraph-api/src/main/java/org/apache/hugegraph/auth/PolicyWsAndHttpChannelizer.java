@@ -55,6 +55,6 @@ public final class PolicyWsAndHttpChannelizer extends AbstractChannelizer {
     public void finalize(ChannelPipeline pipeline) {
         super.finalize(pipeline);
         pipeline.addBefore(PIPELINE_OP_SELECTOR, "hugegraph-script-policy",
-                           new ScriptRequestGuard(this.settings.evaluationTimeout));
+                           new ScriptRequestGuard(this.settings.evaluationTimeout, this.graphManager, this.settings));
     }
 }

@@ -30,8 +30,8 @@ import org.apache.hugegraph.security.script.ScriptBindings;
 import org.apache.hugegraph.security.script.ScriptPolicyRuntime;
 import org.apache.tinkerpop.gremlin.process.traversal.TraversalSource;
 import org.apache.tinkerpop.gremlin.server.Context;
-import org.apache.tinkerpop.gremlin.server.auth.AuthenticatedUser;
 import org.apache.tinkerpop.gremlin.server.auth.AllowAllAuthenticator;
+import org.apache.tinkerpop.gremlin.server.auth.AuthenticatedUser;
 import org.apache.tinkerpop.gremlin.server.handler.StateKey;
 import org.apache.tinkerpop.gremlin.server.op.OpProcessorException;
 import org.apache.tinkerpop.gremlin.server.op.session.Session;
@@ -164,6 +164,8 @@ public final class PolicySessionOpProcessor extends SessionOpProcessor {
                 bindings.putAll(ScriptBindings.client(parameters));
                 aliases.keySet().removeAll(parameters.keySet());
             }
+            bindings.values().forEach(value -> ContextGremlinServer.validatePolicyBinding(value,
+                    context.getSettings()));
             // TP retains valid request parameters and aliases even if subsequent compilation/evaluation fails.
             Bindings retained = ScriptBindings.execution(bindings,
                     org.apache.hugegraph.security.script.ScriptExecutionProfile.QUERY);

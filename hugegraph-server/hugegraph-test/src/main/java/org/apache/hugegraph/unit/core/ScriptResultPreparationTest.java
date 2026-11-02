@@ -19,14 +19,37 @@ package org.apache.hugegraph.unit.core;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.time.OffsetDateTime;
+import java.util.AbstractCollection;
+import java.util.Date;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 
+import javax.script.Bindings;
+import javax.script.ScriptException;
+
+import org.apache.hugegraph.id.IdGenerator;
+import org.apache.hugegraph.security.script.PolicyScriptEngine;
 import org.apache.hugegraph.security.script.ScriptExecutionBudget;
+import org.apache.hugegraph.security.script.ScriptExecutionProfile;
+import org.apache.hugegraph.util.Blob;
+import org.apache.tinkerpop.gremlin.process.traversal.Order;
+import org.apache.tinkerpop.gremlin.process.traversal.Path;
 import org.apache.tinkerpop.gremlin.process.traversal.step.sideEffect.InjectStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.util.MutablePath;
 import org.apache.tinkerpop.gremlin.process.traversal.util.DefaultTraversal;
+import org.apache.tinkerpop.gremlin.process.traversal.util.DefaultTraversalMetrics;
+import org.apache.tinkerpop.gremlin.process.traversal.util.MutableMetrics;
 import org.apache.tinkerpop.gremlin.structure.util.CloseableIterator;
+import org.apache.tinkerpop.gremlin.structure.util.detached.DetachedEdge;
+import org.apache.tinkerpop.gremlin.structure.util.empty.EmptyProperty;
+import org.apache.tinkerpop.gremlin.structure.util.empty.EmptyVertexProperty;
+import org.apache.tinkerpop.gremlin.tinkergraph.structure.TinkerFactory;
+import org.apache.tinkerpop.gremlin.tinkergraph.structure.TinkerGraph;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -94,6 +117,127 @@ public class ScriptResultPreparationTest {
         CloseableIterator.closeIterator(prepared);
         Assert.assertEquals(1, cursor.closes);
         Assert.assertEquals(1, cursor.reads);
+    }
+
+    @Test
+    public void testRejectsUnknownResultsAndNestedCapabilitiesWithoutInvokingGetters() throws Exception {
+        Object capability = new Object() {
+            public String getValue() {
+                throw new AssertionError("serializer getter must not run");
+            }
+        };
+        for (Object value : List.of(capability, List.of(capability), Map.of("value", capability))) {
+            Assert.assertTrue(preparationFailure(value, ScriptExecutionBudget.deadline())
+                              .getMessage().startsWith("SCRIPT_RESULT_DENIED"));
+        }
+        TrackingIterator cursor = new TrackingIterator();
+        Throwable failure = preparationFailure(List.of(capability, cursor), ScriptExecutionBudget.deadline());
+        Assert.assertTrue(failure.getMessage().startsWith("SCRIPT_RESULT_DENIED"));
+        Assert.assertEquals(1, cursor.closes);
+    }
+
+    @Test
+    public void testRejectedCustomResultContainerIsNotIteratedDuringValidationOrCleanup() throws Exception {
+        AtomicInteger calls = new AtomicInteger();
+        Object container = new AbstractCollection<Object>() {
+            @Override
+            public Iterator<Object> iterator() {
+                calls.incrementAndGet();
+                return List.<Object>of(1).iterator();
+            }
+
+            @Override
+            public int size() {
+                calls.incrementAndGet();
+                return 1;
+            }
+        };
+        Assert.assertTrue(preparationFailure(container, ScriptExecutionBudget.deadline())
+                          .getMessage().startsWith("SCRIPT_RESULT_DENIED"));
+        Assert.assertEquals(0, calls.get());
+    }
+
+    @Test
+    public void testRetainsSupportedDataElementsPathsAndTraversalDiagnostics() throws Exception {
+        try (TinkerGraph graph = TinkerFactory.createModern()) {
+            for (Object value : List.of(new Date(0), Blob.wrap(new byte[]{1}), IdGenerator.of("v1"),
+                    Order.asc, java.math.RoundingMode.HALF_UP, graph.traversal().V(1).next(),
+                    graph.traversal().E().next(), graph.traversal().V(1).properties("name").next(),
+                    EmptyProperty.instance(), EmptyVertexProperty.instance(),
+                    List.of(EmptyVertexProperty.instance()),
+                    graph.traversal().V(1).out().path().next(), graph.traversal().V().profile().next(),
+                    graph.traversal().inject("2020-01-01T00:00:00Z").asDate().next(),
+                    List.of(OffsetDateTime.parse("2020-01-01T00:00:00Z")),
+                    graph.traversal().V().explain())) {
+                Assert.assertSame(value, resultMethod("prepare", Object.class, long.class)
+                        .invoke(null, value, ScriptExecutionBudget.deadline()));
+            }
+        }
+    }
+
+    @Test
+    public void testRejectsCapabilitiesInEdgeEndpointIds() throws Exception {
+        for (boolean incoming : new boolean[]{false, true}) {
+            TrackingIterator cursor = new TrackingIterator();
+            DetachedEdge edge = new DetachedEdge(1, "edge", Map.of(),
+                    incoming ? 1 : cursor, "person", incoming ? cursor : 2, "person");
+            Assert.assertTrue(preparationFailure(edge, ScriptExecutionBudget.deadline())
+                              .getMessage().startsWith("SCRIPT_RESULT_DENIED"));
+            Assert.assertEquals(1, cursor.closes);
+            Assert.assertEquals(0, cursor.reads);
+        }
+        DetachedEdge edge = new DetachedEdge(1, "edge", Map.of(), 1, "person", 2, "person");
+        Assert.assertSame(edge, resultMethod("prepare", Object.class, long.class)
+                .invoke(null, edge, ScriptExecutionBudget.deadline()));
+    }
+
+    @Test
+    public void testRejectedMetricAnnotationsCloseCursors() throws Exception {
+        for (boolean traversal : new boolean[]{false, true}) {
+            TrackingIterator cursor = new TrackingIterator();
+            MutableMetrics metrics = new MutableMetrics("id", "step");
+            metrics.getAnnotations().put("cursor", cursor);
+            Object result = traversal ? new DefaultTraversalMetrics(1L, List.of(metrics)) : metrics;
+            Assert.assertTrue(preparationFailure(result, ScriptExecutionBudget.deadline())
+                              .getMessage().startsWith("SCRIPT_RESULT_DENIED"));
+            Assert.assertEquals(1, cursor.closes);
+            Assert.assertEquals(0, cursor.reads);
+        }
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    public void testRejectedPathLabelsCloseCursors() throws Exception {
+        TrackingIterator cursor = new TrackingIterator();
+        Path path = MutablePath.make().extend(1, new HashSet<>());
+        ((Set<Object>) (Set<?>) path.labels().get(0)).add(cursor);
+        Assert.assertTrue(preparationFailure(path, ScriptExecutionBudget.deadline())
+                          .getMessage().startsWith("SCRIPT_RESULT_DENIED"));
+        Assert.assertEquals(1, cursor.closes);
+        Assert.assertEquals(0, cursor.reads);
+    }
+
+    @Test
+    public void testRejectsGraphSourcesInsideMutablePathLabels() throws Exception {
+        try (TinkerGraph graph = TinkerFactory.createModern();
+             PolicyScriptEngine engine = new PolicyScriptEngine(ScriptExecutionProfile.QUERY)) {
+            Bindings bindings = engine.createBindings();
+            bindings.put("g", graph.traversal());
+            ScriptException failure = Assert.assertThrows(ScriptException.class,
+                    () -> engine.eval(
+                    "def p = g.inject(1).as('x').path().by(__.identity()).next(); " +
+                    "Set<Object> labels = (Set<Object>) p.labels().get(0); labels.add(g); p", bindings));
+            Assert.assertNotNull(failure.getCause());
+            Assert.assertTrue(failure.getCause().getMessage().startsWith("SCRIPT_RESULT_DENIED"));
+        }
+    }
+
+    @Test
+    public void testRetainsEmptyRangesDirectlyAndInsideContainers() throws Exception {
+        try (PolicyScriptEngine engine = new PolicyScriptEngine(ScriptExecutionProfile.QUERY)) {
+            Assert.assertEquals(List.of(), engine.eval("1..<1"));
+            Assert.assertEquals(Map.of("range", List.of()), engine.eval("[range: 1..<1]"));
+        }
     }
 
     private static Throwable preparationFailure(Object value, long deadline) throws Exception {

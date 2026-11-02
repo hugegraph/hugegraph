@@ -59,6 +59,11 @@ public final class PolicyScriptEngines {
         }
     }
 
+    /** Apply the same result boundary to a trusted translator's iterator. */
+    public static Object prepareResult(Object value, long deadline) {
+        return ScriptResults.prepare(value, deadline);
+    }
+
     public static synchronized void close() {
         ENGINES.values().forEach(PolicyScriptEngine::close);
         ENGINES.clear();

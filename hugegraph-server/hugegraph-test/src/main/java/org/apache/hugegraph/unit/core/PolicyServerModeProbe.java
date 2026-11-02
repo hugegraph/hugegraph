@@ -37,6 +37,7 @@ import org.apache.hugegraph.event.EventHub;
 import org.apache.hugegraph.security.HugeSecurityManager;
 import org.apache.hugegraph.security.script.ScriptPolicyRuntime;
 import org.apache.hugegraph.security.script.ScriptSecurityMode;
+import org.apache.hugegraph.testutil.Whitebox;
 import org.apache.hugegraph.util.JsonUtil;
 import org.apache.tinkerpop.gremlin.driver.Client;
 import org.apache.tinkerpop.gremlin.driver.Cluster;
@@ -54,6 +55,10 @@ import org.apache.tinkerpop.gremlin.util.message.ResponseStatusCode;
 import org.apache.tinkerpop.gremlin.util.ser.GraphBinaryMessageSerializerV1;
 import org.apache.tinkerpop.gremlin.util.ser.GraphSONMessageSerializerV3;
 import org.junit.Assert;
+import org.opencypher.gremlin.extension.CypherBinding;
+import org.opencypher.gremlin.extension.CypherBindingType;
+import org.opencypher.gremlin.extension.CypherProcedure;
+import org.opencypher.gremlin.traversal.ProcedureContext;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.UnpooledByteBufAllocator;
@@ -78,6 +83,9 @@ public final class PolicyServerModeProbe {
             throw new AssertionError("Direct server entry accepted policy with a SecurityManager");
         }
         ScriptPolicyRuntime.validateSecurityManager();
+        if (mode.policyEnabled()) {
+            verifySerializerConfigurationRejection();
+        }
         int port;
         try (ServerSocket reservation = new ServerSocket(0)) {
             port = reservation.getLocalPort();
@@ -94,9 +102,7 @@ public final class PolicyServerModeProbe {
         settings.serializers = new ArrayList<>();
         for (String name : new String[]{"GraphBinaryMessageSerializerV1", "GraphSONMessageSerializerV3"}) {
             Settings.SerializerSettings serializer = new Settings.SerializerSettings();
-            serializer.className = name.equals("GraphBinaryMessageSerializerV1") ?
-                                   PolicySessionProtocolChecks.FailingResultSerializer.class.getName() :
-                                   "org.apache.tinkerpop.gremlin.util.ser." + name;
+            serializer.className = "org.apache.tinkerpop.gremlin.util.ser." + name;
             settings.serializers.add(serializer);
         }
         ContextGremlinServer server = new ContextGremlinServer(settings, new EventHub("script-policy-probe"));
@@ -106,6 +112,18 @@ public final class PolicyServerModeProbe {
               .putTraversalSource("gOther", EmptyGraph.instance().traversal().withSideEffect("marker", 2));
         try {
             server.start().get(20, TimeUnit.SECONDS);
+            // Fault injection belongs to this isolated test, outside deployment serializer configuration.
+            Map<String, MessageSerializer<?>> serializers = Whitebox.getInternalState(server.getChannelizer(),
+                                                                                     "serializers");
+            MessageSerializer<?> instrumented = new PolicySessionProtocolChecks.FailingResultSerializer();
+            org.apache.tinkerpop.gremlin.server.handler.WsAndHttpChannelizerHandler channels =
+                    Whitebox.getInternalState(server.getChannelizer(), "handler");
+            Map<String, MessageSerializer<?>> webSocketSerializers =
+                    Whitebox.getInternalState(channels.getWsChannelizer(), "serializers");
+            for (String mime : instrumented.mimeTypesSupported()) {
+                serializers.put(mime, instrumented);
+                webSocketSerializers.put(mime, instrumented);
+            }
             ContextGremlinServerHttpTest.assertAliasRecovery(port, "g");
             Cluster cluster = Cluster.build("127.0.0.1").port(port).create();
             try {
@@ -138,6 +156,7 @@ public final class PolicyServerModeProbe {
                             .addArg("aliases", Map.of("g", "g")).create();
                     Assert.assertEquals(Map.of("value", 1L), client.submitAsync(cypher)
                             .get(10, TimeUnit.SECONDS).all().get(10, TimeUnit.SECONDS).get(0).getObject());
+                    verifyCypherPolicy(client);
                     Client session = cluster.connect("policy-session-test");
                     try {
                         Assert.assertEquals(2, session.submit("1 + 1").all()
@@ -206,6 +225,67 @@ public final class PolicyServerModeProbe {
         }
     }
 
+    private static void verifySerializerConfigurationRejection() {
+        for (Object config : List.of("example.UnapprovedSerializer",
+                Map.of("ioRegistries", List.of("example.UnapprovedRegistry")),
+                Map.of("builder", "example.UnapprovedBuilder"),
+                Map.of("custom", List.of("example.Value;example.Serializer")))) {
+            Settings settings = new Settings();
+            Settings.SerializerSettings serializer = new Settings.SerializerSettings();
+            serializer.className = config instanceof String ? (String) config :
+                                   GraphBinaryMessageSerializerV1.class.getName();
+            if (config instanceof Map) {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> options = (Map<String, Object>) config;
+                serializer.config = options;
+            }
+            settings.serializers = List.of(serializer);
+            IllegalArgumentException denied = Assert.assertThrows(IllegalArgumentException.class,
+                    () -> new ContextGremlinServer(settings, new EventHub("denied-serializer")));
+            Assert.assertEquals("SCRIPT_SERIALIZER_CONFIG_DENIED", denied.getMessage());
+        }
+    }
+
+    private static void verifyCypherPolicy(Client client) throws Exception {
+        for (String query : List.of("RETURN 'alice' =~ '^a.*' AS matched",
+                                    "RETURN date('2020-01-01') AS day")) {
+            RequestMessage request = RequestMessage.build("eval").processor("cypher")
+                    .addArg("gremlin", query).addArg("aliases", Map.of("g", "g")).create();
+            Assert.assertEquals(1, client.submitAsync(request).get(10, TimeUnit.SECONDS)
+                                        .all().get(10, TimeUnit.SECONDS).size());
+        }
+        java.util.concurrent.atomic.AtomicInteger calls = new java.util.concurrent.atomic.AtomicInteger();
+        CypherProcedure implementation = args -> {
+            calls.incrementAndGet();
+            return List.of(Map.of("value", 1L));
+        };
+        java.lang.reflect.Method register = ProcedureContext.class.getDeclaredMethod("unsafeRegister",
+                String.class, List.class, List.class, CypherProcedure.class);
+        register.setAccessible(true);
+        register.invoke(ProcedureContext.global(), "ext.policyProbe", List.of(),
+                List.of(CypherBinding.binding("value", CypherBindingType.INTEGER)), implementation);
+        RequestMessage call = RequestMessage.build("eval").processor("cypher")
+                .addArg("gremlin", "CALL ext.policyProbe() YIELD value RETURN value")
+                .addArg("aliases", Map.of("g", "g")).create();
+        Assert.assertThrows(ExecutionException.class,
+                () -> client.submitAsync(call).get(10, TimeUnit.SECONDS).all().get(10, TimeUnit.SECONDS));
+        Assert.assertEquals("global procedures must not run in policy mode", 0, calls.get());
+
+        Settings authenticated = new Settings();
+        authenticated.authentication.authenticator = org.apache.hugegraph.auth.StandardAuthenticator.class.getName();
+        org.apache.tinkerpop.gremlin.server.util.DefaultGraphManager graphs =
+                new org.apache.tinkerpop.gremlin.server.util.DefaultGraphManager(authenticated);
+        graphs.putGraph("raw-dynamic-graph", EmptyGraph.instance());
+        RequestMessage fallback = RequestMessage.build("eval").processor("cypher")
+                .addArg("gremlin", "RETURN 1 AS value").create();
+        org.apache.tinkerpop.gremlin.server.Context context = new org.apache.tinkerpop.gremlin.server.Context(fallback,
+                org.mockito.Mockito.mock(io.netty.channel.ChannelHandlerContext.class),
+                authenticated, graphs, null, null);
+        IllegalArgumentException denied = Assert.assertThrows(IllegalArgumentException.class,
+                () -> new org.apache.hugegraph.opencypher.CypherOpProcessor().getEvalOp().accept(context));
+        Assert.assertEquals("SCRIPT_AUTH_GRAPH_BINDING_DENIED", denied.getMessage());
+    }
+
     private static void verifySerializedHttp(HttpClient http, URI uri) throws Exception {
         MessageSerializer<?> graphson = new GraphSONMessageSerializerV3();
         MessageSerializer<?> binary = new GraphBinaryMessageSerializerV1();
@@ -223,6 +303,16 @@ public final class PolicyServerModeProbe {
                         .addArg("gremlin", "1+1").create());
         Assert.assertEquals(session.body(), 400, session.statusCode());
         Assert.assertTrue(session.body(), session.body().contains("SCRIPT_HTTP_SESSION_UNSUPPORTED"));
+
+        int decoded = PolicySessionProtocolChecks.FailingResultSerializer.REQUESTS_DECODED.get();
+        HttpResponse<String> accepted = postSerialized(http, uri, binary,
+                RequestMessage.build("eval").overrideRequestId(requestId)
+                        .addArg("gremlin", "41+1").create());
+        Assert.assertEquals(accepted.body(), 200, accepted.statusCode());
+        Assert.assertTrue(accepted.body(), accepted.body().contains("42"));
+        Assert.assertTrue(accepted.body(), accepted.body().contains(requestId.toString()));
+        Assert.assertEquals("HTTP codec must run exactly once", decoded + 1,
+                PolicySessionProtocolChecks.FailingResultSerializer.REQUESTS_DECODED.get());
 
         Bytecode bytecode = new Bytecode();
         bytecode.addStep("V");

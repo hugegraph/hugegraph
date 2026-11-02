@@ -17,10 +17,15 @@
 
 package org.apache.hugegraph.unit.core;
 
-import java.util.Map;
+import java.util.AbstractCollection;
+import java.util.AbstractMap;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.apache.hugegraph.auth.ScriptRequestGuard;
 import org.apache.hugegraph.security.script.ScriptBytecodePolicy;
@@ -157,6 +162,52 @@ public class ScriptRequestGuardTest {
         } finally {
             channel.finishAndReleaseAll();
         }
+    }
+
+    @Test
+    public void testBytecodeRejectsCustomContainersBeforeCallingAccessors() {
+        AtomicInteger calls = new AtomicInteger();
+        Object collection = new AbstractCollection<Object>() {
+            @Override
+            public Iterator<Object> iterator() {
+                calls.incrementAndGet();
+                return List.<Object>of(1).iterator();
+            }
+
+            @Override
+            public int size() {
+                calls.incrementAndGet();
+                return 1;
+            }
+        };
+        Object map = new AbstractMap<Object, Object>() {
+            @Override
+            public Set<Entry<Object, Object>> entrySet() {
+                calls.incrementAndGet();
+                return Set.of();
+            }
+        };
+        for (Object container : List.of(collection, map)) {
+            Bytecode code = new Bytecode();
+            code.addStep("inject", 1);
+            // Model an already decoded argument; Bytecode.addStep may normalize Java containers.
+            code.getStepInstructions().get(0).getArguments()[0] = container;
+            Assert.assertThrows(IllegalArgumentException.class, () -> ScriptBytecodePolicy.validate(code));
+        }
+        Assert.assertEquals(0, calls.get());
+    }
+
+    @Test
+    public void testBytecodeRetainsOrdinaryContainersAndNestedPredicates() {
+        Bytecode nested = new Bytecode();
+        nested.addStep("has", "age", P.within(List.of(1, 2)));
+        Bytecode code = new Bytecode();
+        org.apache.tinkerpop.gremlin.process.traversal.step.util.BulkSet<Object> bulk =
+                new org.apache.tinkerpop.gremlin.process.traversal.step.util.BulkSet<>();
+        bulk.add(1, 2L);
+        code.addStep("inject", List.of(1, 2), Set.of("a", "b"), Map.of("child", nested, "value", P.eq(1)), bulk,
+                new org.apache.tinkerpop.gremlin.process.traversal.step.util.Tree<>());
+        ScriptBytecodePolicy.validate(code);
     }
 
     @Test
