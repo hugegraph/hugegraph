@@ -131,10 +131,12 @@ public class ScriptPolicyCompilationTest {
             Assert.assertFalse(profile + ": " + threeArgument,
                                policy.signatures().contains(threeArgument));
             try (PolicyScriptEngine engine = new PolicyScriptEngine(profile)) {
-                Assert.assertThrows(ScriptException.class, () ->
+                ScriptException twoError = Assert.assertThrows(ScriptException.class, () ->
                         engine.eval("new BigInteger(8, null)", new SimpleBindings()));
-                Assert.assertThrows(ScriptException.class, () ->
+                Assert.assertTrue(twoError.getMessage().contains("SCRIPT_COMPILE_DENIED"));
+                ScriptException threeError = Assert.assertThrows(ScriptException.class, () ->
                         engine.eval("new BigInteger(8, 0, null)", new SimpleBindings()));
+                Assert.assertTrue(threeError.getMessage().contains("SCRIPT_COMPILE_DENIED"));
             }
         }
     }
