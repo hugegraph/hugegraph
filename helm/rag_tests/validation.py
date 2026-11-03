@@ -22,6 +22,9 @@ from .support import RAG_MOUNT, pod
 class RagValidationMixin:
     def test_invalid_contracts_fail_before_render(self):
         invalid = (
+            ({"enabled": "false"}, "enabled"),
+            ({"hugegraph": {"autoConfigure": "false"}}, "autoConfigure"),
+            ({"env": [{"name": "-BAD", "value": "x"}]}, "rag.env"),
             ({"service": {"type": "ExternalName"}}, "service.type"),
             ({"service": {"type": "ClusterIP", "nodePort": 31001}}, "nodePort"),
             ({"service": {"type": "NodePort", "nodePort": "3100x"}}, "nodePort"),
@@ -47,7 +50,7 @@ class RagValidationMixin:
             ({"securityContext": {"capabilities": {"drop": ["NET_RAW"]}}}, "capabilities.drop"),
             ({"serviceAccount": {"automountServiceAccountToken": True}}, "automountServiceAccountToken"),
             ({"hugegraph": {"passwordSecret": {"key": "password"}}}, "passwordSecret.name"),
-            ({"persistence": {"enabled": 1}}, "persistence.enabled"),
+            ({"persistence": {"enabled": 1}}, "persistence/enabled"),
             ({"persistence": {"mountPath": "relative/path"}}, "mountPath"),
             ({"extraVolumeMounts": [{"name": "other", "mountPath": RAG_MOUNT}]},
              "extraVolumeMounts"),
