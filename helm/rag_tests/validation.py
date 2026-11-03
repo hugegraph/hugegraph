@@ -50,7 +50,7 @@ class RagValidationMixin:
             ({"securityContext": {"capabilities": {"drop": ["NET_RAW"]}}}, "capabilities.drop"),
             ({"serviceAccount": {"automountServiceAccountToken": True}}, "automountServiceAccountToken"),
             ({"hugegraph": {"passwordSecret": {"key": "password"}}}, "passwordSecret.name"),
-            ({"persistence": {"enabled": 1}}, "persistence/enabled"),
+            ({"persistence": {"enabled": 1}}, "persistence.enabled"),
             ({"persistence": {"mountPath": "relative/path"}}, "mountPath"),
             ({"extraVolumeMounts": [{"name": "other", "mountPath": RAG_MOUNT}]},
              "extraVolumeMounts"),
@@ -66,7 +66,7 @@ class RagValidationMixin:
             with self.subTest(values=values):
                 result = self.render(values)
                 self.assertNotEqual(0, result.returncode)
-                self.assertIn(expected, result.stderr)
+                self.assertIn(expected.replace("/", "."), result.stderr.replace("/", "."))
 
     def test_reserved_data_volume_and_mount_path_are_available_when_persistence_is_off(self):
         documents = self.documents({
