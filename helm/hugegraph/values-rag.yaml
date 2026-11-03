@@ -84,8 +84,8 @@ rag:
 
   # Unset inherits the top-level persistence.enabled value (true by default).
   # The claim stores the editable .env, prompt configuration, indexes and
-  # resource tree. The application seeds missing examples without overwriting
-  # user files. Requires the paired HugeGraph AI configuration refactor.
+  # resource tree. Missing example assets are read from the image, so startup
+  # needs no seeding. Requires the paired HugeGraph AI configuration refactor.
   persistence:
     enabled:
     existingClaim: ''

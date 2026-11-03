@@ -107,7 +107,9 @@ A StorageClass is required by default. RAG inherits `persistence.enabled` unless
 `rag.persistence.enabled` is explicitly set. Its PVC is mounted at
 `/var/lib/hugegraph-rag`; the application uses this directory for `.env`,
 `demo/config_prompt.yaml`, indexes and generated resources. Missing bundled
-examples are seeded by the application without overwriting existing user files.
+examples are read directly from the image; startup does not copy resources or
+generate configuration files. Explicit saves and index generation need a writable
+resource directory.
 Changing `rag.persistence.mountPath` moves the complete resource root.
 
 Explicit `HUGEGRAPH_LLM_ENV_PATH` and `HUGEGRAPH_LLM_PROMPT_CONFIG_PATH` overrides
