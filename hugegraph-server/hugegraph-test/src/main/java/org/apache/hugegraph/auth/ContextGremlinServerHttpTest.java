@@ -25,7 +25,7 @@ import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
-import java.util.Collections;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
@@ -37,17 +37,45 @@ import org.apache.hugegraph.testutil.Whitebox;
 import org.apache.hugegraph.util.JsonUtil;
 import org.apache.tinkerpop.gremlin.driver.Client;
 import org.apache.tinkerpop.gremlin.driver.Cluster;
+import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversalSource;
 import org.apache.tinkerpop.gremlin.server.Settings;
 import org.apache.tinkerpop.gremlin.server.channel.WebSocketChannelizer;
 import org.apache.tinkerpop.gremlin.server.channel.WsAndHttpChannelizer;
 import org.apache.tinkerpop.gremlin.structure.util.empty.EmptyGraph;
+import org.apache.tinkerpop.gremlin.tinkergraph.structure.TinkerFactory;
+import org.apache.tinkerpop.gremlin.tinkergraph.structure.TinkerGraph;
 import org.apache.tinkerpop.gremlin.util.ser.GraphSONMessageSerializerV3;
 import org.apache.tinkerpop.gremlin.util.ser.GraphSONUntypedMessageSerializerV1;
 import org.junit.Test;
+import org.mockito.Mockito;
 
 import io.netty.channel.Channel;
 
 public class ContextGremlinServerHttpTest {
+
+    @Test
+    public void testAuthenticatedHostBindingsRequireProxyGraphAndTraversalOrigin() throws Exception {
+        Settings settings = new Settings();
+        HugeGraphAuthProxy.Context previous = HugeGraphAuthProxy.setContext(null);
+        try (TinkerGraph graph = TinkerFactory.createModern()) {
+            ContextGremlinServer.validatePolicyBinding(graph, settings);
+            ContextGremlinServer.validatePolicyBinding(graph.traversal(), settings);
+            settings.authentication.authenticator = StandardAuthenticator.class.getName();
+            for (Object raw : List.of(graph, graph.traversal())) {
+                IllegalArgumentException denied = Assert.assertThrows(IllegalArgumentException.class,
+                        () -> ContextGremlinServer.validatePolicyBinding(raw, settings));
+                Assert.assertEquals("SCRIPT_AUTH_GRAPH_BINDING_DENIED", denied.getMessage());
+            }
+            HugeGraphAuthProxy proxy = Mockito.mock(HugeGraphAuthProxy.class);
+            ContextGremlinServer.validatePolicyBinding(proxy, settings);
+            Assert.assertThrows(IllegalArgumentException.class,
+                    () -> ContextGremlinServer.validatePolicyBinding(new GraphTraversalSource(proxy), settings));
+            ContextGremlinServer.validatePolicyBinding(proxy.new GraphTraversalSourceProxy(proxy), settings);
+            ContextGremlinServer.validatePolicyBinding("ordinary data", settings);
+        } finally {
+            HugeGraphAuthProxy.setContext(previous);
+        }
+    }
 
     @Test
     public void testOnlyStandardChannelizerIsAdapted() {
@@ -89,29 +117,14 @@ public class ContextGremlinServerHttpTest {
                 settings, new EventHub("http-lifecycle-test", 1));
         try {
             server.getServerGremlinExecutor().getGraphManager()
-                  .putGraph("known", EmptyGraph.instance());
+                  .putTraversalSource("known", EmptyGraph.instance().traversal());
             server.start().get(30, TimeUnit.SECONDS);
             Assert.assertTrue(server.getChannelizer() instanceof
                               HugeGraphWsAndHttpChannelizer);
             Channel listening = Whitebox.getInternalState(server,
                                                          "serverSocketChannel");
             int port = ((InetSocketAddress) listening.localAddress()).getPort();
-            try (Socket socket = new Socket("127.0.0.1", port)) {
-                socket.setSoTimeout(10000);
-                InputStream input = new BufferedInputStream(socket.getInputStream());
-                send(socket, "missing", "101");
-                Map<?, ?> rejected = read(input, 400);
-                Assert.assertTrue(rejected.get("message").toString()
-                                          .contains("Could not rebind"));
-                send(socket, "known", "202");
-                Map<?, ?> accepted = read(input, 200);
-                Assert.assertEquals(Collections.singletonList(202),
-                                    ((Map<?, ?>) accepted.get("result")).get("data"));
-                send(socket, "known", "303");
-                Map<?, ?> next = read(input, 200);
-                Assert.assertEquals(Collections.singletonList(303),
-                                    ((Map<?, ?>) next.get("result")).get("data"));
-            }
+            assertAliasRecovery(port, "known");
             Cluster cluster = Cluster.build().addContactPoint("127.0.0.1")
                                      .port(port)
                                      .serializer(new GraphSONMessageSerializerV3())
@@ -134,15 +147,37 @@ public class ContextGremlinServerHttpTest {
         }
     }
 
+    /** Exercise HTTP response framing after an alias error on the same TCP connection. */
+    public static void assertAliasRecovery(int port, String alias) throws IOException {
+        try (Socket socket = new Socket("127.0.0.1", port)) {
+            socket.setSoTimeout(10000);
+            InputStream input = new BufferedInputStream(socket.getInputStream());
+            send(socket, "missing", "101");
+            Map<?, ?> rejected = read(input, 400);
+            Assert.assertTrue(rejected.get("message").toString()
+                                      .contains("Could not rebind"));
+            send(socket, alias, "202");
+            Map<?, ?> accepted = read(input, 200);
+            Assert.assertEquals(Map.of("@type", "g:List", "@value",
+                                List.of(Map.of("@type", "g:Int32", "@value", 202))),
+                                ((Map<?, ?>) accepted.get("result")).get("data"));
+            send(socket, alias, "303");
+            Map<?, ?> next = read(input, 200);
+            Assert.assertEquals(Map.of("@type", "g:List", "@value",
+                                List.of(Map.of("@type", "g:Int32", "@value", 303))),
+                                ((Map<?, ?>) next.get("result")).get("data"));
+        }
+    }
+
     private static void send(Socket socket, String alias, String script)
             throws IOException {
         String body = "{\"gremlin\":\"" + script + "\",\"language\":" +
-                      "\"gremlin-groovy\",\"aliases\":{\"graph\":\"" + alias + "\"}}";
+                      "\"gremlin-groovy\",\"aliases\":{\"g\":\"" + alias + "\"}}";
         byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
         String headers = "POST /gremlin HTTP/1.1\r\n" +
                          "Host: 127.0.0.1\r\n" +
                          "Content-Type: application/json\r\n" +
-                         "Accept: application/json\r\n" +
+                         "Accept: application/vnd.gremlin-v3.0+json\r\n" +
                          "Connection: keep-alive\r\n" +
                          "Content-Length: " + bytes.length + "\r\n\r\n";
         socket.getOutputStream().write(headers.getBytes(StandardCharsets.US_ASCII));

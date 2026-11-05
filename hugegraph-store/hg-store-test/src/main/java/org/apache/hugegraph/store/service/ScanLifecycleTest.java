@@ -1635,6 +1635,14 @@ public class ScanLifecycleTest extends ScanTestSupport {
     public void testReceivePreservesExternalInterrupt() throws Exception {
         ThreadPoolExecutor executor = (ThreadPoolExecutor) Executors.newFixedThreadPool(1);
         HgStoreWrapperEx wrapper = mock(HgStoreWrapperEx.class);
+        ScanIterator iterator = mock(ScanIterator.class);
+        CountDownLatch releaseScan = new CountDownLatch(1);
+        when(wrapper.scanAll(anyString(), anyString(), any(byte[].class))).thenReturn(iterator);
+        when(iterator.hasNext()).thenAnswer(ignored -> {
+            // Keep the producer from closing an empty scan before receive checks interruption.
+            assertTrue(releaseScan.await(2, TimeUnit.SECONDS));
+            return false;
+        });
         AppConfig config = mock(AppConfig.class);
         when(config.getServerWaitTime()).thenReturn(60);
         StreamObserver<KvPageRes> output = mock(StreamObserver.class);
@@ -1654,6 +1662,7 @@ public class ScanLifecycleTest extends ScanTestSupport {
             executor.shutdown();
             assertTrue(executor.awaitTermination(1, TimeUnit.SECONDS));
         } finally {
+            releaseScan.countDown();
             response.onCompleted();
             executor.shutdownNow();
             caller.join(1000);

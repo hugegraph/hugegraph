@@ -108,6 +108,7 @@ import org.apache.hugegraph.rpc.RpcClientProvider;
 import org.apache.hugegraph.rpc.RpcConsumerConfig;
 import org.apache.hugegraph.rpc.RpcProviderConfig;
 import org.apache.hugegraph.rpc.RpcServer;
+import org.apache.hugegraph.security.script.ScriptExecutionProfile;
 import org.apache.hugegraph.serializer.JsonSerializer;
 import org.apache.hugegraph.serializer.Serializer;
 import org.apache.hugegraph.schema.SchemaManager;
@@ -466,7 +467,8 @@ public final class GraphManager {
         HugeScriptTraversal<?, ?> traversal = new HugeScriptTraversal<>(
                 graph.traversal(),
                 "gremlin-groovy", gremlin,
-                bindings, ImmutableMap.of());
+                bindings, ImmutableMap.of(),
+                ScriptExecutionProfile.SCHEMA);
         while (traversal.hasNext()) {
             traversal.next();
         }

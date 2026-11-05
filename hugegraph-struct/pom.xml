@@ -49,6 +49,20 @@
             </exclusions>
         </dependency>
 
+        <!-- Script-policy consumers supply Groovy explicitly; keep it out of other consumers. -->
+        <dependency>
+            <groupId>org.apache.tinkerpop</groupId>
+            <artifactId>gremlin-groovy</artifactId>
+            <version>${tinkerpop.version}</version>
+            <optional>true</optional>
+            <exclusions>
+                <exclusion>
+                    <groupId>com.github.jeremyh</groupId>
+                    <artifactId>jBCrypt</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+
         <dependency>
             <groupId>org.apache.tinkerpop</groupId>
             <artifactId>gremlin-test</artifactId>

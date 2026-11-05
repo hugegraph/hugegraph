@@ -29,6 +29,7 @@ import org.apache.hugegraph.event.EventHub;
 import org.apache.hugegraph.meta.MetaManager;
 import org.apache.hugegraph.meta.PdMetaDriver;
 import org.apache.hugegraph.server.RestServer;
+import org.apache.hugegraph.security.script.ScriptPolicyRuntime;
 import org.apache.hugegraph.util.ConfigUtil;
 import org.apache.hugegraph.util.Log;
 import org.apache.logging.log4j.LogManager;
@@ -54,6 +55,7 @@ public class HugeGraphServer {
 
     public HugeGraphServer(String gremlinServerConf, String restServerConf)
             throws Exception {
+        ScriptPolicyRuntime.validateSecurityManager();
         // Only switch on security manager after HugeGremlinServer started
         SecurityManager securityManager = System.getSecurityManager();
         System.setSecurityManager(null);

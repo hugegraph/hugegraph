@@ -56,6 +56,7 @@ check_report() {
 # Exercise the actual workflow expressions against representative event branches.
 python3 - "$SCRIPT_DIR" <<'PYBRANCH'
 from pathlib import Path
+import json
 import re
 import sys
 from types import SimpleNamespace
@@ -67,6 +68,8 @@ for filename in ("server-tests.yml", "pd-store-ci.yml"):
     expression = re.search(r"RUN_TINKERPOP_TESTS: >-\s*\$\{\{(.*?)\}\}", source, re.S).group(1)
     expression = " ".join(expression.split()).replace("||", "or")
     cases = [
+        ("123/merge", "task/groovy-policy-asf-master", "master", True),
+        ("123/merge", "task/groovy-policy-asf-master-extra", "master", False),
         ("123/merge", "upgrade/1.8.0", "master", False),
         ("master", "", "", False),
         ("123/merge", "task/tp381-3-upgrade-validation", "master", False),
@@ -82,7 +85,21 @@ for filename in ("server-tests.yml", "pd-store-ci.yml"):
         actual = eval(expression, {"__builtins__": {}},
                       {"github": github, "startsWith": str.startswith})
         assert actual is expected, (filename, ref, head, base, actual)
-print("PASS: TP branch gates exclude ordinary upgrades and old task exceptions")
+    matrix = re.search(r"SCRIPT_SECURITY_MODE: \$\{\{(.*?)\}\}", source).group(1)
+    matrix = matrix.replace("&&", "and").replace("||", "or")
+    for head, expected in (("task/groovy-policy-asf-master", ["legacy", "policy"]),
+                           ("ordinary-feature", ["legacy"])):
+        github = SimpleNamespace(head_ref=head)
+        for backend in ("memory", "rocksdb", "hbase"):
+            modes = ["legacy"] if filename == "server-tests.yml" and backend == "hbase" else expected
+            assert eval(matrix, {"__builtins__": {}},
+                        {"github": github, "inputs": SimpleNamespace(backend=backend),
+                         "fromJSON": json.loads}) == modes
+    steps = source.split("\n      - name: ")
+    for step in steps:
+        if step.startswith("Run TinkerPop "):
+            assert "JAVA_TOOL_OPTIONS: -Dhugegraph.script.security.mode=${{ matrix.SCRIPT_SECURITY_MODE }}" in step
+print("PASS: TP branch gates include script-policy validation and exclude ordinary upgrades")
 PYBRANCH
 
 cd "$TEST_DIR"

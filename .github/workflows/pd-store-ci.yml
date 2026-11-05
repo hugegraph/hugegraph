@@ -332,6 +332,20 @@ jobs:
           STORE_DIR=hugegraph-store/apache-hugegraph-store-$VERSION
           bash "$TRAVIS_DIR/test-arthas-cli.sh" "$STORE_DIR"
 
+      - name: Run Store scan lifecycle regressions
+        run: |
+          REPORT=hugegraph-store/hg-store-node/target/surefire-reports/TEST-org.apache.hugegraph.store.node.grpc.scan.ScanPolicyFailureTest.xml
+          rm -f "$REPORT"
+          mvn test -pl hugegraph-store/hg-store-node -am \
+            -P store-core-test -Dtest=ScanPolicyFailureTest -ntp
+          python3 - "$REPORT" <<'PYTHON'
+          import sys
+          import xml.etree.ElementTree as ET
+          suite = ET.parse(sys.argv[1]).getroot()
+          assert int(suite.attrib["tests"]) >= 10, suite.attrib
+          assert all(int(suite.attrib[key]) == 0 for key in ("failures", "errors", "skipped")), suite.attrib
+          PYTHON
+
       - name: Verify Surefire single-class routing
         run: |
           SUREFIRE_DIR=hugegraph-store/hg-store-test/target/surefire-reports
@@ -571,6 +585,11 @@ jobs:
           fail_ci_if_error: false
 
   hstore:
+    name: HStore tests (${{ matrix.SCRIPT_SECURITY_MODE }})
+    strategy:
+      fail-fast: false
+      matrix:
+        SCRIPT_SECURITY_MODE: ${{ fromJSON(github.head_ref == 'task/groovy-policy-asf-master' && '["legacy","policy"]' || '["legacy"]') }}
     if: inputs.run-hstore
     runs-on: ubuntu-24.04
     env:
@@ -578,9 +597,10 @@ jobs:
       TRAVIS_DIR: hugegraph-server/hugegraph-dist/src/assembly/travis
       REPORT_DIR: target/site/jacoco
       BACKEND: hstore
-      # Long TP suites run only on dedicated validation branches.
+      # Include the script-policy validation branch in the full compatibility run.
       RUN_TINKERPOP_TESTS: >-
         ${{
+          github.head_ref == 'task/groovy-policy-asf-master' ||
           startsWith(github.ref_name, 'release-') ||
           startsWith(github.ref_name, 'test-') ||
           startsWith(github.ref_name, 'tinkerpop-') ||
@@ -701,6 +721,7 @@ jobs:
         timeout-minutes: 120
         env:
           HUGEGRAPH_TEST_TASK_LOG_LEVEL: WARN
+          JAVA_TOOL_OPTIONS: -Dhugegraph.script.security.mode=${{ matrix.SCRIPT_SECURITY_MODE }}
         run: |
           set -o pipefail
           RUNTIME_LOG=$(mktemp "$RUNNER_TEMP/java-runtime.XXXXXX")
@@ -754,6 +775,8 @@ jobs:
       - name: Run TinkerPop process standard test
         if: ${{ env.RUN_TINKERPOP_TESTS == 'true' }}
         timeout-minutes: 120
+        env:
+          JAVA_TOOL_OPTIONS: -Dhugegraph.script.security.mode=${{ matrix.SCRIPT_SECURITY_MODE }}
         run: |
           set -o pipefail
           RUNTIME_LOG=$(mktemp "$RUNNER_TEMP/java-runtime.XXXXXX")
@@ -763,11 +786,22 @@ jobs:
       - name: Run TinkerPop process feature test
         if: ${{ env.RUN_TINKERPOP_TESTS == 'true' }}
         timeout-minutes: 120
+        env:
+          JAVA_TOOL_OPTIONS: -Dhugegraph.script.security.mode=${{ matrix.SCRIPT_SECURITY_MODE }}
         run: |
           set -o pipefail
           RUNTIME_LOG=$(mktemp "$RUNNER_TEMP/java-runtime.XXXXXX")
           $TRAVIS_DIR/run-tinkerpop-test.sh $BACKEND process-feature 2>&1 | tee "$RUNTIME_LOG"
           bash "$TRAVIS_DIR/check-java-runtime-logs.sh" "$RUNTIME_LOG" "$PD_DIR/logs" "$STORE_DIR/logs"
+
+      - name: Upload TinkerPop test reports
+        if: ${{ always() && env.RUN_TINKERPOP_TESTS == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: tinkerpop-${{ env.BACKEND }}-${{ matrix.SCRIPT_SECURITY_MODE }}
+          path: hugegraph-server/hugegraph-test/target/surefire-reports/
+          if-no-files-found: error
+          retention-days: 7
 
       - name: Collect HStore diagnostics on failure or timeout
         if: ${{ failure() || cancelled() }}
@@ -904,7 +938,7 @@ jobs:
         if: ${{ failure() || cancelled() }}
         uses: actions/upload-artifact@v4
         with:
-          name: hstore-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          name: hstore-diagnostics-${{ matrix.SCRIPT_SECURITY_MODE }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: hstore-diagnostics
           if-no-files-found: warn
           retention-days: 14

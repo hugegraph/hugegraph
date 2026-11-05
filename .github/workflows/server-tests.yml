@@ -15,7 +15,7 @@ permissions:
 
 jobs:
   build-server:
-    name: Server ${{ inputs.backend }} tests (Java ${{ matrix.JAVA_VERSION }})
+    name: Server ${{ inputs.backend }} tests (Java ${{ matrix.JAVA_VERSION }}, ${{ matrix.SCRIPT_SECURITY_MODE }})
     runs-on: ubuntu-24.04
     env:
       USE_STAGE: 'false' # Whether to include the stage repository.
@@ -26,9 +26,10 @@ jobs:
       HEAD_BRANCH_NAME: ${{ github.head_ref }}
       BASE_BRANCH_NAME: ${{ github.base_ref }}
       TARGET_BRANCH_NAME: ${{ github.base_ref != '' && github.base_ref || github.ref_name }}
-      # Long TP suites run only on dedicated validation branches.
+      # Include the script-policy validation branch in the full compatibility run.
       RUN_TINKERPOP_TESTS: >-
         ${{
+          github.head_ref == 'task/groovy-policy-asf-master' ||
           startsWith(github.ref_name, 'release-') ||
           startsWith(github.ref_name, 'test-') ||
           startsWith(github.ref_name, 'tinkerpop-') ||
@@ -45,6 +46,7 @@ jobs:
       fail-fast: false
       matrix:
         JAVA_VERSION: ${{ fromJSON(inputs.java-versions) }}
+        SCRIPT_SECURITY_MODE: ${{ fromJSON((inputs.backend == 'memory' || inputs.backend == 'rocksdb') && github.head_ref == 'task/groovy-policy-asf-master' && '["legacy","policy"]' || '["legacy"]') }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -217,6 +219,8 @@ jobs:
       - name: Run TinkerPop structure test
         if: ${{ env.RUN_TINKERPOP_TESTS == 'true' && (env.BACKEND == 'memory' || env.BACKEND == 'rocksdb') }}
         timeout-minutes: 60
+        env:
+          JAVA_TOOL_OPTIONS: -Dhugegraph.script.security.mode=${{ matrix.SCRIPT_SECURITY_MODE }}
         run: |
           set -o pipefail
           RUNTIME_LOG=$(mktemp "$RUNNER_TEMP/java-runtime.XXXXXX")
@@ -226,11 +230,22 @@ jobs:
       - name: Run TinkerPop process test
         if: ${{ env.RUN_TINKERPOP_TESTS == 'true' && (env.BACKEND == 'memory' || env.BACKEND == 'rocksdb') }}
         timeout-minutes: 180
+        env:
+          JAVA_TOOL_OPTIONS: -Dhugegraph.script.security.mode=${{ matrix.SCRIPT_SECURITY_MODE }}
         run: |
           set -o pipefail
           RUNTIME_LOG=$(mktemp "$RUNNER_TEMP/java-runtime.XXXXXX")
           $TRAVIS_DIR/run-tinkerpop-test.sh $BACKEND process 2>&1 | tee "$RUNTIME_LOG"
           bash "$TRAVIS_DIR/check-java-runtime-logs.sh" "$RUNTIME_LOG"
+
+      - name: Upload TinkerPop test reports
+        if: ${{ always() && env.RUN_TINKERPOP_TESTS == 'true' && (env.BACKEND == 'memory' || env.BACKEND == 'rocksdb') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: tinkerpop-${{ env.BACKEND }}-java${{ matrix.JAVA_VERSION }}-${{ matrix.SCRIPT_SECURITY_MODE }}
+          path: hugegraph-server/hugegraph-test/target/surefire-reports/
+          if-no-files-found: error
+          retention-days: 7
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v7
