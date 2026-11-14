@@ -27,6 +27,7 @@ import java.util.TreeMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -483,6 +484,45 @@ public class CachedSchemaTransactionV2Test extends BaseUnitTest {
         watchStarted();
         this.await(() -> !this.pending());
         this.await(() -> pendingState("retryDelay") == 1000L);
+    }
+
+    @Test
+    public void testResetWaitsForAnInFlightRetry() throws Exception {
+        this.publisher.fail = true;
+        this.tx.updatePropertyKey(this.propertyKey(1, "name", 1));
+
+        CountDownLatch retryInPublish = new CountDownLatch(1);
+        CountDownLatch finishRetry = new CountDownLatch(1);
+        this.publisher.intercept = () -> {
+            retryInPublish.countDown();
+            awaitLatch(finishRetry);
+        };
+        watchStarted();
+        awaitLatch(retryInPublish);
+
+        Future<?> reset = this.executor.submit(
+                CachedSchemaTransactionV2Test::resetPendingClearEvents);
+        try {
+            this.await(() -> pendingMap().isEmpty());
+            try {
+                reset.get(100L, TimeUnit.MILLISECONDS);
+                Assert.fail("reset must wait until the old publisher returns");
+            } catch (TimeoutException expected) {
+                // Cancelling the scheduled future cannot stop a running publish
+            }
+        } finally {
+            finishRetry.countDown();
+        }
+        reset.get(WAIT_SECONDS, TimeUnit.SECONDS);
+
+        // A new fixture can now replace the publisher without receiving old work
+        this.publisher = new RecordingPublisher();
+        Whitebox.setInternalState(CachedSchemaTransactionV2.class,
+                                  "clearEventPublisher", this.publisher);
+        this.tx.updatePropertyKey(this.propertyKey(1, "name", 2));
+        Assert.assertEquals(1, this.publisher.attempts.get());
+        Assert.assertEquals(1, this.publisher.count(this.graphName));
+        Assert.assertTrue(pendingMap().isEmpty());
     }
 
     // ------------------------------------------------------------ watch start
@@ -1160,19 +1200,35 @@ public class CachedSchemaTransactionV2Test extends BaseUnitTest {
     }
 
     /**
-     * Forget the failed publishes and their scheduled retry. They are static
-     * state of the class under test, so without this a test that opens a V2
-     * graph without a PD leaves a retry behind that fires in a later test.
+     * Forget the failed publishes and drain their retry before a test replaces
+     * the static publisher. Cancelling a future alone cannot stop a running
+     * retry from publishing the rest of its snapshot into the next fixture.
      */
     static void resetPendingClearEvents() {
         Object pending = pendingClearEvents();
+        ExecutorService retryExecutor;
         synchronized (pending) {
             pendingMap().clear();
             ScheduledFuture<?> retry = Whitebox.getInternalState(pending, "retry");
             if (retry != null) {
                 retry.cancel(false);
             }
+            long epoch = Whitebox.getInternalState(pending, "retryEpoch");
+            Whitebox.setInternalState(pending, "retryEpoch", epoch + 1L);
+            Whitebox.setInternalState(pending, "retry", null);
             Whitebox.setInternalState(pending, "retryDelay", 1000L);
+            retryExecutor = Whitebox.getInternalState(pending, "executor");
+        }
+        if (retryExecutor != null) {
+            try {
+                // The retry needs the pending monitor to finish, so wait outside it
+                retryExecutor.submit(() -> { }).get(WAIT_SECONDS, TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new AssertionError("Interrupted while draining schema clear retries", e);
+            } catch (ExecutionException | TimeoutException e) {
+                throw new AssertionError("Failed to drain schema clear retries", e);
+            }
         }
     }
 

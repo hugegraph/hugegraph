@@ -28,6 +28,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.apache.hugegraph.SimpleClusterTest.BaseSimpleTest.RestClient;
 import org.apache.hugegraph.ct.env.AbstractEnv;
+import org.glassfish.jersey.client.ClientProperties;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
@@ -59,6 +60,10 @@ public class MultiClusterSchemaCacheTest extends BaseMultiClusterTest {
 
     @BeforeClass
     public static void waitForGraphOnEveryServer() throws Exception {
+        for (RestClient client : clients) {
+            client.target().property(ClientProperties.CONNECT_TIMEOUT, 5_000)
+                  .property(ClientProperties.READ_TIMEOUT, 15_000);
+        }
         waitFor("the graph to open on every Server", 120L, () -> {
             for (RestClient client : clients) {
                 if (status(client.get(URL_PREFIX)) != 200) {
@@ -155,7 +160,7 @@ public class MultiClusterSchemaCacheTest extends BaseMultiClusterTest {
                         Response r = client.target().path(VERTICES)
                                            .queryParam("label", vl)
                                            .queryParam("limit", 3).request().get();
-                        r.readEntity(String.class);
+                        ok(r);
                     }
                 }));
             }
@@ -392,8 +397,6 @@ public class MultiClusterSchemaCacheTest extends BaseMultiClusterTest {
         Throwable last = null;
         while (System.nanoTime() < deadline) {
             try {
-                // TODO: RestClient sets no timeouts, so a request that gets no
-                //  answer outlasts this deadline until the suite timeout ends it
                 if (condition.call()) {
                     return;
                 }

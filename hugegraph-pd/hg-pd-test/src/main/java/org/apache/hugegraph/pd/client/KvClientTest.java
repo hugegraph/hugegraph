@@ -563,6 +563,71 @@ public class KvClientTest extends BaseClientTest {
     }
 
     @Test
+    public void testWatchStartedCallbackWaitsForRegistrationAfterHeartbeat() throws Exception {
+        try (WatchTestContext context = newWatchTestContext()) {
+            AtomicInteger started = new AtomicInteger();
+            context.client.listen("key", response -> { }, throwable -> { },
+                                  started::incrementAndGet);
+            StreamObserver<WatchResponse> observer = context.client.call(0).observer;
+            WatchResponse alive = WatchResponse.newBuilder().setState(WatchState.Alive).build();
+
+            // PD exposes the observer to keepalive before persisting its watch key
+            observer.onNext(alive);
+            observer.onNext(alive);
+            assertThat(started.get()).isZero();
+            // Preserve the existing transport timeout behavior for any first frame
+            context.runNextWatchTimeout();
+            assertThat(context.reconnectTasks).isEmpty();
+
+            observer.onNext(startingResponse(7L));
+            assertThat(started.get()).isEqualTo(1);
+            observer.onNext(alive);
+            observer.onNext(startingResponse(7L));
+            observer.onNext(eventResponse(7L));
+            assertThat(started.get()).isEqualTo(1);
+        }
+    }
+
+    @Test
+    public void testWatchStartedCallbackPrecedesFirstEventAfterHeartbeat() throws Exception {
+        try (WatchTestContext context = newWatchTestContext()) {
+            List<String> order = new CopyOnWriteArrayList<>();
+            context.client.listen("key", response -> order.add("event"), throwable -> { },
+                                  () -> order.add("started"));
+            StreamObserver<WatchResponse> observer = context.client.call(0).observer;
+
+            observer.onNext(WatchResponse.newBuilder().setState(WatchState.Alive).build());
+            assertThat(order).isEmpty();
+            // A registered watch can receive an event before its Starting response
+            observer.onNext(eventResponse(7L));
+            observer.onNext(startingResponse(7L));
+            observer.onNext(eventResponse(7L));
+            assertThat(order).containsExactly("started", "event", "event");
+        }
+    }
+
+    @Test
+    public void testHeartbeatDoesNotStartReplacementWatch() throws Exception {
+        try (WatchTestContext context = newWatchTestContext()) {
+            AtomicInteger started = new AtomicInteger();
+            context.client.listen("key", response -> { }, throwable -> { },
+                                  started::incrementAndGet);
+            StreamObserver<WatchResponse> replaced = context.client.call(0).observer;
+            replaced.onNext(startingResponse(7L));
+            replaced.onError(Status.UNAVAILABLE.asRuntimeException());
+            context.runNextReconnect();
+
+            StreamObserver<WatchResponse> current = context.client.call(1).observer;
+            current.onNext(WatchResponse.newBuilder().setState(WatchState.Alive).build());
+            replaced.onNext(startingResponse(7L));
+            assertThat(started.get()).isEqualTo(1);
+            current.onNext(startingResponse(8L));
+            current.onNext(eventResponse(8L));
+            assertThat(started.get()).isEqualTo(2);
+        }
+    }
+
+    @Test
     public void testWatchStartedCallbackRunsAgainAfterLeaderChange() throws Exception {
         try (WatchTestContext context = newWatchTestContext()) {
             AtomicInteger started = new AtomicInteger();
@@ -658,6 +723,10 @@ public class KvClientTest extends BaseClientTest {
             AtomicInteger events = new AtomicInteger();
             context.client.listen("key", response -> events.incrementAndGet());
 
+            context.client.call(0).observer.onNext(
+                    WatchResponse.newBuilder().setState(WatchState.Alive).build());
+            context.runNextWatchTimeout();
+            assertThat(context.reconnectTasks).isEmpty();
             context.client.call(0).observer.onNext(startingResponse(7L));
             context.client.call(0).observer.onNext(eventResponse(7L));
 

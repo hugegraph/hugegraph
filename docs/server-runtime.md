@@ -853,7 +853,9 @@ What a deployment can rely on once every Server runs this version:
 
 Each event makes the other Servers load the whole schema of that graph again on their
 next read by name. Schema changes that arrive back to back therefore slow schema reads
-on the other Servers until the burst ends; no request fails because of it.
+on the other Servers until the burst ends. Monitor read latency and PD load during large
+schema changes; a successful schema change does not guarantee that other requests stay
+within their configured timeouts.
 
 What it does not provide:
 
@@ -866,7 +868,10 @@ What it does not provide:
   the index afterwards, when a complete index is required.
 - Two Servers changing the same schema element at the same time. An update writes the
   whole element, so one of the two changes can be lost. Send schema changes for one
-  element through one client, and wait for each to return before sending the next.
+  element to the same Server, and wait for each to return before sending the next.
+  Pin these requests to that Server: one client behind a load balancer can still reach
+  different Servers before a previous change has propagated. Before moving schema
+  writes to another Server, verify that it reads the previously committed schema.
 - A Server that stops for good between a schema write and its event. The other Servers
   keep what they cached until the next schema change of that graph or their next watch
   restart.

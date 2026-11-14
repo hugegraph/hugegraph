@@ -53,6 +53,7 @@ import org.apache.hugegraph.pd.grpc.kv.WatchEvent;
 import org.apache.hugegraph.pd.grpc.kv.WatchKv;
 import org.apache.hugegraph.pd.grpc.kv.WatchRequest;
 import org.apache.hugegraph.pd.grpc.kv.WatchResponse;
+import org.apache.hugegraph.pd.grpc.kv.WatchState;
 import org.apache.hugegraph.pd.grpc.kv.WatchType;
 
 import io.grpc.Channel;
@@ -209,14 +210,14 @@ public class KvClient<T extends WatchResponse> extends AbstractClient implements
         return new StreamObserver<WatchResponse>() {
             @Override
             public void onNext(WatchResponse value) {
-                FrameOrder order = acceptFrame(subscription, this);
+                FrameOrder order = acceptFrame(subscription, this, value.getState());
                 if (order == FrameOrder.STALE) {
                     return;
                 }
                 if (order == FrameOrder.FIRST) {
                     /*
-                     * PD registers the watcher before it sends the first frame,
-                     * so from here on no event is missed. Anything committed
+                     * Starting/Started confirms registration. Alive may arrive
+                     * before PD has registered the watch key. Anything committed
                      * while the watch was down was never delivered: tell the
                      * subscriber before any later frame is handled.
                      */
@@ -354,6 +355,7 @@ public class KvClient<T extends WatchResponse> extends AbstractClient implements
                     return true;
                 }
                 subscription.firstFrameReceived = false;
+                subscription.watchStarted = false;
                 subscription.attemptChannel = null;
                 subscription.observer.set(observer);
             }
@@ -395,15 +397,20 @@ public class KvClient<T extends WatchResponse> extends AbstractClient implements
     }
 
     private FrameOrder acceptFrame(WatchSubscription subscription,
-                                   StreamObserver<WatchResponse> sourceObserver) {
+                                   StreamObserver<WatchResponse> sourceObserver,
+                                   WatchState state) {
         synchronized (subscription) {
             if (subscription.observer.get() != sourceObserver) {
                 return FrameOrder.STALE;
             }
-            boolean first = !subscription.firstFrameReceived;
             subscription.firstFrameReceived = true;
             cancelStartTimeout(subscription);
-            return first ? FrameOrder.FIRST : FrameOrder.LATER;
+            if (!subscription.watchStarted &&
+                (state == WatchState.Starting || state == WatchState.Started)) {
+                subscription.watchStarted = true;
+                return FrameOrder.FIRST;
+            }
+            return FrameOrder.LATER;
         }
     }
 
@@ -777,7 +784,7 @@ public class KvClient<T extends WatchResponse> extends AbstractClient implements
         super.close();
     }
 
-    /** Where a frame falls in the life of the watch that delivered it. */
+    /** FIRST is the first frame confirming registration, not a heartbeat. */
     private enum FrameOrder {
         STALE,
         FIRST,
@@ -797,6 +804,7 @@ public class KvClient<T extends WatchResponse> extends AbstractClient implements
         private final AtomicLong clientId;
         private final AtomicReference<ScheduledFuture<?>> startTimeout;
         private boolean firstFrameReceived;
+        private boolean watchStarted;
         private Channel attemptChannel;
         private boolean rotateTransport;
         private Channel reconnectChannel;
