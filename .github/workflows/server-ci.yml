@@ -1,9 +1,9 @@
 name: Validate schema review fixes
 
 on:
-  pull_request:
-    types:
-      - synchronize
+  push:
+    branches:
+      - test-schema-review-fix
 
 permissions:
   contents: read
@@ -13,11 +13,9 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
-      - name: Checkout head repository
+      - name: Checkout validation branch
         uses: actions/checkout@v4
         with:
-          repository: hugegraph/hugegraph
-          ref: fix/schema-cache-events-3235
           fetch-depth: 0
           persist-credentials: false
 
