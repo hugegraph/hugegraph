@@ -1,369 +1,42 @@
-name: "Validate schema review fixes"
+name: Validate schema review fixes
 
 on:
   pull_request:
-    types: [synchronize]
+    types:
+      - synchronize
 
 permissions:
   contents: read
 
 jobs:
-  apply-and-validate:
-    if: github.event.pull_request.head.ref == 'fix/schema-cache-events-3235'
+  validate:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
-      - name: Checkout temporary head
+      - name: Checkout head repository
         uses: actions/checkout@v4
         with:
-          ref: fix/schema-cache-events-3235
           repository: hugegraph/hugegraph
+          ref: fix/schema-cache-events-3235
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Restore reviewed head
-        run: git reset --hard 6dc4691c59c766d0b2d9580a612ba53f14ab195d
+      - name: Restore reviewed target files
+        run: |
+          git checkout 6dc4691c59c766d0b2d9580a612ba53f14ab195d -- \
+            docs/server-runtime.md \
+            hugegraph-server/hugegraph-core/src/main/java/org/apache/hugegraph/backend/cache/CachedSchemaTransactionV2.java \
+            hugegraph-server/hugegraph-test/src/main/java/org/apache/hugegraph/unit/cache/CachedSchemaTransactionV2Test.java
 
-      - uses: actions/setup-java@v4
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
           cache: maven
 
       - name: Apply minimal review fixes
-        shell: bash
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-
-          def replace_once(path, old, new):
-              file = Path(path)
-              text = file.read_text()
-              count = text.count(old)
-              if count != 1:
-                  raise SystemExit(
-                      f"{path}: expected one match, found {count}: {old[:80]!r}"
-                  )
-              file.write_text(text.replace(old, new, 1))
-
-          docs = "docs/server-runtime.md"
-          source = ("hugegraph-server/hugegraph-core/src/main/java/org/apache/"
-                    "hugegraph/backend/cache/CachedSchemaTransactionV2.java")
-          tests = ("hugegraph-server/hugegraph-test/src/main/java/org/apache/"
-                   "hugegraph/unit/cache/CachedSchemaTransactionV2Test.java")
-
-          replace_once(
-              docs,
-              """- Normal change notifications on the same Server share a fixed 1-second window per
-  `(graphSpace, graph)`. The first change starts the window without an immediate
-  broadcast; later changes do not reset its deadline. Changes during a publish queue
-  another window. Local cache updates and invalidation still happen immediately.
-  The window is a batching delay, not a propagation deadline: a shared scheduler,
-  slow PD calls, retries and watch delivery can add time. Different Servers batch
-  independently, and one long-running script can span several windows.
-""",
-              """- Normal change notifications on the same Server share one scheduled clear per
-  `(graphSpace, graph)`. The first change schedules it after 1 second without an
-  immediate broadcast; later changes do not replace or postpone that callback. They
-  can still join the same clear until its callback removes the window. A shared
-  scheduler or a slow PD call can therefore extend both the effective batching window
-  and propagation latency; retries and watch delivery can add more time. A change
-  after the window is removed, including during publication, schedules another clear.
-  Local cache updates and invalidation still happen immediately. Different Servers
-  batch independently, and one long-running script can span several windows.
-""")
-          replace_once(
-              docs,
-              """  Batching provides no index-completeness guarantee. Create indexes while writes to
-  the label are stopped, or rebuild the index afterwards, when a complete index
-  is required.
-""",
-              """  Batching provides no index-completeness guarantee. For a complete index, stop
-  writes to the label and drain in-flight writes, wait for the create or rebuild
-  task to succeed, then verify on every write-serving Server that the index and its
-  association with the base label are visible before resuming writes. Do not replace
-  that verification with a fixed wait.
-""")
-          replace_once(
-              docs,
-              """- A Server that stops for good between a schema write and its event, including while
-  the event waits in the 1-second window. The other Servers keep what they cached until
-  the next schema change of that graph or their next watch restart.
-""",
-              """- A Server that stops for good between a schema write and its event, including while
-  the event waits for its scheduled clear. The other Servers keep what they cached
-  until the next schema change of that graph or their next watch restart.
-""")
-
-          replace_once(
-              source,
-              """    /**
-     * Queue a clear event after the schema write. Changes of this graph share
-     * a fixed window; local cache changes have already happened. A failed
-     * publish is kept and sent again, see
-     * {@link PendingClearEvents}.
-     */
-""",
-              """    /**
-     * Queue a clear event after the schema write. Changes of this graph share
-     * one scheduled clear until its callback removes the window; local cache
-     * changes have already happened. A failed publish is kept and sent again,
-     * see {@link PendingClearEvents}.
-     */
-""")
-          replace_once(
-              source,
-              """     * Normal changes share one fixed window per graph. Remove the window
-     * before publishing so a concurrent change can start the next one. Graph
-     * open and watch recovery bypass this delay. No task runs while idle.
-""",
-              """     * The first normal change of a graph schedules a clear after one second.
-     * Later changes share it until its callback removes the window; scheduler
-     * backlog can therefore extend the effective window. Remove the window
-     * before publishing so a concurrent change can start the next one. Graph
-     * open and watch recovery bypass this delay. No task runs while idle.
-""")
-          replace_once(
-              source,
-              """                // Later changes share this deadline instead of postponing it.
-""",
-              """                // Later changes share this scheduled callback until flush()
-                // removes the window; they don't replace or postpone it.
-""")
-
-          replace_once(tests,
-                       "testBurstSharesOneFixedWindowWithoutAnImmediateEvent",
-                       "testBurstSharesOneScheduledWindowWithoutAnImmediateEvent")
-          replace_once(tests,
-                       "// Later edits neither send immediately nor replace the first deadline.",
-                       "// Later edits neither send immediately nor replace the scheduled flush.")
-          replace_once(tests,
-                       "// A later isolated edit gets a new bounded window.",
-                       "// A later isolated edit gets a new scheduled clear.")
-
-          replace_once(
-              tests,
-              """    public void testUpdatePublishes() {
-        this.tx.addPropertyKey(this.propertyKey(1, "name", 1));
-        this.publisher.reset();
-""",
-              """    public void testUpdatePublishes() {
-        this.tx.addPropertyKey(this.propertyKey(1, "name", 1));
-        flushScheduledClearEvents();
-        this.publisher.reset();
-""")
-          replace_once(
-              tests,
-              """        PropertyKey pk = this.propertyKey(1, "name", 1);
-        this.tx.addPropertyKey(pk);
-        this.publisher.reset();
-
-        this.tx.updateSchemaStatus(pk, SchemaStatus.INVALID);
-""",
-              """        PropertyKey pk = this.propertyKey(1, "name", 1);
-        this.tx.addPropertyKey(pk);
-        flushScheduledClearEvents();
-        this.publisher.reset();
-
-        this.tx.updateSchemaStatus(pk, SchemaStatus.INVALID);
-""")
-          replace_once(
-              tests,
-              """            PropertyKey pk = this.propertyKey(1, "name", 1);
-            this.tx.addPropertyKey(pk);
-            this.publisher.reset();
-
-            this.tx.removeSchema(pk);
-""",
-              """            PropertyKey pk = this.propertyKey(1, "name", 1);
-            this.tx.addPropertyKey(pk);
-            flushScheduledClearEvents();
-            this.publisher.reset();
-
-            this.tx.removeSchema(pk);
-""")
-          replace_once(
-              tests,
-              """        for (String event : new String[]{Events.STORE_CLEAR, Events.STORE_TRUNCATE}) {
-            this.tx.addPropertyKey(this.propertyKey(1, "name", 1));
-            this.publisher.reset();
-""",
-              """        for (String event : new String[]{Events.STORE_CLEAR, Events.STORE_TRUNCATE}) {
-            this.tx.addPropertyKey(this.propertyKey(1, "name", 1));
-            flushScheduledClearEvents();
-            this.publisher.reset();
-""")
-          replace_once(
-              tests,
-              """        this.publisher.reset();
-        storeListener.event(new Event(this.provider, Events.STORE_INIT));
-        Assert.assertEquals(0, this.publisher.count(this.graphName));
-""",
-              """        this.publisher.reset();
-        this.withWindowScheduler(tasks -> {
-            storeListener.event(new Event(this.provider, Events.STORE_INIT));
-            Assert.assertTrue(tasks.isEmpty());
-            Assert.assertTrue(scheduledClears().isEmpty());
-            Assert.assertEquals(0, this.publisher.count(this.graphName));
-        });
-""")
-          replace_once(
-              tests,
-              """    public void testSchemaClearPublishes() {
-        this.tx.addPropertyKey(this.propertyKey(1, "name", 1));
-        this.publisher.reset();
-""",
-              """    public void testSchemaClearPublishes() {
-        this.tx.addPropertyKey(this.propertyKey(1, "name", 1));
-        flushScheduledClearEvents();
-        this.publisher.reset();
-""")
-          replace_once(
-              tests,
-              """        this.tx.addPropertyKey(this.propertyKey(1, "name", 1));
-        this.tx.getPropertyKeys();
-        this.publisher.reset();
-
-        // The id key is replaced, then the store fails before the name key
-""",
-              """        this.tx.addPropertyKey(this.propertyKey(1, "name", 1));
-        this.tx.getPropertyKeys();
-        flushScheduledClearEvents();
-        this.publisher.reset();
-
-        // The id key is replaced, then the store fails before the name key
-""")
-          replace_once(
-              tests,
-              """    public void testFailedWriteKeepsItsEventWhenThePublishFailsToo() throws Exception {
-        this.tx.addPropertyKey(this.propertyKey(1, "name", 1));
-        this.publisher.reset();
-        this.publisher.fail = true;
-""",
-              """    public void testFailedWriteKeepsItsEventWhenThePublishFailsToo() throws Exception {
-        this.tx.addPropertyKey(this.propertyKey(1, "name", 1));
-        flushScheduledClearEvents();
-        this.publisher.reset();
-        this.publisher.fail = true;
-""")
-          replace_once(
-              tests,
-              """        PropertyKey pk = this.propertyKey(1, "name", 1);
-        this.tx.addPropertyKey(pk);
-        Assert.assertNotNull(this.tx.getPropertyKey("name"));
-        this.publisher.reset();
-
-        // The name key is deleted, then the store fails before the id key
-""",
-              """        PropertyKey pk = this.propertyKey(1, "name", 1);
-        this.tx.addPropertyKey(pk);
-        Assert.assertNotNull(this.tx.getPropertyKey("name"));
-        flushScheduledClearEvents();
-        this.publisher.reset();
-
-        // The name key is deleted, then the store fails before the id key
-""")
-
-          replace_once(
-              tests,
-              """    @Test
-    public void testEveryPublishComesAfterItsStoreWrite() {
-        // What another Server would read from the store when the event arrives
-        List<Integer> seen = new ArrayList<>();
-        this.publisher.intercept = () -> {
-            PropertyKey stored = this.otherServer.getPropertyKey(GRAPH_SPACE, this.graphName,
-                                                                 IdGenerator.of(1));
-            seen.add(stored == null ? -1 : this.version(stored));
-        };
-        PropertyKey pk = this.propertyKey(1, "name", 1);
-        this.tx.addPropertyKey(pk);
-        flushScheduledClearEvents();
-        this.tx.updatePropertyKey(this.propertyKey(1, "name", 2));
-        flushScheduledClearEvents();
-        this.tx.removeSchema(pk);
-        flushScheduledClearEvents();
-        this.tx.addPropertyKey(this.propertyKey(1, "name", 3));
-        flushScheduledClearEvents();
-        this.tx.clear();
-        flushScheduledClearEvents();
-        this.publisher.intercept = null;
-
-        // added, updated, removed, added again, cleared
-        Assert.assertEquals(Arrays.asList(1, 2, -1, 3, -1), seen);
-    }
-""",
-              """    @Test
-    public void testEveryPublishComesAfterItsStoreWrite() {
-        // What another Server would read from the store when the event arrives
-        List<Integer> seen = new ArrayList<>();
-        this.publisher.intercept = () -> {
-            PropertyKey stored = this.otherServer.getPropertyKey(GRAPH_SPACE, this.graphName,
-                                                                 IdGenerator.of(1));
-            seen.add(stored == null ? -1 : this.version(stored));
-        };
-        PropertyKey pk = this.propertyKey(1, "name", 1);
-        try {
-            this.withWindowScheduler(tasks -> {
-                this.assertClearQueuedAfterStoreWrite(
-                        tasks, this.store.stopNext("put", "/NAME/name"),
-                        () -> this.tx.addPropertyKey(pk));
-                this.assertClearQueuedAfterStoreWrite(
-                        tasks, this.store.stopNext("put", "/NAME/name"),
-                        () -> this.tx.updatePropertyKey(
-                                this.propertyKey(1, "name", 2)));
-                this.assertClearQueuedAfterStoreWrite(
-                        tasks, this.store.stopNext("delete", "/ID/1"),
-                        () -> this.tx.removeSchema(pk));
-                this.assertClearQueuedAfterStoreWrite(
-                        tasks, this.store.stopNext("put", "/NAME/name"),
-                        () -> this.tx.addPropertyKey(
-                                this.propertyKey(1, "name", 3)));
-                this.assertClearQueuedAfterStoreWrite(
-                        tasks, this.store.stopNext("delete", "/SCHEMA"),
-                        this.tx::clear);
-            });
-        } finally {
-            this.publisher.intercept = null;
-        }
-
-        // added, updated, removed, added again, cleared
-        Assert.assertEquals(Arrays.asList(1, 2, -1, 3, -1), seen);
-    }
-""")
-
-          replace_once(
-              tests,
-              """    private PropertyKey propertyKey(int id, String name, int version) {
-""",
-              """    private void assertClearQueuedAfterStoreWrite(List<Runnable> tasks,
-                                                  Gate gate,
-                                                  Runnable write) {
-        int tasksBefore = tasks.size();
-        Future<?> future = this.executor.submit(write);
-        gate.awaitReached();
-        try {
-            Assert.assertEquals(tasksBefore, tasks.size());
-            Assert.assertTrue(scheduledClears().isEmpty());
-        } finally {
-            gate.open();
-        }
-        try {
-            future.get(WAIT_SECONDS, TimeUnit.SECONDS);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new AssertionError("Interrupted while waiting for schema write", e);
-        } catch (ExecutionException | TimeoutException e) {
-            throw new AssertionError("Schema write did not finish", e);
-        }
-        Assert.assertEquals(tasksBefore + 1, tasks.size());
-        Assert.assertEquals(1, scheduledClears().size());
-        tasks.get(tasksBefore).run();
-        Assert.assertTrue(scheduledClears().isEmpty());
-    }
-
-    private PropertyKey propertyKey(int id, String name, int version) {
-""")
-          PY
+        run: python3 .github/scripts/apply-schema-review-fixes.py
 
       - name: Check formatting and whitespace
         run: |
