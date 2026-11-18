@@ -9,9 +9,7 @@ permissions:
 
 jobs:
   apply-and-validate:
-    if: >-
-      github.event.pull_request.head.repo.full_name == github.repository &&
-      github.event.pull_request.head.ref == 'fix/schema-cache-events-3235'
+    if: github.event.pull_request.head.ref == 'fix/schema-cache-events-3235'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
@@ -19,6 +17,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: fix/schema-cache-events-3235
+          repository: hugegraph/hugegraph
           fetch-depth: 0
           persist-credentials: false
 
