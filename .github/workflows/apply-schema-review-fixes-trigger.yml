@@ -1,0 +1,100 @@
+name: Apply schema review fixes trigger
+
+on:
+  pull_request:
+    types: [reopened]
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-validate:
+    if: >-
+      github.event.pull_request.number == 374 &&
+      github.event.pull_request.head.repo.full_name == 'hugegraph/hugegraph' &&
+      github.event.pull_request.head.ref == 'fix/schema-cache-events-3235'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Read one-shot patch definition
+        uses: actions/checkout@v4
+        with:
+          ref: master
+          path: control
+          fetch-depth: 1
+
+      - name: Extract patch program
+        shell: bash
+        run: |
+          awk '
+            /python3 - <<'"'"'PY'"'"'/ { capture = 1; next }
+            capture && /^          PY$/ { exit }
+            capture { sub(/^          /, ""); print }
+          ' control/.github/workflows/apply-schema-review-fixes.yml \
+            > /tmp/apply-schema-review-fixes.py
+          test -s /tmp/apply-schema-review-fixes.py
+
+      - name: Check out target branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/schema-cache-events-3235
+          path: work
+          fetch-depth: 0
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Apply focused review fixes
+        working-directory: work
+        run: |
+          test "$(git rev-parse HEAD)" = "6dc4691c59c766d0b2d9580a612ba53f14ab195d"
+          python3 /tmp/apply-schema-review-fixes.py
+
+      - name: Verify focused diff
+        working-directory: work
+        shell: bash
+        run: |
+          git diff --check
+          changed="$(git diff --name-only | sort)"
+          expected="$(printf '%s\n' \
+            docs/server-runtime.md \
+            hugegraph-server/hugegraph-core/src/main/java/org/apache/hugegraph/backend/cache/CachedSchemaTransactionV2.java \
+            hugegraph-server/hugegraph-test/src/main/java/org/apache/hugegraph/unit/cache/CachedSchemaTransactionV2Test.java \
+            | sort)"
+          test "$changed" = "$expected"
+
+      - name: Check formatting
+        working-directory: work
+        run: |
+          mvn -ntp editorconfig:check \
+            -pl hugegraph-server/hugegraph-test -am
+
+      - name: Run focused schema-cache tests
+        working-directory: work
+        run: |
+          mvn -ntp test \
+            -pl hugegraph-server/hugegraph-test -am \
+            -P unit-test \
+            -Dtest=CachedSchemaTransactionV2Test,CachedSchemaTransactionTest \
+            -Dsurefire.failIfNoSpecifiedTests=false
+
+      - name: Publish clean commit
+        working-directory: work
+        shell: bash
+        env:
+          EXPECTED_SHA: 6dc4691c59c766d0b2d9580a612ba53f14ab195d
+          BRANCH: fix/schema-cache-events-3235
+        run: |
+          git config user.name "Imba Jin"
+          git config user.email "jin@apache.org"
+          git add docs/server-runtime.md \
+            hugegraph-server/hugegraph-core/src/main/java/org/apache/hugegraph/backend/cache/CachedSchemaTransactionV2.java \
+            hugegraph-server/hugegraph-test/src/main/java/org/apache/hugegraph/unit/cache/CachedSchemaTransactionV2Test.java
+          test "$(git diff --cached --name-only | wc -l)" -eq 3
+          git diff --cached --check
+          git commit -m "fix(test): address schema clear-window review findings"
+          git push --force-with-lease=refs/heads/${BRANCH}:${EXPECTED_SHA} \
+            origin HEAD:${BRANCH}
