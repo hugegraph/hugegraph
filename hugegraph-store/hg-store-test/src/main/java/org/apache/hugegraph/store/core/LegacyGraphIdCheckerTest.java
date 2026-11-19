@@ -23,6 +23,8 @@ import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
 import java.io.IOException;
+import java.lang.reflect.Constructor;
+import java.lang.reflect.Field;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -47,6 +49,7 @@ import org.rocksdb.Checkpoint;
 import org.rocksdb.ColumnFamilyDescriptor;
 import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.ColumnFamilyOptions;
+import org.rocksdb.DBOptions;
 import org.rocksdb.Options;
 import org.rocksdb.RocksDB;
 
@@ -69,6 +72,27 @@ public class LegacyGraphIdCheckerTest {
         config = LegacyGraphIdChecker.configuration(Map.of(
                 "rocksdb.optimize_mode", false,
                 "rocksdb.write_buffer_size", 1048576L));
+    }
+
+    @Test
+    public void testReadOnlyOpenUsesConfiguredDbOptions() throws Exception {
+        Path database = this.temporary.newFolder().toPath();
+        write(database, "default", LEGAL_KEY, VALUE);
+        Map<String, String> before = hashes(database);
+        HugeConfig configured = LegacyGraphIdChecker.configuration(Map.of(
+                "rocksdb.optimize_mode", false, "rocksdb.max_open_files", 64));
+        Class<?> type = Class.forName(LegacyGraphIdChecker.class.getName() + "$Database");
+        Constructor<?> constructor = type.getDeclaredConstructor(Path.class, HugeConfig.class);
+        constructor.setAccessible(true);
+        Field optionsField = type.getDeclaredField("options");
+        optionsField.setAccessible(true);
+        try (AutoCloseable opened = (AutoCloseable) constructor.newInstance(database, configured)) {
+            DBOptions options = (DBOptions) optionsField.get(opened);
+            assertEquals(64, options.maxOpenFiles());
+            assertFalse(options.createIfMissing());
+            assertFalse(options.createMissingColumnFamilies());
+        }
+        assertEquals(before, hashes(database));
     }
 
     @Test

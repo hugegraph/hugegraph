@@ -285,7 +285,7 @@ public final class LegacyGraphIdChecker {
         private Database(Path path, HugeConfig config) throws IOException, RocksDBException {
             try {
                 requireCurrent(path);
-                RocksDBSession.initOptions(config, null, null, this.familyOptions, this.familyOptions);
+                RocksDBSession.initOptions(config, this.options, this.options, this.familyOptions, this.familyOptions);
                 this.options.setCreateIfMissing(false).setCreateMissingColumnFamilies(false).setLogger(this.logger);
                 try (Options listing = new Options().setLogger(this.logger)) {
                     this.names = RocksDB.listColumnFamilies(listing, path.toString());
