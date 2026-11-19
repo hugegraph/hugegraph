@@ -1,9 +1,10 @@
 name: Apply schema review fixes once
 
 on:
-  push:
+  pull_request:
     branches:
       - tmp/schema-review-fix-run-20261119
+    types: [opened]
 
 permissions:
   contents: write
