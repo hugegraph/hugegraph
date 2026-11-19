@@ -1,18 +1,17 @@
 name: Apply schema review fixes trigger
 
 on:
-  pull_request:
-    types: [reopened]
+  push:
+    branches: [master]
+    paths:
+      - .github/workflows/apply-schema-review-fixes-trigger.yml
 
 permissions:
   contents: write
 
 jobs:
   apply-and-validate:
-    if: >-
-      github.event.pull_request.number == 374 &&
-      github.event.pull_request.head.repo.full_name == 'hugegraph/hugegraph' &&
-      github.event.pull_request.head.ref == 'fix/schema-cache-events-3235'
+    if: github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
     timeout-minutes: 45
 
