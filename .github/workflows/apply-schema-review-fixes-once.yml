@@ -1,0 +1,89 @@
+name: Apply schema review fixes once
+
+on:
+  push:
+    branches:
+      - tmp/schema-review-fix-run-20261119
+
+permissions:
+  contents: write
+  issues: read
+
+jobs:
+  apply:
+    if: github.repository == 'hugegraph/hugegraph'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/schema-cache-events-3235
+          fetch-depth: 0
+
+      - name: Verify exact base
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "6dc4691c59c766d0b2d9580a612ba53f14ab195d"
+
+      - name: Fetch and apply focused patch
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMMENT_ID: "7003208486"
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          import urllib.request
+          from pathlib import Path
+
+          url = ("https://api.github.com/repos/hugegraph/hugegraph/"
+                 f"issues/comments/{os.environ['COMMENT_ID']}")
+          request = urllib.request.Request(
+              url,
+              headers={
+                  "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+                  "Accept": "application/vnd.github+json",
+                  "X-GitHub-Api-Version": "2022-11-28",
+              },
+          )
+          with urllib.request.urlopen(request) as response:
+              body = json.load(response)["body"]
+
+          begin = "SCHEMA_REVIEW_PATCH_BEGIN\n"
+          end = "\nSCHEMA_REVIEW_PATCH_END"
+          patch = body.split(begin, 1)[1].split(end, 1)[0] + "\n"
+          digest = hashlib.sha256(patch.encode()).hexdigest()
+          expected = "bdc92ab9243da41643075d667ab933e9e61b98aaf9ae30ecf8ed224f7cb4ff7a"
+          if digest != expected:
+              raise SystemExit(f"Patch checksum mismatch: {digest}")
+          Path("/tmp/schema-review-fixes.patch").write_text(patch)
+          PY
+
+          git apply --check /tmp/schema-review-fixes.patch
+          git apply /tmp/schema-review-fixes.patch
+          git diff --check
+
+          cat > /tmp/expected-files <<'FILES'
+          docs/server-runtime.md
+          hugegraph-server/hugegraph-core/src/main/java/org/apache/hugegraph/backend/cache/CachedSchemaTransactionV2.java
+          hugegraph-server/hugegraph-test/src/main/java/org/apache/hugegraph/unit/cache/CachedSchemaTransactionV2Test.java
+          FILES
+          git diff --name-only | sort > /tmp/actual-files
+          sort -o /tmp/expected-files /tmp/expected-files
+          diff -u /tmp/expected-files /tmp/actual-files
+
+      - name: Commit result branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "Imba Jin"
+          git config user.email "jin@apache.org"
+          git add -- \
+            docs/server-runtime.md \
+            hugegraph-server/hugegraph-core/src/main/java/org/apache/hugegraph/backend/cache/CachedSchemaTransactionV2.java \
+            hugegraph-server/hugegraph-test/src/main/java/org/apache/hugegraph/unit/cache/CachedSchemaTransactionV2Test.java
+          git commit -m "fix(test): tighten schema clear event coverage"
+          git push origin HEAD:refs/heads/tmp/schema-review-fix-result-20261119
